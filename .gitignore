@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.log
+.env
+# Never commit sign-in files
+client_secret*.json
+google_token*.json
+credentials*.json

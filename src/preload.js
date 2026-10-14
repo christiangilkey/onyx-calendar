@@ -1,0 +1,33 @@
+const { contextBridge, ipcRenderer } = require('electron');
+
+async function call(name, ...args) {
+  const res = await ipcRenderer.invoke(name, ...args);
+  if (!res.ok) throw new Error(res.error);
+  return res.value;
+}
+
+// The only things the window can ask the app to do.
+contextBridge.exposeInMainWorld('onyx', {
+  state: () => call('state'),
+  refresh: () => call('refresh'),
+  events: (start, end, force) => call('events', start, end, force),
+  createEvent: (data) => call('event:create', data),
+  updateEvent: (id, patch) => call('event:update', id, patch),
+  deleteEvent: (id) => call('event:delete', id),
+  setCall: (event, on) => call('event:call', event, on),
+  tasks: (force) => call('tasks', force),
+  createTask: (data) => call('task:create', data),
+  updateTask: (id, patch) => call('task:update', id, patch),
+  deleteTask: (id) => call('task:delete', id),
+  settings: (patch) => call('settings', patch),
+  loadGoogleCredentials: () => call('google:load'),
+  connectGoogle: () => call('google:connect'),
+  connectMicrosoft: (clientId) => call('microsoft:connect', clientId),
+  addFeed: (feed) => call('feed:add', feed),
+  removeAccount: (id) => call('account:remove', id),
+  addLocalCalendar: (name, color) => call('local:add', name, color),
+  removeLocalCalendar: (id) => call('local:remove', id),
+  open: (url) => call('open', url),
+  copy: (text) => call('copy', text),
+  onChanged: (fn) => ipcRenderer.on('changed', () => fn()),
+});

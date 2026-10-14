@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Onyx Calendar</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header id="titlebar">
+    <div class="brand"><span class="mark"></span>Onyx</div>
+    <div class="nav">
+      <button id="today" class="btn">Today</button>
+      <button id="prev" class="icon-btn" title="Previous (←)"></button>
+      <button id="next" class="icon-btn" title="Next (→)"></button>
+      <h1 id="range"></h1>
+    </div>
+    <div class="grow"></div>
+    <div id="views" class="segmented">
+      <button data-view="timeGridDay">Day</button>
+      <button data-view="timeGridWeek">Week</button>
+      <button data-view="dayGridMonth">Month</button>
+      <button data-view="listWeek">Agenda</button>
+    </div>
+    <button id="refresh" class="icon-btn" title="Refresh (R)"></button>
+    <button id="toggle-tasks" class="icon-btn" title="Tasks"></button>
+    <button id="open-settings" class="icon-btn" title="Settings"></button>
+  </header>
+
+  <div id="layout">
+    <aside id="sidebar">
+      <button id="new-block" class="btn primary wide"></button>
+      <div id="mini"></div>
+      <div id="calendars"></div>
+      <button id="add-calendar" class="btn ghost wide"></button>
+    </aside>
+
+    <main id="stage"><div id="calendar"></div></main>
+
+    <aside id="tasks">
+      <div class="panel-head">
+        <h2>Tasks</h2>
+        <span id="task-count" class="count"></span>
+      </div>
+      <form id="task-add">
+        <input id="task-title" type="text" placeholder="Add a task…  e.g. Dentist 3pm" autocomplete="off" spellcheck="false">
+        <select id="task-list" title="Task list"></select>
+      </form>
+      <div id="task-items"></div>
+    </aside>
+  </div>
+
+  <div id="popover" hidden></div>
+  <div id="modal" hidden></div>
+  <div id="toasts"></div>
+
+  <script src="../../node_modules/fullcalendar/index.global.min.js"></script>
+  <script src="mock.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

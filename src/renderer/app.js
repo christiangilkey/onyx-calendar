@@ -16,6 +16,8 @@
     x: '<path d="M6 6l12 12M18 6L6 18"/>',
     trash: '<path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13"/>',
     check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+    undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+    archive: '<rect x="3.5" y="4.5" width="17" height="4.5" rx="1.5"/><path d="M5.5 9v9.5a1.5 1.5 0 0 0 1.5 1.5h10a1.5 1.5 0 0 0 1.5-1.5V9M10 13h4"/>',
     clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
     calendar: '<rect x="4" y="5" width="16" height="15" rx="3"/><path d="M4 10h16M8.5 3v4M15.5 3v4"/>',
     note: '<path d="M5 6h14M5 11h14M5 16h9"/>',
@@ -126,10 +128,12 @@
   const fmtDay = (d) => d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
   const quietLabel = () => `${fmtTime(at('2000-01-01', S.settings.pi.quietStart))} to ${fmtTime(at('2000-01-01', S.settings.pi.quietEnd))}`;
 
-  function toast(message, kind = '') {
-    const el = h('div', { class: `toast ${kind}` }, message);
+  /** `action` ({ label, run }) adds a button to the toast, like Undo. */
+  function toast(message, kind = '', action) {
+    const el = h('div', { class: `toast ${kind}${action ? ' has-action' : ''}` }, h('span', null, message),
+      action && h('button', { class: 'toast-action', onclick: () => { el.remove(); action.run(); } }, action.label));
     $('#toasts').append(el);
-    setTimeout(() => el.remove(), kind ? 7000 : 3200);
+    setTimeout(() => el.remove(), action ? 8000 : kind ? 7000 : 3200);
   }
 
   let lastProblems = '';
@@ -486,7 +490,7 @@
   function taskRow(t) {
     const when = t.start ? `${fmtDay(new Date(t.start))}, ${fmtTime(new Date(t.start))}` : t.date ? fmtDay(fromYmd(t.date)) : '';
     const row = h('div', { class: 'task', css: { '--c': t.color } },
-      h('button', { class: 'tick', title: 'Mark done', onclick: () => completeTask(t, row) }, icon('check')),
+      h('button', { class: 'tick', title: 'Mark done (moves it to Archived)', onclick: () => completeTask(t, row) }, icon('check')),
       h('div', { class: 'task-body', onclick: (e) => openTask(t, e.currentTarget.getBoundingClientRect()) },
         h('div', { class: 'task-name' }, t.label),
         h('div', { class: 'task-meta' }, when && h('span', null, when), callBadge(t), h('span', null, t.listName),
@@ -494,10 +498,23 @@
     return row;
   }
 
+  // A task marked done is archived: it stays in Google Tasks / To Do as completed, the
+  // Archived tab reads it back by the day it was done, and Undo marks it not done again.
+  const undoStack = []; // tasks archived this session, newest last
+  function syncUndo() {
+    const last = undoStack.at(-1);
+    $('#undo-btn').disabled = !last;
+    $('#undo-btn').title = last ? `Undo: bring back "${last.label}" (Ctrl+Z)` : 'Nothing to undo';
+  }
+
   async function completeTask(t, row) {
     row?.classList.add('done');
     try {
       await onyx.updateTask(t.id, { done: true });
+      undoStack.push({ id: t.id, label: t.label });
+      if (undoStack.length > 30) undoStack.shift();
+      syncUndo();
+      toast(`Archived "${t.label}"`, '', { label: 'Undo', run: () => restoreTask(t.id, t.label) });
       await loadTasks();
       refetch();
     } catch (err) {
@@ -506,6 +523,112 @@
     }
   }
 
+  async function restoreTask(id, label) {
+    try {
+      await onyx.updateTask(id, { done: false });
+      const i = undoStack.findIndex((u) => u.id === id);
+      if (i >= 0) undoStack.splice(i, 1);
+      syncUndo();
+      toast(`Restored "${label}"`);
+      await loadTasks();
+      if (taskTab === 'archived') loadArchive();
+      refetch();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  const undoLast = () => { const last = undoStack.at(-1); if (last) restoreTask(last.id, last.label); };
+
+  // ------------------------------------------------------------ archived tasks
+
+  let taskTab = 'open';
+  let archive = { day: '', tasks: [] };
+  let archiveSeq = 0;
+
+  function setTaskTab(tab) {
+    taskTab = tab;
+    for (const b of $('#task-tabs').children) b.classList.toggle('on', b.dataset.tab === tab);
+    $('#task-add').hidden = tab !== 'open';
+    $('#archive-bar').hidden = tab !== 'archived';
+    if (tab === 'archived') {
+      if (!$('#archive-date').value) $('#archive-date').value = ymd(new Date());
+      loadArchive();
+    } else {
+      renderTasks();
+    }
+  }
+
+  async function loadArchive() {
+    const day = $('#archive-date').value || ymd(new Date());
+    const mine = ++archiveSeq;
+    if (archive.day !== day) {
+      archive = { day, tasks: [] };
+      $('#task-count').textContent = '';
+      $('#task-items').replaceChildren(h('div', { class: 'empty' }, 'Loading…'));
+    }
+    try {
+      const res = await onyx.archivedTasks(day, day);
+      if (mine !== archiveSeq) return;
+      archive = { day, tasks: res.tasks };
+      showProblems(res.errors);
+    } catch (err) {
+      if (mine !== archiveSeq) return;
+      toast(err.message, 'error');
+    }
+    if (taskTab === 'archived') renderArchive();
+  }
+
+  function shiftArchive(days) {
+    const cur = $('#archive-date').value || ymd(new Date());
+    $('#archive-date').value = ymd(addDays(fromYmd(cur), days));
+    loadArchive();
+  }
+
+  function archivedRow(t) {
+    const due = t.start ? `${fmtDay(new Date(t.start))}, ${fmtTime(new Date(t.start))}` : t.date ? fmtDay(fromYmd(t.date)) : '';
+    const forget = async () => {
+      if (!confirm(`Delete "${t.label}" for good? It is removed from ${PROVIDER[t.provider] || 'its'} tasks too, and cannot be brought back.`)) return;
+      try {
+        await onyx.deleteTask(t.id);
+        toast(`Deleted "${t.label}"`);
+        loadArchive();
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    };
+    return h('div', { class: 'task archived', css: { '--c': t.color } },
+      h('button', { class: 'tick', title: 'Restore: mark it not done', onclick: () => restoreTask(t.id, t.label) }, icon('check')),
+      h('div', { class: 'task-body', title: 'Click the tick to restore it' },
+        h('div', { class: 'task-name' }, t.label),
+        h('div', { class: 'task-meta' },
+          t.completed && h('span', null, `Done ${fmtTime(new Date(t.completed))}`),
+          due && h('span', null, `was due ${due}`), h('span', null, t.listName),
+          (t.tags || []).map((tag) => h('span', { class: 'mini-tag', css: { '--t': tagColor(tag) } }, `#${tag}`)))),
+      h('button', { class: 'row-del', title: 'Delete forever', onclick: forget }, icon('trash')));
+  }
+
+  function renderArchive() {
+    const box = $('#task-items');
+    const shown = archive.tasks.filter((t) => !t.mirror && visible(t.listId) && matchesFilter(t.tags));
+    $('#task-count').textContent = shown.length || '';
+    const day = archive.day;
+    const label = day === ymd(new Date()) ? 'today' : day === ymd(addDays(new Date(), -1)) ? 'yesterday' : `on ${fmtDay(fromYmd(day))}`;
+    if (!shown.length) {
+      box.replaceChildren(h('div', { class: 'empty' }, tagFilter.size
+        ? `No tasks with the selected tags were completed ${label}.`
+        : `Nothing was completed ${label}. Tasks you tick off land here, sorted by the day you did them.`));
+      return;
+    }
+    box.replaceChildren(h('div', { class: 'task-section' }, `Completed ${label}`), ...shown.map(archivedRow));
+  }
+
+  for (const b of $('#task-tabs').children) b.addEventListener('click', () => setTaskTab(b.dataset.tab));
+  $('#archive-date').addEventListener('change', () => loadArchive());
+  $('#archive-prev').addEventListener('click', () => shiftArchive(-1));
+  $('#archive-next').addEventListener('click', () => shiftArchive(1));
+  $('#archive-today').addEventListener('click', () => { $('#archive-date').value = ymd(new Date()); loadArchive(); });
+
   function renderTasks() {
     const lists = S.calendars.filter((c) => c.kind === 'tasklist');
     const pick = $('#task-list');
@@ -513,7 +636,9 @@
     pick.replaceChildren(...lists.map((c) => h('option', { value: c.id }, c.name)));
     if (lists.some((c) => c.id === chosen)) pick.value = chosen;
     pick.hidden = lists.length < 2;
-    $('#task-title').disabled = !lists.length;
+    for (const el of $('#task-add').querySelectorAll('input, button, select')) el.disabled = !lists.length;
+    $('#task-tabs').hidden = !lists.length;
+    if (taskTab === 'archived' && lists.length) return renderArchive();
 
     const box = $('#task-items');
     const shown = tasks.filter((t) => !t.mirror && !t.done && visible(t.listId) && matchesFilter(t.tags));
@@ -559,6 +684,8 @@
         toast(err.message, 'error');
       }
     };
+    // The due date: changing it here does what dragging the task in the calendar does.
+    const date = !t.mirror && h('input', { type: 'date', value: t.date || '', title: 'Due date' });
     const save = () => run(async () => {
       const patch = {};
       if (name.value.trim() && name.value.trim() !== t.title) patch.title = name.value.trim();
@@ -566,31 +693,56 @@
       if (!sameTags(picked, t.tags)) patch.tags = picked;
       if (Object.keys(patch).length) await onyx.updateTask(t.id, patch);
       if (patch.tags) reloadTags();
+      if (date && date.value && date.value !== (t.date || '')) {
+        await onyx.moveTask(t.id, t.time ? { start: at(date.value, t.time).toISOString() } : { date: date.value });
+      } else if (date && !date.value && t.date && !t.dateInName) {
+        await onyx.updateTask(t.id, { due: null });
+      }
     });
     showPopover(anchor, [
       name,
       h('div', { class: 'pop-meta' }, [t.listName, t.start ? `${fmtDay(new Date(t.start))}, ${fmtTime(new Date(t.start))}` : t.date ? fmtDay(fromYmd(t.date)) : 'No date'].filter(Boolean).join('  ·  ')),
       t.notes && h('div', { class: 'pop-meta' }, t.notes),
+      date && h('div', { class: 'row' }, icon('calendar'), date),
       h('div', { class: 'row' }, icon('tag'), tags.el),
       S.settings.pi.enabled && t.provider === 'google' && h('div', { class: 'row pi-row' }, icon('phone'),
         h('div', { class: 'txt' }, h('b', null, 'Phone reminder'), h('small', { class: st.tone }, st.text))),
       h('div', { class: 'pop-actions' },
-        h('button', { class: 'btn danger', onclick: () => run(() => onyx.deleteTask(t.id)) }, icon('trash'), 'Delete'),
+        h('button', { class: 'btn', title: 'Mark done and move it to the Archived tab (Undo brings it back)', onclick: () => { closePopover(); completeTask(t); } }, icon('archive'), 'Archive'),
         h('div', { class: 'grow' }),
-        h('button', { class: 'btn', onclick: () => run(() => onyx.updateTask(t.id, { done: true })) }, icon('check'), 'Done'),
         h('button', { class: 'btn primary', onclick: save }, 'Save')),
     ]);
     name.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
   }
 
+  // The add bar: a name, and optionally a due date (picked, or Today / Tomorrow).
+  const syncQuickDates = () => {
+    for (const b of document.querySelectorAll('.quick-date')) {
+      b.classList.toggle('on', $('#task-date').value === ymd(addDays(new Date(), Number(b.dataset.days))));
+    }
+  };
+  for (const b of document.querySelectorAll('.quick-date')) {
+    b.addEventListener('click', () => {
+      const day = ymd(addDays(new Date(), Number(b.dataset.days)));
+      $('#task-date').value = $('#task-date').value === day ? '' : day; // a second click clears it
+      syncQuickDates();
+    });
+  }
+  $('#task-date').addEventListener('input', syncQuickDates);
+
   $('#task-add').addEventListener('submit', async (e) => {
     e.preventDefault();
     const input = $('#task-title');
     const title = input.value.trim();
-    if (!title) return;
+    if (!title) { input.focus(); return; }
+    const due = $('#task-date').value;
     input.value = '';
     try {
-      await onyx.createTask({ title, listId: $('#task-list').value || undefined });
+      const t = await onyx.createTask({ title, listId: $('#task-list').value || undefined, ...(due ? { due } : {}) });
+      $('#task-date').value = '';
+      syncQuickDates();
+      const when = t.start ? `${fmtDay(new Date(t.start))}, ${fmtTime(new Date(t.start))}` : t.date ? fmtDay(fromYmd(t.date)) : '';
+      toast(when ? `Added for ${when}` : 'Added');
       await loadTasks();
       refetch();
     } catch (err) {
@@ -1534,6 +1686,7 @@
     const btn = $('#refresh');
     btn.classList.add('spin');
     await act(() => onyx.refresh());
+    if (taskTab === 'archived') await loadArchive();
     btn.classList.remove('spin');
   }
 
@@ -1554,6 +1707,10 @@
     $('#add-calendar').append(icon('plus'), onyx.isPhone ? 'Settings' : 'Add calendar');
     $('#globe-toggle').append(icon('globe'));
     $('#globe-toggle').onclick = toggleGlobe;
+    $('#undo-btn').append(icon('undo'));
+    $('#undo-btn').onclick = undoLast;
+    $('#archive-prev').append(icon('left'));
+    $('#archive-next').append(icon('right'));
     $('#update-btn').append(icon('update'));
     $('#update-btn').onclick = () => checkForUpdate(true);
     $('#update-btn').hidden = !onyx.checkUpdate;
@@ -1579,6 +1736,11 @@
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         window.onyxBack();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && !e.target.closest?.('input, textarea, select') && undoStack.length) {
+        e.preventDefault();
+        undoLast();
         return;
       }
       if (e.target.closest('input, textarea, select') || e.ctrlKey || e.altKey || e.metaKey || !$('#modal').hidden || !$('#popover').hidden) return;

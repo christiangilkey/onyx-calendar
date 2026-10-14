@@ -25,6 +25,7 @@
       <button data-view="listWeek">Agenda</button>
     </div>
     <button id="globe-toggle" class="icon-btn globe-btn" title="Globe view (G)"></button>
+    <button id="undo-btn" class="icon-btn" title="Nothing to undo" disabled></button>
     <button id="update-btn" class="icon-btn" title="Check for updates"></button>
     <button id="refresh" class="icon-btn" title="Refresh (R)"></button>
     <button id="toggle-tasks" class="icon-btn" title="Tasks"></button>
@@ -61,10 +62,29 @@
       <div class="panel-head">
         <h2>Tasks</h2>
         <span id="task-count" class="count"></span>
+        <div class="grow"></div>
+        <div id="task-tabs" class="segmented">
+          <button data-tab="open" class="on">Open</button>
+          <button data-tab="archived">Archived</button>
+        </div>
+      </div>
+      <div id="archive-bar" hidden>
+        <button id="archive-prev" class="icon-btn" title="Previous day"></button>
+        <input id="archive-date" type="date" title="Show tasks completed on this day">
+        <button id="archive-next" class="icon-btn" title="Next day"></button>
+        <button id="archive-today" class="btn">Today</button>
       </div>
       <form id="task-add">
-        <input id="task-title" type="text" placeholder="Add a task…  e.g. Dentist 3pm" autocomplete="off" spellcheck="false">
-        <select id="task-list" title="Task list"></select>
+        <div class="task-add-row">
+          <input id="task-title" type="text" placeholder="Add a task…  e.g. Dentist 3pm" autocomplete="off" spellcheck="false">
+          <select id="task-list" title="Task list"></select>
+          <button type="submit" class="btn primary" id="task-submit">Add</button>
+        </div>
+        <div class="task-add-row">
+          <input id="task-date" type="date" title="Due date (optional)">
+          <button type="button" class="btn quick-date" data-days="0">Today</button>
+          <button type="button" class="btn quick-date" data-days="1">Tomorrow</button>
+        </div>
       </form>
       <div id="task-items"></div>
     </aside>

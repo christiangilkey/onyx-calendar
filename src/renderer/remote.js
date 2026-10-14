@@ -211,6 +211,7 @@
     createTask: (data) => call('task:create', data),
     updateTask: (id, patch) => call('task:update', id, patch),
     moveTask: (id, to) => call('task:move', id, to),
+    archivedTasks: (from, to) => call('tasks:archived', from, to),
     deleteTask: (id) => call('task:delete', id),
     setTags: (id, tags) => call('tags:set', id, tags),
     globe: () => call('globe'),

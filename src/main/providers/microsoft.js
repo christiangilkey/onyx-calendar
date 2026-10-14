@@ -97,12 +97,20 @@ const toTask = (t) => ({
   rawId: t.id, title: (t.title || '').trim(),
   notes: t.body?.contentType === 'text' ? (t.body.content || '') : '',
   due: dueDate(t), done: t.status === 'completed',
+  completed: t.completedDateTime?.dateTime ? `${t.completedDateTime.dateTime.slice(0, 19)}Z` : null,
 });
 
 async function tasks(req, listId) {
   const q = new URLSearchParams({ $filter: "status ne 'completed'", $top: '100' });
   const items = await all(req, `${GRAPH}/me/todo/lists/${enc(listId)}/tasks?${q}`);
   return items.map(toTask).filter((t) => t.title);
+}
+
+/** Tasks completed between `from` and `to` (ISO timestamps): the Archived tab. */
+async function completedTasks(req, listId, from, to) {
+  const q = new URLSearchParams({ $filter: "status eq 'completed'", $top: '100' });
+  const items = await all(req, `${GRAPH}/me/todo/lists/${enc(listId)}/tasks?${q}`);
+  return items.map(toTask).filter((t) => t.title && t.completed && t.completed >= from && t.completed < to);
 }
 
 function taskBody(d) {
@@ -127,4 +135,4 @@ const updateTask = async (req, listId, id, d) =>
 const deleteTask = (req, listId, id) =>
   req(`${GRAPH}/me/todo/lists/${enc(listId)}/tasks/${enc(id)}`, { method: 'DELETE' });
 
-module.exports = { calendars, events, createEvent, updateEvent, deleteEvent, tasks, createTask, updateTask, deleteTask };
+module.exports = { calendars, events, createEvent, updateEvent, deleteEvent, tasks, completedTasks, createTask, updateTask, deleteTask };

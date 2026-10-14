@@ -88,6 +88,7 @@ const handlers = {
   'task:create': (data) => hub.createTask(data),
   'task:update': (id, patch) => hub.updateTask(id, patch),
   'task:move': (id, to) => hub.moveTask(id, to),
+  'tasks:archived': (from, to) => hub.archivedTasks(from, to),
   'task:delete': (id) => hub.deleteTask(id),
   'tags:set': (id, tags) => hub.setTags(id, tags),
   'tag:color': withState((tag, color) => hub.setTagColor(tag, color)),

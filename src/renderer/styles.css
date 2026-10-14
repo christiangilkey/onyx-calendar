@@ -252,9 +252,34 @@ select { padding-right: 4px; }
 .panel-head h2 { font-size: 14px; font-weight: 600; }
 .count { font-size: 11px; color: var(--muted); background: var(--raise-2); padding: 1px 7px; border-radius: 10px; }
 .count:empty { display: none; }
-#task-add { display: flex; gap: 6px; padding: 0 12px 10px; }
+#task-add { display: flex; flex-direction: column; gap: 6px; padding: 0 12px 10px; }
+#task-add[hidden] { display: none; }
+.task-add-row { display: flex; gap: 6px; }
 #task-add input { flex: 1; }
 #task-add select { width: 92px; flex: none; color: var(--muted); }
+#task-add #task-date { color-scheme: dark; min-width: 128px; }
+#task-add .btn { flex: none; padding: 0 10px; }
+.quick-date.on { background: color-mix(in srgb, var(--accent) 22%, var(--raise)); border-color: color-mix(in srgb, var(--accent) 55%, var(--line-2)); color: var(--text); }
+#task-tabs[hidden] { display: none; }
+#task-tabs button { height: 22px; padding: 0 9px; font-size: 12px; }
+.task.archived .task-body { cursor: default; }
+#popover input[type=date] { color-scheme: dark; }
+#archive-bar { display: flex; gap: 6px; align-items: center; padding: 0 12px 10px; }
+#archive-bar[hidden] { display: none; }
+#archive-bar input { flex: 1; color-scheme: dark; }
+#archive-bar .btn { flex: none; padding: 0 10px; }
+.task.archived .task-name { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--faint); }
+.task.archived .tick { background: var(--c, var(--muted)); color: #000; }
+.task.archived .tick:hover { background: transparent; color: var(--text); }
+.task .row-del {
+  width: 22px; height: 22px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--faint); flex: none;
+  cursor: pointer; display: grid; place-items: center; opacity: 0; transition: opacity .12s, color .12s;
+}
+.task:hover .row-del, .task .row-del:focus-visible { opacity: 1; }
+.task .row-del:hover { color: var(--danger); background: var(--raise-2); }
+.task .row-del .ico { width: 14px; height: 14px; }
+#undo-btn:disabled { opacity: .35; cursor: default; }
+#undo-btn:not(:disabled) { color: var(--text); }
 #task-items { flex: 1; overflow-y: auto; padding: 0 8px 16px; }
 .task-section { padding: 12px 8px 5px; font-size: 11px; letter-spacing: .5px; text-transform: uppercase; color: var(--faint); }
 .task-section.late { color: var(--danger); }
@@ -362,6 +387,11 @@ pre.code {
 }
 .toast.error { border-color: color-mix(in srgb, var(--danger) 45%, var(--line-2)); }
 .toast.warn { border-color: color-mix(in srgb, var(--warn) 45%, var(--line-2)); }
+.toast.has-action { display: flex; align-items: center; gap: 14px; }
+.toast .toast-action {
+  border: 0; background: transparent; color: var(--accent); font-weight: 600; cursor: pointer; padding: 2px 4px; border-radius: 6px;
+}
+.toast .toast-action:hover { background: var(--raise-2); }
 
 /* ------------------------------------------------------------ tags */
 
@@ -469,7 +499,8 @@ body.drawer-left #scrim, body.drawer-right #scrim { opacity: 1; pointer-events: 
 body.mobile #views-mobile { width: 100%; }
 body.mobile #views-mobile button { flex: 1; padding: 0 4px; height: 30px; }
 body.mobile .cal { height: 38px; }
-body.mobile #task-add input, body.mobile #task-add select { height: 40px; }
+body.mobile #task-add input, body.mobile #task-add select, body.mobile #task-add .btn, body.mobile #archive-bar input, body.mobile #archive-bar .btn { height: 40px; }
+body.mobile .task .row-del { opacity: 1; width: 32px; height: 32px; }
 body.mobile .task { padding: 10px 8px; }
 
 body.mobile #fab {

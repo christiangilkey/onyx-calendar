@@ -277,7 +277,7 @@ function unifyTask(cal, t, mirrors) {
   const task = {
     id, listId: cal.id, listName: cal.name, color: cal.color, provider: cal.provider,
     title: t.title, label: p.date || p.time ? p.spoken : t.title, notes: t.notes,
-    due: t.due, done: t.done, date, dateInName: !!p.date, time: p.time ? `${pad(p.time[0])}:${pad(p.time[1])}` : null,
+    due: t.due, done: t.done, completed: t.completed || null, date, dateInName: !!p.date, time: p.time ? `${pad(p.time[0])}:${pad(p.time[1])}` : null,
     start: start ? start.toISOString() : null, mirror: mirrors.has(id), call: null, tags: tagsOf(id),
   };
   // The Pi only reads Google Tasks, and only phones for a task with a time in its name.
@@ -317,6 +317,35 @@ async function getTasks({ force = false } = {}) {
   return { tasks: lists.flat(), errors: [...errors] };
 }
 
+/**
+ * Tasks completed (archived) on local days `from` to `to` inclusive, 'YYYY-MM-DD'.
+ * Completed tasks stay in Google Tasks and To Do; this reads them back, newest first.
+ */
+async function archivedTasks(from, to = from) {
+  const day = (s) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(s || ''))) throw new Error('That is not a date.');
+    const [y, m, d] = s.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  };
+  const min = day(from);
+  const max = new Date(day(to).getTime() + 86400000);
+  if (max <= min) throw new Error('The range ends before it starts.');
+  const errors = new Set();
+  const mirrors = new Set(Object.values(store.data.piLinks).map((l) => l.task));
+  const lists = await Promise.all(calendars().filter((c) => c.kind === 'tasklist').map(async (cal) => {
+    try {
+      const { acct, rawCal } = parseId(cal.id);
+      const raw = await PROVIDERS[acct.provider].completedTasks(req(acct), rawCal, min.toISOString(), max.toISOString());
+      return raw.map((t) => unifyTask(cal, t, mirrors));
+    } catch (err) {
+      errors.add(`${cal.accountLabel}: ${err.message}`);
+      return [];
+    }
+  }));
+  const tasks = lists.flat().sort((a, b) => String(b.completed).localeCompare(String(a.completed)));
+  return { tasks, errors: [...errors] };
+}
+
 function taskFields(d) {
   const out = {};
   if ('title' in d) out.title = String(d.title).trim();
@@ -340,6 +369,12 @@ async function createTask(data) {
   // "Dentist 3pm" with no date anywhere would never be called about (the Pi skips
   // a time without a date), so it gets the next day that time comes around.
   const named = parseName(fields.title);
+  if (fields.due && named.date && named.date !== fields.due) {
+    // A date picked in the add box wins over one typed in the name, which the Pi reads
+    // first: the name is rewritten to say the picked day (keeping a time if it had one).
+    const [y, m, d] = fields.due.split('-').map(Number);
+    fields.title = named.time ? mirrorName(named.spoken, new Date(y, m - 1, d, named.time[0], named.time[1])) : named.spoken;
+  }
   if (named.time && !named.date && !fields.due) {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), named.time[0], named.time[1]);
@@ -582,6 +617,6 @@ function removeLocalCalendar(id) {
 
 module.exports = {
   calendars, refreshCalendars, invalidate, getEvents, createEvent, updateEvent, deleteEvent,
-  getTasks, createTask, updateTask, moveTask, deleteTask, setPiCall, freeTime, addLocalCalendar, removeLocalCalendar,
+  getTasks, archivedTasks, createTask, updateTask, moveTask, deleteTask, setPiCall, freeTime, addLocalCalendar, removeLocalCalendar,
   setTags, allTags, setTagColor, renameTag, deleteTag,
 };

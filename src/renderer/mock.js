@@ -60,6 +60,8 @@
     { id: 'g1/tl~main/e', title: 'Anki 20 new words', label: 'Anki 20 new words', date: null, time: null, start: null, call: null },
     { id: 'g1/tl~main/f', title: 'Submit travel claim', label: 'Submit travel claim', date: ymd(day(-2)), time: null, start: null, call: null },
     { id: 'g1/tl~main/g', title: 'Read grammar chapter 4', label: 'Read grammar chapter 4', date: null, time: null, start: null, call: null },
+    { id: 'g1/tl~main/h', title: 'Book dentist', label: 'Book dentist', date: ymd(day(0)), time: null, start: null, call: null, done: true, completed: day(0, 9).toISOString() },
+    { id: 'g1/tl~main/i', title: 'Pay phone bill', label: 'Pay phone bill', date: ymd(day(-1)), time: null, start: null, call: null, done: true, completed: day(-1, 18).toISOString() },
   ].map((t) => ({ listId: 'g1/tl~main', listName: 'My Tasks', color: '#f5b83d', provider: 'google', notes: '', due: t.date, done: false, mirror: false, ...t }));
   Object.assign(tags, { 'g1/tl~main/a': ['work'], 'g1/tl~main/d': ['admin'], 'g1/tl~main/e': ['study', 'arabic'], 'g1/tl~main/f': ['admin', 'work'], 'g1/tl~main/g': ['arabic'] });
 
@@ -161,12 +163,22 @@
     },
     deleteEvent: async (id) => { events = events.filter((x) => x.id !== id); delete tags[id]; },
     setCall: async (event, on) => { events.find((x) => x.id === event.id).piCall = on; return { piCall: on }; },
-    tasks: async () => ({ tasks: tasks.map(withTags), errors: [] }),
-    createTask: async (d) => { tasks.push({ id: `g1/tl~main/${seq++}`, listId: 'g1/tl~main', listName: 'My Tasks', color: '#f5b83d', provider: 'google', title: d.title, label: d.title, notes: '', due: null, date: null, time: null, start: null, done: false, mirror: false, call: null }); },
+    tasks: async () => ({ tasks: tasks.filter((t) => !t.done).map(withTags), errors: [] }),
+    archivedTasks: async (from, to = from) => {
+      const min = new Date(`${from}T00:00`), max = new Date(new Date(`${to}T00:00`).getTime() + 86400000);
+      const done = tasks.filter((t) => t.done && t.completed && new Date(t.completed) >= min && new Date(t.completed) < max);
+      return { tasks: done.sort((a, b) => b.completed.localeCompare(a.completed)).map(withTags), errors: [] };
+    },
+    createTask: async (d) => {
+      const t = { id: `g1/tl~main/${seq++}`, listId: 'g1/tl~main', listName: 'My Tasks', color: '#f5b83d', provider: 'google', title: d.title, label: d.title, notes: '', due: d.due || null, date: d.due || null, time: null, start: null, done: false, mirror: false, call: null };
+      tasks.push(t);
+      return withTags(t);
+    },
     updateTask: async (id, patch) => {
       const t = tasks.find((x) => x.id === id);
       const { tags: newTags, ...rest } = patch;
       Object.assign(t, rest);
+      if ('done' in rest) t.completed = rest.done ? new Date().toISOString() : null;
       if (rest.title) t.label = rest.title;
       if ('due' in rest) {
         t.date = rest.due;

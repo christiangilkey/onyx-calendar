@@ -77,8 +77,22 @@ const deleteEvent = (req, calId, id) =>
 
 const toTask = (t) => ({
   rawId: t.id, title: (t.title || '').trim(), notes: t.notes || '',
-  due: t.due ? t.due.slice(0, 10) : null, done: t.status === 'completed',
+  due: t.due ? t.due.slice(0, 10) : null, done: t.status === 'completed', completed: t.completed || null,
 });
+
+/** Tasks completed between `from` and `to` (ISO timestamps): the Archived tab. */
+async function completedTasks(req, listId, from, to) {
+  const out = [];
+  let page = '';
+  do {
+    const q = new URLSearchParams({ showCompleted: 'true', showHidden: 'true', completedMin: from, completedMax: to, maxResults: '100' });
+    if (page) q.set('pageToken', page);
+    const res = await req(`${TASKS}/lists/${enc(listId)}/tasks?${q}`);
+    for (const t of res.items || []) if (t.status === 'completed' && (t.title || '').trim() && !t.deleted) out.push(toTask(t));
+    page = res.nextPageToken || '';
+  } while (page);
+  return out;
+}
 
 async function tasks(req, listId) {
   const out = [];
@@ -115,4 +129,4 @@ const updateTask = async (req, listId, id, d) =>
 const deleteTask = (req, listId, id) =>
   req(`${TASKS}/lists/${enc(listId)}/tasks/${enc(id)}`, { method: 'DELETE' });
 
-module.exports = { calendars, events, createEvent, updateEvent, deleteEvent, tasks, createTask, updateTask, deleteTask };
+module.exports = { calendars, events, createEvent, updateEvent, deleteEvent, tasks, completedTasks, createTask, updateTask, deleteTask };

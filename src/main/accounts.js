@@ -8,7 +8,8 @@ const { signIn, postForm } = require('./oauth');
 const GOOGLE = {
   auth: 'https://accounts.google.com/o/oauth2/v2/auth',
   token: 'https://oauth2.googleapis.com/token',
-  scope: 'openid email https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/tasks',
+  // Drive: names and links only, for pinning files to the globe.
+  scope: 'openid email https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/drive.metadata.readonly',
 };
 const MICROSOFT = {
   auth: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',

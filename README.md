@@ -6,14 +6,14 @@ A black, fast calendar for Windows and Android that puts everything in one place
 - **Time blocks.** Drag across the grid, type what the time is for, press Enter.
 - **Tasks.** Google Tasks and Microsoft To Do in a side panel, and on the grid at the time written in their name.
 - **Tags.** Tag any block, event or task. Tags stay in Onyx (they are never written to Google or Microsoft), and the sidebar filters by them.
-- **Graph view.** A 3D orbit of everything in a day, week, month or custom range, clustered by tag, calendar or day.
+- **Globe view.** One button flips to a 3D globe of everything in a day, week, month or range, plus your notes, Notion pages and Google Drive files, clustered by tag, source or day.
 - **Android app.** The same calendar on your phone, connected to the PC app.
 - **Raspberry Pi phone reminders.** Flip "Phone reminder" on any block or event and a Raspberry Pi running [`task_caller`](#raspberry-pi-phone-reminders) phones you before it starts.
 - **MCP server.** Hermes, the Pi, or any other agent can read the calendar and add to it over your network.
 
 ![Onyx Calendar](docs/screenshot.png)
 
-![Graph view](docs/graph.png)
+![Globe view](docs/graph.png)
 
 ## Install
 
@@ -74,19 +74,27 @@ Any calendar that can be published as an `.ics` link works without a sign-in. In
 | Add a task | Type in the Tasks panel and press Enter |
 | Tag something | Type in the tag box of any block, event or task; Enter or comma adds a tag |
 | Show one tag | Click it under **Tags** in the sidebar (click more to combine); double-click to rename, click the dot to change its colour |
-| Change view | `D` day, `W` week, `M` month, `A` agenda, `G` graph |
+| Change view | `D` day, `W` week, `M` month, `A` agenda, `G` globe |
 | Go to today / move | `T`, `←`, `→` |
 | New block / refresh | `N`, `R` |
 
-### Graph view
+### Globe view
 
-Press **Graph** (or `G`). Your entries form a globe: each cluster sits on the surface of a sphere with its entries gathered around it, and the near side is brighter than the far side. Drag (or swipe) to spin it; a flick keeps it turning.
+The **globe button** in the title bar (or `G`) switches between the calendar and the globe. Your entries form a globe: each cluster sits on the surface of a sphere with its entries gathered around it, and the near side is brighter than the far side. Drag (or swipe) to spin it; a flick keeps it turning.
 
-- **Cluster by Tags** groups entries by tag. An entry with two tags is pulled between both clusters, through the inside of the globe; untagged entries gather under "Untagged".
-- **Cluster by Calendars** groups by the calendar each entry comes from.
+- **Cluster by Tags** groups everything by tag. An item with two tags is pulled between both clusters, through the inside of the globe.
+- **Cluster by Sources** groups by calendar, task list, Notes, Notion and Drive.
 - **Cluster by Days** strings the days together like a timeline.
 
-Pick **Day**, **Week**, **Month** or **Range** at the top; the ‹ › arrows and Today move it. Drag to orbit, scroll (or pinch) to zoom, click a cluster to fly into it, click an entry to edit it, and double-click to reset. **Undated tasks** adds tasks that have no date, so tag clusters show your whole backlog.
+Pick **Day**, **Week**, **Month** or **Range** at the top; the ‹ › arrows and Today move it. Scroll (or pinch) to zoom, click a cluster to fly into it, click an item to open it, and double-click to reset. **Show** switches undated tasks, notes, Notion and Drive on and off.
+
+What else can live on the globe (it shows whatever date range is picked):
+
+- **Notes** (diamonds). **+ Note** writes one: a title, any text, and tags that place it in clusters. Notes stay in Onyx.
+- **Notion pages** (squares). **+ Notion** searches your Notion and pins a page or database to the globe; click it to open it in Notion or tag it. Setup: **Settings → Notion & Drive** (create an internal integration at notion.so/my-integrations, paste its secret, then share pages with it in Notion via ••• → Connections).
+- **Google Drive files** (squares). **+ Drive** searches Drive across your Google accounts and pins a file. Drive uses your Google sign-in; accounts connected before 1.3 need to **sign in with Google again** once, and the Google Drive API must be enabled in your Google Cloud project.
+
+Untagged notes and documents gather in their own Notes, Notion and Drive clusters. Picking tags in the sidebar first gives new notes and pins those tags.
 
 Closing the window keeps the app running in the system tray so the MCP server stays available. Quit from the tray icon. This can be changed in **Settings → General**.
 
@@ -149,6 +157,8 @@ From Docker on the same PC use `http://host.docker.internal:4747/mcp`. The first
 | `delete_event` | Delete a block or event |
 | `create_task` | Add a task |
 | `complete_task` | Mark a task done |
+| `list_notes` | Notes, and Notion pages and Drive files pinned to the globe, optionally only one tag |
+| `create_note` | Write a note (with tags) |
 
 For plain scripts there is also JSON over HTTP:
 
@@ -160,7 +170,7 @@ curl -H "Authorization: Bearer <token>" "http://<this PC's address>:4747/api/age
 
 ## Privacy
 
-- Sign-in tokens and the Google client secret are stored encrypted with your Windows account, in `%APPDATA%\onyx-calendar\onyx.json`.
+- Sign-in tokens, the Google client secret and the Notion integration secret are stored encrypted with your Windows account, in `%APPDATA%\onyx-calendar\onyx.json`.
 - Passwords are typed into Google's or Microsoft's own page in your browser, never into this app.
 - The app talks only to Google, Microsoft and the calendar links you add. There is no telemetry.
 - The MCP server refuses requests without the token. Turn off **Reachable from your network** to limit it to this PC.
@@ -182,7 +192,8 @@ Building the APK yourself needs JDK 21 and the Android SDK: `npm run mobile`, th
 |---|---|
 | `src/main/hub.js` | The master calendar, tags, and the Pi bridge |
 | `src/main/api.js` | The commands the window (and the phone) can run |
-| `src/renderer/graph.js` | The 3D graph view |
+| `src/renderer/graph.js` | The 3D globe view |
+| `src/main/library.js` | Notes and pinned Notion / Drive items |
 | `src/renderer/remote.js` | The phone's connection to the PC |
 | `mobile/` | The Android app (Capacitor) |
 | `src/main/providers/` | Google, Microsoft Graph, and `.ics` links |

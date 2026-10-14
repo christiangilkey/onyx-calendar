@@ -26,6 +26,8 @@
     menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
     device: '<rect x="7" y="3" width="10" height="18" rx="2.5"/><path d="M11 18h2"/>',
     target: '<circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="2.5"/>',
+    globe: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.6 2.3 3.9 5.1 3.9 8.5s-1.3 6.2-3.9 8.5c-2.6-2.3-3.9-5.1-3.9-8.5s1.3-6.2 3.9-8.5z"/>',
+    link: '<path d="M14 5h5v5M19 5l-8 8M11 7H6v11h11v-5"/>',
     qr: '<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><rect x="8" y="8" width="3" height="3"/><rect x="13" y="8" width="3" height="3"/><rect x="8" y="13" width="3" height="3"/><path d="M13 13h3v3"/>',
   };
   const COLORS = ['#8b7cff', '#4aa8ff', '#3fd0c9', '#5fd38d', '#f5b83d', '#ff9f4a', '#ff6b6b', '#ff7eb6', '#b9b9c2'];
@@ -299,9 +301,10 @@
 
   // ------------------------------------------------------------ popover
 
-  function showPopover(anchor, nodes, onClose) {
+  function showPopover(anchor, nodes, onClose, { wide = false } = {}) {
     closePopover();
     const pop = $('#popover');
+    pop.classList.toggle('wide', wide);
     pop.replaceChildren(...nodes.filter((n) => n && n.nodeType));
     pop.hidden = false;
     closePopover = () => {
@@ -874,6 +877,38 @@
       ];
     },
 
+    // Desktop: Notion and Google Drive, for pinning documents to the globe.
+    connections() {
+      const n = S.notion || {};
+      const key = h('input', { type: 'text', placeholder: 'Internal integration secret (starts with ntn_ or secret_)', spellcheck: false, autocomplete: 'off' });
+      const google = S.accounts.filter((a) => a.provider === 'google');
+      return [
+        h('h3', null, 'Notion & Drive'),
+        h('p', { class: 'lead' }, 'Pin Notion pages and Google Drive files to the globe, then tag them into clusters next to your calendar and notes. Onyx only reads their titles and links.'),
+        h('div', { class: 'card' },
+          h('h4', null, 'Notion', n.connected && h('span', { class: 'badge ok' }, n.workspace ? `Connected · ${n.workspace}` : 'Connected')),
+          n.connected
+            ? [h('p', null, `Using the integration "${n.name || 'Notion'}". Only pages shared with it can be found: in Notion, open a page, then ••• → Connections → add it. Sharing a top-level page shares everything inside it.`),
+              h('div', { class: 'row' }, h('button', { class: 'btn danger', onclick: () => act(() => onyx.disconnectNotion(), 'Notion disconnected') }, 'Disconnect'))]
+            : [h('ol', null,
+              h('li', null, 'Open notion.so/my-integrations and choose New integration. Type: Internal. Pick your workspace.'),
+              h('li', null, 'Under Capabilities, "Read content" is enough. Save, then copy the Internal Integration Secret.'),
+              h('li', null, 'Paste it below and press Connect.'),
+              h('li', null, 'In Notion, open the pages you want, then ••• → Connections → add your integration.')),
+            h('div', { class: 'row' }, key,
+              h('button', { class: 'btn', onclick: () => onyx.open('https://www.notion.so/my-integrations') }, 'Open Notion'),
+              h('button', { class: 'btn primary', onclick: () => act(() => onyx.connectNotion(key.value), 'Notion connected') }, 'Connect'))]),
+        h('div', { class: 'card' },
+          h('h4', null, 'Google Drive', google.length > 0 && h('span', { class: 'badge' }, google.map((a) => a.label).join(', '))),
+          h('p', null, google.length
+            ? 'Drive uses your Google sign-in. If you connected Google before Drive was added, sign in once more so Onyx may read file names, and make sure the Google Drive API is enabled in your Google Cloud project (APIs & Services → Library).'
+            : 'Connect a Google account first (Calendars tab). Drive uses the same sign-in.'),
+          google.length > 0 && h('div', { class: 'row' },
+            h('button', { class: 'btn', onclick: () => act(() => onyx.connectGoogle(), 'Google signed in again') }, 'Sign in with Google again'),
+            h('button', { class: 'btn', onclick: () => onyx.open('https://console.cloud.google.com/apis/library/drive.googleapis.com') }, 'Enable the Drive API'))),
+      ];
+    },
+
     // Phone: which PC it is connected to.
     connection() {
       const c = onyx.connection();
@@ -899,7 +934,7 @@
   function openSettings(tab = settingsTab) {
     const tabs = onyx.isPhone
       ? [['connection', 'Connection'], ['pi', 'Pi calls'], ['general', 'General']]
-      : [['calendars', 'Calendars'], ['phone', 'Phone'], ['pi', 'Pi calls'], ['mcp', 'MCP server'], ['general', 'General']];
+      : [['calendars', 'Calendars'], ['connections', 'Notion & Drive'], ['phone', 'Phone'], ['pi', 'Pi calls'], ['mcp', 'MCP server'], ['general', 'General']];
     if (!tabs.some(([id]) => id === tab)) tab = tabs[0][0];
     settingsTab = tab;
     closePopover();
@@ -918,10 +953,22 @@
   function closeSettings() { $('#modal').hidden = true; $('#modal').replaceChildren(); }
   $('#modal').addEventListener('mousedown', (e) => { if (e.target === $('#modal')) closeSettings(); });
 
-  // ------------------------------------------------------------ graph view
-  // Entries in a date range, orbiting around clusters in 3D (graph.js).
+  // ------------------------------------------------------------ globe view
+  // Entries in a date range, plus notes and pinned Notion pages / Drive files,
+  // orbiting around clusters on a 3D globe (graph.js).
 
-  const graph = { on: false, kind: 'week', anchor: new Date(), from: '', to: '', groupBy: 'tags', undated: true, view: null, seq: 0 };
+  const graph = {
+    on: false, kind: 'week', anchor: new Date(), from: '', to: '', groupBy: 'tags', view: null, seq: 0,
+    show: { tasks: true, notes: true, notion: true, drive: true }, // what joins the calendar entries
+    lib: { notes: [], pins: [] },
+  };
+
+  // Where notes and outside documents gather when they have no tags.
+  const SOURCES = {
+    notes: { label: 'Notes', color: '#e4e0ff' },
+    notion: { label: 'Notion', color: '#c4c4cc' },
+    drive: { label: 'Drive', color: '#3ddc97' },
+  };
 
   function graphRange() {
     const a = graph.anchor;
@@ -961,15 +1008,31 @@
     loadGraph();
   }
 
+  const sourceItem = (key, fields) => ({
+    color: SOURCES[key].color, calendarId: `src:${key}`, calendarName: SOURCES[key].label,
+    home: [key, SOURCES[key].label, SOURCES[key].color], start: null, ...fields,
+  });
+
   function graphItems(events) {
     const items = events.filter((e) => visible(e.calendarId) && matchesFilter(e.tags)).map((e) => ({
       id: e.id, title: e.title, color: e.color, calendarId: e.calendarId, calendarName: e.calendarName,
       tags: e.tags || [], start: e.start, allDay: e.allDay, kind: e.kind, src: e,
     }));
-    if (graph.undated) {
+    if (graph.show.tasks) {
       for (const t of tasks) {
         if (t.mirror || t.done || t.date || !visible(t.listId) || !matchesFilter(t.tags)) continue;
         items.push({ id: t.id, title: t.label, color: t.color, calendarId: t.listId, calendarName: t.listName, tags: t.tags || [], start: null, kind: 'task', task: t });
+      }
+    }
+    // Notes, Notion pages and Drive files have no date: they show whatever the range.
+    if (graph.show.notes) {
+      for (const n of graph.lib.notes) {
+        if (matchesFilter(n.tags)) items.push(sourceItem('notes', { id: n.id, title: n.title, tags: n.tags, kind: 'note', shape: 'diamond', note: n }));
+      }
+    }
+    for (const p of graph.lib.pins) {
+      if (graph.show[p.source] && matchesFilter(p.tags)) {
+        items.push(sourceItem(p.source, { id: p.id, title: p.title, tags: p.tags, kind: 'pin', shape: 'square', pin: p }));
       }
     }
     return items;
@@ -981,7 +1044,9 @@
     $('#range').textContent = graphTitle(range);
     let events = [];
     try {
-      events = (await onyx.events(range[0].toISOString(), range[1].toISOString())).events;
+      const [ev, lib] = await Promise.all([onyx.events(range[0].toISOString(), range[1].toISOString()), onyx.globe()]);
+      events = ev.events;
+      graph.lib = lib;
     } catch (err) {
       toast(err.message, 'error');
     }
@@ -993,17 +1058,155 @@
     });
     graph.view.setData(data);
     const clusters = data.nodes.filter((n) => n.hub).length;
-    $('#graph-stats').textContent = items.length ? `${items.length} ${items.length === 1 ? 'entry' : 'entries'}  ·  ${clusters} ${clusters === 1 ? 'cluster' : 'clusters'}` : '';
+    $('#graph-stats').textContent = items.length ? `${items.length} ${items.length === 1 ? 'item' : 'items'}  ·  ${clusters} ${clusters === 1 ? 'cluster' : 'clusters'}` : '';
     $('#graph-empty').hidden = items.length > 0;
   }
 
   function pickFromGraph(item, rect) {
     if (item.kind === 'task') {
       openTask(item.task || tasks.find((t) => t.id === item.id) || { id: item.id, title: item.title, label: item.title, listName: item.calendarName, tags: item.tags }, rect);
+    } else if (item.kind === 'note') {
+      openNote(item.note, rect);
+    } else if (item.kind === 'pin') {
+      openPin(item.pin, rect);
     } else {
       const src = item.src;
       openEditor({ src, start: toDate(src.start), end: toDate(src.end), allDay: src.allDay }, rect);
     }
+  }
+
+  /** Tags a new note or pin starts with: the ones picked in the sidebar, if any. */
+  const startingTags = () => [...tagFilter].map((t) => tagInfo(t)?.name || t);
+
+  const afterGlobeChange = async (changedTags) => {
+    closePopover();
+    await loadGraph();
+    if (changedTags) reloadTags();
+  };
+
+  // ------------------------------------------------------------ notes
+
+  function openNote(note, anchor) {
+    const title = h('input', { type: 'text', class: 'pop-title', placeholder: 'Note title', value: note ? note.title : '', spellcheck: false });
+    const body = h('textarea', { class: 'note-body', rows: 9, placeholder: 'Write anything…', value: note ? note.body : '', spellcheck: true });
+    const tags = tagField(note ? note.tags : startingTags());
+    let busy = false;
+    const save = async () => {
+      if (busy) return;
+      busy = true;
+      const data = { title: title.value, body: body.value, tags: tags.get() };
+      try {
+        if (note) await onyx.updateNote(note.id, data); else await onyx.createNote(data);
+        await afterGlobeChange(!sameTags(data.tags, note?.tags));
+      } catch (err) {
+        busy = false;
+        toast(err.message, 'error');
+      }
+    };
+    showPopover(anchor, [
+      title,
+      body,
+      h('div', { class: 'row' }, icon('tag'), tags.el),
+      h('p', { class: 'pop-meta' }, 'Tags place the note in clusters on the globe. Notes stay in Onyx.'),
+      h('div', { class: 'pop-actions' },
+        note && h('button', { class: 'btn danger', onclick: async () => {
+          try { await onyx.deleteNote(note.id); await afterGlobeChange(true); } catch (err) { toast(err.message, 'error'); }
+        } }, icon('trash'), 'Delete'),
+        h('div', { class: 'grow' }),
+        h('button', { class: 'btn ghost', onclick: () => closePopover() }, 'Cancel'),
+        h('button', { class: 'btn primary', onclick: save }, note ? 'Save' : 'Add note')),
+    ], null, { wide: true });
+    title.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); body.focus(); } });
+    body.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) save(); });
+    if (!MOBILE) (note ? body : title).focus();
+  }
+
+  // ------------------------------------------------------------ Notion pages and Drive files
+
+  const KIND_LABEL = { page: 'Notion page', database: 'Notion database', doc: 'Google Doc', sheet: 'Google Sheet', slides: 'Google Slides', folder: 'Drive folder', form: 'Google Form', pdf: 'PDF', image: 'Image', video: 'Video', file: 'File' };
+
+  function openPin(pin, anchor) {
+    const tags = tagField(pin.tags);
+    showPopover(anchor, [
+      h('div', { class: 'pin-head' }, h('span', { class: `src-badge ${pin.source}` }, SOURCES[pin.source].label), h('b', null, pin.title)),
+      h('p', { class: 'pop-meta' }, KIND_LABEL[pin.kind] || 'Document'),
+      h('div', { class: 'row' }, icon('tag'), tags.el),
+      h('div', { class: 'pop-actions' },
+        h('button', { class: 'btn danger', title: 'Take it off the globe (it stays in ' + SOURCES[pin.source].label + ')', onclick: async () => {
+          try { await onyx.removePin(pin.id); await afterGlobeChange(true); } catch (err) { toast(err.message, 'error'); }
+        } }, icon('x'), 'Remove'),
+        h('div', { class: 'grow' }),
+        h('button', { class: 'btn', onclick: () => onyx.open(pin.url) }, icon('link'), 'Open'),
+        h('button', { class: 'btn primary', onclick: async () => {
+          const picked = tags.get();
+          try { await onyx.updatePin(pin.id, { tags: picked }); await afterGlobeChange(!sameTags(picked, pin.tags)); } catch (err) { toast(err.message, 'error'); }
+        } }, 'Save')),
+    ]);
+  }
+
+  /** Search Notion or Drive and pin results to the globe. */
+  function openPicker(source, anchor) {
+    const label = SOURCES[source].label;
+    const input = h('input', { type: 'text', class: 'pop-title', placeholder: `Search ${label}…`, spellcheck: false, autocomplete: 'off' });
+    const list = h('div', { class: 'picker-list' }, h('p', { class: 'pop-meta' }, 'Loading…'));
+    const pinned = () => new Set(graph.lib.pins.map((p) => p.id));
+    let seq = 0;
+    let timer = null;
+
+    const render = (results) => {
+      const on = pinned();
+      if (!results.length) {
+        list.replaceChildren(h('p', { class: 'pop-meta' }, source === 'notion'
+          ? 'Nothing found. Notion only shows Onyx the pages you share with it: in Notion, open a page, then ••• → Connections → add your integration.'
+          : 'Nothing found.'));
+        return;
+      }
+      list.replaceChildren(...results.map((r) => {
+        const id = `${r.source}/${r.ref}`;
+        const add = h('button', { class: `btn ${on.has(id) ? '' : 'primary'}`, disabled: on.has(id) }, on.has(id) ? 'On globe' : 'Add');
+        add.onclick = async () => {
+          add.disabled = true;
+          try {
+            const tags = startingTags();
+            const pin = await onyx.addPin({ ...r, tags });
+            graph.lib.pins = [...graph.lib.pins.filter((p) => p.id !== pin.id), pin];
+            add.textContent = 'On globe';
+            add.classList.remove('primary');
+            loadGraph();
+            if (tags.length) reloadTags();
+          } catch (err) {
+            add.disabled = false;
+            toast(err.message, 'error');
+          }
+        };
+        return h('div', { class: 'picker-row' },
+          h('span', { class: 'picker-icon' }, r.icon || (r.source === 'drive' ? '▤' : '◧')),
+          h('div', { class: 'picker-text' }, h('b', null, r.title),
+            h('small', null, [KIND_LABEL[r.kind], r.account, r.edited && new Date(r.edited).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })].filter(Boolean).join('  ·  '))),
+          add);
+      }));
+    };
+
+    const run = async () => {
+      const mine = ++seq;
+      try {
+        const results = source === 'notion' ? await onyx.searchNotion(input.value) : await onyx.searchDrive(input.value);
+        if (mine === seq) render(results);
+      } catch (err) {
+        if (mine !== seq) return;
+        list.replaceChildren(h('p', { class: 'pop-meta problem' }, err.message),
+          !onyx.isPhone && h('button', { class: 'btn', onclick: () => openSettings(source === 'notion' ? 'connections' : 'calendars') }, 'Open settings'));
+      }
+    };
+    input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(run, 300); });
+    showPopover(anchor, [
+      input,
+      list,
+      h('p', { class: 'pop-meta' }, tagFilter.size ? `New items get the tags picked in the sidebar: ${startingTags().map((t) => `#${t}`).join(' ')}` : 'Tip: pick tags in the sidebar first and new items get them, or tag them on the globe.'),
+      h('div', { class: 'pop-actions' }, h('div', { class: 'grow' }), h('button', { class: 'btn ghost', onclick: () => closePopover() }, 'Done')),
+    ], null, { wide: true });
+    if (!MOBILE) input.focus();
+    run();
   }
 
   function renderGraphBar() {
@@ -1011,6 +1214,11 @@
       options.map(([value, label]) => h('button', { class: value === current ? 'on' : '', onclick: () => onPick(value) }, label)));
     const from = h('input', { type: 'date', value: graph.from, onchange: () => { graph.from = from.value; loadGraph(); } });
     const to = h('input', { type: 'date', value: graph.to, onchange: () => { graph.to = to.value; loadGraph(); } });
+    const chip = (key, label, title) => h('button', {
+      class: `chip-toggle ${graph.show[key] ? 'on' : ''}`, title,
+      onclick: () => { graph.show[key] = !graph.show[key]; renderGraphBar(); loadGraph(); },
+    }, label);
+    const addBtn = (label, fn) => h('button', { class: 'btn add-btn', onclick: (e) => fn(e.currentTarget.getBoundingClientRect()) }, icon('plus'), label);
     $('#graph-bar').replaceChildren(h('div', { class: 'bar-row' },
       seg([['day', 'Day'], ['week', 'Week'], ['month', 'Month'], ['range', 'Range']], graph.kind, (k) => {
         if (k === 'range' && graph.kind !== 'range') {
@@ -1026,9 +1234,16 @@
       }),
       graph.kind === 'range' && h('span', { class: 'range-pick' }, from, h('span', { class: 'dash' }, 'to'), to),
       h('span', { class: 'bar-label' }, 'Cluster by'),
-      seg([['tags', 'Tags'], ['calendars', 'Calendars'], ['days', 'Days']], graph.groupBy, (g) => { graph.groupBy = g; renderGraphBar(); loadGraph(); }),
-      h('label', { class: 'check', title: 'Also show tasks that have no date' },
-        h('input', { type: 'checkbox', checked: graph.undated, onchange: (e) => { graph.undated = e.target.checked; loadGraph(); } }), 'Undated tasks')));
+      seg([['tags', 'Tags'], ['calendars', 'Sources'], ['days', 'Days']], graph.groupBy, (g) => { graph.groupBy = g; renderGraphBar(); loadGraph(); }),
+      h('span', { class: 'bar-label' }, 'Show'),
+      chip('tasks', 'Tasks', 'Tasks that have no date'),
+      chip('notes', 'Notes', 'Notes written in Onyx'),
+      chip('notion', 'Notion', 'Notion pages pinned to the globe'),
+      chip('drive', 'Drive', 'Google Drive files pinned to the globe'),
+      h('div', { class: 'grow' }),
+      addBtn('Note', (r) => openNote(null, r)),
+      addBtn('Notion', (r) => openPicker('notion', r)),
+      addBtn('Drive', (r) => openPicker('drive', r))));
   }
 
   function openGraph() {
@@ -1045,7 +1260,9 @@
     graph.on = true;
     $('#graph').hidden = false;
     if (!graph.view) graph.view = OnyxGraph.create($('#graph-canvas'), { onPick: pickFromGraph });
-    for (const b of document.querySelectorAll('[data-view]')) b.classList.toggle('on', b.dataset.view === 'graph');
+    for (const b of document.querySelectorAll('[data-view]')) b.classList.remove('on');
+    $('#globe-toggle').classList.add('on');
+    $('#globe-toggle').title = 'Back to the calendar (G)';
     renderGraphBar();
     loadGraph();
   }
@@ -1053,12 +1270,20 @@
   function closeGraph() {
     graph.on = false;
     $('#graph').hidden = true;
+    $('#globe-toggle').classList.remove('on');
+    $('#globe-toggle').title = 'Globe view (G)';
     $('#range').textContent = calendar.view.title;
+    for (const b of document.querySelectorAll('[data-view]')) b.classList.toggle('on', b.dataset.view === calendar.view.type);
     calendar.updateSize();
   }
 
+  /** The globe button: flips between the globe and the calendar. */
+  function toggleGlobe() {
+    if (graph.on) closeGraph(); else openGraph();
+  }
+
   function pickView(view) {
-    if (view === 'graph') return openGraph();
+    if (view === 'graph') return toggleGlobe();
     if (graph.on) closeGraph();
     calendar.changeView(view);
     for (const b of document.querySelectorAll('[data-view]')) b.classList.toggle('on', b.dataset.view === view);
@@ -1101,7 +1326,8 @@
     $('#fab').append(icon('plus'));
     $('#new-block').append(icon('plus'), 'New block');
     $('#add-calendar').append(icon('plus'), onyx.isPhone ? 'Settings' : 'Add calendar');
-    for (const b of document.querySelectorAll('[data-view="graph"]')) b.prepend(icon('graph'));
+    $('#globe-toggle').append(icon('globe'));
+    $('#globe-toggle').onclick = toggleGlobe;
     $('#graph-reset').append(icon('target'));
     $('#graph-reset').onclick = () => graph.view?.resetCamera();
     $('#today').onclick = () => nav(0);
@@ -1143,7 +1369,7 @@
     if (!$('#popover').hidden) closePopover();
     else if (!$('#modal').hidden) closeSettings();
     else if (document.body.classList.contains('drawer-left') || document.body.classList.contains('drawer-right')) closeDrawers();
-    else if (graph.on) pickView(MOBILE ? 'timeGrid3' : S.settings.view);
+    else if (graph.on) closeGraph();
     else return false;
     return true;
   };

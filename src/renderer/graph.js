@@ -10,8 +10,11 @@
   const UNTAGGED = '#5a5a64';
 
   /**
-   * items: [{ id, title, color, calendarId, calendarName, tags, start, allDay, kind }]
+   * items: [{ id, title, color, calendarId, calendarName, tags, start, allDay, kind, shape?, home? }]
    * groupBy: 'tags' | 'calendars' | 'days'
+   * shape: 'diamond' (notes) or 'square' (documents); circles otherwise.
+   * home: [key, label, colour], the cluster an item joins when it has no tag (and in
+   *       the other groupings): notes, Notion and Drive gather there instead of "Untagged".
    */
   function build(items, { groupBy, tagColor, dayLabel }) {
     const nodes = [];
@@ -27,16 +30,16 @@
     };
 
     for (const item of items) {
-      const node = { id: item.id, hub: false, label: item.title, color: item.color, item };
+      const node = { id: item.id, hub: false, label: item.title, color: item.color, shape: item.shape, item };
       nodes.push(node);
       let groups;
       if (groupBy === 'tags') {
         groups = item.tags.length
           ? item.tags.map((t) => [`tag:${t.toLowerCase()}`, `#${t}`, tagColor(t)])
-          : [['untagged', 'Untagged', UNTAGGED]];
-        node.color = item.tags.length ? tagColor(item.tags[0]) : '#8a8a94';
-      } else if (groupBy === 'calendars') {
-        groups = [[`cal:${item.calendarId}`, item.calendarName, item.color]];
+          : [item.home ? [`home:${item.home[0]}`, item.home[1], item.home[2], Infinity] : ['untagged', 'Untagged', UNTAGGED]];
+        node.color = item.tags.length ? tagColor(item.tags[0]) : item.home ? item.color : '#8a8a94';
+      } else if (groupBy === 'calendars' || item.home) {
+        groups = item.home ? [[`home:${item.home[0]}`, item.home[1], item.home[2], Infinity]] : [[`cal:${item.calendarId}`, item.calendarName, item.color]];
       } else {
         const key = item.start ? dayKey(item) : 'none';
         groups = [[`day:${key}`, item.start ? dayLabel(key) : 'No date', '#c9c9d2', item.start ? Date.parse(`${key}T00:00`) : Infinity]];
@@ -207,7 +210,7 @@
       const y2 = y0 * cp - z1 * sp, z2 = y0 * sp + z1 * cp;
       const depth = z2 + cam.dist;
       const s = cam.focal / Math.max(depth, 1);
-      return { x: width / 2 + x1 * s, y: height / 2 + y2 * s, s, depth };
+      return { x: width / 2 + x1 * s, y: height * 0.54 + y2 * s, s, depth }; // a little low: the toolbar covers the top
     }
 
     const lit = (n) => !focus || n === focus || neighbours.get(focus.id)?.has(n.id);
@@ -274,7 +277,14 @@
         }
         ctx.fillStyle = rgba(n.color, a);
         ctx.beginPath();
-        ctx.arc(p.x, p.y, Math.max(r, 1.2), 0, Math.PI * 2);
+        const rr = Math.max(n.shape ? r * 1.35 : r, 1.2);
+        if (n.shape === 'diamond') { // notes
+          ctx.moveTo(p.x, p.y - rr); ctx.lineTo(p.x + rr, p.y); ctx.lineTo(p.x, p.y + rr); ctx.lineTo(p.x - rr, p.y); ctx.closePath();
+        } else if (n.shape === 'square') { // Notion pages and Drive files
+          ctx.roundRect(p.x - rr * 0.85, p.y - rr * 0.85, rr * 1.7, rr * 1.7, rr * 0.35);
+        } else {
+          ctx.arc(p.x, p.y, rr, 0, Math.PI * 2);
+        }
         ctx.fill();
         if (n.hub) {
           ctx.fillStyle = `rgba(0,0,0,${0.55 * a})`;

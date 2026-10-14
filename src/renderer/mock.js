@@ -63,6 +63,31 @@
   ].map((t) => ({ listId: 'g1/tl~main', listName: 'My Tasks', color: '#f5b83d', provider: 'google', notes: '', due: t.date, done: false, mirror: false, ...t }));
   Object.assign(tags, { 'g1/tl~main/a': ['work'], 'g1/tl~main/d': ['admin'], 'g1/tl~main/e': ['study', 'arabic'], 'g1/tl~main/f': ['admin', 'work'], 'g1/tl~main/g': ['arabic'] });
 
+  // Globe-only items: notes, and pinned Notion pages and Drive files.
+  let notes = [
+    { id: 'note/1', title: 'Arabic verb patterns', body: 'Form I-X cheat sheet…', kind: 'note' },
+    { id: 'note/2', title: 'Sec+ weak areas', body: 'PKI, port numbers', kind: 'note' },
+    { id: 'note/3', title: 'Gift ideas', body: '', kind: 'note' },
+    { id: 'note/4', title: 'Random thought', body: '', kind: 'note' },
+  ];
+  let pins = [
+    { id: 'notion/a1', source: 'notion', ref: 'a1', title: 'Study plan 2026', url: 'https://www.notion.so/', kind: 'page' },
+    { id: 'notion/a2', source: 'notion', ref: 'a2', title: 'Reading list', url: 'https://www.notion.so/', kind: 'database' },
+    { id: 'drive/d1', source: 'drive', ref: 'd1', title: 'Q4 budget', url: 'https://drive.google.com/', kind: 'sheet' },
+    { id: 'drive/d2', source: 'drive', ref: 'd2', title: 'Arabic flashcards export', url: 'https://drive.google.com/', kind: 'doc' },
+  ];
+  Object.assign(tags, { 'note/1': ['arabic', 'study'], 'note/2': ['study'], 'note/3': ['family'], 'notion/a1': ['study'], 'drive/d1': ['work', 'admin'], 'drive/d2': ['arabic'] });
+  const DEMO_NOTION = [
+    { source: 'notion', ref: 'a1', title: 'Study plan 2026', url: 'https://www.notion.so/', kind: 'page', icon: '📚' },
+    { source: 'notion', ref: 'a2', title: 'Reading list', url: 'https://www.notion.so/', kind: 'database', icon: '📖' },
+    { source: 'notion', ref: 'a3', title: 'Trip packing list', url: 'https://www.notion.so/', kind: 'page', icon: '🧳' },
+  ];
+  const DEMO_DRIVE = [
+    { source: 'drive', ref: 'd1', title: 'Q4 budget', url: 'https://drive.google.com/', kind: 'sheet', account: 'you@gmail.com' },
+    { source: 'drive', ref: 'd2', title: 'Arabic flashcards export', url: 'https://drive.google.com/', kind: 'doc', account: 'you@gmail.com' },
+    { source: 'drive', ref: 'd3', title: 'Lease agreement.pdf', url: 'https://drive.google.com/', kind: 'pdf', account: 'you@gmail.com' },
+  ];
+
   const allTags = () => {
     const counts = {};
     for (const list of Object.values(tags)) for (const t of list) counts[t] = (counts[t] || 0) + 1;
@@ -91,6 +116,7 @@
     calendars,
     google: { ready: true },
     microsoft: { clientId: '' },
+    notion: { connected: true, name: 'Onyx', workspace: 'My workspace' },
     mcp: { enabled: true, port: 4747, lan: true, running: true, error: '', token: 'preview-token', addresses: ['192.168.1.20'] },
   };
   const snapshot = () => structuredClone({ ...state, tags: allTags() });
@@ -157,6 +183,17 @@
       for (const [id, list] of Object.entries(tags)) { tags[id] = list.filter((t) => t !== tag); if (!tags[id].length) delete tags[id]; }
       return snapshot();
     },
+    globe: async () => ({ notes: notes.map(withTags), pins: pins.map(withTags) }),
+    createNote: async (d) => { const n = { id: `note/${seq++}`, title: d.title || 'Untitled note', body: d.body || '', created: new Date().toISOString(), updated: new Date().toISOString(), kind: 'note' }; notes.push(n); setTags(n.id, d.tags); return withTags(n); },
+    updateNote: async (id, d) => { const n = notes.find((x) => x.id === id); Object.assign(n, { title: d.title ?? n.title, body: d.body ?? n.body }); if (d.tags) setTags(id, d.tags); return withTags(n); },
+    deleteNote: async (id) => { notes = notes.filter((x) => x.id !== id); delete tags[id]; },
+    addPin: async (r) => { const p = { id: `${r.source}/${r.ref}`, source: r.source, ref: r.ref, title: r.title, url: r.url, kind: r.kind }; pins = [...pins.filter((x) => x.id !== p.id), p]; setTags(p.id, r.tags); return withTags(p); },
+    updatePin: async (id, d) => { if (d.tags) setTags(id, d.tags); return withTags(pins.find((x) => x.id === id)); },
+    removePin: async (id) => { pins = pins.filter((x) => x.id !== id); delete tags[id]; },
+    searchNotion: async (q) => DEMO_NOTION.filter((r) => r.title.toLowerCase().includes(String(q).toLowerCase())),
+    searchDrive: async (q) => DEMO_DRIVE.filter((r) => r.title.toLowerCase().includes(String(q).toLowerCase())),
+    connectNotion: async () => snapshot(),
+    disconnectNotion: async () => snapshot(),
     pairing: async () => ({ link: 'onyx://pair?a=192.168.1.20%3A4747&t=preview-token', qr: '', addresses: ['192.168.1.20:4747'], token: 'preview-token', running: true, lan: true }),
     settings: async (patch) => { merge(state.settings, patch); return snapshot(); },
     loadGoogleCredentials: async () => snapshot(),

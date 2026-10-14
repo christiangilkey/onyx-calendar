@@ -72,7 +72,7 @@
     return null;
   }
 
-  const CACHED = new Set(['state', 'events', 'tasks']);
+  const CACHED = new Set(['state', 'events', 'tasks', 'globe']);
 
   async function call(name, ...args) {
     if (!conn) throw new Error('This phone is not connected to Onyx on your PC yet.');
@@ -174,6 +174,15 @@
     updateTask: (id, patch) => call('task:update', id, patch),
     deleteTask: (id) => call('task:delete', id),
     setTags: (id, tags) => call('tags:set', id, tags),
+    globe: () => call('globe'),
+    createNote: (data) => call('note:create', data),
+    updateNote: (id, patch) => call('note:update', id, patch),
+    deleteNote: (id) => call('note:delete', id),
+    addPin: (item) => call('pin:add', item),
+    updatePin: (id, patch) => call('pin:update', id, patch),
+    removePin: (id) => call('pin:remove', id),
+    searchNotion: (query) => call('notion:search', query),
+    searchDrive: (query) => call('drive:search', query),
     setTagColor: async (tag, color) => withLocal(await call('tag:color', tag, color)),
     renameTag: async (from, to) => withLocal(await call('tag:rename', from, to)),
     deleteTag: async (tag) => withLocal(await call('tag:delete', tag)),

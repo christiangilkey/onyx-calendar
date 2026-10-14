@@ -15,6 +15,7 @@ const http = require('http');
 const os = require('os');
 const store = require('./store');
 const hub = require('./hub');
+const library = require('./library');
 const { version } = require('../../package.json');
 
 const PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
@@ -233,6 +234,32 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'Task id from list_tasks.' } }, required: ['id'] },
     write: true,
     run: async (a) => { await hub.updateTask(a.id, { done: true }); return { completed: a.id }; },
+  },
+  {
+    name: 'list_notes',
+    description: 'Notes the user keeps in Onyx (shown on the globe view, grouped by tag), plus the Notion pages and Google Drive files pinned to the globe.',
+    inputSchema: { type: 'object', properties: { tag: { type: 'string', description: 'Only items carrying this tag.' } } },
+    run: async (a) => {
+      const { notes, pins } = library.globeItems();
+      return {
+        notes: notes.filter(hasTag(a.tag)).map((n) => ({ id: n.id, title: n.title, body: n.body, tags: n.tags, updated: n.updated })),
+        pinned: pins.filter(hasTag(a.tag)).map((p) => ({ id: p.id, source: p.source, title: p.title, url: p.url, tags: p.tags })),
+      };
+    },
+  },
+  {
+    name: 'create_note',
+    description: 'Write a note into Onyx. Tags place it into clusters on the globe view.',
+    inputSchema: {
+      type: 'object',
+      properties: { title: { type: 'string' }, body: { type: 'string' }, tags: TAGS_PARAM },
+      required: ['title'],
+    },
+    write: true,
+    run: async (a) => {
+      const n = library.createNote({ title: a.title, body: a.body || '', tags: a.tags || [] });
+      return { id: n.id, title: n.title, tags: n.tags };
+    },
   },
 ];
 

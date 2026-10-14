@@ -23,8 +23,8 @@
       <button data-view="timeGridWeek">Week</button>
       <button data-view="dayGridMonth">Month</button>
       <button data-view="listWeek">Agenda</button>
-      <button data-view="graph" title="Graph view (G)">Graph</button>
     </div>
+    <button id="globe-toggle" class="icon-btn globe-btn" title="Globe view (G)"></button>
     <button id="refresh" class="icon-btn" title="Refresh (R)"></button>
     <button id="toggle-tasks" class="icon-btn" title="Tasks"></button>
     <button id="open-settings" class="icon-btn" title="Settings"></button>
@@ -38,7 +38,6 @@
         <button data-view="timeGrid3">3 days</button>
         <button data-view="dayGridMonth">Month</button>
         <button data-view="listWeek">Agenda</button>
-        <button data-view="graph">Graph</button>
       </div>
       <div id="mini"></div>
       <div id="calendars"></div>
@@ -51,7 +50,7 @@
       <section id="graph" hidden>
         <canvas id="graph-canvas"></canvas>
         <div id="graph-bar"></div>
-        <div id="graph-empty" hidden>Nothing in this range. Try a longer range, or switch on more calendars.</div>
+        <div id="graph-empty" hidden>Nothing here yet. Add a note, pin a Notion page or Drive file, or try a longer range.</div>
         <div id="graph-hint">Drag to orbit · scroll or pinch to zoom · click a cluster to fly in · double-click to reset</div>
         <div id="graph-foot"><span id="graph-stats"></span><button id="graph-reset" class="icon-btn" title="Reset the view (or double-click the graph)"></button></div>
       </section>

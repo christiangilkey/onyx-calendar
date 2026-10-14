@@ -504,3 +504,30 @@ body.mobile.mobile #toasts { bottom: calc(92px + env(safe-area-inset-bottom, 0px
 body.mobile #graph-foot { bottom: calc(86px + env(safe-area-inset-bottom, 0px)); }#sidebar > * { flex-shrink: 0; }
 #views-mobile .ico { display: none !important; }body:has(#popover:not([hidden])) #fab, body:has(#modal:not([hidden])) #fab { display: none; }body.mobile .connect-card .brand { display: flex; }.connect-card .scan-btn { height: 54px !important; font-size: 16px !important; gap: 10px; }
 .connect-card .scan-btn .ico { width: 22px; height: 22px; }
+/* ------------------------------------------------------------ globe: button, notes, pinned documents */
+
+.globe-btn.on { background: color-mix(in srgb, var(--accent) 22%, transparent); color: #fff; box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent), 0 0 18px color-mix(in srgb, var(--accent) 35%, transparent); }
+#popover.wide { width: 440px; }
+.note-body { width: 100%; min-height: 160px; font-size: 13.5px; line-height: 1.55; }
+.pin-head { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+.pin-head b { font-weight: 600; overflow-wrap: anywhere; }
+.src-badge { font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 10px; flex: none; }
+.src-badge.notion { background: #2a2a30; color: #e4e4ea; }
+.src-badge.drive { background: color-mix(in srgb, #3ddc97 18%, transparent); color: #6fe8b3; }
+.picker-list { max-height: 330px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; margin: 0 -4px; }
+.picker-row { display: flex; align-items: center; gap: 10px; padding: 7px 6px; border-radius: 8px; }
+.picker-row:hover { background: var(--raise); }
+.picker-icon { width: 26px; height: 26px; border-radius: 7px; background: var(--raise-2); display: grid; place-items: center; flex: none; font-size: 14px; color: var(--muted); }
+.picker-text { flex: 1; min-width: 0; }
+.picker-text b { display: block; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-text small { color: var(--muted); font-size: 11px; }
+.picker-row .btn { height: 28px; padding: 0 10px; flex: none; }
+.pop-meta.problem { color: var(--warn); }
+#graph-bar .chip-toggle {
+  height: 26px; padding: 0 10px; border-radius: 13px; border: 1px solid var(--line-2); background: transparent; color: var(--faint); cursor: pointer; font-size: 12px;
+}
+#graph-bar .chip-toggle.on { color: var(--text); background: var(--raise-2); border-color: #3a3a42; }
+#graph-bar .add-btn { height: 28px; padding: 0 10px; }
+#graph-bar .add-btn .ico { width: 13px; height: 13px; }
+body.mobile #graph-bar .chip-toggle { height: 30px; }
+body.mobile #graph-bar .grow { display: none; }

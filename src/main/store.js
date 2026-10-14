@@ -31,7 +31,10 @@ const DEFAULTS = {
   piLinks: {},           // event id -> id of the Google Task the Pi phones about
   tags: {},              // event or task id -> ['tag', ...]. Kept only in Onyx, never sent to Google or Microsoft.
   tagColors: {},         // tag -> colour
-  secrets: { googleClientSecret: '', tokens: {}, mcpToken: '' },
+  notes: [],             // { id, title, body, created, updated } written in Onyx, shown on the globe
+  pins: [],              // { id, source: 'notion' | 'drive', ref, title, url, kind, added } pinned to the globe
+  notion: null,          // { name, workspace } of the connected Notion integration
+  secrets: { googleClientSecret: '', tokens: {}, mcpToken: '', notionToken: '' },
 };
 
 let file = '';

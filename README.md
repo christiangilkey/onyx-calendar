@@ -80,9 +80,9 @@ Any calendar that can be published as an `.ics` link works without a sign-in. In
 
 ### Graph view
 
-Press **Graph** (or `G`). Every entry in the range orbits around a cluster:
+Press **Graph** (or `G`). Your entries form a globe: each cluster sits on the surface of a sphere with its entries gathered around it, and the near side is brighter than the far side. Drag (or swipe) to spin it; a flick keeps it turning.
 
-- **Cluster by Tags** groups entries by tag. An entry with two tags is pulled between both clusters; untagged entries gather under "Untagged".
+- **Cluster by Tags** groups entries by tag. An entry with two tags is pulled between both clusters, through the inside of the globe; untagged entries gather under "Untagged".
 - **Cluster by Calendars** groups by the calendar each entry comes from.
 - **Cluster by Days** strings the days together like a timeline.
 
@@ -110,9 +110,9 @@ The Android app is a companion to the PC app: it shows the same master calendar,
 
 1. Download `Onyx-Calendar-x.y.z.apk` from the [Releases](../../releases) page on the phone and open it. Android asks you to allow installing apps from your browser the first time.
 2. On the PC, open **Settings → Phone**. A QR code appears.
-3. Point the phone's camera at the code and tap the link. Onyx opens and connects.
+3. Open Onyx on the phone, tap **Scan QR code**, and point the phone at the code. It connects by itself.
 
-If the camera link doesn't work, type one of the addresses and the token shown under the QR code into the app instead.
+Scan from inside the Onyx app: the phone's camera app hands `onyx://` links to Google instead of opening Onyx. To connect without scanning, type one of the addresses and the token shown under the QR code. To re-pair later, use **Settings → Connection → Scan a new code**.
 
 - **Same wifi:** works out of the box. The PC app must be running (it can sit in the tray).
 - **Away from home:** install [Tailscale](https://tailscale.com/) on the PC and the phone, then scan the code again. Its `100.x.y.z` address is included automatically.

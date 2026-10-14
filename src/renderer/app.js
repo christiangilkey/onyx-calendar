@@ -136,7 +136,9 @@
     const box = h('textarea', { class: 'notes-field', rows: 2, placeholder, value: value || '', spellcheck: true });
     const fit = () => { box.style.height = 'auto'; box.style.height = `${Math.min(box.scrollHeight + 2, 260)}px`; };
     box.addEventListener('input', fit);
-    requestAnimationFrame(fit);
+    // Fit once the popup has its real width: measured earlier, the text wraps narrow and the box opens at full height.
+    let width = 0;
+    new ResizeObserver(() => { if (box.clientWidth && box.clientWidth !== width) { width = box.clientWidth; fit(); } }).observe(box);
     return box;
   }
 

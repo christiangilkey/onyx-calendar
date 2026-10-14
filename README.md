@@ -26,7 +26,7 @@ A black, fast calendar for Windows and Android that puts everything in one place
 From 1.4.0 on, Onyx keeps itself up to date from this repository's releases:
 
 - **Windows:** the **update button** in the title bar (the circle with the down arrow) checks for a new version. Onyx also checks by itself shortly after it starts and every six hours. When there is one, a popup shows what's new; **Update now** downloads it, closes Onyx, installs it and opens it again. Versions before 1.4.0 have no updater, so install 1.4.0 by hand once.
-- **Android:** the app checks too and shows the same popup. **Download update** fetches the new APK in your browser; tap the download to install it over the old one. **Settings → General → Check now** checks on demand.
+- **Android:** the app checks too and shows the same popup. **Update now** downloads the new version inside the app and opens Android's installer: tap **Install** and it updates in place. The first time, Android asks you to allow Onyx to install updates ("Allow from this source"). Android always asks for that one tap for apps from outside the Play Store. **Settings → General → Check now** checks on demand. (From 1.5.1; older Android builds open the download in the browser.)
 
 Or build it yourself:
 

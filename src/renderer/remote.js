@@ -219,6 +219,12 @@
     removePin: (id) => call('pin:remove', id),
     searchNotion: (query) => call('notion:search', query),
     searchDrive: (query) => call('drive:search', query),
+    // Keys entered on the phone are saved in Onyx on the PC, so both use them.
+    connectNotion: async (key) => withLocal(await call('notion:connect', key)),
+    disconnectNotion: async () => withLocal(await call('notion:disconnect')),
+    setGoogleCredentials: async (text) => withLocal(await call('google:credentials', text)),
+    setMicrosoftClient: async (id) => withLocal(await call('microsoft:client', id)),
+    addFeed: async (feed) => withLocal(await call('feed:add', feed)),
     setTagColor: async (tag, color) => withLocal(await call('tag:color', tag, color)),
     renameTag: async (from, to) => withLocal(await call('tag:rename', from, to)),
     deleteTag: async (tag) => withLocal(await call('tag:delete', tag)),

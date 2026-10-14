@@ -912,6 +912,43 @@
       ];
     },
 
+    // Phone: keys and links typed or picked here are saved in Onyx on the PC, so both use them.
+    keys() {
+      const n = S.notion || {};
+      const notionKey = h('input', { type: 'text', placeholder: 'Notion integration secret (ntn_…)', spellcheck: false, autocomplete: 'off' });
+      const msId = h('input', { type: 'text', placeholder: 'Application (client) ID', value: S.microsoft.clientId, spellcheck: false });
+      const feedName = h('input', { type: 'text', placeholder: 'Name, e.g. Work Outlook' });
+      const feedUrl = h('input', { type: 'url', placeholder: 'https://… or webcal://… (.ics link)', spellcheck: false });
+      const file = h('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: async (e) => {
+        const f = e.target.files?.[0];
+        if (f) act(async () => onyx.setGoogleCredentials(await f.text()), 'Google credentials saved on your PC');
+      } });
+      return [
+        h('h3', null, 'Keys & accounts'),
+        h('p', { class: 'lead' }, 'Anything you enter here is saved in Onyx on your PC, so the PC and this phone both use it, and keys entered on the PC show up here. Signing in to Google or Microsoft happens on the PC, in its browser.'),
+        h('div', { class: 'card' },
+          h('h4', null, 'Notion', n.connected && h('span', { class: 'badge ok' }, n.workspace ? `Connected · ${n.workspace}` : 'Connected')),
+          n.connected
+            ? h('div', { class: 'row' }, h('button', { class: 'btn danger', onclick: () => act(() => onyx.disconnectNotion(), 'Notion disconnected') }, 'Disconnect'))
+            : [h('p', null, 'Paste the secret of your Notion integration (notion.so/my-integrations), then share pages with it in Notion: ••• → Connections.'),
+              h('div', { class: 'row' }, notionKey, h('button', { class: 'btn primary', onclick: () => act(() => onyx.connectNotion(notionKey.value), 'Notion connected') }, 'Connect'))]),
+        h('div', { class: 'card' },
+          h('h4', null, 'Google', S.google.ready && h('span', { class: 'badge ok' }, 'Credentials saved')),
+          h('p', null, 'Pick the Google credentials file (client_secret_….json) from this phone. Then finish on the PC: Settings → Calendars → Sign in with Google.'),
+          h('div', { class: 'row' }, file, h('button', { class: 'btn', onclick: () => file.click() }, S.google.ready ? 'Replace credentials file' : 'Choose credentials file')),
+          S.accounts.filter((a) => a.provider === 'google').map((a) => h('div', { class: 'acct' }, h('span', { class: 'badge' }, 'Google'), h('span', { class: 'who' }, a.label)))),
+        h('div', { class: 'card' },
+          h('h4', null, 'Outlook'),
+          h('p', null, 'The app registration ID. Then on the PC: Settings → Calendars → Sign in with Microsoft.'),
+          h('div', { class: 'row' }, msId, h('button', { class: 'btn', onclick: () => act(() => onyx.setMicrosoftClient(msId.value), 'Saved on your PC') }, 'Save'))),
+        h('div', { class: 'card' },
+          h('h4', null, 'Calendar link (read-only)'),
+          h('p', null, 'Any calendar published as an .ics link. No sign-in needed.'),
+          h('div', { class: 'row' }, feedName, feedUrl,
+            h('button', { class: 'btn', onclick: () => act(() => onyx.addFeed({ name: feedName.value, url: feedUrl.value }), 'Calendar added') }, 'Add'))),
+      ];
+    },
+
     // Phone: which PC it is connected to.
     connection() {
       const c = onyx.connection();
@@ -936,7 +973,7 @@
   let settingsTab = onyx.isPhone ? 'connection' : 'calendars';
   function openSettings(tab = settingsTab) {
     const tabs = onyx.isPhone
-      ? [['connection', 'Connection'], ['pi', 'Pi calls'], ['general', 'General']]
+      ? [['connection', 'Connection'], ['keys', 'Keys & accounts'], ['pi', 'Pi calls'], ['general', 'General']]
       : [['calendars', 'Calendars'], ['connections', 'Notion & Drive'], ['phone', 'Phone'], ['pi', 'Pi calls'], ['mcp', 'MCP server'], ['general', 'General']];
     if (!tabs.some(([id]) => id === tab)) tab = tabs[0][0];
     settingsTab = tab;

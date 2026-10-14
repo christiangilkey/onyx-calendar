@@ -140,7 +140,9 @@ Scan from inside the Onyx app: the phone's camera app hands `onyx://` links to G
 - **Same wifi:** works out of the box. The PC app must be running (it can sit in the tray).
 - **Away from home:** install [Tailscale](https://tailscale.com/) on the PC and the phone, then scan the code again. Its `100.x.y.z` address is included automatically.
 - **PC off or out of reach:** the phone shows the last calendar it loaded, marked "Offline", until it can reach the PC again.
-- Settings that control the server itself, and adding or removing accounts, stay on the PC.
+- **Everything is shared, both ways.** The phone has no separate copy: notes, pinned Notion and Drive items, tags, time blocks, tasks, hidden calendars and Pi settings all live in Onyx on the PC, so a change on one shows on the other (the phone checks every minute and whenever you open it; the PC sees phone changes at once).
+- **Keys too.** The Notion secret, the Google credentials file, the Outlook app ID and calendar links can be entered on either device (phone: **Settings → Keys & accounts**) and are saved once, on the PC. The Google and Microsoft sign-in itself happens on the PC, in its browser.
+- The server's own settings, the pairing code and removing accounts stay on the PC.
 
 The APK is built by GitHub Actions ([`.github/workflows/android.yml`](.github/workflows/android.yml)) whenever a version tag is pushed, and signed with a key kept in the repository's Actions secrets, so each new version installs over the last one.
 

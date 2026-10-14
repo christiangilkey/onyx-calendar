@@ -134,26 +134,11 @@ async function loadGoogleCredentials() {
     properties: ['openFile'],
   });
   if (pick.canceled) return state();
-  let json;
-  try {
-    json = JSON.parse(fs.readFileSync(pick.filePaths[0], 'utf8'));
-  } catch {
-    throw new Error('That file is not valid JSON.');
-  }
-  // A downloaded OAuth client ("installed"/"web"), or a saved sign-in that carries the client with it.
-  const client = json.installed || json.web || json;
-  if (!client.client_id || !client.client_secret) throw new Error('No client_id and client_secret found in that file.');
-  store.data.google.clientId = client.client_id;
-  store.data.secrets.googleClientSecret = client.client_secret;
-  store.save();
+  api.setGoogleClient(fs.readFileSync(pick.filePaths[0], 'utf8'));
   return state();
 }
 
-async function afterAccountChange() {
-  hub.invalidate();
-  const { errors } = await hub.refreshCalendars();
-  return { ...state(), errors };
-}
+const { afterAccountChange } = api;
 
 // The shared commands (api.js), plus the ones only the desktop can do.
 const HANDLERS = {
@@ -167,7 +152,6 @@ const HANDLERS = {
     showWindow();
     return afterAccountChange();
   },
-  'feed:add': (feed) => { accounts.addFeed(feed.name, feed.url); return afterAccountChange(); },
   'account:remove': (id) => { accounts.remove(id); return afterAccountChange(); },
   'update:check': () => updater.check(),
   'update:install': () => updater.install(),

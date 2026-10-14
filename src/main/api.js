@@ -6,6 +6,7 @@ const store = require('./store');
 const hub = require('./hub');
 const mcp = require('./mcp');
 const pairing = require('./pairing');
+const accounts = require('./accounts');
 const library = require('./library');
 const notion = require('./providers/notion');
 const drive = require('./providers/drive');
@@ -50,6 +51,31 @@ async function changeSettings(patch) {
 
 const withState = (fn) => async (...args) => { await fn(...args); return state(); };
 
+/**
+ * Saves the Google client id and secret from the text of a credentials file: a
+ * downloaded OAuth client ("installed"/"web"), or a saved sign-in that carries one.
+ * Used by the PC's file picker and by the phone (which sends the file's text).
+ */
+function setGoogleClient(text) {
+  let json;
+  try {
+    json = JSON.parse(String(text));
+  } catch {
+    throw new Error('That is not a Google credentials (.json) file.');
+  }
+  const client = json.installed || json.web || json;
+  if (!client.client_id || !client.client_secret) throw new Error('No client_id and client_secret found in that file.');
+  store.data.google.clientId = client.client_id;
+  store.data.secrets.googleClientSecret = client.client_secret;
+  store.save();
+}
+
+async function afterAccountChange() {
+  hub.invalidate();
+  const { errors } = await hub.refreshCalendars();
+  return { ...state(), errors };
+}
+
 const handlers = {
   state,
   refresh: async () => { hub.invalidate(); const { errors } = await hub.refreshCalendars(); return { ...state(), errors }; },
@@ -82,13 +108,17 @@ const handlers = {
   'notion:connect': withState((key) => notion.connect(key)),
   'notion:disconnect': withState(() => notion.disconnect()),
   'drive:search': (query) => drive.search(query),
+  // Keys and links, from either the PC or the phone; they are stored once, on the PC.
+  'google:credentials': withState((text) => setGoogleClient(text)),
+  'microsoft:client': withState((id) => { store.data.microsoft.clientId = String(id || '').trim(); store.save(); }),
+  'feed:add': (feed) => { accounts.addFeed(feed.name, feed.url); return afterAccountChange(); },
 };
 
 // What the phone may run. Signing in to accounts, and the settings that could
 // cut the phone off (the server itself, start-up behaviour), stay on the PC.
 const PHONE_SETTINGS = ['hidden', 'hour12', 'weekStart', 'defaultCalendar', 'pi'];
-const PC_ONLY = new Set(['pairing', 'notion:connect', 'notion:disconnect']);
+const PC_ONLY = new Set(['pairing']);
 const remote = Object.fromEntries(Object.entries(handlers).filter(([name]) => !PC_ONLY.has(name)));
 remote.settings = (patch) => changeSettings(Object.fromEntries(Object.entries(patch || {}).filter(([k]) => PHONE_SETTINGS.includes(k))));
 
-module.exports = { handlers, remote, state, onSettingsChanged: (fn) => { afterSettings = fn; } };
+module.exports = { handlers, remote, state, setGoogleClient, afterAccountChange, onSettingsChanged: (fn) => { afterSettings = fn; } };

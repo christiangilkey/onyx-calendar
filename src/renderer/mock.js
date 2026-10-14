@@ -206,5 +206,20 @@
     open: async () => {},
     copy: async () => {},
     onChanged: () => {},
+    // A pretend update, so the popup and its progress bar can be seen in the preview.
+    checkUpdate: async () => ({ ...update }),
+    installUpdate: async () => {
+      update = { ...update, status: 'downloading', percent: 0 };
+      const timer = setInterval(() => {
+        update = { ...update, percent: Math.min(100, update.percent + 20) };
+        if (update.percent >= 100) { clearInterval(timer); update = { ...update, status: 'ready' }; }
+        for (const fn of updateListeners) fn({ ...update });
+      }, 400);
+      return { ...update };
+    },
+    updateState: async () => ({ ...update }),
+    onUpdate: (fn) => updateListeners.add(fn),
   };
+  let update = { status: 'available', current: '1.3.0', version: '1.4.0', notes: 'What\'s new\n\n- An update button\n- Popups for new versions' };
+  const updateListeners = new Set();
 })();

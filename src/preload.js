@@ -46,4 +46,9 @@ contextBridge.exposeInMainWorld('onyx', {
   open: (url) => call('open', url),
   copy: (text) => call('copy', text),
   onChanged: (fn) => ipcRenderer.on('changed', () => fn()),
+  // Updates from GitHub releases.
+  checkUpdate: () => call('update:check'),
+  installUpdate: () => call('update:install'),
+  updateState: () => call('update:state'),
+  onUpdate: (fn) => ipcRenderer.on('update', (_event, state) => fn(state)),
 });

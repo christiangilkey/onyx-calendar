@@ -10,6 +10,7 @@ const accounts = require('./accounts');
 const hub = require('./hub');
 const mcp = require('./mcp');
 const api = require('./api');
+const updater = require('./updater');
 
 const { state } = api;
 
@@ -117,6 +118,7 @@ async function boot() {
   if (!SMOKE_SHOT) createTray();
   await mcp.start(() => win?.webContents.send('changed'));
   hub.refreshCalendars().then(() => win?.webContents.send('changed')).catch(() => {});
+  updater.start((s) => win?.webContents.send('update', s));
 }
 
 app.on('before-quit', () => { quitting = true; store.flush(); });
@@ -167,6 +169,9 @@ const HANDLERS = {
   },
   'feed:add': (feed) => { accounts.addFeed(feed.name, feed.url); return afterAccountChange(); },
   'account:remove': (id) => { accounts.remove(id); return afterAccountChange(); },
+  'update:check': () => updater.check(),
+  'update:install': () => updater.install(),
+  'update:state': () => updater.current(),
   open: (url) => { if (/^https:\/\//i.test(String(url))) shell.openExternal(url); },
   copy: (text) => clipboard.writeText(String(text)),
 };

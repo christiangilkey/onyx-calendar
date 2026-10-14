@@ -28,6 +28,7 @@
     target: '<circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="2.5"/>',
     globe: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.6 2.3 3.9 5.1 3.9 8.5s-1.3 6.2-3.9 8.5c-2.6-2.3-3.9-5.1-3.9-8.5s1.3-6.2 3.9-8.5z"/>',
     link: '<path d="M14 5h5v5M19 5l-8 8M11 7H6v11h11v-5"/>',
+    update: '<path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/><path d="M12 8v6M9.5 11.5L12 14l2.5-2.5"/>',
     qr: '<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><rect x="8" y="8" width="3" height="3"/><rect x="13" y="8" width="3" height="3"/><rect x="8" y="13" width="3" height="3"/><path d="M13 13h3v3"/>',
   };
   const COLORS = ['#8b7cff', '#4aa8ff', '#3fd0c9', '#5fd38d', '#f5b83d', '#ff9f4a', '#ff6b6b', '#ff7eb6', '#b9b9c2'];
@@ -838,6 +839,8 @@
           field('New blocks go to', 'The calendar picked first when you drag out a block.',
             h('select', { onchange: (e) => saveSettings({ defaultCalendar: e.target.value }) },
               writable.map((c) => h('option', { value: c.id, selected: c.id === s.defaultCalendar }, c.account === 'local' ? c.name : `${c.name}  ·  ${c.accountLabel}`)))),
+          onyx.checkUpdate && field('Updates', `You have Onyx ${onyx.isPhone ? 'for Android' : S.version}. New versions are checked for automatically, and a popup offers them.`,
+            h('button', { class: 'btn', onclick: () => checkForUpdate(true) }, icon('update'), 'Check now')),
           field('24-hour time', null, toggle(!s.hour12, (v) => saveSettings({ hour12: !v }))),
           field('Week starts on', null,
             h('select', { onchange: (e) => saveSettings({ weekStart: Number(e.target.value) }) },
@@ -1290,6 +1293,86 @@
     closeDrawers();
   }
 
+  // ------------------------------------------------------------ updates
+  // The desktop app updates itself from GitHub releases (updater.js); the phone
+  // checks for a newer APK and hands the download to the browser (remote.js).
+
+  const dismissedUpdates = new Set(); // versions waved away with "Later" this session
+
+  function closeUpdateDialog() { $('#update-dialog').hidden = true; $('#update-dialog').replaceChildren(); }
+
+  function showUpdateDialog(u) {
+    const box = $('#update-dialog');
+    const later = () => { dismissedUpdates.add(u.version); closeUpdateDialog(); };
+    let body;
+    if (u.status === 'available') {
+      body = [
+        h('div', { class: 'upd-icon' }, icon('update')),
+        h('h3', null, `Onyx ${u.version} is available`),
+        h('p', { class: 'upd-sub' }, u.current ? `You have ${u.current}.` : 'A new version is ready to install.'),
+        u.notes && h('div', { class: 'upd-notes' }, u.notes.replace(/^#+\s*/gm, '').replace(/\*\*/g, '').trim()),
+        onyx.isPhone && h('p', { class: 'upd-sub' }, 'Your browser downloads the new app; open the download to install it over this one. Your connection to the PC is kept.'),
+        h('div', { class: 'pop-actions' },
+          h('div', { class: 'grow' }),
+          h('button', { class: 'btn ghost', onclick: later }, 'Later'),
+          h('button', { class: 'btn primary', onclick: () => installUpdate() }, onyx.isPhone ? 'Download update' : 'Update now')),
+      ];
+    } else if (u.status === 'downloading') {
+      body = [
+        h('div', { class: 'upd-icon spin' }, icon('update')),
+        h('h3', null, `Downloading Onyx ${u.version || ''}`),
+        h('div', { class: 'upd-bar' }, h('i', { css: { width: `${u.percent || 0}%` } })),
+        h('p', { class: 'upd-sub' }, `${u.percent || 0}%  ·  Onyx will restart by itself when it's done.`),
+      ];
+    } else if (u.status === 'ready') {
+      body = [h('div', { class: 'upd-icon spin' }, icon('update')), h('h3', null, 'Installing…'), h('p', { class: 'upd-sub' }, 'Onyx closes, updates and opens again in a few seconds.')];
+    } else if (u.status === 'handoff') {
+      body = [
+        h('div', { class: 'upd-icon' }, icon('update')),
+        h('h3', null, 'Downloading in your browser'),
+        h('p', { class: 'upd-sub' }, 'When it finishes, tap the download to install. The first time, Android asks you to allow installs from your browser.'),
+        h('div', { class: 'pop-actions' }, h('div', { class: 'grow' }), h('button', { class: 'btn primary', onclick: closeUpdateDialog }, 'OK')),
+      ];
+    } else {
+      return closeUpdateDialog();
+    }
+    box.replaceChildren(h('div', { class: 'upd-card' }, body));
+    box.hidden = false;
+  }
+
+  /** The Update button (manual) and the background checks (automatic) end up here. */
+  function onUpdateState(u, manual) {
+    $('#update-btn').classList.toggle('has-update', u.status === 'available' || u.status === 'downloading');
+    $('#update-btn').title = u.status === 'available' ? `Onyx ${u.version} is available` : 'Check for updates';
+    if (['downloading', 'ready', 'handoff'].includes(u.status) && !$('#update-dialog').hidden) return showUpdateDialog(u);
+    if (u.status === 'available' && (manual || !dismissedUpdates.has(u.version))) return showUpdateDialog(u);
+    if (!manual) return;
+    if (u.status === 'current') toast(`You're on the latest version${u.version ? ` (${u.version})` : ''}.`);
+    else if (u.status === 'error' || u.status === 'dev') toast(u.error, 'warn');
+  }
+
+  async function checkForUpdate(manual) {
+    if (!onyx.checkUpdate) return;
+    const btn = $('#update-btn');
+    btn.classList.add('spin');
+    try {
+      onUpdateState(await onyx.checkUpdate(), manual);
+    } catch (err) {
+      if (manual) toast(err.message, 'error');
+    }
+    btn.classList.remove('spin');
+  }
+
+  async function installUpdate() {
+    try {
+      const u = await onyx.installUpdate();
+      if (u.status === 'error') { toast(u.error, 'error'); closeUpdateDialog(); }
+      else showUpdateDialog(u);
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
   // ------------------------------------------------------------ chrome and start-up
 
   function closeDrawers() { document.body.classList.remove('drawer-left', 'drawer-right'); }
@@ -1328,6 +1411,9 @@
     $('#add-calendar').append(icon('plus'), onyx.isPhone ? 'Settings' : 'Add calendar');
     $('#globe-toggle').append(icon('globe'));
     $('#globe-toggle').onclick = toggleGlobe;
+    $('#update-btn').append(icon('update'));
+    $('#update-btn').onclick = () => checkForUpdate(true);
+    $('#update-btn').hidden = !onyx.checkUpdate;
     $('#graph-reset').append(icon('target'));
     $('#graph-reset').onclick = () => graph.view?.resetCamera();
     $('#today').onclick = () => nav(0);
@@ -1366,7 +1452,8 @@
 
   // Escape on the desktop, the back button on Android: close the top-most thing.
   window.onyxBack = () => {
-    if (!$('#popover').hidden) closePopover();
+    if (!$('#update-dialog').hidden) { if (!$('.upd-bar') && !$('.upd-icon.spin')) closeUpdateDialog(); }
+    else if (!$('#popover').hidden) closePopover();
     else if (!$('#modal').hidden) closeSettings();
     else if (document.body.classList.contains('drawer-left') || document.body.classList.contains('drawer-right')) closeDrawers();
     else if (graph.on) closeGraph();
@@ -1443,6 +1530,11 @@
 
     // Something changed outside the window: an agent wrote through MCP, the
     // calendar lists finished loading, or (on the phone) the regular check.
+    // A newer version found by the background check pops up; download progress updates the popup.
+    if (onyx.onUpdate) {
+      onyx.onUpdate((u) => onUpdateState(u, false));
+      onyx.updateState().then((u) => { if (u?.status === 'available') onUpdateState(u, false); }).catch(() => {});
+    }
     onyx.onChanged(async () => {
       try {
         applyState(await onyx.state());

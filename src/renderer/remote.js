@@ -126,6 +126,42 @@
     }
   }
 
+  // Updates: the newest APK on the GitHub releases page. Android installs it once
+  // the browser has downloaded it (installing from inside an app isn't allowed).
+  const REPO = 'christiangilkey/onyx-calendar';
+  let update = { status: 'idle', current: '' };
+  const updateListeners = new Set();
+  const setUpdate = (patch) => { update = { ...update, ...patch }; for (const fn of updateListeners) fn(update); return update; };
+  const parts = (v) => String(v).replace(/^v/, '').split(/[.-]/).map((n) => parseInt(n, 10) || 0);
+  const isNewer = (a, b) => {
+    const x = parts(a), y = parts(b);
+    for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+    return false;
+  };
+  const appVersion = async () => {
+    try { return (await window.Capacitor?.Plugins?.App?.getInfo())?.version || ''; } catch { return ''; }
+  };
+  // Capacitor hands links to other sites to the phone's browser instead of opening them inside the app.
+  const openOutside = (url) => { if (/^https:\/\//i.test(url)) location.assign(url); };
+
+  async function checkUpdate() {
+    const current = await appVersion();
+    setUpdate({ status: 'checking', current, error: '' });
+    try {
+      const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { headers: { Accept: 'application/vnd.github+json' } });
+      if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
+      const rel = await res.json();
+      const version = String(rel.tag_name || '').replace(/^v/, '');
+      const apk = (rel.assets || []).find((a) => a.name.endsWith('.apk'));
+      if (current && apk && isNewer(version, current)) {
+        return setUpdate({ status: 'available', version, notes: rel.body || '', url: apk.browser_download_url });
+      }
+      return setUpdate({ status: 'current', version: current || version });
+    } catch {
+      return setUpdate({ status: 'error', error: 'Could not reach GitHub to check for updates.' });
+    }
+  }
+
   window.ONYX_PHONE = true;
   window.onyx = {
     isPhone: true,
@@ -194,7 +230,15 @@
       if (Object.keys(mine).length) { local = { ...local, ...mine }; write(LOCAL, local); }
       return withLocal(Object.keys(shared).length ? await call('settings', shared) : await call('state'));
     },
-    open: async (url) => { window.open(url, '_blank'); },
+    open: async (url) => openOutside(url),
+    checkUpdate,
+    installUpdate: async () => {
+      if (update.status !== 'available') await checkUpdate();
+      if (update.status === 'available') { openOutside(update.url); setUpdate({ status: 'handoff' }); }
+      return update;
+    },
+    updateState: async () => update,
+    onUpdate: (fn) => updateListeners.add(fn),
     copy: async (text) => navigator.clipboard?.writeText(String(text)),
     // There is no push from the PC: check again every minute and whenever the app comes back.
     onChanged: (fn) => {
@@ -203,9 +247,11 @@
     },
   };
 
-  // Native-only: pairing links opened from the camera, and the Android back button.
+  // Native-only: pairing links opened from the camera, the Android back button, update checks.
   const App = window.Capacitor?.Plugins?.App;
   if (App) {
+    setTimeout(checkUpdate, 8000);
+    setInterval(checkUpdate, 6 * 60 * 60 * 1000);
     const handle = async (url) => {
       // The launch link is reported again after the reload below, so each link is used once.
       if (!url || !url.startsWith('onyx://') || read('onyx.used-link', '') === url) return;

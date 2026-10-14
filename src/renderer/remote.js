@@ -233,9 +233,25 @@
     open: async (url) => openOutside(url),
     checkUpdate,
     installUpdate: async () => {
-      if (update.status !== 'available') await checkUpdate();
-      if (update.status === 'available') { openOutside(update.url); setUpdate({ status: 'handoff' }); }
-      return update;
+      if (!['available', 'error', 'permission'].includes(update.status)) await checkUpdate();
+      if (!update.url) return update;
+      const installer = window.Capacitor?.Plugins?.ApkInstaller;
+      if (!installer) { openOutside(update.url); return setUpdate({ status: 'handoff' }); } // older app builds
+      // Android asks once whether Onyx may install updates; after that it's one "Install" tap.
+      if (!(await installer.canInstall()).allowed) {
+        await installer.openInstallSettings();
+        return setUpdate({ status: 'permission' });
+      }
+      setUpdate({ status: 'downloading', percent: 0, error: '' });
+      const listener = await installer.addListener('progress', (p) => setUpdate({ status: 'downloading', percent: p.percent }));
+      try {
+        await installer.downloadAndInstall({ url: update.url });
+        return setUpdate({ status: 'installing', percent: 100 });
+      } catch (err) {
+        return setUpdate({ status: 'error', error: err?.message || 'The update could not be downloaded.' });
+      } finally {
+        listener?.remove?.();
+      }
     },
     updateState: async () => update,
     onUpdate: (fn) => updateListeners.add(fn),

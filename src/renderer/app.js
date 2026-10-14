@@ -1382,21 +1382,37 @@
         h('h3', null, `Onyx ${u.version} is available`),
         h('p', { class: 'upd-sub' }, u.current ? `You have ${u.current}.` : 'A new version is ready to install.'),
         u.notes && h('div', { class: 'upd-notes' }, u.notes.replace(/^#+\s*/gm, '').replace(/\*\*/g, '').trim()),
-        onyx.isPhone && h('p', { class: 'upd-sub' }, 'Your browser downloads the new app; open the download to install it over this one. Your connection to the PC is kept.'),
+        onyx.isPhone && h('p', { class: 'upd-sub' }, 'Onyx downloads the update itself; Android then asks you to tap Install. Your connection to the PC is kept.'),
         h('div', { class: 'pop-actions' },
           h('div', { class: 'grow' }),
           h('button', { class: 'btn ghost', onclick: later }, 'Later'),
-          h('button', { class: 'btn primary', onclick: () => installUpdate() }, onyx.isPhone ? 'Download update' : 'Update now')),
+          h('button', { class: 'btn primary', onclick: () => installUpdate() }, 'Update now')),
       ];
     } else if (u.status === 'downloading') {
       body = [
         h('div', { class: 'upd-icon spin' }, icon('update')),
         h('h3', null, `Downloading Onyx ${u.version || ''}`),
         h('div', { class: 'upd-bar' }, h('i', { css: { width: `${u.percent || 0}%` } })),
-        h('p', { class: 'upd-sub' }, `${u.percent || 0}%  ·  Onyx will restart by itself when it's done.`),
+        h('p', { class: 'upd-sub' }, `${u.percent || 0}%  ·  `),
       ];
     } else if (u.status === 'ready') {
       body = [h('div', { class: 'upd-icon spin' }, icon('update')), h('h3', null, 'Installing…'), h('p', { class: 'upd-sub' }, 'Onyx closes, updates and opens again in a few seconds.')];
+    } else if (u.status === 'installing') {
+      body = [
+        h('div', { class: 'upd-icon' }, icon('update')),
+        h('h3', null, `Install Onyx ${u.version || ''}`),
+        h('p', { class: 'upd-sub' }, 'Android is asking to install the update: tap Install (or Update). Onyx restarts on the new version; your connection to the PC is kept.'),
+        h('div', { class: 'pop-actions' }, h('div', { class: 'grow' }), h('button', { class: 'btn primary', onclick: closeUpdateDialog }, 'OK')),
+      ];
+    } else if (u.status === 'permission') {
+      body = [
+        h('div', { class: 'upd-icon' }, icon('update')),
+        h('h3', null, 'Allow Onyx to install updates'),
+        h('p', { class: 'upd-sub' }, 'Android opened a settings page: switch on "Allow from this source", come back, and tap Update now again. This is only needed once.'),
+        h('div', { class: 'pop-actions' }, h('div', { class: 'grow' }),
+          h('button', { class: 'btn ghost', onclick: closeUpdateDialog }, 'Later'),
+          h('button', { class: 'btn primary', onclick: () => installUpdate() }, 'Update now')),
+      ];
     } else if (u.status === 'handoff') {
       body = [
         h('div', { class: 'upd-icon' }, icon('update')),
@@ -1415,7 +1431,7 @@
   function onUpdateState(u, manual) {
     $('#update-btn').classList.toggle('has-update', u.status === 'available' || u.status === 'downloading');
     $('#update-btn').title = u.status === 'available' ? `Onyx ${u.version} is available` : 'Check for updates';
-    if (['downloading', 'ready', 'handoff'].includes(u.status) && !$('#update-dialog').hidden) return showUpdateDialog(u);
+    if (['downloading', 'ready', 'installing', 'permission', 'handoff'].includes(u.status) && !$('#update-dialog').hidden) return showUpdateDialog(u);
     if (u.status === 'available' && (manual || !dismissedUpdates.has(u.version))) return showUpdateDialog(u);
     if (!manual) return;
     if (u.status === 'current') toast(`You're on the latest version${u.version ? ` (${u.version})` : ''}.`);

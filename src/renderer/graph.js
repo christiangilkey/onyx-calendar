@@ -10,11 +10,14 @@
   const UNTAGGED = '#5a5a64';
 
   /**
-   * items: [{ id, title, color, calendarId, calendarName, tags, start, allDay, kind, shape?, home? }]
+   * items: [{ id, title, color, calendarId, calendarName, tags, start, allDay, kind, shape?, home?, source? }]
    * groupBy: 'tags' | 'calendars' | 'days'
    * shape: 'diamond' (notes) or 'square' (documents); circles otherwise.
-   * home: [key, label, colour], the cluster an item joins when it has no tag (and in
-   *       the other groupings): notes, Notion and Drive gather there instead of "Untagged".
+   * home:   [key, label, colour], the cluster an item starts in when it has no tag:
+   *         Overdue / Today / Tomorrow / a day / No date for tasks; Notes, Notion or Drive.
+   * source: [key, label, colour], used instead of the calendar when grouping by source
+   *         (and for undated items when grouping by day): Notes, Notion, Drive.
+   * Every hub carries its `key`, which is what a drag-and-drop on the globe reports.
    */
   function build(items, { groupBy, tagColor, dayLabel }) {
     const nodes = [];
@@ -22,12 +25,13 @@
     const hubs = new Map();
     const hubFor = (key, label, color, order = 0) => {
       if (!hubs.has(key)) {
-        const hub = { id: `hub:${key}`, hub: true, label, color, count: 0, order };
+        const hub = { id: `hub:${key}`, key, hub: true, label, color, count: 0, order };
         hubs.set(key, hub);
         nodes.push(hub);
       }
       return hubs.get(key);
     };
+    const place = ([key, label, color, order = Infinity], prefix) => [`${prefix}:${key}`, label, color, order];
 
     for (const item of items) {
       const node = { id: item.id, hub: false, label: item.title, color: item.color, shape: item.shape, item };
@@ -36,13 +40,15 @@
       if (groupBy === 'tags') {
         groups = item.tags.length
           ? item.tags.map((t) => [`tag:${t.toLowerCase()}`, `#${t}`, tagColor(t)])
-          : [item.home ? [`home:${item.home[0]}`, item.home[1], item.home[2], Infinity] : ['untagged', 'Untagged', UNTAGGED]];
+          : [item.home ? place(item.home, 'home') : ['untagged', 'Untagged', UNTAGGED]];
         node.color = item.tags.length ? tagColor(item.tags[0]) : item.home ? item.color : '#8a8a94';
-      } else if (groupBy === 'calendars' || item.home) {
-        groups = item.home ? [[`home:${item.home[0]}`, item.home[1], item.home[2], Infinity]] : [[`cal:${item.calendarId}`, item.calendarName, item.color]];
+      } else if (groupBy === 'calendars') {
+        groups = [item.source ? place(item.source, 'home') : [`cal:${item.calendarId}`, item.calendarName, item.color]];
+      } else if (item.start) {
+        const key = dayKey(item);
+        groups = [[`day:${key}`, dayLabel(key), '#c9c9d2', Date.parse(`${key}T00:00`)]];
       } else {
-        const key = item.start ? dayKey(item) : 'none';
-        groups = [[`day:${key}`, item.start ? dayLabel(key) : 'No date', '#c9c9d2', item.start ? Date.parse(`${key}T00:00`) : Infinity]];
+        groups = [item.source ? place(item.source, 'home') : ['day:none', 'No date', '#c9c9d2', Infinity]];
       }
       for (const [key, label, color, order] of groups) {
         const hub = hubFor(key, label, color, order);
@@ -72,7 +78,11 @@
     return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
   };
 
-  function create(canvas, { onPick } = {}) {
+  /**
+   * onPick(item, rect): an item was clicked.
+   * onMove(item, toKey, fromKey, toLabel): an item was dragged onto another cluster's hub.
+   */
+  function create(canvas, { onPick, onMove: onMoveItem } = {}) {
     const ctx = canvas.getContext('2d');
     let nodes = [];
     let links = [];
@@ -194,6 +204,7 @@
           const g = 0.0008 * alpha;
           p.vx -= p.x * g; p.vy -= p.y * g; p.vz -= p.z * g;
         }
+        if (p.pinned) { p.vx = 0; p.vy = 0; p.vz = 0; continue; } // being dragged: the pointer decides
         p.vx *= 0.82; p.vy *= 0.82; p.vz *= 0.82;
         p.x += p.vx; p.y += p.vy; p.z += p.vz;
       }
@@ -321,6 +332,38 @@
         }
       }
       drawGlobe(center, true);
+      drawHeld();
+    }
+
+    // While an item is being dragged: a dashed line to the cluster it would join, and its name.
+    function drawHeld() {
+      if (!held?.active || !held.node.p) return;
+      const p = held.node.p;
+      const t = held.target;
+      ctx.save();
+      if (t?.p) {
+        const r = (6 + Math.sqrt(t.count) * 2.2) * t.p.s;
+        ctx.setLineDash([5, 5]);
+        ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(t.p.x, t.p.y); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.strokeStyle = rgba(t.color, 0.95);
+        ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.arc(t.p.x, t.p.y, r + 9, 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.fillStyle = 'rgba(255,255,255,0.95)';
+      ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.font = '600 12px "Segoe UI",Inter,Roboto,system-ui,sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      const text = t ? `Move to ${t.label}` : held.node.label;
+      const w = ctx.measureText(text).width + 16;
+      ctx.fillStyle = 'rgba(14,14,16,0.92)';
+      ctx.beginPath(); ctx.roundRect(p.x + 12, p.y - 13, w, 26, 8); ctx.fill();
+      ctx.fillStyle = '#f1f1f4';
+      ctx.fillText(text, p.x + 20, p.y);
+      ctx.restore();
     }
 
     function drawAtmosphere(center) {
@@ -408,13 +451,55 @@
 
     const local = (e) => { const b = canvas.getBoundingClientRect(); return { x: e.clientX - b.left, y: e.clientY - b.top }; };
 
+    // Dragging an item (not a hub) moves just that item; letting go over another
+    // cluster reports the move (onMove), and the item springs back otherwise.
+    let held = null; // { node, from: hub it started in, target: hub under the pointer, active }
+
+    /** Undoes the camera rotation: a screen-space step at scale s becomes a world-space step. */
+    function screenToWorld(dx, dy, s) {
+      const x1 = dx / s, y2 = dy / s, z2 = 0;
+      const cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
+      const y0 = y2 * cp + z2 * sp, z1 = -y2 * sp + z2 * cp;
+      const cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw);
+      return { x: x1 * cy + z1 * sy, y: y0, z: -x1 * sy + z1 * cy };
+    }
+
+    function hubUnder(x, y, except) {
+      let best = null, bestD = Infinity;
+      for (const n of nodes) {
+        if (!n.hub || n === except || !n.p || n.p.depth < 10) continue;
+        const r = (6 + Math.sqrt(n.count) * 2.2) * n.p.s + 22;
+        const d = Math.hypot(n.p.x - x, n.p.y - y);
+        if (d < r && d < bestD) { best = n; bestD = d; }
+      }
+      return best;
+    }
+
+    function startHold(node) {
+      // The cluster it is leaving: of the hubs it belongs to, the nearest one.
+      let from = null, bestD = Infinity;
+      for (const id of neighbours.get(node.id) || []) {
+        const hub = nodes.find((n) => n.id === id && n.hub);
+        if (!hub) continue;
+        const d = (hub.x - node.x) ** 2 + (hub.y - node.y) ** 2 + (hub.z - node.z) ** 2;
+        if (d < bestD) { from = hub; bestD = d; }
+      }
+      held = { node, from, target: null, active: false };
+    }
+
     function onDown(e) {
-      canvas.setPointerCapture(e.pointerId);
+      try { canvas.setPointerCapture(e.pointerId); } catch { /* a synthetic pointer can't be captured */ }
       pointers.set(e.pointerId, local(e));
       lastInput = performance.now();
       spin = { yaw: 0, pitch: 0 };
-      if (pointers.size === 1) drag = { start: local(e), last: local(e), moved: 0, t: performance.now() };
-      else drag = { pinch: pinchDistance(), dist: cam.dist, moved: 99 };
+      if (pointers.size === 1) {
+        drag = { start: local(e), last: local(e), moved: 0, t: performance.now() };
+        const n = onMoveItem ? pick(drag.start.x, drag.start.y) : null;
+        if (n && !n.hub) startHold(n);
+      } else {
+        held = null;
+        drag = { pinch: pinchDistance(), dist: cam.dist, moved: 99 };
+      }
     }
 
     function pinchDistance() {
@@ -442,6 +527,17 @@
       const dx = pt.x - drag.last.x, dy = pt.y - drag.last.y;
       drag.moved += Math.abs(dx) + Math.abs(dy);
       drag.last = pt;
+      if (held) {
+        if (!held.active && drag.moved > 6) { held.active = true; held.node.pinned = true; }
+        if (held.active) {
+          const step = screenToWorld(dx, dy, held.node.p?.s || 1);
+          held.node.x += step.x; held.node.y += step.y; held.node.z += step.z;
+          held.target = hubUnder(pt.x, pt.y, null);
+          if (held.target === held.from) held.target = null;
+          canvas.style.cursor = 'grabbing';
+        }
+        return;
+      }
       cam.yaw += dx * 0.006;
       cam.pitch = clampPitch(cam.pitch + dy * 0.006);
       spin = { yaw: dx * 0.006, pitch: dy * 0.006 };
@@ -454,6 +550,14 @@
       const d = drag;
       drag = pointers.size === 1 ? { start: [...pointers.values()][0], last: [...pointers.values()][0], moved: 99 } : null;
       canvas.style.cursor = hover ? 'pointer' : 'grab';
+      const h = held;
+      held = null;
+      if (h?.active) {
+        h.node.pinned = false;
+        alpha = Math.max(alpha, 0.5); // let it settle wherever it ends up
+        if (h.target) onMoveItem(h.node.item, h.target.key, h.from?.key || null, h.target.label);
+        return;
+      }
       if (!d || d.moved > 6) return;
       spin = { yaw: 0, pitch: 0 };
       const n = pick(pt.x, pt.y);
@@ -509,6 +613,11 @@
     return {
       setData,
       resetCamera,
+      /** Where a node (or `hub:<key>`) is drawn, in canvas pixels, and what it is: for tests and tooling. */
+      locate: (id) => {
+        const n = nodes.find((x) => x.id === id);
+        return n?.p ? { x: n.p.x, y: n.p.y, label: n.label, hub: n.hub, links: [...(neighbours.get(n.id) || [])] } : null;
+      },
       destroy() {
         cancelAnimationFrame(raf);
         observer.disconnect();

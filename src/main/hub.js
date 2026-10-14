@@ -276,7 +276,7 @@ function unifyTask(cal, t, mirrors) {
   const task = {
     id, listId: cal.id, listName: cal.name, color: cal.color, provider: cal.provider,
     title: t.title, label: p.date || p.time ? p.spoken : t.title, notes: t.notes,
-    due: t.due, done: t.done, date, time: p.time ? `${pad(p.time[0])}:${pad(p.time[1])}` : null,
+    due: t.due, done: t.done, date, dateInName: !!p.date, time: p.time ? `${pad(p.time[0])}:${pad(p.time[1])}` : null,
     start: start ? start.toISOString() : null, mirror: mirrors.has(id), call: null, tags: tagsOf(id),
   };
   // The Pi only reads Google Tasks, and only phones for a task with a time in its name.

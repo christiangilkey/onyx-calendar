@@ -168,6 +168,11 @@
       const { tags: newTags, ...rest } = patch;
       Object.assign(t, rest);
       if (rest.title) t.label = rest.title;
+      if ('due' in rest) {
+        t.date = rest.due;
+        t.start = rest.due && t.time ? new Date(`${rest.due}T${t.time}`).toISOString() : null;
+        t.call = null;
+      }
       if (newTags) setTags(id, newTags);
       return withTags(t);
     },

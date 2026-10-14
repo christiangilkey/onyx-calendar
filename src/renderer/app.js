@@ -965,6 +965,7 @@
     show: { tasks: true, notes: true, notion: true, drive: true }, // what joins the calendar entries
     lib: { notes: [], pins: [] },
   };
+  window.onyxDebug = { globe: () => graph.view }; // lets tests find nodes on the canvas
 
   // Where notes and outside documents gather when they have no tags.
   const SOURCES = {
@@ -1011,20 +1012,44 @@
     loadGraph();
   }
 
-  const sourceItem = (key, fields) => ({
-    color: SOURCES[key].color, calendarId: `src:${key}`, calendarName: SOURCES[key].label,
-    home: [key, SOURCES[key].label, SOURCES[key].color], start: null, ...fields,
+  const sourceItem = (key, fields) => {
+    const group = [key, SOURCES[key].label, SOURCES[key].color];
+    return { color: SOURCES[key].color, calendarId: `src:${key}`, calendarName: SOURCES[key].label, home: group, source: group, start: null, ...fields };
+  };
+
+  /**
+   * Where an untagged task starts out on the globe: Overdue, Today, Tomorrow, its day, or No date.
+   * Only a starting place: dragging it onto a tag or another day moves it.
+   */
+  function dueGroup(date) {
+    const today = ymd(new Date());
+    if (!date) return ['due:none', 'No date', '#8a8a94'];
+    if (date < today) return ['due:overdue', 'Overdue', '#ff6b6b'];
+    if (date === today) return [`due:${date}`, 'Today', '#f1f1f4'];
+    if (date === ymd(addDays(new Date(), 1))) return [`due:${date}`, 'Tomorrow', '#c9c9d2'];
+    return [`due:${date}`, fromYmd(date).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }), '#a8b0c8'];
+  }
+
+  const taskItem = (t) => ({
+    id: t.id, title: t.label, color: t.color, calendarId: t.listId, calendarName: t.listName, tags: t.tags || [],
+    start: t.start || t.date || null, allDay: !t.start, kind: 'task', task: t, home: dueGroup(t.date),
   });
 
   function graphItems(events) {
-    const items = events.filter((e) => visible(e.calendarId) && matchesFilter(e.tags)).map((e) => ({
-      id: e.id, title: e.title, color: e.color, calendarId: e.calendarId, calendarName: e.calendarName,
-      tags: e.tags || [], start: e.start, allDay: e.allDay, kind: e.kind, src: e,
-    }));
+    const items = events.filter((e) => visible(e.calendarId) && matchesFilter(e.tags)).map((e) => {
+      const t = e.kind === 'task' ? tasks.find((x) => x.id === e.id) : null;
+      return t ? taskItem(t) : {
+        id: e.id, title: e.title, color: e.color, calendarId: e.calendarId, calendarName: e.calendarName,
+        tags: e.tags || [], start: e.start, allDay: e.allDay, kind: e.kind, src: e,
+      };
+    });
     if (graph.show.tasks) {
+      // Tasks with no date, and overdue ones (whatever range is picked), join the dated tasks in range.
+      const shown = new Set(items.map((i) => i.id));
+      const today = ymd(new Date());
       for (const t of tasks) {
-        if (t.mirror || t.done || t.date || !visible(t.listId) || !matchesFilter(t.tags)) continue;
-        items.push({ id: t.id, title: t.label, color: t.color, calendarId: t.listId, calendarName: t.listName, tags: t.tags || [], start: null, kind: 'task', task: t });
+        if (shown.has(t.id) || t.mirror || t.done || !visible(t.listId) || !matchesFilter(t.tags)) continue;
+        if (!t.date || t.date < today) items.push(taskItem(t));
       }
     }
     // Notes, Notion pages and Drive files have no date: they show whatever the range.
@@ -1075,6 +1100,52 @@
     } else {
       const src = item.src;
       openEditor({ src, start: toDate(src.start), end: toDate(src.end), allDay: src.allDay }, rect);
+    }
+  }
+
+  // Dragging something onto another cluster on the globe.
+  //   onto a tag            -> it takes that tag (instead of the tag it came from)
+  //   onto Today / a day    -> a task gets that due date (and leaves the tag it came from)
+  //   onto No date          -> a task loses its due date
+  //   onto its own Notes / Notion / Drive / Untagged cluster -> it loses the tag it came from
+  async function moveOnGlobe(item, toKey, fromKey, toLabel) {
+    const tagOf = (key) => (key?.startsWith('tag:') ? (tagInfo(key.slice(4))?.name || key.slice(4)) : null);
+    const fromTag = tagOf(fromKey);
+    const without = (item.tags || []).filter((t) => t !== fromTag);
+    const saveTags = (next) => {
+      if (item.kind === 'note') return onyx.updateNote(item.id, { tags: next });
+      if (item.kind === 'pin') return onyx.updatePin(item.id, { tags: next });
+      return onyx.setTags(item.id, next);
+    };
+    try {
+      let done;
+      if (toKey.startsWith('tag:')) {
+        const to = tagOf(toKey);
+        await saveTags([...without.filter((t) => t.toLowerCase() !== to.toLowerCase()), to]);
+        done = `Moved to #${to}`;
+      } else if (toKey.startsWith('home:due:') || toKey.startsWith('day:')) {
+        const t = item.task;
+        if (!t) throw new Error('Only tasks can be moved to a day here. Drag events in the calendar view.');
+        const raw = toKey.replace(/^home:due:|^day:/, '');
+        if (raw === 'overdue') throw new Error('Drop it on Today, Tomorrow, another day or No date.');
+        if (t.dateInName) throw new Error('This task has its date written in its name. Change the name to move it.');
+        const due = raw === 'none' ? null : raw;
+        await onyx.updateTask(t.id, { due, ...(fromTag ? { tags: without } : {}) });
+        done = due ? `Moved to ${toLabel}` : 'Date removed';
+      } else if (toKey === 'untagged' || toKey === `home:${item.home?.[0]}`) {
+        if (!fromTag) throw new Error('It is already there.');
+        await saveTags(without);
+        done = `Removed #${fromTag}`;
+      } else {
+        throw new Error(`It can't go into ${toLabel}. Drop it on a tag, or a task on a day.`);
+      }
+      toast(done);
+      await loadTasks();
+      reloadTags();
+      refetch();
+    } catch (err) {
+      toast(err.message, 'warn');
+      loadGraph(); // puts it back
     }
   }
 
@@ -1262,7 +1333,7 @@
     }
     graph.on = true;
     $('#graph').hidden = false;
-    if (!graph.view) graph.view = OnyxGraph.create($('#graph-canvas'), { onPick: pickFromGraph });
+    if (!graph.view) graph.view = OnyxGraph.create($('#graph-canvas'), { onPick: pickFromGraph, onMove: moveOnGlobe });
     for (const b of document.querySelectorAll('[data-view]')) b.classList.remove('on');
     $('#globe-toggle').classList.add('on');
     $('#globe-toggle').title = 'Back to the calendar (G)';

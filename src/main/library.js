@@ -62,7 +62,7 @@ function deleteNote(id) {
 const SOURCES = new Set(['notion', 'drive']);
 
 function pinOut(p) {
-  return { ...p, tags: tagsOf(p.id) };
+  return { ...p, notes: p.notes || '', tags: tagsOf(p.id) };
 }
 
 function listPins() {
@@ -91,6 +91,12 @@ function updatePin(id, patch = {}) {
   const pin = lists().pins.find((p) => p.id === id);
   if (!pin) throw new Error('That item is no longer on the globe.');
   if ('tags' in patch) hub.setTags(id, patch.tags);
+  if ('notes' in patch) {
+    // Your notes on the page or file, kept in Onyx (Notion and Drive are only read).
+    pin.notes = String(patch.notes ?? '').replace(/\s+$/, '').slice(0, hub.MAX_NOTE);
+    if (!pin.notes) delete pin.notes;
+    store.save();
+  }
   return pinOut(pin);
 }
 

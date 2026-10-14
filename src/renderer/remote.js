@@ -214,6 +214,7 @@
     archivedTasks: (from, to) => call('tasks:archived', from, to),
     deleteTask: (id) => call('task:delete', id),
     setTags: (id, tags) => call('tags:set', id, tags),
+    setMemo: (id, text) => call('memo:set', id, text),
     globe: () => call('globe'),
     createNote: (data) => call('note:create', data),
     updateNote: (id, patch) => call('note:update', id, patch),

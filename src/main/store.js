@@ -31,8 +31,9 @@ const DEFAULTS = {
   piLinks: {},           // event id -> id of the Google Task the Pi phones about
   tags: {},              // event or task id -> ['tag', ...]. Kept only in Onyx, never sent to Google or Microsoft.
   tagColors: {},         // tag -> colour
+  memos: {},             // event id -> your own notes on an entry Onyx cannot write to (read-only calendars). Kept only in Onyx.
   notes: [],             // { id, title, body, created, updated } written in Onyx, shown on the globe
-  pins: [],              // { id, source: 'notion' | 'drive', ref, title, url, kind, added } pinned to the globe
+  pins: [],              // { id, source: 'notion' | 'drive', ref, title, url, kind, added, notes } pinned to the globe
   notion: null,          // { name, workspace } of the connected Notion integration
   secrets: { googleClientSecret: '', tokens: {}, mcpToken: '', notionToken: '' },
 };

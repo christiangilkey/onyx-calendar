@@ -513,7 +513,12 @@
         // Hovering holds the slow spin, so whatever is under the pointer stays put to be clicked.
         if (e.pointerType === 'mouse') lastInput = performance.now();
         const h = pick(pt.x, pt.y);
-        if (h !== hover) { hover = h; canvas.style.cursor = h ? 'pointer' : 'grab'; }
+        if (h !== hover) {
+          hover = h;
+          canvas.style.cursor = h ? 'pointer' : 'grab';
+          // An item's notes show as its tooltip.
+          canvas.title = h?.item?.notes ? `${h.item.title}\n\n${h.item.notes.slice(0, 600)}` : '';
+        }
         return;
       }
       pointers.set(e.pointerId, pt);
@@ -579,7 +584,7 @@
       cam.dist = Math.max(140, Math.min(2600, cam.dist * Math.exp(e.deltaY * 0.0012)));
     }
 
-    function onLeave() { if (!drag) hover = null; }
+    function onLeave() { if (!drag) { hover = null; canvas.title = ''; } }
 
     function resize() {
       const b = canvas.getBoundingClientRect();

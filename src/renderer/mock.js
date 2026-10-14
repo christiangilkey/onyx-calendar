@@ -56,14 +56,13 @@
     { id: 'g1/tl~main/a', title: '0800 Site visit', label: 'Site visit', date: ymd(day(1)), time: '08:00', start: day(1, 8).toISOString(), call: { at: day(1, 7).toISOString(), quiet: false, past: false } },
     { id: 'g1/tl~main/b', title: 'Call Alex 2pm', label: 'Call Alex', date: ymd(day(0)), time: '14:00', start: day(0, 14).toISOString(), call: { at: day(0, 13).toISOString(), quiet: false, past: day(0, 14) < new Date() } },
     { id: 'g1/tl~main/c', title: '0700 Check flight time', label: 'Check flight time', date: ymd(day(2)), time: '07:00', start: day(2, 7).toISOString(), call: { at: day(2, 6).toISOString(), quiet: true, past: false } },
-    { id: 'g1/tl~main/d', title: 'Renew passport', label: 'Renew passport', date: ymd(day(4)), time: null, start: null, call: null },
+    { id: 'g1/tl~main/d', title: 'Renew passport', label: 'Renew passport', date: ymd(day(4)), time: null, start: null, call: null, notes: 'Bring 2 photos and the old passport.\nForm DS-82, fee $130.' },
     { id: 'g1/tl~main/e', title: 'Anki 20 new words', label: 'Anki 20 new words', date: null, time: null, start: null, call: null },
     { id: 'g1/tl~main/f', title: 'Submit travel claim', label: 'Submit travel claim', date: ymd(day(-2)), time: null, start: null, call: null },
     { id: 'g1/tl~main/g', title: 'Read grammar chapter 4', label: 'Read grammar chapter 4', date: null, time: null, start: null, call: null },
     { id: 'g1/tl~main/h', title: 'Book dentist', label: 'Book dentist', date: ymd(day(0)), time: null, start: null, call: null, done: true, completed: day(0, 9).toISOString() },
     { id: 'g1/tl~main/i', title: 'Pay phone bill', label: 'Pay phone bill', date: ymd(day(-1)), time: null, start: null, call: null, done: true, completed: day(-1, 18).toISOString() },
-  ].map((t) => ({ listId: 'g1/tl~main', listName: 'My Tasks', color: '#f5b83d', provider: 'google', notes: '', due: t.date, done: false, mirror: false, ...t }));
-  Object.assign(tags, { 'g1/tl~main/a': ['work'], 'g1/tl~main/d': ['admin'], 'g1/tl~main/e': ['study', 'arabic'], 'g1/tl~main/f': ['admin', 'work'], 'g1/tl~main/g': ['arabic'] });
+  ].map((t) => ({ listId: 'g1/tl~main', listName: 'My Tasks', color: '#f5b83d', provider: 'google', notes: '', due: t.date, done: false, mirror: false, ...t }));  Object.assign(tags, { 'g1/tl~main/a': ['work'], 'g1/tl~main/d': ['admin'], 'g1/tl~main/e': ['study', 'arabic'], 'g1/tl~main/f': ['admin', 'work'], 'g1/tl~main/g': ['arabic'] });
 
   // Globe-only items: notes, and pinned Notion pages and Drive files.
   let notes = [
@@ -129,7 +128,7 @@
   };
   const withTags = (x) => ({ ...x, tags: tags[x.id] || [] });
   const taskEvent = (t) => ({
-    id: t.id, calendarId: t.listId, calendarName: t.listName, color: t.color, kind: 'task', title: t.label, location: '', notes: '', link: '',
+    id: t.id, calendarId: t.listId, calendarName: t.listName, color: t.color, kind: 'task', title: t.label, location: '', notes: t.notes || '', link: '',
     writable: false, piCall: !!(t.call && !t.call.quiet && !t.call.past), movable: !t.mirror && !t.done,
     ...(t.start ? { allDay: false, start: t.start, end: new Date(new Date(t.start).getTime() + 1800000).toISOString() }
       : { allDay: true, start: t.date, end: ymd(new Date(new Date(`${t.date}T00:00`).getTime() + 86400000)) }),
@@ -216,7 +215,8 @@
     updateNote: async (id, d) => { const n = notes.find((x) => x.id === id); Object.assign(n, { title: d.title ?? n.title, body: d.body ?? n.body }); if (d.tags) setTags(id, d.tags); return withTags(n); },
     deleteNote: async (id) => { notes = notes.filter((x) => x.id !== id); delete tags[id]; },
     addPin: async (r) => { const p = { id: `${r.source}/${r.ref}`, source: r.source, ref: r.ref, title: r.title, url: r.url, kind: r.kind }; pins = [...pins.filter((x) => x.id !== p.id), p]; setTags(p.id, r.tags); return withTags(p); },
-    updatePin: async (id, d) => { if (d.tags) setTags(id, d.tags); return withTags(pins.find((x) => x.id === id)); },
+    updatePin: async (id, d) => { const p = pins.find((x) => x.id === id); if (d.tags) setTags(id, d.tags); if ('notes' in d) p.notes = d.notes; return withTags(p); },
+    setMemo: async (id, text) => { const e = events.find((x) => x.id === id); if (e) e.memo = String(text || '').trimEnd(); return e?.memo || ''; },
     removePin: async (id) => { pins = pins.filter((x) => x.id !== id); delete tags[id]; },
     searchNotion: async (q) => DEMO_NOTION.filter((r) => r.title.toLowerCase().includes(String(q).toLowerCase())),
     searchDrive: async (q) => DEMO_DRIVE.filter((r) => r.title.toLowerCase().includes(String(q).toLowerCase())),

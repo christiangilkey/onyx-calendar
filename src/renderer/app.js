@@ -124,6 +124,25 @@
 
   const sameTags = (a, b) => (a || []).join('\n') === (b || []).join('\n');
 
+  // ------------------------------------------------------------ notes on entries
+  // Every task, event, block and pinned document has a notes box. Notes go to Google or
+  // Outlook where the entry can be written; otherwise they are kept in Onyx (`memo`).
+
+  const notesOf = (x) => [x?.notes, x?.memo].map((s) => (s || '').trim()).filter(Boolean).join('\n\n');
+  const cleanNote = (s) => String(s || '').replace(/\s+$/, '');
+
+  /** A notes box that grows with what is written in it. */
+  function notesField(value, placeholder = 'Notes: anything you want to remember about this') {
+    const box = h('textarea', { class: 'notes-field', rows: 2, placeholder, value: value || '', spellcheck: true });
+    const fit = () => { box.style.height = 'auto'; box.style.height = `${Math.min(box.scrollHeight + 2, 260)}px`; };
+    box.addEventListener('input', fit);
+    requestAnimationFrame(fit);
+    return box;
+  }
+
+  /** A short preview of an entry's notes for lists. */
+  const notePreview = (text) => text && h('div', { class: 'note-preview', title: text }, icon('note'), h('span', null, text.replace(/\s*\n+\s*/g, ' · ')));
+
   const fmtTime = (d) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: S.settings.hour12 });
   const fmtDay = (d) => d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
   const quietLabel = () => `${fmtTime(at('2000-01-01', S.settings.pi.quietStart))} to ${fmtTime(at('2000-01-01', S.settings.pi.quietEnd))}`;
@@ -208,14 +227,17 @@
     const src = arg.event.extendedProps.src;
     // The block being dragged out has no entry behind it yet: show just its times.
     if (!src) return { domNodes: [h('div', { class: 'ev' }, h('div', { class: 'ev-title' }, h('span', { class: 't' }, arg.timeText || 'New block')))] };
+    const notes = notesOf(src);
     const title = h('div', { class: 'ev-title' },
       src.kind === 'task' && h('span', { class: 'dot' }),
       h('span', { class: 't' }, arg.event.title),
       src.piCall && icon('phone'),
+      notes && icon('note'),
       src.kind === 'event' && !src.writable && icon('lock'),
       src.tags?.length > 0 && h('span', { class: 'tagdots', title: src.tags.map((t) => `#${t}`).join(' ') },
         src.tags.slice(0, 4).map((t) => h('i', { css: { '--t': tagColor(t) } }))));
-    return { domNodes: [h('div', { class: 'ev' }, title, arg.timeText && h('div', { class: 'ev-time' }, arg.timeText))] };
+    // Hovering an entry shows its notes.
+    return { domNodes: [h('div', { class: 'ev', title: notes ? `${arg.event.title}\n\n${notes}` : null }, title, arg.timeText && h('div', { class: 'ev-time' }, arg.timeText))] };
   }
 
   async function onMove(info) {
@@ -372,7 +394,9 @@
       (readOnly ? [S.calendars.find((c) => c.id === src.calendarId) || { id: src.calendarId, name: src.calendarName, accountLabel: '' }] : writable)
         .map((c) => h('option', { value: c.id }, c.account === 'local' || !c.accountLabel ? c.name : `${c.name}  ·  ${c.accountLabel}`)));
     calendarPick.value = src ? src.calendarId : (writable.some((c) => c.id === S.settings.defaultCalendar) ? S.settings.defaultCalendar : writable[0]?.id);
-    const notes = h('textarea', { rows: 2, placeholder: 'Notes', value: src ? src.notes : '', disabled: readOnly });
+    // Notes are saved with the entry; on a read-only calendar yours are kept in Onyx instead.
+    const notes = !readOnly && notesField(src ? src.notes : '');
+    const memo = readOnly && notesField(src.memo, 'Your notes: kept in Onyx, since this calendar is read-only');
     const call = h('input', { type: 'checkbox', checked: !!src?.piCall });
     const callHint = h('small');
     const untilRow = h('div', { class: 'row' }, h('span', { class: 'ico' }), h('span', { class: 'dash' }, 'until'), endDate);
@@ -407,7 +431,7 @@
       const r = range();
       const data = {
         title: title.value.trim(), start: r.start, end: r.end, allDay: r.allDay, calendarId: calendarPick.value,
-        notes: notes.value, piCall: call.checked && !r.allDay, tags: tags.get(),
+        ...(notes ? { notes: cleanNote(notes.value) } : {}), piCall: call.checked && !r.allDay, tags: tags.get(),
       };
       try {
         let saved = null;
@@ -418,6 +442,7 @@
           // A read-only calendar can still carry tags and a phone reminder: both live in Onyx.
           if (data.piCall !== !!src.piCall) await onyx.setCall({ id: src.id, title: src.title, start: src.start, allDay: src.allDay }, data.piCall);
           if (!sameTags(data.tags, src.tags)) await onyx.setTags(src.id, data.tags);
+          if (cleanNote(memo.value) !== (src.memo || '')) await onyx.setMemo(src.id, memo.value);
         } else {
           saved = await onyx.updateEvent(src.id, data);
         }
@@ -446,7 +471,9 @@
       h('div', { class: 'row' }, icon('clock'), date, startTime, dash, endTime),
       untilRow,
       h('div', { class: 'row' }, icon('calendar'), calendarPick, h('label', { class: 'check' }, allDay, 'All day')),
-      (!readOnly || src.notes) && h('div', { class: 'row' }, icon('note'), notes),
+      notes && h('div', { class: 'row top' }, icon('note'), notes),
+      readOnly && src.notes && h('div', { class: 'row top pop-meta' }, icon('note'), h('div', { class: 'note-text' }, src.notes)),
+      memo && h('div', { class: 'row top' }, icon('note'), memo),
       h('div', { class: 'row' }, icon('tag'), tags.el),
       src?.location && h('div', { class: 'row pop-meta' }, icon('pin'), src.location),
       S.settings.pi.enabled && h('div', { class: 'row pi-row' }, icon('phone'),
@@ -463,6 +490,7 @@
     showPopover(anchor, nodes);
     sync();
     title.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
+    for (const box of [notes, memo]) if (box) box.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) save(); });
     if (!readOnly && !MOBILE) title.focus();
   }
 
@@ -494,7 +522,8 @@
       h('div', { class: 'task-body', onclick: (e) => openTask(t, e.currentTarget.getBoundingClientRect()) },
         h('div', { class: 'task-name' }, t.label),
         h('div', { class: 'task-meta' }, when && h('span', null, when), callBadge(t), h('span', null, t.listName),
-          (t.tags || []).map((tag) => h('span', { class: 'mini-tag', css: { '--t': tagColor(tag) } }, `#${tag}`)))));
+          (t.tags || []).map((tag) => h('span', { class: 'mini-tag', css: { '--t': tagColor(tag) } }, `#${tag}`))),
+        notePreview(notesOf(t))));
     return row;
   }
 
@@ -604,7 +633,8 @@
         h('div', { class: 'task-meta' },
           t.completed && h('span', null, `Done ${fmtTime(new Date(t.completed))}`),
           due && h('span', null, `was due ${due}`), h('span', null, t.listName),
-          (t.tags || []).map((tag) => h('span', { class: 'mini-tag', css: { '--t': tagColor(tag) } }, `#${tag}`)))),
+          (t.tags || []).map((tag) => h('span', { class: 'mini-tag', css: { '--t': tagColor(tag) } }, `#${tag}`))),
+        notePreview(notesOf(t))),
       h('button', { class: 'row-del', title: 'Delete forever', onclick: forget }, icon('trash')));
   }
 
@@ -686,9 +716,12 @@
     };
     // The due date: changing it here does what dragging the task in the calendar does.
     const date = !t.mirror && h('input', { type: 'date', value: t.date || '', title: 'Due date' });
+    // Notes are the task's own notes in Google Tasks / To Do, so they show there too.
+    const notes = notesField(t.notes);
     const save = () => run(async () => {
       const patch = {};
       if (name.value.trim() && name.value.trim() !== t.title) patch.title = name.value.trim();
+      if (cleanNote(notes.value) !== cleanNote(t.notes)) patch.notes = cleanNote(notes.value);
       const picked = tags.get();
       if (!sameTags(picked, t.tags)) patch.tags = picked;
       if (Object.keys(patch).length) await onyx.updateTask(t.id, patch);
@@ -702,8 +735,8 @@
     showPopover(anchor, [
       name,
       h('div', { class: 'pop-meta' }, [t.listName, t.start ? `${fmtDay(new Date(t.start))}, ${fmtTime(new Date(t.start))}` : t.date ? fmtDay(fromYmd(t.date)) : 'No date'].filter(Boolean).join('  ·  ')),
-      t.notes && h('div', { class: 'pop-meta' }, t.notes),
       date && h('div', { class: 'row' }, icon('calendar'), date),
+      h('div', { class: 'row top' }, icon('note'), notes),
       h('div', { class: 'row' }, icon('tag'), tags.el),
       S.settings.pi.enabled && t.provider === 'google' && h('div', { class: 'row pi-row' }, icon('phone'),
         h('div', { class: 'txt' }, h('b', null, 'Phone reminder'), h('small', { class: st.tone }, st.text))),
@@ -713,6 +746,7 @@
         h('button', { class: 'btn primary', onclick: save }, 'Save')),
     ]);
     name.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
+    notes.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) save(); });
   }
 
   // The add bar: a name, and optionally a due date (picked, or Today / Tomorrow).
@@ -1240,7 +1274,7 @@
 
   const taskItem = (t) => ({
     id: t.id, title: t.label, color: t.color, calendarId: t.listId, calendarName: t.listName, tags: t.tags || [],
-    start: t.start || t.date || null, allDay: !t.start, kind: 'task', task: t, home: dueGroup(t.date),
+    start: t.start || t.date || null, allDay: !t.start, kind: 'task', task: t, home: dueGroup(t.date), notes: notesOf(t),
   });
 
   function graphItems(events) {
@@ -1248,7 +1282,7 @@
       const t = e.kind === 'task' ? tasks.find((x) => x.id === e.id) : null;
       return t ? taskItem(t) : {
         id: e.id, title: e.title, color: e.color, calendarId: e.calendarId, calendarName: e.calendarName,
-        tags: e.tags || [], start: e.start, allDay: e.allDay, kind: e.kind, src: e,
+        tags: e.tags || [], start: e.start, allDay: e.allDay, kind: e.kind, src: e, notes: notesOf(e),
       };
     });
     if (graph.show.tasks) {
@@ -1263,12 +1297,12 @@
     // Notes, Notion pages and Drive files have no date: they show whatever the range.
     if (graph.show.notes) {
       for (const n of graph.lib.notes) {
-        if (matchesFilter(n.tags)) items.push(sourceItem('notes', { id: n.id, title: n.title, tags: n.tags, kind: 'note', shape: 'diamond', note: n }));
+        if (matchesFilter(n.tags)) items.push(sourceItem('notes', { id: n.id, title: n.title, tags: n.tags, kind: 'note', shape: 'diamond', note: n, notes: (n.body || '').trim() }));
       }
     }
     for (const p of graph.lib.pins) {
       if (graph.show[p.source] && matchesFilter(p.tags)) {
-        items.push(sourceItem(p.source, { id: p.id, title: p.title, tags: p.tags, kind: 'pin', shape: 'square', pin: p }));
+        items.push(sourceItem(p.source, { id: p.id, title: p.title, tags: p.tags, kind: 'pin', shape: 'square', pin: p, notes: notesOf(p) }));
       }
     }
     return items;
@@ -1409,9 +1443,18 @@
 
   function openPin(pin, anchor) {
     const tags = tagField(pin.tags);
+    const notes = notesField(pin.notes, `Your notes on this ${SOURCES[pin.source].label} item (kept in Onyx)`);
+    const save = async () => {
+      const picked = tags.get();
+      const patch = { tags: picked };
+      if (cleanNote(notes.value) !== (pin.notes || '')) patch.notes = notes.value;
+      try { await onyx.updatePin(pin.id, patch); await afterGlobeChange(!sameTags(picked, pin.tags)); } catch (err) { toast(err.message, 'error'); }
+    };
+    notes.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) save(); });
     showPopover(anchor, [
       h('div', { class: 'pin-head' }, h('span', { class: `src-badge ${pin.source}` }, SOURCES[pin.source].label), h('b', null, pin.title)),
       h('p', { class: 'pop-meta' }, KIND_LABEL[pin.kind] || 'Document'),
+      h('div', { class: 'row top' }, icon('note'), notes),
       h('div', { class: 'row' }, icon('tag'), tags.el),
       h('div', { class: 'pop-actions' },
         h('button', { class: 'btn danger', title: 'Take it off the globe (it stays in ' + SOURCES[pin.source].label + ')', onclick: async () => {
@@ -1419,10 +1462,7 @@
         } }, icon('x'), 'Remove'),
         h('div', { class: 'grow' }),
         h('button', { class: 'btn', onclick: () => onyx.open(pin.url) }, icon('link'), 'Open'),
-        h('button', { class: 'btn primary', onclick: async () => {
-          const picked = tags.get();
-          try { await onyx.updatePin(pin.id, { tags: picked }); await afterGlobeChange(!sameTags(picked, pin.tags)); } catch (err) { toast(err.message, 'error'); }
-        } }, 'Save')),
+        h('button', { class: 'btn primary', onclick: save }, 'Save')),
     ]);
   }
 

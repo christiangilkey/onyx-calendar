@@ -162,7 +162,7 @@ async function getEvents(start, end, { includeHidden = false, force = false } = 
     }
   }));
   const events = lists.flat()
-    .map((e) => ({ ...e, tags: tagsOf(e.id) }))
+    .map((e) => ({ ...e, tags: tagsOf(e.id), memo: memoOf(e.id) }))
     .sort((a, b) => toDate(a.start) - toDate(b.start));
   return { events, errors: [...errors] };
 }
@@ -218,7 +218,7 @@ async function withCall(event, want, had) {
       warning = `Saved, but the Pi phone reminder was not updated. ${err.message}`;
     }
   }
-  return { ...event, piCall: !!store.data.piLinks[event.id], tags: tagsOf(event.id), warning };
+  return { ...event, piCall: !!store.data.piLinks[event.id], tags: tagsOf(event.id), memo: memoOf(event.id), warning };
 }
 
 async function updateEvent(id, patch) {
@@ -263,6 +263,7 @@ async function deleteEvent(id) {
   }
   invalidate(cal.id);
   dropTags(id);
+  setMemo(id, '');
   await setPiCall({ id }, false).catch((err) => console.error('onyx: could not remove the Pi reminder:', err.message));
 }
 
@@ -478,6 +479,23 @@ function dropTags(id) {
   }
 }
 
+// ---------------------------------------------------------------- memos
+// Your own notes on an entry Onyx cannot write notes to (a read-only calendar or a
+// subscribed feed). Entries that can be written keep their notes in Google or Outlook.
+
+const MAX_NOTE = 8000;
+const memoOf = (id) => store.data.memos[id] || '';
+
+/** Sets (or, when empty, clears) the memo on one entry. Returns it as saved. */
+function setMemo(id, text) {
+  if (!id) throw new Error('Nothing to attach the note to.');
+  const memo = String(text ?? '').replace(/\s+$/, '').slice(0, MAX_NOTE);
+  if (memo === memoOf(id)) return memo;
+  if (memo) store.data.memos[id] = memo; else delete store.data.memos[id];
+  store.save();
+  return memo;
+}
+
 /** Every tag with its colour and how many entries carry it. */
 function allTags() {
   const counts = {};
@@ -618,5 +636,5 @@ function removeLocalCalendar(id) {
 module.exports = {
   calendars, refreshCalendars, invalidate, getEvents, createEvent, updateEvent, deleteEvent,
   getTasks, archivedTasks, createTask, updateTask, moveTask, deleteTask, setPiCall, freeTime, addLocalCalendar, removeLocalCalendar,
-  setTags, allTags, setTagColor, renameTag, deleteTag,
+  setTags, allTags, setTagColor, renameTag, deleteTag, setMemo, MAX_NOTE,
 };

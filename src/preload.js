@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('onyx', {
   archivedTasks: (from, to) => call('tasks:archived', from, to),
   deleteTask: (id) => call('task:delete', id),
   setTags: (id, tags) => call('tags:set', id, tags),
+  setMemo: (id, text) => call('memo:set', id, text),
   setTagColor: (tag, color) => call('tag:color', tag, color),
   renameTag: (from, to) => call('tag:rename', from, to),
   deleteTag: (tag) => call('tag:delete', tag),

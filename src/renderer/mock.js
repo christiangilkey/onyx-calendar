@@ -199,7 +199,7 @@
     searchDrive: async (q) => DEMO_DRIVE.filter((r) => r.title.toLowerCase().includes(String(q).toLowerCase())),
     connectNotion: async () => snapshot(),
     disconnectNotion: async () => snapshot(),
-    pairing: async () => ({ link: 'onyx://pair?a=192.168.1.20%3A4747&t=preview-token', qr: '', addresses: ['192.168.1.20:4747'], token: 'preview-token', running: true, lan: true }),
+    pairing: async () => ({ link: 'onyx://pair?a=192.168.1.20%3A4747&t=preview-token', page: 'http://192.168.1.20:4747/pair#a=192.168.1.20%3A4747&t=preview-token', qr: '', addresses: ['192.168.1.20:4747'], token: 'preview-token', running: true, lan: true }),
     settings: async (patch) => { merge(state.settings, patch); return snapshot(); },
     loadGoogleCredentials: async () => snapshot(),
     connectGoogle: async () => snapshot(),

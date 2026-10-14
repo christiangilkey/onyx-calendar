@@ -1,0 +1,55 @@
+<!doctype html>
+<!-- What the phone's camera opens from the pairing QR code: it hands the pairing link
+     (kept after the #, so it never reaches a server) to the Onyx app. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Connect Onyx</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #050506; color: #ececf1; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { width: min(360px, calc(100% - 32px)); text-align: center; }
+  h1 { font-size: 22px; font-weight: 600; margin: 0 0 8px; }
+  p { color: #9a9aa6; margin: 0 0 20px; }
+  a.btn { display: block; padding: 14px; border-radius: 12px; background: #ececf1; color: #050506; font-weight: 600; text-decoration: none; margin-bottom: 12px; }
+  a.alt { display: block; color: #9a9aa6; font-size: 14px; }
+  .hide { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <div id="ok">
+    <h1>Connect Onyx</h1>
+    <p>Tap below to open the Onyx app on this phone. It connects to your PC by itself.</p>
+    <a class="btn" id="open" href="#">Open in Onyx</a>
+    <a class="alt" href="https://github.com/christiangilkey/onyx-calendar/releases/latest">Don't have the app? Download the .apk</a>
+  </div>
+  <div id="bad" class="hide">
+    <h1>Scan the code again</h1>
+    <p>This page needs the QR code from Onyx on your PC: Settings → Phone.</p>
+  </div>
+</main>
+<script>
+  (function () {
+    var query = location.hash.slice(1);
+    var params = new URLSearchParams(query);
+    // Keep the token out of the address bar and history.
+    history.replaceState(null, '', location.pathname);
+    if (!params.get('a') || !params.get('t')) {
+      document.getElementById('ok').className = 'hide';
+      document.getElementById('bad').className = '';
+      return;
+    }
+    var link = 'onyx://pair?' + query;
+    // Chrome on Android opens apps through intent: links; without the app it shows the download page.
+    var fallback = 'https://github.com/christiangilkey/onyx-calendar/releases/latest';
+    var intent = 'intent://pair?' + query + '#Intent;scheme=onyx;package=com.onyxcalendar.app;S.browser_fallback_url=' + encodeURIComponent(fallback) + ';end';
+    var target = /Android/i.test(navigator.userAgent) ? intent : link;
+    document.getElementById('open').href = target;
+    location.href = target; // try at once; some browsers want the tap instead
+  })();
+</script>
+</body>
+</html>

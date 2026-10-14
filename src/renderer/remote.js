@@ -100,11 +100,13 @@
 
   const withLocal = (state) => (state ? { ...state, settings: { ...state.settings, ...local } } : state);
 
-  /** Reads a pairing link: onyx://pair?a=192.168.1.20:4747,100.x.y.z:4747&t=TOKEN */
+  /** Reads a pairing link: onyx://pair?a=192.168.1.20:4747,100.x.y.z:4747&t=TOKEN, or the
+   *  QR code's web form of it, http://192.168.1.20:4747/pair#a=...&t=TOKEN */
   function parseLink(link) {
     const url = new URL(String(link).trim());
-    const addresses = (url.searchParams.get('a') || '').split(',').map((a) => a.trim()).filter(Boolean);
-    const token = url.searchParams.get('t') || '';
+    const params = url.protocol === 'onyx:' ? url.searchParams : new URLSearchParams(url.hash.slice(1));
+    const addresses = (params.get('a') || '').split(',').map((a) => a.trim()).filter(Boolean);
+    const token = params.get('t') || '';
     if (!addresses.length || !token) throw new Error('That is not an Onyx pairing link.');
     return { addresses, token };
   }
@@ -188,7 +190,7 @@
       }
       const text = result?.ScanResult || '';
       if (!text) return null;
-      if (!text.startsWith('onyx://')) throw new Error('That QR code is not an Onyx pairing code. Use the one in Settings → Phone on the PC.');
+      if (!/^(onyx:\/\/|https?:\/\/[^/]+\/pair#)/.test(text)) throw new Error('That QR code is not an Onyx pairing code. Use the one in Settings → Phone on the PC.');
       return pair(parseLink(text));
     },
     unpair: () => {

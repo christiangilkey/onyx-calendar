@@ -867,9 +867,9 @@
               h('h4', null, 'Connect your phone'),
               h('ol', null,
                 h('li', null, 'Install Onyx Calendar for Android: the .apk on the GitHub release page.'),
-                h('li', null, 'Open Onyx on the phone and tap Scan QR code.'),
-                h('li', null, 'Point the phone at this code. It connects by itself.')),
-              h('p', null, 'Scan with the Onyx app itself, not the camera app. To type it in instead, use an address below and the token.'))),
+                h('li', null, 'Point the phone\'s camera at this code and open the link, then tap Open in Onyx. (Or tap Scan QR code in the Onyx app.)'),
+                h('li', null, 'It connects by itself.')),
+              h('p', null, 'The phone needs to be on the same wifi as this PC (or on Tailscale). To type it in instead, use an address below and the token.'))),
           h('pre', { class: 'code' }, `Addresses: ${p.addresses.join('   ')}\nToken:     ${p.token}`),
           h('div', { class: 'row' }, copyBtn(p.link, 'Copy pairing link'), copyBtn(p.token, 'Copy token')));
       }).catch((err) => box.replaceChildren(h('p', null, err.message)));

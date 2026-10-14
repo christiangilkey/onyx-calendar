@@ -13,6 +13,8 @@
 const crypto = require('crypto');
 const http = require('http');
 const os = require('os');
+const fs = require('fs');
+const path = require('path');
 const store = require('./store');
 const hub = require('./hub');
 const library = require('./library');
@@ -365,6 +367,13 @@ async function handle(req, res) {
   const route = url.pathname.replace(/\/+$/, '') || '/';
   if (req.method === 'OPTIONS') return send(res, 204);
   if (route === '/health') return send(res, 200, { ok: true, name: 'onyx-calendar', version });
+  // The page the phone's camera opens from the pairing QR code. It holds no secrets: the
+  // pairing link rides after the #, which the browser keeps to itself.
+  if (route === '/pair' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer',
+      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" });
+    return res.end(fs.readFileSync(path.join(__dirname, 'pair-page.html')));
+  }
   if (!authorised(req)) return send(res, 401, { ok: false, error: 'Missing or wrong token. Send "Authorization: Bearer <token>" (the token is in Onyx Calendar > Settings > MCP server).' }, { 'WWW-Authenticate': 'Bearer' });
   if (route === '/app/rpc') return appRpc(req, res);
 

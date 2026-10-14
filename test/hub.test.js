@@ -221,3 +221,41 @@ test('free time is what is left between the busy blocks', async () => {
   const gaps = await hub.freeTime(ymd(day(1)), { minMinutes: 45, dayStart: '08:00', dayEnd: '17:00' });
   assert.deepEqual(gaps.map((g) => [new Date(g.start).getHours(), g.minutes]), [[8, 60], [12, 180], [16, 60]]);
 });
+
+test('tags stay in Onyx and follow their entry', async () => {
+  reset();
+  store.data.tags = {};
+  store.data.tagColors = {};
+  const ev = await hub.createEvent({ calendarId: 'g1/primary', title: 'Arabic', start: day(1, 9), end: day(1, 10), allDay: false, tags: ['#Study', 'arabic', 'study', '  '] });
+  assert.deepEqual(ev.tags, ['Study', 'arabic']);
+  assert.equal(fake.events.get(ev.id.split('/')[2]).tags, undefined); // never sent to Google
+
+  // Typed in another case, an existing tag keeps its first spelling.
+  const block = await hub.createEvent({ title: 'Flashcards', start: day(1, 11), end: day(1, 12), allDay: false, tags: ['STUDY'] });
+  assert.deepEqual(block.tags, ['Study']);
+  assert.deepEqual(hub.allTags().map((t) => [t.name, t.count]), [['arabic', 1], ['Study', 2]]);
+  assert.match(hub.allTags()[0].color, /^#[0-9a-f]{6}$/i);
+
+  const { events } = await hub.getEvents(...week());
+  assert.deepEqual(events.map((e) => [e.title, e.tags]), [['Arabic', ['Study', 'arabic']], ['Flashcards', ['Study']]]);
+
+  // Moving to another calendar keeps the tags; deleting drops them.
+  const moved = await hub.updateEvent(block.id, { calendarId: 'g1/primary', title: 'Flashcards', start: day(1, 11), end: day(1, 12), allDay: false });
+  assert.deepEqual(moved.tags, ['Study']);
+  assert.equal(store.data.tags[block.id], undefined);
+  await hub.deleteEvent(moved.id);
+  assert.deepEqual(hub.allTags().map((t) => [t.name, t.count]), [['arabic', 1], ['Study', 1]]);
+
+  // Tasks carry tags too, set without touching the task itself.
+  await google.createTask(null, 'tasks', { title: 'Read chapter 4' });
+  const task = (await hub.getTasks({ force: true })).tasks[0];
+  const tagged = await hub.updateTask(task.id, { tags: ['reading'] });
+  assert.deepEqual(tagged.tags, ['reading']);
+  assert.equal(tagged.title, 'Read chapter 4');
+
+  assert.equal(hub.renameTag('Study', 'arabic'), 'arabic'); // merging two tags
+  assert.deepEqual(store.data.tags[ev.id], ['arabic']);
+  hub.deleteTag('arabic');
+  assert.equal(store.data.tags[ev.id], undefined);
+  assert.deepEqual(hub.allTags().map((t) => t.name), ['reading']);
+});

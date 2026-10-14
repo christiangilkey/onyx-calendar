@@ -3,12 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Onyx Calendar</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <header id="titlebar">
+    <button id="menu" class="icon-btn mobile-only" title="Calendars and tags"></button>
     <div class="brand"><span class="mark"></span>Onyx</div>
     <div class="nav">
       <button id="today" class="btn">Today</button>
@@ -22,6 +23,7 @@
       <button data-view="timeGridWeek">Week</button>
       <button data-view="dayGridMonth">Month</button>
       <button data-view="listWeek">Agenda</button>
+      <button data-view="graph" title="Graph view (G)">Graph</button>
     </div>
     <button id="refresh" class="icon-btn" title="Refresh (R)"></button>
     <button id="toggle-tasks" class="icon-btn" title="Tasks"></button>
@@ -31,12 +33,29 @@
   <div id="layout">
     <aside id="sidebar">
       <button id="new-block" class="btn primary wide"></button>
+      <div id="views-mobile" class="segmented mobile-only">
+        <button data-view="timeGridDay">Day</button>
+        <button data-view="timeGrid3">3 days</button>
+        <button data-view="dayGridMonth">Month</button>
+        <button data-view="listWeek">Agenda</button>
+        <button data-view="graph">Graph</button>
+      </div>
       <div id="mini"></div>
       <div id="calendars"></div>
+      <div id="tag-list"></div>
       <button id="add-calendar" class="btn ghost wide"></button>
     </aside>
 
-    <main id="stage"><div id="calendar"></div></main>
+    <main id="stage">
+      <div id="calendar"></div>
+      <section id="graph" hidden>
+        <canvas id="graph-canvas"></canvas>
+        <div id="graph-bar"></div>
+        <div id="graph-empty" hidden>Nothing in this range. Try a longer range, or switch on more calendars.</div>
+        <div id="graph-hint">Drag to orbit · scroll or pinch to zoom · click a cluster to fly in · double-click to reset</div>
+        <div id="graph-foot"><span id="graph-stats"></span><button id="graph-reset" class="icon-btn" title="Reset the view (or double-click the graph)"></button></div>
+      </section>
+    </main>
 
     <aside id="tasks">
       <div class="panel-head">
@@ -51,12 +70,17 @@
     </aside>
   </div>
 
+  <div id="scrim"></div>
+  <button id="fab" class="mobile-only" title="New block"></button>
   <div id="popover" hidden></div>
   <div id="modal" hidden></div>
+  <div id="connect" hidden></div>
   <div id="toasts"></div>
 
   <script src="../../node_modules/fullcalendar/index.global.min.js"></script>
+  <script src="remote.js"></script>
   <script src="mock.js"></script>
+  <script src="graph.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

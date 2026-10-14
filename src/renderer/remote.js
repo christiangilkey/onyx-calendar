@@ -1,0 +1,195 @@
+// The Android app's link to Onyx on the PC. It provides the same window.onyx
+// commands as the desktop preload script, but runs them on the PC over the
+// network (POST /app/rpc), and keeps the last answers so the calendar can still
+// be read when the PC is off or out of reach.
+//
+// Active inside the Android app, or in a browser when the page is opened with
+// "?remote" (for development). Otherwise it does nothing.
+(() => {
+  'use strict';
+  if (window.onyx) return;
+  const native = !!window.Capacitor?.isNativePlatform?.();
+  if (!native && !new URLSearchParams(location.search).has('remote')) return;
+
+  const CONN = 'onyx.connection';
+  const LOCAL = 'onyx.phone-settings';
+  const CACHE = 'onyx.cache.';
+  const TIMEOUT_MS = 7000;
+  // Settings that belong to this phone rather than to the shared calendar.
+  const PHONE_ONLY = ['view', 'tasksPanel'];
+
+  const read = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } };
+  const write = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage full: the cache is optional */ } };
+
+  let conn = read(CONN, null);           // { addresses: ['192.168.1.20:4747', ...], token, last }
+  let local = read(LOCAL, { view: 'timeGrid3', tasksPanel: false });
+  let online = true;
+  const listeners = new Set();
+
+  function setOnline(value) {
+    if (online === value) return;
+    online = value;
+    document.documentElement.classList.toggle('offline', !online);
+    for (const fn of listeners) fn(online);
+  }
+
+  async function post(address, name, args) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
+    try {
+      const res = await fetch(`http://${address}/app/rpc`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${conn.token}` },
+        body: JSON.stringify({ name, args }),
+        signal: ctl.signal,
+      });
+      if (res.status === 401) {
+        throw Object.assign(new Error('The PC no longer accepts this phone. Pair it again from Onyx on the PC: Settings → Phone.'), { final: true });
+      }
+      return await res.json();
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  const cacheKey = (name, args) => CACHE + name + (name === 'events' ? `.${args[0]}.${args[1]}` : '');
+
+  // Events seen in any range, so a slightly different range can still be shown offline.
+  function rememberEvents(list) {
+    const all = new Map(read(`${CACHE}events.all`, []).map((e) => [e.id, e]));
+    for (const e of list) all.set(e.id, e);
+    write(`${CACHE}events.all`, [...all.values()].sort((a, b) => (a.start < b.start ? 1 : -1)).slice(0, 2500));
+  }
+
+  function fromCache(name, args) {
+    const hit = read(cacheKey(name, args), null);
+    if (hit) return hit;
+    if (name === 'events') {
+      const [start, end] = args;
+      const inRange = read(`${CACHE}events.all`, []).filter((e) => new Date(e.end) > new Date(start) && new Date(e.start) < new Date(end));
+      return { events: inRange, errors: [] };
+    }
+    return null;
+  }
+
+  const CACHED = new Set(['state', 'events', 'tasks']);
+
+  async function call(name, ...args) {
+    if (!conn) throw new Error('This phone is not connected to Onyx on your PC yet.');
+    const order = [conn.last, ...conn.addresses.filter((a) => a !== conn.last)].filter(Boolean);
+    for (const address of order) {
+      let body;
+      try {
+        body = await post(address, name, args);
+      } catch (err) {
+        if (err.final) throw err;
+        continue; // that address is not answering: try the next one
+      }
+      setOnline(true);
+      if (conn.last !== address) { conn.last = address; write(CONN, conn); }
+      if (!body.ok) throw new Error(body.error);
+      if (CACHED.has(name)) write(cacheKey(name, args), body.value);
+      if (name === 'events') rememberEvents(body.value.events);
+      return body.value;
+    }
+    setOnline(false);
+    const cached = CACHED.has(name) ? fromCache(name, args) : null;
+    if (cached) return cached;
+    throw new Error('Can\'t reach Onyx on your PC. Check that it is running, and that the phone is on the same wifi (or on Tailscale).');
+  }
+
+  const withLocal = (state) => (state ? { ...state, settings: { ...state.settings, ...local } } : state);
+
+  /** Reads a pairing link: onyx://pair?a=192.168.1.20:4747,100.x.y.z:4747&t=TOKEN */
+  function parseLink(link) {
+    const url = new URL(String(link).trim());
+    const addresses = (url.searchParams.get('a') || '').split(',').map((a) => a.trim()).filter(Boolean);
+    const token = url.searchParams.get('t') || '';
+    if (!addresses.length || !token) throw new Error('That is not an Onyx pairing link.');
+    return { addresses, token };
+  }
+
+  async function pair({ addresses, token }) {
+    const clean = addresses.map((a) => a.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '')).filter(Boolean)
+      .map((a) => (/:\d+$/.test(a) ? a : `${a}:4747`));
+    if (!clean.length || !token.trim()) throw new Error('Enter the PC\'s address and the token.');
+    const previous = conn;
+    conn = { addresses: clean, token: token.trim(), last: '' };
+    try {
+      const state = await call('state');
+      if (!online) throw new Error('Could not reach the PC at that address.');
+      write(CONN, conn);
+      return state;
+    } catch (err) {
+      conn = previous;
+      throw err;
+    }
+  }
+
+  window.ONYX_PHONE = true;
+  window.onyx = {
+    isPhone: true,
+    paired: () => !!conn,
+    connection: () => (conn ? { addresses: conn.addresses, last: conn.last, online } : null),
+    pair,
+    pairLink: (link) => pair(parseLink(link)),
+    unpair: () => {
+      conn = null;
+      localStorage.removeItem(CONN);
+      for (const key of Object.keys(localStorage)) if (key.startsWith(CACHE)) localStorage.removeItem(key);
+    },
+    onOnline: (fn) => listeners.add(fn),
+
+    state: async () => withLocal(await call('state')),
+    refresh: async () => withLocal(await call('refresh')),
+    events: (start, end, force) => call('events', start, end, force),
+    createEvent: (data) => call('event:create', data),
+    updateEvent: (id, patch) => call('event:update', id, patch),
+    deleteEvent: (id) => call('event:delete', id),
+    setCall: (event, on) => call('event:call', event, on),
+    tasks: (force) => call('tasks', force),
+    createTask: (data) => call('task:create', data),
+    updateTask: (id, patch) => call('task:update', id, patch),
+    deleteTask: (id) => call('task:delete', id),
+    setTags: (id, tags) => call('tags:set', id, tags),
+    setTagColor: async (tag, color) => withLocal(await call('tag:color', tag, color)),
+    renameTag: async (from, to) => withLocal(await call('tag:rename', from, to)),
+    deleteTag: async (tag) => withLocal(await call('tag:delete', tag)),
+    addLocalCalendar: async (name, color) => withLocal(await call('local:add', name, color)),
+    removeLocalCalendar: async (id) => withLocal(await call('local:remove', id)),
+    settings: async (patch) => {
+      const mine = {}, shared = {};
+      for (const [k, v] of Object.entries(patch || {})) (PHONE_ONLY.includes(k) ? mine : shared)[k] = v;
+      if (Object.keys(mine).length) { local = { ...local, ...mine }; write(LOCAL, local); }
+      return withLocal(Object.keys(shared).length ? await call('settings', shared) : await call('state'));
+    },
+    open: async (url) => { window.open(url, '_blank'); },
+    copy: async (text) => navigator.clipboard?.writeText(String(text)),
+    // There is no push from the PC: check again every minute and whenever the app comes back.
+    onChanged: (fn) => {
+      setInterval(() => { if (document.visibilityState === 'visible') fn(); }, 60000);
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') fn(); });
+    },
+  };
+
+  // Native-only: pairing links opened from the camera, and the Android back button.
+  const App = window.Capacitor?.Plugins?.App;
+  if (App) {
+    const handle = async (url) => {
+      // The launch link is reported again after the reload below, so each link is used once.
+      if (!url || !url.startsWith('onyx://') || read('onyx.used-link', '') === url) return;
+      write('onyx.used-link', url);
+      try {
+        await window.onyx.pairLink(url);
+        location.reload();
+      } catch (err) {
+        window.dispatchEvent(new CustomEvent('onyx:toast', { detail: err.message }));
+      }
+    };
+    App.addListener('appUrlOpen', (e) => handle(e.url));
+    App.getLaunchUrl?.().then((r) => handle(r?.url)).catch(() => {});
+    App.addListener('backButton', () => {
+      if (!(window.onyxBack && window.onyxBack())) App.minimizeApp?.();
+    });
+  }
+})();

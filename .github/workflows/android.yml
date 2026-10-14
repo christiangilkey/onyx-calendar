@@ -1,0 +1,74 @@
+# Builds the Android app (APK) and attaches it to the GitHub release for the tag.
+# Runs when a version tag (v1.2.3) is pushed, or by hand from the Actions tab.
+name: Android app
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install
+        # --ignore-scripts: the desktop app's Electron download isn't needed here.
+        run: |
+          npm ci --ignore-scripts
+          npm ci --prefix mobile
+
+      - name: Build the app's web files
+        run: npm run mobile
+
+      - name: Update the Android project
+        working-directory: mobile
+        run: npx cap sync android
+
+      - name: Signing key
+        env:
+          ONYX_KEYSTORE: ${{ secrets.ONYX_KEYSTORE }}
+        run: |
+          if [ -z "$ONYX_KEYSTORE" ]; then echo "::error::The ONYX_KEYSTORE secret is missing"; exit 1; fi
+          echo "$ONYX_KEYSTORE" | base64 -d > mobile/android/app/release.p12
+
+      - name: Build the APK
+        working-directory: mobile/android
+        env:
+          ONYX_KEY_PASSWORD: ${{ secrets.ONYX_KEY_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleRelease
+
+      - name: Name it
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          cp mobile/android/app/build/outputs/apk/release/app-release.apk "Onyx-Calendar-$VERSION.apk"
+          echo "APK=Onyx-Calendar-$VERSION.apk" >> "$GITHUB_ENV"
+          rm -f mobile/android/app/release.p12
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: ${{ env.APK }}
+
+      - name: Attach it to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "Onyx Calendar ${GITHUB_REF_NAME#v}" --notes "See the README for setup."
+          gh release upload "$GITHUB_REF_NAME" "$APK" --clobber

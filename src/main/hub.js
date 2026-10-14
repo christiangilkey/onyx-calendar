@@ -160,7 +160,9 @@ async function getEvents(start, end, { includeHidden = false, force = false } = 
       return [];
     }
   }));
-  const events = lists.flat().sort((a, b) => toDate(a.start) - toDate(b.start));
+  const events = lists.flat()
+    .map((e) => ({ ...e, tags: tagsOf(e.id) }))
+    .sort((a, b) => toDate(a.start) - toDate(b.start));
   return { events, errors: [...errors] };
 }
 
@@ -199,7 +201,9 @@ async function createEvent(data) {
     raw = await PROVIDERS[acct.provider].createEvent(req(acct), rawCal, fields);
   }
   invalidate(cal.id);
-  return withCall(unify(cal, raw), !!data.piCall, false);
+  const event = unify(cal, raw);
+  if (data.tags) setTags(event.id, data.tags);
+  return withCall(event, !!data.piCall, false);
 }
 
 // The entry itself is already saved at this point, so a failure to set up the
@@ -213,7 +217,7 @@ async function withCall(event, want, had) {
       warning = `Saved, but the Pi phone reminder was not updated. ${err.message}`;
     }
   }
-  return { ...event, piCall: !!store.data.piLinks[event.id], warning };
+  return { ...event, piCall: !!store.data.piLinks[event.id], tags: tagsOf(event.id), warning };
 }
 
 async function updateEvent(id, patch) {
@@ -224,10 +228,11 @@ async function updateEvent(id, patch) {
 
   // Saving to a different calendar is a copy followed by a delete.
   if (patch.calendarId && patch.calendarId !== calendarId) {
-    const created = await createEvent({ ...patch, piCall: wantCall });
+    const created = await createEvent({ ...patch, piCall: wantCall, tags: patch.tags || tagsOf(id) });
     await deleteEvent(id);
     return created;
   }
+  if ('tags' in patch) setTags(id, patch.tags);
   if (!cal.writable) throw new Error(`"${cal.name}" is read-only.`);
   const fields = eventFields(patch);
   let raw;
@@ -256,6 +261,7 @@ async function deleteEvent(id) {
     await PROVIDERS[acct.provider].deleteEvent(req(acct), rawCal, rawItem);
   }
   invalidate(cal.id);
+  dropTags(id);
   await setPiCall({ id }, false).catch((err) => console.error('onyx: could not remove the Pi reminder:', err.message));
 }
 
@@ -271,7 +277,7 @@ function unifyTask(cal, t, mirrors) {
     id, listId: cal.id, listName: cal.name, color: cal.color, provider: cal.provider,
     title: t.title, label: p.date || p.time ? p.spoken : t.title, notes: t.notes,
     due: t.due, done: t.done, date, time: p.time ? `${pad(p.time[0])}:${pad(p.time[1])}` : null,
-    start: start ? start.toISOString() : null, mirror: mirrors.has(id), call: null,
+    start: start ? start.toISOString() : null, mirror: mirrors.has(id), call: null, tags: tagsOf(id),
   };
   // The Pi only reads Google Tasks, and only phones for a task with a time in its name.
   const pi = store.data.settings.pi;
@@ -341,14 +347,22 @@ async function createTask(data) {
   const { acct, rawCal } = parseId(cal.id);
   const raw = await PROVIDERS[acct.provider].createTask(req(acct), rawCal, fields);
   invalidate(cal.id);
+  if (data.tags) setTags(`${cal.id}/${enc(raw.rawId)}`, data.tags);
   return unifyTask(cal, raw, new Set());
 }
 
 async function updateTask(id, patch) {
   const { acct, calendarId, rawCal, rawItem } = parseId(id);
   const cal = findCalendar(calendarId);
-  const raw = await PROVIDERS[acct.provider].updateTask(req(acct), rawCal, rawItem, taskFields(patch));
-  invalidate(cal.id);
+  if ('tags' in patch) setTags(id, patch.tags);
+  const fields = taskFields(patch);
+  let raw;
+  if (Object.keys(fields).length) {
+    raw = await PROVIDERS[acct.provider].updateTask(req(acct), rawCal, rawItem, fields);
+    invalidate(cal.id);
+  } else {
+    raw = (taskCache.get(cal.id)?.items || []).find((t) => t.rawId === rawItem) || { rawId: rawItem, title: '', notes: '', due: null, done: false };
+  }
   return unifyTask(cal, raw, new Set());
 }
 
@@ -356,6 +370,89 @@ async function deleteTask(id) {
   const { acct, calendarId, rawCal, rawItem } = parseId(id);
   await PROVIDERS[acct.provider].deleteTask(req(acct), rawCal, rawItem);
   invalidate(calendarId);
+  dropTags(id);
+}
+
+// ---------------------------------------------------------------- tags
+// Tags live only in Onyx (never written to Google or Microsoft), keyed by the
+// event or task id, so they work the same on every kind of calendar.
+
+const TAG_COLORS = ['#8b7cff', '#4aa8ff', '#3fd0c9', '#5fd38d', '#f5b83d', '#ff9f4a', '#ff6b6b', '#ff7eb6', '#c69a6d', '#9aa0a8'];
+const MAX_TAGS = 12;
+
+const tagsOf = (id) => store.data.tags[id] || [];
+
+function cleanTags(list) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(list) ? list : String(list || '').split(',')) {
+    const tag = String(raw).replace(/^#+/, '').replace(/\s+/g, ' ').trim().slice(0, 40);
+    if (!tag || seen.has(tag.toLowerCase())) continue;
+    // Reuse the spelling of a tag that already exists ("Study" stays "Study" when typed as "study").
+    const known = Object.keys(store.data.tagColors).find((t) => t.toLowerCase() === tag.toLowerCase());
+    seen.add(tag.toLowerCase());
+    out.push(known || tag);
+    if (out.length >= MAX_TAGS) break;
+  }
+  return out;
+}
+
+function ensureColor(tag) {
+  const colors = store.data.tagColors;
+  if (!colors[tag]) colors[tag] = TAG_COLORS[Object.keys(colors).length % TAG_COLORS.length];
+}
+
+/** Replaces the tags on one event or task. Returns the tags as saved. */
+function setTags(id, list) {
+  const tags = cleanTags(list);
+  if (tags.length) store.data.tags[id] = tags; else delete store.data.tags[id];
+  tags.forEach(ensureColor);
+  store.save();
+  return tags;
+}
+
+function dropTags(id) {
+  if (store.data.tags[id]) {
+    delete store.data.tags[id];
+    store.save();
+  }
+}
+
+/** Every tag with its colour and how many entries carry it. */
+function allTags() {
+  const counts = {};
+  for (const list of Object.values(store.data.tags)) for (const t of list) counts[t] = (counts[t] || 0) + 1;
+  return Object.keys(counts).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+    .map((name) => ({ name, color: store.data.tagColors[name] || TAG_COLORS[0], count: counts[name] }));
+}
+
+function setTagColor(tag, color) {
+  if (!/^#[0-9a-f]{6}$/i.test(String(color))) throw new Error('Colours look like #8b7cff.');
+  store.data.tagColors[tag] = color;
+  store.save();
+}
+
+/** Renames a tag everywhere, merging it into another tag if that name is taken. */
+function renameTag(from, to) {
+  const [name] = cleanTags([to]);
+  if (!name) throw new Error('A tag needs a name.');
+  for (const [id, list] of Object.entries(store.data.tags)) {
+    if (list.includes(from)) store.data.tags[id] = cleanTags(list.map((t) => (t === from ? name : t)));
+  }
+  if (!store.data.tagColors[name]) store.data.tagColors[name] = store.data.tagColors[from];
+  if (name !== from) delete store.data.tagColors[from];
+  ensureColor(name);
+  store.save();
+  return name;
+}
+
+function deleteTag(tag) {
+  for (const [id, list] of Object.entries(store.data.tags)) {
+    const rest = list.filter((t) => t !== tag);
+    if (rest.length) store.data.tags[id] = rest; else delete store.data.tags[id];
+  }
+  delete store.data.tagColors[tag];
+  store.save();
 }
 
 // ---------------------------------------------------------------- Raspberry Pi calls
@@ -461,4 +558,5 @@ function removeLocalCalendar(id) {
 module.exports = {
   calendars, refreshCalendars, invalidate, getEvents, createEvent, updateEvent, deleteEvent,
   getTasks, createTask, updateTask, deleteTask, setPiCall, freeTime, addLocalCalendar, removeLocalCalendar,
+  setTags, allTags, setTagColor, renameTag, deleteTag,
 };

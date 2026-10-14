@@ -21,6 +21,11 @@
     note: '<path d="M5 6h14M5 11h14M5 16h9"/>',
     lock: '<rect x="5.5" y="10.5" width="13" height="9.5" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/>',
     pin: '<path d="M12 21s6.5-5.6 6.5-10.5a6.5 6.5 0 0 0-13 0C5.5 15.4 12 21 12 21z"/><circle cx="12" cy="10.5" r="2.3"/>',
+    tag: '<path d="M3.5 12.2V4.5a1 1 0 0 1 1-1h7.7l8.3 8.3a1.5 1.5 0 0 1 0 2.1l-6.3 6.3a1.5 1.5 0 0 1-2.1 0z"/><circle cx="8" cy="8" r="1.4"/>',
+    graph: '<circle cx="12" cy="12" r="2.6"/><circle cx="5" cy="6" r="1.8"/><circle cx="19" cy="7" r="1.8"/><circle cx="17.5" cy="18.5" r="1.8"/><circle cx="5.5" cy="17" r="1.8"/><path d="M6.5 7l3.6 3.4M17.4 7.9l-3.3 2.6M16.3 17.2l-2.4-3.2M7.1 16l2.7-2.2"/>',
+    menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+    device: '<rect x="7" y="3" width="10" height="18" rx="2.5"/><path d="M11 18h2"/>',
+    target: '<circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="2.5"/>',
   };
   const COLORS = ['#8b7cff', '#4aa8ff', '#3fd0c9', '#5fd38d', '#f5b83d', '#ff9f4a', '#ff6b6b', '#ff7eb6', '#b9b9c2'];
   const PROVIDER = { google: 'Google', microsoft: 'Outlook', ics: 'Link', local: 'Local' };
@@ -34,7 +39,7 @@
       if (k === 'class') el.className = v;
       else if (k === 'css') for (const [name, val] of Object.entries(v)) el.style.setProperty(name, val);
       else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
-      else if (k in el) el[k] = v;
+      else if (k in el && k !== 'list') el[k] = v; // an input's `list` can only be set as an attribute
       else el.setAttribute(k, v);
     }
     for (const kid of kids.flat(Infinity)) {
@@ -64,6 +69,54 @@
   let forceNext = false; // next event fetch bypasses the cache
   let miniMonth = new Date();
   let closePopover = () => {};
+  const tagFilter = new Set(); // tags picked in the sidebar: everything else is dimmed
+  // The Android app (remote.js) and narrow windows get the phone layout.
+  const MOBILE = !!onyx.isPhone || matchMedia('(max-width: 760px)').matches;
+
+  // ------------------------------------------------------------ tags
+
+  const tagInfo = (name) => S.tags.find((t) => t.name.toLowerCase() === String(name).toLowerCase());
+  const tagColor = (name) => tagInfo(name)?.color || '#8b7cff';
+  const matchesFilter = (tags) => !tagFilter.size || (tags || []).some((t) => tagFilter.has(t.toLowerCase()));
+
+  async function reloadTags() {
+    try {
+      S.tags = (await onyx.state()).tags;
+    } catch { /* keep the old list */ }
+    renderSidebar();
+  }
+
+  /** A row of tag chips with a text box to add more. get() returns the tags. */
+  function tagField(initial) {
+    let tags = [...(initial || [])];
+    const listId = `tags-${Math.random().toString(36).slice(2)}`;
+    const input = h('input', { type: 'text', placeholder: tags.length ? 'Add tag' : 'Add tags…', spellcheck: false, autocomplete: 'off', list: listId });
+    const chips = h('span', { class: 'chips' });
+    const box = h('div', { class: 'tags-field', onclick: () => input.focus() }, chips, input,
+      h('datalist', { id: listId }, S.tags.map((t) => h('option', { value: t.name }))));
+    const draw = () => {
+      chips.replaceChildren(...tags.map((t) => h('span', { class: 'chip', css: { '--t': tagColor(t) } }, `#${t}`,
+        h('button', { type: 'button', title: 'Remove tag', onclick: (e) => { e.stopPropagation(); tags = tags.filter((x) => x !== t); draw(); } }, icon('x')))));
+      input.placeholder = tags.length ? 'Add tag' : 'Add tags…';
+    };
+    const add = () => {
+      for (const part of input.value.split(',')) {
+        const t = part.replace(/^#+/, '').trim();
+        if (t && !tags.some((x) => x.toLowerCase() === t.toLowerCase())) tags.push(tagInfo(t)?.name || t);
+      }
+      input.value = '';
+      draw();
+    };
+    input.addEventListener('keydown', (e) => {
+      if ((e.key === 'Enter' || e.key === ',' || e.key === 'Tab') && input.value.trim()) { e.preventDefault(); e.stopPropagation(); add(); }
+      else if (e.key === 'Backspace' && !input.value && tags.length) { tags.pop(); draw(); }
+    });
+    input.addEventListener('change', () => { if (S.tags.some((t) => t.name === input.value)) add(); });
+    draw();
+    return { el: box, get: () => { if (input.value.trim()) add(); return tags; } };
+  }
+
+  const sameTags = (a, b) => (a || []).join('\n') === (b || []).join('\n');
 
   const fmtTime = (d) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: S.settings.hour12 });
   const fmtDay = (d) => d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
@@ -117,7 +170,7 @@
       id: e.id, title: e.title, start: e.start, end: e.end, allDay: e.allDay,
       backgroundColor: e.color, borderColor: e.color,
       editable: e.writable && e.kind === 'event',
-      classNames: [e.kind === 'task' ? 'is-task' : 'is-event'],
+      classNames: [e.kind === 'task' ? 'is-task' : 'is-event', matchesFilter(e.tags) ? '' : 'is-dim'],
       extendedProps: { src: e },
     };
   }
@@ -138,6 +191,7 @@
   function refetch(force) {
     if (force) forceNext = true;
     calendar.refetchEvents();
+    if (graph.on) loadGraph();
   }
 
   function eventContent(arg) {
@@ -148,7 +202,9 @@
       src.kind === 'task' && h('span', { class: 'dot' }),
       h('span', { class: 't' }, arg.event.title),
       src.piCall && icon('phone'),
-      src.kind === 'event' && !src.writable && icon('lock'));
+      src.kind === 'event' && !src.writable && icon('lock'),
+      src.tags?.length > 0 && h('span', { class: 'tagdots', title: src.tags.map((t) => `#${t}`).join(' ') },
+        src.tags.slice(0, 4).map((t) => h('i', { css: { '--t': tagColor(t) } }))));
     return { domNodes: [h('div', { class: 'ev' }, title, arg.timeText && h('div', { class: 'ev-time' }, arg.timeText))] };
   }
 
@@ -177,8 +233,14 @@
   }
 
   function buildCalendar() {
+    // A week is too narrow on a phone: it gets three days instead, and the reverse on the desktop.
+    let view = S.settings.view;
+    if (MOBILE && view === 'timeGridWeek') view = 'timeGrid3';
+    if (!MOBILE && view === 'timeGrid3') view = 'timeGridWeek';
     calendar = new FullCalendar.Calendar($('#calendar'), {
-      initialView: S.settings.view,
+      initialView: view,
+      views: { timeGrid3: { type: 'timeGrid', duration: { days: 3 } } },
+      longPressDelay: 350,
       headerToolbar: false,
       height: '100%',
       expandRows: true,
@@ -219,8 +281,8 @@
       eventDrop: onMove,
       eventResize: onMove,
       datesSet: (info) => {
-        $('#range').textContent = info.view.title;
-        for (const b of $('#views').children) b.classList.toggle('on', b.dataset.view === info.view.type);
+        if (!graph.on) $('#range').textContent = info.view.title;
+        for (const b of document.querySelectorAll('[data-view]')) b.classList.toggle('on', !graph.on && b.dataset.view === info.view.type);
         if (S.settings.view !== info.view.type) saveSettings({ view: info.view.type }, true);
         miniMonth = calendar.getDate();
         renderMini();
@@ -241,13 +303,6 @@
     const pop = $('#popover');
     pop.replaceChildren(...nodes.filter((n) => n && n.nodeType));
     pop.hidden = false;
-    const margin = 10, width = pop.offsetWidth, height = pop.offsetHeight;
-    let x = anchor.right + margin;
-    if (x + width > innerWidth - margin) x = anchor.left - width - margin;
-    if (x < margin) x = Math.min(Math.max(margin, anchor.left), innerWidth - width - margin);
-    const y = Math.min(Math.max(58, anchor.top), Math.max(58, innerHeight - height - margin));
-    pop.style.left = `${x}px`;
-    pop.style.top = `${y}px`;
     closePopover = () => {
       closePopover = () => {};
       pop.hidden = true;
@@ -255,9 +310,17 @@
       calendar.unselect();
       if (onClose) onClose();
     };
+    if (MOBILE) return; // on a phone it is a sheet along the bottom (styles.css)
+    const margin = 10, width = pop.offsetWidth, height = pop.offsetHeight;
+    let x = anchor.right + margin;
+    if (x + width > innerWidth - margin) x = anchor.left - width - margin;
+    if (x < margin) x = Math.min(Math.max(margin, anchor.left), innerWidth - width - margin);
+    const y = Math.min(Math.max(58, anchor.top), Math.max(58, innerHeight - height - margin));
+    pop.style.left = `${x}px`;
+    pop.style.top = `${y}px`;
   }
 
-  document.addEventListener('mousedown', (e) => {
+  document.addEventListener('pointerdown', (e) => {
     if (!$('#popover').hidden && !$('#popover').contains(e.target)) closePopover();
   });
 
@@ -286,6 +349,7 @@
     const callHint = h('small');
     const untilRow = h('div', { class: 'row' }, h('span', { class: 'ico' }), h('span', { class: 'dash' }, 'until'), endDate);
     const dash = h('span', { class: 'dash' }, '–');
+    const tags = tagField(src ? src.tags : [...tagFilter].map((t) => tagInfo(t)?.name || t));
 
     const range = () => {
       if (allDay.checked) {
@@ -313,20 +377,26 @@
       if (busy) return;
       busy = true;
       const r = range();
-      const data = { title: title.value.trim(), start: r.start, end: r.end, allDay: r.allDay, calendarId: calendarPick.value, notes: notes.value, piCall: call.checked && !r.allDay };
+      const data = {
+        title: title.value.trim(), start: r.start, end: r.end, allDay: r.allDay, calendarId: calendarPick.value,
+        notes: notes.value, piCall: call.checked && !r.allDay, tags: tags.get(),
+      };
       try {
         let saved = null;
         if (!src) {
           saved = await onyx.createEvent(data);
           if (S.settings.defaultCalendar !== data.calendarId) saveSettings({ defaultCalendar: data.calendarId }, true);
         } else if (readOnly) {
-          await onyx.setCall({ id: src.id, title: src.title, start: src.start, allDay: src.allDay }, data.piCall);
+          // A read-only calendar can still carry tags and a phone reminder: both live in Onyx.
+          if (data.piCall !== !!src.piCall) await onyx.setCall({ id: src.id, title: src.title, start: src.start, allDay: src.allDay }, data.piCall);
+          if (!sameTags(data.tags, src.tags)) await onyx.setTags(src.id, data.tags);
         } else {
           saved = await onyx.updateEvent(src.id, data);
         }
         if (saved?.warning) toast(saved.warning, 'warn');
         closePopover();
         refetch();
+        if (!sameTags(data.tags, src?.tags)) reloadTags();
       } catch (err) {
         busy = false;
         toast(err.message, 'error');
@@ -349,6 +419,7 @@
       untilRow,
       h('div', { class: 'row' }, icon('calendar'), calendarPick, h('label', { class: 'check' }, allDay, 'All day')),
       (!readOnly || src.notes) && h('div', { class: 'row' }, icon('note'), notes),
+      h('div', { class: 'row' }, icon('tag'), tags.el),
       src?.location && h('div', { class: 'row pop-meta' }, icon('pin'), src.location),
       S.settings.pi.enabled && h('div', { class: 'row pi-row' }, icon('phone'),
         h('div', { class: 'txt' }, h('b', null, 'Phone reminder'), callHint),
@@ -359,12 +430,12 @@
         src && !readOnly && h('button', { class: 'btn danger', onclick: remove }, icon('trash'), 'Delete'),
         h('div', { class: 'grow' }),
         h('button', { class: 'btn ghost', onclick: () => closePopover() }, 'Cancel'),
-        (!readOnly || S.settings.pi.enabled) && h('button', { class: 'btn primary', onclick: save }, src ? 'Save' : 'Add block')),
+        h('button', { class: 'btn primary', onclick: save }, src ? 'Save' : 'Add block')),
     ];
     showPopover(anchor, nodes);
     sync();
     title.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
-    if (!readOnly) title.focus();
+    if (!readOnly && !MOBILE) title.focus();
   }
 
   // ------------------------------------------------------------ tasks
@@ -394,7 +465,8 @@
       h('button', { class: 'tick', title: 'Mark done', onclick: () => completeTask(t, row) }, icon('check')),
       h('div', { class: 'task-body', onclick: (e) => openTask(t, e.currentTarget.getBoundingClientRect()) },
         h('div', { class: 'task-name' }, t.label),
-        h('div', { class: 'task-meta' }, when && h('span', null, when), callBadge(t), h('span', null, t.listName))));
+        h('div', { class: 'task-meta' }, when && h('span', null, when), callBadge(t), h('span', null, t.listName),
+          (t.tags || []).map((tag) => h('span', { class: 'mini-tag', css: { '--t': tagColor(tag) } }, `#${tag}`)))));
     return row;
   }
 
@@ -420,7 +492,7 @@
     $('#task-title').disabled = !lists.length;
 
     const box = $('#task-items');
-    const shown = tasks.filter((t) => !t.mirror && !t.done && visible(t.listId));
+    const shown = tasks.filter((t) => !t.mirror && !t.done && visible(t.listId) && matchesFilter(t.tags));
     $('#task-count').textContent = shown.length || '';
     if (!lists.length) {
       box.replaceChildren(h('div', { class: 'empty' }, 'Connect Google or Outlook to see your tasks here.',
@@ -428,7 +500,9 @@
       return;
     }
     if (!shown.length) {
-      box.replaceChildren(h('div', { class: 'empty' }, 'Nothing to do. Add a task above; put a time in its name and the Pi will phone you about it.'));
+      box.replaceChildren(h('div', { class: 'empty' }, tagFilter.size
+        ? 'No open tasks with the selected tags.'
+        : 'Nothing to do. Add a task above; put a time in its name and the Pi will phone you about it.'));
       return;
     }
     const today = ymd(new Date());
@@ -447,6 +521,7 @@
 
   function openTask(t, anchor) {
     const name = h('input', { type: 'text', class: 'pop-title', value: t.title, spellcheck: false });
+    const tags = tagField(t.tags);
     const st = t.call && !t.call.past
       ? (t.call.quiet ? { text: `No call: ${fmtTime(new Date(t.call.at))} is inside quiet hours.`, tone: 'warn' } : { text: `The Pi phones you at ${fmtTime(new Date(t.call.at))}.`, tone: 'ok' })
       : { text: t.time ? 'No call for this one.' : 'Put a time in the name (like 3pm or 1500) and the Pi will phone you.', tone: '' };
@@ -460,11 +535,19 @@
         toast(err.message, 'error');
       }
     };
-    const save = () => run(() => (name.value.trim() && name.value.trim() !== t.title ? onyx.updateTask(t.id, { title: name.value.trim() }) : null));
+    const save = () => run(async () => {
+      const patch = {};
+      if (name.value.trim() && name.value.trim() !== t.title) patch.title = name.value.trim();
+      const picked = tags.get();
+      if (!sameTags(picked, t.tags)) patch.tags = picked;
+      if (Object.keys(patch).length) await onyx.updateTask(t.id, patch);
+      if (patch.tags) reloadTags();
+    });
     showPopover(anchor, [
       name,
       h('div', { class: 'pop-meta' }, [t.listName, t.start ? `${fmtDay(new Date(t.start))}, ${fmtTime(new Date(t.start))}` : t.date ? fmtDay(fromYmd(t.date)) : 'No date'].filter(Boolean).join('  ·  ')),
       t.notes && h('div', { class: 'pop-meta' }, t.notes),
+      h('div', { class: 'row' }, icon('tag'), tags.el),
       S.settings.pi.enabled && t.provider === 'google' && h('div', { class: 'row pi-row' }, icon('phone'),
         h('div', { class: 'txt' }, h('b', null, 'Phone reminder'), h('small', { class: st.tone }, st.text))),
       h('div', { class: 'pop-actions' },
@@ -510,7 +593,11 @@
         class: [d.getMonth() !== first.getMonth() && 'out', sameDay(d, today) && 'today', inView && 'in-view',
           inView && (sameDay(d, view.currentStart) || i % 7 === 0) && 'first',
           inView && (sameDay(addDays(d, 1), view.currentEnd) || i % 7 === 6) && 'last'].filter(Boolean).join(' '),
-        onclick: () => calendar.gotoDate(d),
+        onclick: () => {
+          calendar.gotoDate(d);
+          if (graph.on) { graph.anchor = d; if (graph.kind === 'range') graph.kind = 'week'; renderGraphBar(); loadGraph(); }
+          closeDrawers();
+        },
       }, h('i', null, d.getDate())));
     }
     const step = (n) => { miniMonth = new Date(first.getFullYear(), first.getMonth() + n, 1); renderMini(); };
@@ -544,6 +631,59 @@
         h('span', { class: 'box' }, icon('check')),
         h('span', { class: 'name' }, c.name),
         h('span', { class: 'tag' }, c.kind === 'tasklist' ? 'tasks' : ''))))));
+    renderTagList();
+  }
+
+  function toggleTagFilter(name) {
+    const key = name.toLowerCase();
+    if (tagFilter.has(key)) tagFilter.delete(key); else tagFilter.add(key);
+    renderTagList();
+    renderTasks();
+    refetch();
+  }
+
+  function cycleTagColor(tag) {
+    const next = COLORS[(COLORS.indexOf(tag.color) + 1) % COLORS.length];
+    act(() => onyx.setTagColor(tag.name, next));
+  }
+
+  // Double-click a tag's name to rename it; renaming onto an existing tag merges the two.
+  function renameTagInline(tag, label) {
+    const input = h('input', { type: 'text', class: 'tag-rename', value: tag.name, spellcheck: false });
+    const done = (keep) => {
+      const name = input.value.trim().replace(/^#+/, '');
+      if (keep && name && name !== tag.name) act(() => onyx.renameTag(tag.name, name));
+      else renderTagList();
+    };
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') done(true); if (e.key === 'Escape') { e.stopPropagation(); done(false); } });
+    input.addEventListener('blur', () => done(true));
+    label.replaceWith(input);
+    input.focus();
+    input.select();
+  }
+
+  function renderTagList() {
+    const box = $('#tag-list');
+    if (!S.tags.length) {
+      box.replaceChildren(h('div', { class: 'group-head' }, h('span', null, 'Tags')),
+        h('p', { class: 'side-hint' }, 'Tag any block, event or task to group it. Tags stay in Onyx.'));
+      return;
+    }
+    box.replaceChildren(
+      h('div', { class: 'group-head' }, h('span', null, 'Tags'),
+        tagFilter.size > 0 && h('button', { class: 'link-btn', onclick: () => { tagFilter.clear(); renderTagList(); renderTasks(); refetch(); } }, 'Show all')),
+      ...S.tags.map((t) => {
+        const label = h('span', { class: 'name', ondblclick: (e) => { e.stopPropagation(); renameTagInline(t, label); } }, `#${t.name}`);
+        const on = tagFilter.has(t.name.toLowerCase());
+        return h('div', { class: `cal tagrow ${on ? 'on' : ''} ${tagFilter.size && !on ? 'faded' : ''}`, css: { '--c': t.color }, title: 'Click to show only this tag. Double-click to rename.', onclick: () => toggleTagFilter(t.name) },
+          h('button', { class: 'swatch', title: 'Change colour', onclick: (e) => { e.stopPropagation(); cycleTagColor(t); } }),
+          label,
+          h('span', { class: 'tag' }, t.count),
+          h('button', { class: 'del', title: 'Delete this tag everywhere', onclick: (e) => {
+            e.stopPropagation();
+            if (confirm(`Remove #${t.name} from ${t.count} ${t.count === 1 ? 'entry' : 'entries'}?`)) { tagFilter.delete(t.name.toLowerCase()); act(() => onyx.deleteTag(t.name)); }
+          } }, icon('x')));
+      }));
   }
 
   // ------------------------------------------------------------ settings
@@ -552,7 +692,7 @@
     try {
       const next = await onyx.settings(patch);
       if (!quiet) applyState(next);
-      else { S.settings = next.settings; S.mcp = next.mcp; }
+      else { S.settings = next.settings; S.mcp = next.mcp; S.tags = next.tags; }
     } catch (err) {
       toast(err.message, 'error');
     }
@@ -698,19 +838,71 @@
           field('Week starts on', null,
             h('select', { onchange: (e) => saveSettings({ weekStart: Number(e.target.value) }) },
               [['Sunday', 0], ['Monday', 1], ['Saturday', 6]].map(([n, v]) => h('option', { value: v, selected: v === s.weekStart }, n)))),
-          field('Keep running when closed', 'Closing the window hides it in the system tray, so the MCP server stays available. Quit from the tray icon.', toggle(s.closeToTray, (v) => saveSettings({ closeToTray: v }))),
-          field('Start with Windows', 'Starts hidden in the tray when you sign in.', toggle(s.launchAtLogin, (v) => saveSettings({ launchAtLogin: v })))),
+          !onyx.isPhone && field('Keep running when closed', 'Closing the window hides it in the system tray, so the MCP server and your phone stay connected. Quit from the tray icon.', toggle(s.closeToTray, (v) => saveSettings({ closeToTray: v }))),
+          !onyx.isPhone && field('Start with Windows', 'Starts hidden in the tray when you sign in.', toggle(s.launchAtLogin, (v) => saveSettings({ launchAtLogin: v })))),
+      ];
+    },
+
+    // Desktop: the QR code the Android app scans to connect.
+    phone() {
+      const box = h('div', { class: 'card pair' }, h('p', null, 'Loading…'));
+      onyx.pairing().then((p) => {
+        if (!p.running || !p.lan) {
+          box.replaceChildren(h('h4', null, 'Turn on the server first'),
+            h('p', null, 'The phone connects through the MCP server. In the MCP server tab, switch the server on and turn on "Reachable from your network".'),
+            h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => openSettings('mcp') }, 'Open MCP server settings')));
+          return;
+        }
+        box.replaceChildren(
+          h('div', { class: 'pair-grid' },
+            h('img', { class: 'qr', src: p.qr, alt: 'Pairing QR code' }),
+            h('div', null,
+              h('h4', null, 'Connect your phone'),
+              h('ol', null,
+                h('li', null, 'Install Onyx Calendar for Android: the .apk on the GitHub release page.'),
+                h('li', null, 'Point the phone\'s camera at this code and tap the link it shows.'),
+                h('li', null, 'Onyx opens and connects. Done.')),
+              h('p', null, 'No camera link? In the app, enter an address below and the token.'))),
+          h('pre', { class: 'code' }, `Addresses: ${p.addresses.join('   ')}\nToken:     ${p.token}`),
+          h('div', { class: 'row' }, copyBtn(p.link, 'Copy pairing link'), copyBtn(p.token, 'Copy token')));
+      }).catch((err) => box.replaceChildren(h('p', null, err.message)));
+      return [
+        h('h3', null, 'Phone'),
+        h('p', { class: 'lead' }, 'The Android app shows this calendar, your tasks and tags, and can add and change entries. It talks to Onyx on this PC, so this PC needs to be on. Away from home, install Tailscale on both and scan again: its address is added to the code automatically.'),
+        box,
+      ];
+    },
+
+    // Phone: which PC it is connected to.
+    connection() {
+      const c = onyx.connection();
+      return [
+        h('h3', null, 'Connection'),
+        h('p', { class: 'lead' }, 'This phone shows the calendar from Onyx on your PC. Accounts are added and removed on the PC.'),
+        h('div', { class: 'card' },
+          field('Status', c?.online === false ? 'Not reachable right now: showing the last sync.' : `Connected through ${c?.last || c?.addresses?.[0] || '…'}`,
+            h('span', { class: `badge ${c?.online === false ? 'bad' : 'ok'}` }, c?.online === false ? 'Offline' : 'Online')),
+          field('PC addresses', (c?.addresses || []).join('  ·  '), null),
+          h('div', { class: 'row' }, h('button', { class: 'btn danger', onclick: () => {
+            if (confirm('Disconnect this phone from your PC?')) { onyx.unpair(); location.reload(); }
+          } }, 'Disconnect'))),
+        S.accounts.length > 0 && h('div', { class: 'card' }, h('h4', null, 'Accounts on the PC'),
+          S.accounts.map((a) => h('div', { class: 'acct' }, h('span', { class: 'badge' }, PROVIDER[a.provider]), h('span', { class: 'who' }, a.label)))),
       ];
     },
   };
 
-  let settingsTab = 'calendars';
+  let settingsTab = onyx.isPhone ? 'connection' : 'calendars';
   function openSettings(tab = settingsTab) {
+    const tabs = onyx.isPhone
+      ? [['connection', 'Connection'], ['pi', 'Pi calls'], ['general', 'General']]
+      : [['calendars', 'Calendars'], ['phone', 'Phone'], ['pi', 'Pi calls'], ['mcp', 'MCP server'], ['general', 'General']];
+    if (!tabs.some(([id]) => id === tab)) tab = tabs[0][0];
     settingsTab = tab;
     closePopover();
+    closeDrawers();
     const modal = $('#modal');
     const scroll = $('.pane', modal)?.scrollTop || 0;
-    const tabs = [['calendars', 'Calendars'], ['pi', 'Pi calls'], ['mcp', 'MCP server'], ['general', 'General']];
     const pane = h('div', { class: 'pane' }, h('button', { class: 'icon-btn close', onclick: closeSettings }, icon('x')), PANES[tab]());
     modal.replaceChildren(h('div', { class: 'sheet' },
       h('nav', null, h('h2', null, 'Settings'),
@@ -723,13 +915,164 @@
   function closeSettings() { $('#modal').hidden = true; $('#modal').replaceChildren(); }
   $('#modal').addEventListener('mousedown', (e) => { if (e.target === $('#modal')) closeSettings(); });
 
+  // ------------------------------------------------------------ graph view
+  // Entries in a date range, orbiting around clusters in 3D (graph.js).
+
+  const graph = { on: false, kind: 'week', anchor: new Date(), from: '', to: '', groupBy: 'tags', undated: true, view: null, seq: 0 };
+
+  function graphRange() {
+    const a = graph.anchor;
+    const day = new Date(a.getFullYear(), a.getMonth(), a.getDate());
+    if (graph.kind === 'day') return [day, addDays(day, 1)];
+    if (graph.kind === 'week') {
+      const s = addDays(day, -((day.getDay() - S.settings.weekStart + 7) % 7));
+      return [s, addDays(s, 7)];
+    }
+    if (graph.kind === 'month') return [new Date(a.getFullYear(), a.getMonth(), 1), new Date(a.getFullYear(), a.getMonth() + 1, 1)];
+    const s = fromYmd(graph.from);
+    const e = addDays(fromYmd(graph.to >= graph.from ? graph.to : graph.from), 1);
+    return [s, e];
+  }
+
+  function graphTitle([s, e]) {
+    const last = addDays(e, -1);
+    if (graph.kind === 'day') return s.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    if (graph.kind === 'month') return s.toLocaleDateString([], { month: 'long', year: 'numeric' });
+    const opts = { month: 'short', day: 'numeric' };
+    return `${s.toLocaleDateString([], opts)} – ${last.toLocaleDateString([], { ...opts, year: 'numeric' })}`;
+  }
+
+  function shiftGraph(n) {
+    if (n === 0) graph.anchor = new Date();
+    else if (graph.kind === 'day') graph.anchor = addDays(graph.anchor, n);
+    else if (graph.kind === 'week') graph.anchor = addDays(graph.anchor, 7 * n);
+    else if (graph.kind === 'month') graph.anchor = new Date(graph.anchor.getFullYear(), graph.anchor.getMonth() + n, 1);
+    else {
+      const [s, e] = graphRange();
+      const span = Math.round((e - s) / 86400000);
+      const from = n === 0 ? new Date() : addDays(s, span * n);
+      graph.from = ymd(from);
+      graph.to = ymd(addDays(from, span - 1));
+    }
+    renderGraphBar();
+    loadGraph();
+  }
+
+  function graphItems(events) {
+    const items = events.filter((e) => visible(e.calendarId) && matchesFilter(e.tags)).map((e) => ({
+      id: e.id, title: e.title, color: e.color, calendarId: e.calendarId, calendarName: e.calendarName,
+      tags: e.tags || [], start: e.start, allDay: e.allDay, kind: e.kind, src: e,
+    }));
+    if (graph.undated) {
+      for (const t of tasks) {
+        if (t.mirror || t.done || t.date || !visible(t.listId) || !matchesFilter(t.tags)) continue;
+        items.push({ id: t.id, title: t.label, color: t.color, calendarId: t.listId, calendarName: t.listName, tags: t.tags || [], start: null, kind: 'task', task: t });
+      }
+    }
+    return items;
+  }
+
+  async function loadGraph() {
+    const seq = ++graph.seq;
+    const range = graphRange();
+    $('#range').textContent = graphTitle(range);
+    let events = [];
+    try {
+      events = (await onyx.events(range[0].toISOString(), range[1].toISOString())).events;
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+    if (seq !== graph.seq || !graph.on) return;
+    const items = graphItems(events);
+    const data = OnyxGraph.build(items, {
+      groupBy: graph.groupBy, tagColor,
+      dayLabel: (key) => fromYmd(key).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }),
+    });
+    graph.view.setData(data);
+    const clusters = data.nodes.filter((n) => n.hub).length;
+    $('#graph-stats').textContent = items.length ? `${items.length} ${items.length === 1 ? 'entry' : 'entries'}  ·  ${clusters} ${clusters === 1 ? 'cluster' : 'clusters'}` : '';
+    $('#graph-empty').hidden = items.length > 0;
+  }
+
+  function pickFromGraph(item, rect) {
+    if (item.kind === 'task') {
+      openTask(item.task || tasks.find((t) => t.id === item.id) || { id: item.id, title: item.title, label: item.title, listName: item.calendarName, tags: item.tags }, rect);
+    } else {
+      const src = item.src;
+      openEditor({ src, start: toDate(src.start), end: toDate(src.end), allDay: src.allDay }, rect);
+    }
+  }
+
+  function renderGraphBar() {
+    const seg = (options, current, onPick) => h('div', { class: 'segmented' },
+      options.map(([value, label]) => h('button', { class: value === current ? 'on' : '', onclick: () => onPick(value) }, label)));
+    const from = h('input', { type: 'date', value: graph.from, onchange: () => { graph.from = from.value; loadGraph(); } });
+    const to = h('input', { type: 'date', value: graph.to, onchange: () => { graph.to = to.value; loadGraph(); } });
+    $('#graph-bar').replaceChildren(h('div', { class: 'bar-row' },
+      seg([['day', 'Day'], ['week', 'Week'], ['month', 'Month'], ['range', 'Range']], graph.kind, (k) => {
+        if (k === 'range' && graph.kind !== 'range') {
+          const [s, e] = graphRange();
+          graph.from = ymd(s);
+          graph.to = ymd(addDays(e, -1));
+        } else if (k !== 'range' && graph.kind === 'range') {
+          graph.anchor = fromYmd(graph.from);
+        }
+        graph.kind = k;
+        renderGraphBar();
+        loadGraph();
+      }),
+      graph.kind === 'range' && h('span', { class: 'range-pick' }, from, h('span', { class: 'dash' }, 'to'), to),
+      h('span', { class: 'bar-label' }, 'Cluster by'),
+      seg([['tags', 'Tags'], ['calendars', 'Calendars'], ['days', 'Days']], graph.groupBy, (g) => { graph.groupBy = g; renderGraphBar(); loadGraph(); }),
+      h('label', { class: 'check', title: 'Also show tasks that have no date' },
+        h('input', { type: 'checkbox', checked: graph.undated, onchange: (e) => { graph.undated = e.target.checked; loadGraph(); } }), 'Undated tasks')));
+  }
+
+  function openGraph() {
+    closePopover();
+    closeDrawers();
+    if (!graph.on) {
+      const v = calendar.view.type;
+      graph.kind = v === 'timeGridDay' ? 'day' : v === 'dayGridMonth' ? 'month' : 'week';
+      graph.anchor = calendar.getDate();
+      const [s, e] = graphRange();
+      graph.from = ymd(s);
+      graph.to = ymd(addDays(e, -1));
+    }
+    graph.on = true;
+    $('#graph').hidden = false;
+    if (!graph.view) graph.view = OnyxGraph.create($('#graph-canvas'), { onPick: pickFromGraph });
+    for (const b of document.querySelectorAll('[data-view]')) b.classList.toggle('on', b.dataset.view === 'graph');
+    renderGraphBar();
+    loadGraph();
+  }
+
+  function closeGraph() {
+    graph.on = false;
+    $('#graph').hidden = true;
+    $('#range').textContent = calendar.view.title;
+    calendar.updateSize();
+  }
+
+  function pickView(view) {
+    if (view === 'graph') return openGraph();
+    if (graph.on) closeGraph();
+    calendar.changeView(view);
+    for (const b of document.querySelectorAll('[data-view]')) b.classList.toggle('on', b.dataset.view === view);
+    closeDrawers();
+  }
+
   // ------------------------------------------------------------ chrome and start-up
 
+  function closeDrawers() { document.body.classList.remove('drawer-left', 'drawer-right'); }
+
   function newBlock() {
+    if (graph.on) closeGraph();
     const now = new Date();
     const base = calendar.view.type === 'dayGridMonth' || (now >= calendar.view.currentStart && now < calendar.view.currentEnd) ? now : calendar.view.currentStart;
     const start = new Date(base.getFullYear(), base.getMonth(), base.getDate(), base === now ? now.getHours() + 1 : 9, 0);
     const r = $('#new-block').getBoundingClientRect();
+    closeDrawers();
     openEditor({ start, end: new Date(start.getTime() + 3600000), allDay: false }, { left: r.left, right: r.right, top: r.bottom + 8, bottom: r.bottom + 8 });
   }
 
@@ -740,59 +1083,136 @@
     btn.classList.remove('spin');
   }
 
+  const nav = (n) => {
+    if (graph.on) return shiftGraph(n);
+    if (n === 0) calendar.today(); else if (n < 0) calendar.prev(); else calendar.next();
+  };
+
   function buildChrome() {
     $('#prev').append(icon('left'));
     $('#next').append(icon('right'));
     $('#refresh').append(icon('refresh'));
     $('#toggle-tasks').append(icon('tasks'));
     $('#open-settings').append(icon('sliders'));
+    $('#menu').append(icon('menu'));
+    $('#fab').append(icon('plus'));
     $('#new-block').append(icon('plus'), 'New block');
-    $('#add-calendar').append(icon('plus'), 'Add calendar');
-    $('#today').onclick = () => calendar.today();
-    $('#prev').onclick = () => calendar.prev();
-    $('#next').onclick = () => calendar.next();
+    $('#add-calendar').append(icon('plus'), onyx.isPhone ? 'Settings' : 'Add calendar');
+    for (const b of document.querySelectorAll('[data-view="graph"]')) b.prepend(icon('graph'));
+    $('#graph-reset').append(icon('target'));
+    $('#graph-reset').onclick = () => graph.view?.resetCamera();
+    $('#today').onclick = () => nav(0);
+    $('#prev').onclick = () => nav(-1);
+    $('#next').onclick = () => nav(1);
+    $('#range').onclick = () => { if (MOBILE) nav(0); };
     $('#refresh').onclick = refreshAll;
     $('#new-block').onclick = newBlock;
-    $('#add-calendar').onclick = () => openSettings('calendars');
+    $('#fab').onclick = newBlock;
+    $('#add-calendar').onclick = () => openSettings(onyx.isPhone ? 'connection' : 'calendars');
     $('#open-settings').onclick = () => openSettings();
-    $('#toggle-tasks').onclick = () => saveSettings({ tasksPanel: !S.settings.tasksPanel });
-    for (const b of $('#views').children) b.onclick = () => calendar.changeView(b.dataset.view);
+    $('#menu').onclick = () => document.body.classList.toggle('drawer-left');
+    $('#scrim').onclick = closeDrawers;
+    $('#toggle-tasks').onclick = () => {
+      if (MOBILE) document.body.classList.toggle('drawer-right');
+      else saveSettings({ tasksPanel: !S.settings.tasksPanel });
+    };
+    for (const b of document.querySelectorAll('[data-view]')) b.onclick = () => pickView(b.dataset.view);
 
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
-        if (!$('#popover').hidden) closePopover(); else if (!$('#modal').hidden) closeSettings();
+        window.onyxBack();
         return;
       }
       if (e.target.closest('input, textarea, select') || e.ctrlKey || e.altKey || e.metaKey || !$('#modal').hidden || !$('#popover').hidden) return;
-      const views = { d: 'timeGridDay', w: 'timeGridWeek', m: 'dayGridMonth', a: 'listWeek' };
+      const views = { d: 'timeGridDay', w: 'timeGridWeek', m: 'dayGridMonth', a: 'listWeek', g: 'graph' };
       const key = e.key.toLowerCase();
-      if (views[key]) calendar.changeView(views[key]);
-      else if (key === 't') calendar.today();
+      if (views[key]) pickView(views[key]);
+      else if (key === 't') nav(0);
       else if (key === 'n') { e.preventDefault(); newBlock(); }
       else if (key === 'r') refreshAll();
-      else if (e.key === 'ArrowLeft') calendar.prev();
-      else if (e.key === 'ArrowRight') calendar.next();
+      else if (e.key === 'ArrowLeft') nav(-1);
+      else if (e.key === 'ArrowRight') nav(1);
     });
   }
 
+  // Escape on the desktop, the back button on Android: close the top-most thing.
+  window.onyxBack = () => {
+    if (!$('#popover').hidden) closePopover();
+    else if (!$('#modal').hidden) closeSettings();
+    else if (document.body.classList.contains('drawer-left') || document.body.classList.contains('drawer-right')) closeDrawers();
+    else if (graph.on) pickView(MOBILE ? 'timeGrid3' : S.settings.view);
+    else return false;
+    return true;
+  };
+
+  // Android, before it is paired with a PC (or when the PC can't be reached at all).
+  function showConnect(problem) {
+    const address = h('input', { type: 'text', placeholder: 'PC address, e.g. 192.168.1.20', spellcheck: false, autocomplete: 'off', inputMode: 'url' });
+    const token = h('input', { type: 'text', placeholder: 'Token', spellcheck: false, autocomplete: 'off' });
+    const go = h('button', { class: 'btn primary wide', type: 'submit' }, 'Connect');
+    const form = h('form', { class: 'connect-form', onsubmit: async (e) => {
+      e.preventDefault();
+      go.disabled = true;
+      go.textContent = 'Connecting…';
+      try {
+        const value = address.value.trim();
+        if (value.startsWith('onyx://')) await onyx.pairLink(value);
+        else await onyx.pair({ addresses: value.split(/[\s,]+/), token: token.value });
+        location.reload();
+      } catch (err) {
+        toast(err.message, 'error');
+        go.disabled = false;
+        go.textContent = 'Connect';
+      }
+    } }, address, token, go);
+    $('#connect').replaceChildren(h('div', { class: 'connect-card' },
+      h('div', { class: 'brand big' }, h('span', { class: 'mark' }), 'Onyx'),
+      h('h2', null, onyx.paired() ? 'Can\'t reach your PC' : 'Connect to your PC'),
+      problem && h('p', { class: 'problem' }, problem),
+      h('ol', null,
+        h('li', null, 'On your PC, open Onyx Calendar, then Settings → Phone.'),
+        h('li', null, 'Point this phone\'s camera at the QR code and tap the link.')),
+      h('p', { class: 'or' }, 'Or type it in (you can also paste the pairing link into the address box):'),
+      form,
+      onyx.paired() && h('button', { class: 'btn ghost wide', onclick: () => location.reload() }, 'Try again')));
+    $('#connect').hidden = false;
+  }
+
   async function init() {
-    S = await onyx.state();
+    document.body.classList.toggle('mobile', MOBILE);
+    document.body.classList.toggle('phone', !!onyx.isPhone);
+    window.addEventListener('onyx:toast', (e) => toast(e.detail, 'error'));
+    if (onyx.isPhone && !onyx.paired()) return showConnect();
+    try {
+      S = await onyx.state();
+    } catch (err) {
+      if (onyx.isPhone) return showConnect(err.message);
+      throw err;
+    }
     buildChrome();
-    $('#layout').classList.toggle('no-tasks', !S.settings.tasksPanel);
-    $('#toggle-tasks').classList.toggle('on', S.settings.tasksPanel);
+    $('#layout').classList.toggle('no-tasks', !S.settings.tasksPanel && !MOBILE);
+    $('#toggle-tasks').classList.toggle('on', S.settings.tasksPanel && !MOBILE);
     buildCalendar();
     renderSidebar();
     loadTasks();
 
-    // Something changed outside the window: an agent wrote through MCP, or the
-    // calendar lists finished loading.
+    // Something changed outside the window: an agent wrote through MCP, the
+    // calendar lists finished loading, or (on the phone) the regular check.
     onyx.onChanged(async () => {
-      applyState(await onyx.state());
+      try {
+        applyState(await onyx.state());
+      } catch { /* offline: keep what is shown */ }
       refetch();
       loadTasks();
     });
+    if (onyx.onOnline) {
+      onyx.onOnline((ok) => {
+        toast(ok ? 'Connected to your PC again.' : 'Your PC is out of reach. Showing the last sync.', ok ? '' : 'warn');
+        if (ok) { refetch(true); loadTasks(true); }
+      });
+    }
     setInterval(() => { refetch(true); loadTasks(true); }, 5 * 60000);
-    window.addEventListener('resize', () => closePopover());
+    window.addEventListener('resize', () => { if (!MOBILE) closePopover(); });
   }
 
   init().catch((err) => toast(err.message, 'error'));

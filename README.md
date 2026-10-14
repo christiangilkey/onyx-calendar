@@ -1,18 +1,25 @@
 # Onyx Calendar
 
-A black, fast desktop calendar for Windows that puts everything in one place:
+A black, fast calendar for Windows and Android that puts everything in one place:
 
 - **One master calendar.** Google Calendar, Outlook, subscribed calendar links and local time blocks, merged. A sidebar switches each calendar on or off.
 - **Time blocks.** Drag across the grid, type what the time is for, press Enter.
 - **Tasks.** Google Tasks and Microsoft To Do in a side panel, and on the grid at the time written in their name.
+- **Tags.** Tag any block, event or task. Tags stay in Onyx (they are never written to Google or Microsoft), and the sidebar filters by them.
+- **Graph view.** A 3D orbit of everything in a day, week, month or custom range, clustered by tag, calendar or day.
+- **Android app.** The same calendar on your phone, connected to the PC app.
 - **Raspberry Pi phone reminders.** Flip "Phone reminder" on any block or event and a Raspberry Pi running [`task_caller`](#raspberry-pi-phone-reminders) phones you before it starts.
 - **MCP server.** Hermes, the Pi, or any other agent can read the calendar and add to it over your network.
 
 ![Onyx Calendar](docs/screenshot.png)
 
+![Graph view](docs/graph.png)
+
 ## Install
 
-Download `Onyx-Calendar-Setup-x.y.z.exe` from the [Releases](../../releases) page and run it. Windows will warn that the publisher is unknown, because the installer is not code-signed: choose **More info → Run anyway**.
+**Windows:** download `Onyx-Calendar-Setup-x.y.z.exe` from the [Releases](../../releases) page and run it. Windows will warn that the publisher is unknown, because the installer is not code-signed: choose **More info → Run anyway**.
+
+**Android:** see [Android app](#android-app).
 
 Or build it yourself:
 
@@ -65,9 +72,21 @@ Any calendar that can be published as an `.ics` link works without a sign-in. In
 | Edit or delete | Click the block |
 | Show or hide a calendar | Click it in the sidebar |
 | Add a task | Type in the Tasks panel and press Enter |
-| Change view | `D` day, `W` week, `M` month, `A` agenda |
+| Tag something | Type in the tag box of any block, event or task; Enter or comma adds a tag |
+| Show one tag | Click it under **Tags** in the sidebar (click more to combine); double-click to rename, click the dot to change its colour |
+| Change view | `D` day, `W` week, `M` month, `A` agenda, `G` graph |
 | Go to today / move | `T`, `←`, `→` |
 | New block / refresh | `N`, `R` |
+
+### Graph view
+
+Press **Graph** (or `G`). Every entry in the range orbits around a cluster:
+
+- **Cluster by Tags** groups entries by tag. An entry with two tags is pulled between both clusters; untagged entries gather under "Untagged".
+- **Cluster by Calendars** groups by the calendar each entry comes from.
+- **Cluster by Days** strings the days together like a timeline.
+
+Pick **Day**, **Week**, **Month** or **Range** at the top; the ‹ › arrows and Today move it. Drag to orbit, scroll (or pinch) to zoom, click a cluster to fly into it, click an entry to edit it, and double-click to reset. **Undated tasks** adds tasks that have no date, so tag clusters show your whole backlog.
 
 Closing the window keeps the app running in the system tray so the MCP server stays available. Quit from the tray icon. This can be changed in **Settings → General**.
 
@@ -84,6 +103,23 @@ The Pi only knows about Google Tasks, not calendar events. So when you turn on *
 - This PC and the Pi must be set to the same time zone.
 
 The rules for reading a time out of a task name live in [`src/main/taskname.js`](src/main/taskname.js), a port of `parse_name()` from `task_caller.py`. If you change one, change the other.
+
+## Android app
+
+The Android app is a companion to the PC app: it shows the same master calendar, tasks, tags and graph, and can add and change entries, all through Onyx on your PC. No accounts are signed in on the phone.
+
+1. Download `Onyx-Calendar-x.y.z.apk` from the [Releases](../../releases) page on the phone and open it. Android asks you to allow installing apps from your browser the first time.
+2. On the PC, open **Settings → Phone**. A QR code appears.
+3. Point the phone's camera at the code and tap the link. Onyx opens and connects.
+
+If the camera link doesn't work, type one of the addresses and the token shown under the QR code into the app instead.
+
+- **Same wifi:** works out of the box. The PC app must be running (it can sit in the tray).
+- **Away from home:** install [Tailscale](https://tailscale.com/) on the PC and the phone, then scan the code again. Its `100.x.y.z` address is included automatically.
+- **PC off or out of reach:** the phone shows the last calendar it loaded, marked "Offline", until it can reach the PC again.
+- Settings that control the server itself, and adding or removing accounts, stay on the PC.
+
+The APK is built by GitHub Actions ([`.github/workflows/android.yml`](.github/workflows/android.yml)) whenever a version tag is pushed, and signed with a key kept in the repository's Actions secrets, so each new version installs over the last one.
 
 ## MCP server
 
@@ -102,8 +138,10 @@ From Docker on the same PC use `http://host.docker.internal:4747/mcp`. The first
 
 | Tool | What it does |
 |---|---|
-| `get_agenda` | Events, time blocks and dated tasks in a date range (default: today) |
-| `list_tasks` | Open tasks, with when the Pi will phone about each |
+| `get_agenda` | Events, time blocks and dated tasks in a date range (default: today), optionally only one tag |
+| `list_tasks` | Open tasks, with when the Pi will phone about each, optionally only one tag |
+| `list_tags` | Your tags and how many entries carry each |
+| `set_tags` | Replace the tags on an event, block or task |
 | `list_calendars` | Calendars and task lists, with their ids |
 | `find_free_time` | Free gaps on a day |
 | `create_time_block` | Add a block, optionally with a Pi phone reminder |
@@ -118,7 +156,7 @@ For plain scripts there is also JSON over HTTP:
 curl -H "Authorization: Bearer <token>" "http://<this PC's address>:4747/api/agenda?days=1"
 ```
 
-`/api/tasks` and `/api/calendars` work the same way. `/health` needs no token.
+`/api/tasks`, `/api/tags` and `/api/calendars` work the same way, and `/api/agenda` and `/api/tasks` take `?tag=`. `/health` needs no token. The Android app uses `POST /app/rpc` with the same token.
 
 ## Privacy
 
@@ -135,11 +173,18 @@ npm start          # run the app
 npm test           # unit tests
 npm run preview    # the interface in a browser with demo data, at http://127.0.0.1:4780
 npm run dist       # build the installer
+npm run mobile     # copy the window into mobile/www for the Android app
 ```
+
+Building the APK yourself needs JDK 21 and the Android SDK: `npm run mobile`, then in `mobile/` run `npm install` and `npx cap sync android`, then `./gradlew assembleDebug` in `mobile/android`.
 
 | Path | What it is |
 |---|---|
-| `src/main/hub.js` | The master calendar and the Pi bridge |
+| `src/main/hub.js` | The master calendar, tags, and the Pi bridge |
+| `src/main/api.js` | The commands the window (and the phone) can run |
+| `src/renderer/graph.js` | The 3D graph view |
+| `src/renderer/remote.js` | The phone's connection to the PC |
+| `mobile/` | The Android app (Capacitor) |
 | `src/main/providers/` | Google, Microsoft Graph, and `.ics` links |
 | `src/main/taskname.js` | Reading dates and times out of task names |
 | `src/main/mcp.js` | MCP and JSON server |

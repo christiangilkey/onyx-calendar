@@ -29,6 +29,8 @@ const DEFAULTS = {
     events: [],          // { id, calendar, title, start, end, allDay, notes, location }
   },
   piLinks: {},           // event id -> id of the Google Task the Pi phones about
+  tags: {},              // event or task id -> ['tag', ...]. Kept only in Onyx, never sent to Google or Microsoft.
+  tagColors: {},         // tag -> colour
   secrets: { googleClientSecret: '', tokens: {}, mcpToken: '' },
 };
 

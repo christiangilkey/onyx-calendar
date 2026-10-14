@@ -6,3 +6,11 @@ dist/
 client_secret*.json
 google_token*.json
 credentials*.json
+
+# Android app: installed packages, generated web files, and the signing key
+mobile/node_modules/
+mobile/www/
+mobile/android/app/release.p12
+*.p12
+*.keystore
+*.jks

@@ -9,7 +9,9 @@ const store = require('./store');
 const accounts = require('./accounts');
 const hub = require('./hub');
 const mcp = require('./mcp');
-const { version } = require('../../package.json');
+const api = require('./api');
+
+const { state } = api;
 
 const ICON = path.join(__dirname, '../assets/icon.png');
 const SMOKE_SHOT = process.env.ONYX_SMOKE; // test runs: save a screenshot here, then quit
@@ -78,6 +80,11 @@ function createWindow() {
 
   if (SMOKE_SHOT) {
     win.webContents.once('did-finish-load', () => setTimeout(async () => {
+      // Test runs can drive the window first, e.g. open a view, then wait for it to settle.
+      if (process.env.ONYX_SMOKE_JS) {
+        await win.webContents.executeJavaScript(process.env.ONYX_SMOKE_JS).catch((err) => console.error(err));
+        await new Promise((r) => setTimeout(r, 4000));
+      }
       fs.writeFileSync(SMOKE_SHOT, (await win.webContents.capturePage()).toPNG());
       quitting = true;
       app.quit();
@@ -100,6 +107,12 @@ async function boot() {
   store.load();
   Menu.setApplicationMenu(null);
   registerIpc();
+  api.onSettingsChanged(async (before, now) => {
+    if (now.launchAtLogin !== before.launchAtLogin && app.isPackaged) {
+      app.setLoginItemSettings({ openAtLogin: now.launchAtLogin, args: ['--hidden'] });
+    }
+  });
+  mcp.setAppApi(api.remote);
   createWindow();
   if (!SMOKE_SHOT) createTray();
   await mcp.start(() => win?.webContents.send('changed'));
@@ -110,42 +123,6 @@ app.on('before-quit', () => { quitting = true; store.flush(); });
 app.on('window-all-closed', () => { if (quitting || !store.data.settings.closeToTray) app.quit(); });
 
 // ---------------------------------------------------------------- what the window can ask for
-
-function state() {
-  const d = store.data;
-  return {
-    version,
-    settings: d.settings,
-    accounts: d.accounts.map(({ id, provider, label, url }) => ({ id, provider, label, url })),
-    calendars: hub.calendars(),
-    google: { ready: !!d.google.clientId },
-    microsoft: { clientId: d.microsoft.clientId },
-    mcp: mcp.info(),
-  };
-}
-
-function mergeInto(target, patch) {
-  for (const [k, v] of Object.entries(patch)) {
-    if (v && typeof v === 'object' && !Array.isArray(v) && target[k] && typeof target[k] === 'object' && k !== 'hidden') mergeInto(target[k], v);
-    else target[k] = v;
-  }
-}
-
-async function changeSettings(patch) {
-  const s = store.data.settings;
-  const before = JSON.stringify([s.mcp, s.pi, s.launchAtLogin]);
-  mergeInto(s, patch);
-  s.mcp.port = Math.min(Math.max(parseInt(s.mcp.port, 10) || 4747, 1024), 65535);
-  s.pi.leadMinutes = Math.min(Math.max(parseInt(s.pi.leadMinutes, 10) || 60, 5), 720);
-  store.save();
-  const [mcpWas, piWas, loginWas] = JSON.parse(before);
-  if (JSON.stringify(s.mcp) !== JSON.stringify(mcpWas)) await mcp.start();
-  if (JSON.stringify(s.pi) !== JSON.stringify(piWas)) hub.invalidate();
-  if (s.launchAtLogin !== loginWas && app.isPackaged) {
-    app.setLoginItemSettings({ openAtLogin: s.launchAtLogin, args: ['--hidden'] });
-  }
-  return state();
-}
 
 /** Reads the client id and secret from a Google credentials file the user picks. */
 async function loadGoogleCredentials() {
@@ -176,19 +153,9 @@ async function afterAccountChange() {
   return { ...state(), errors };
 }
 
+// The shared commands (api.js), plus the ones only the desktop can do.
 const HANDLERS = {
-  state,
-  refresh: async () => { hub.invalidate(); const { errors } = await hub.refreshCalendars(); return { ...state(), errors }; },
-  events: (start, end, force) => hub.getEvents(start, end, { force: !!force }),
-  'event:create': (data) => hub.createEvent(data),
-  'event:update': (id, patch) => hub.updateEvent(id, patch),
-  'event:delete': (id) => hub.deleteEvent(id),
-  'event:call': async (event, on) => ({ piCall: await hub.setPiCall(event, !!on) }),
-  tasks: (force) => hub.getTasks({ force: !!force }),
-  'task:create': (data) => hub.createTask(data),
-  'task:update': (id, patch) => hub.updateTask(id, patch),
-  'task:delete': (id) => hub.deleteTask(id),
-  settings: changeSettings,
+  ...api.handlers,
   'google:load': loadGoogleCredentials,
   'google:connect': async () => { await accounts.connectGoogle(); showWindow(); return afterAccountChange(); },
   'microsoft:connect': async (clientId) => {
@@ -200,8 +167,6 @@ const HANDLERS = {
   },
   'feed:add': (feed) => { accounts.addFeed(feed.name, feed.url); return afterAccountChange(); },
   'account:remove': (id) => { accounts.remove(id); return afterAccountChange(); },
-  'local:add': (name, color) => { hub.addLocalCalendar(name, color); return state(); },
-  'local:remove': (id) => { hub.removeLocalCalendar(id); return state(); },
   open: (url) => { if (/^https:\/\//i.test(String(url))) shell.openExternal(url); },
   copy: (text) => clipboard.writeText(String(text)),
 };

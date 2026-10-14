@@ -133,6 +133,28 @@
     connection: () => (conn ? { addresses: conn.addresses, last: conn.last, online } : null),
     pair,
     pairLink: (link) => pair(parseLink(link)),
+    // The phone's own QR scanner, so pairing never goes through the camera app or a browser.
+    canScan: !!window.Capacitor?.Plugins?.CapacitorBarcodeScanner,
+    scan: async () => {
+      const scanner = window.Capacitor?.Plugins?.CapacitorBarcodeScanner;
+      if (!scanner) throw new Error('Scanning works in the Android app.');
+      let result;
+      try {
+        result = await scanner.scanBarcode({
+          hint: 0, // QR code
+          cameraDirection: 1, // back camera
+          scanOrientation: 1, // portrait
+          scanInstructions: 'Point at the QR code in Onyx on your PC: Settings → Phone',
+        });
+      } catch (err) {
+        if (/cancel/i.test(err?.message || '')) return null;
+        throw err;
+      }
+      const text = result?.ScanResult || '';
+      if (!text) return null;
+      if (!text.startsWith('onyx://')) throw new Error('That QR code is not an Onyx pairing code. Use the one in Settings → Phone on the PC.');
+      return pair(parseLink(text));
+    },
     unpair: () => {
       conn = null;
       localStorage.removeItem(CONN);

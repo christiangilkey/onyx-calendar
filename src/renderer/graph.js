@@ -93,29 +93,55 @@
       return { x: r * Math.sin(p) * Math.cos(t), y: r * Math.sin(p) * Math.sin(t), z: r * Math.cos(p), s: Math.random() };
     });
 
+    // The globe: cluster hubs live on the surface of a sphere of this radius, and
+    // their entries gather around them in little balls of their own. An entry with
+    // several tags is pulled between its hubs, through the inside of the globe.
+    let sphere = 0;      // radius the hubs are held to (0: a single hub sits in the middle)
+    let globe = 220;     // radius of the wireframe drawn around everything (eased)
+
+    const randomDir = () => {
+      const t = Math.random() * Math.PI * 2, u = 2 * Math.random() - 1, r = Math.sqrt(1 - u * u);
+      return { x: r * Math.cos(t), y: u, z: r * Math.sin(t) };
+    };
+
     function setData(data) {
       const old = new Map(nodes.map((n) => [n.id, n]));
       nodes = data.nodes;
       links = data.links;
+      const hubs = nodes.filter((n) => n.hub);
+      sphere = hubs.length <= 1 ? 0 : 150 + 42 * Math.sqrt(hubs.length);
+      const spine = links.some((l) => l.spine);
+      // Hubs are spread evenly over the sphere (a Fibonacci lattice); days go round the equator, in order.
+      const ordered = spine ? [...hubs].sort((x, y) => x.order - y.order) : hubs;
+      ordered.forEach((h, i) => {
+        const prev = old.get(h.id);
+        if (prev) { Object.assign(h, { x: prev.x, y: prev.y, z: prev.z }); return; }
+        let dir;
+        if (spine) {
+          const a = (i / ordered.length) * Math.PI * 2;
+          dir = { x: Math.cos(a), y: Math.sin(a * 3) * 0.18, z: Math.sin(a) };
+        } else {
+          const y = 1 - (2 * (i + 0.5)) / ordered.length, r = Math.sqrt(1 - y * y), a = i * 2.39996323;
+          dir = { x: Math.cos(a) * r, y, z: Math.sin(a) * r };
+        }
+        Object.assign(h, { x: dir.x * sphere, y: dir.y * sphere, z: dir.z * sphere });
+      });
+      const firstHub = new Map();
+      for (const l of links) if (!l.a.hub && l.b.hub && !firstHub.has(l.a.id)) firstHub.set(l.a.id, l.b);
+      const around = sphere ? 46 : 120;
       for (const n of nodes) {
-        const prev = old.get(n.id);
-        if (prev) Object.assign(n, { x: prev.x, y: prev.y, z: prev.z, vx: 0, vy: 0, vz: 0 });
-        else {
-          const r = (n.hub ? 260 : 320) * Math.cbrt(Math.random());
-          const t = Math.random() * Math.PI * 2, p = Math.acos(2 * Math.random() - 1);
-          Object.assign(n, { x: r * Math.sin(p) * Math.cos(t), y: r * Math.sin(p) * Math.sin(t), z: r * Math.cos(p), vx: 0, vy: 0, vz: 0 });
-        }
+        n.vx = 0; n.vy = 0; n.vz = 0;
         n.mass = n.hub ? 3 + Math.sqrt(n.count) : 1;
+        if (n.hub) continue;
+        const prev = old.get(n.id);
+        if (prev) { Object.assign(n, { x: prev.x, y: prev.y, z: prev.z }); continue; }
+        // Start next to its hub, so clusters form at once instead of untangling.
+        const hub = firstHub.get(n.id) || { x: 0, y: 0, z: 0 };
+        const d = randomDir();
+        Object.assign(n, { x: hub.x + d.x * around, y: hub.y + d.y * around, z: hub.z + d.z * around });
       }
-      // Items start next to their first hub, so clusters form quickly instead of untangling.
-      for (const l of links) {
-        if (!l.a.hub && !old.has(l.a.id) && l.b.hub && !l.a.placed) {
-          l.a.placed = true;
-          l.a.x = l.b.x + (Math.random() - 0.5) * 80;
-          l.a.y = l.b.y + (Math.random() - 0.5) * 80;
-          l.a.z = l.b.z + (Math.random() - 0.5) * 80;
-        }
-      }
+      for (const l of links) if (!l.spine) l.len = around;
+      if (!old.size) cam.goal = Math.min(1700, Math.max(560, (sphere || 140) * 3.3));
       neighbours = new Map();
       for (const l of links) {
         if (!neighbours.has(l.a.id)) neighbours.set(l.a.id, new Set());
@@ -156,8 +182,15 @@
         b.vx -= dx * f * wb; b.vy -= dy * f * wb; b.vz -= dz * f * wb;
       }
       for (const p of nodes) {
-        const g = (p.hub ? 0.004 : 0.0015) * alpha;
-        p.vx -= p.x * g; p.vy -= p.y * g; p.vz -= p.z * g;
+        if (p.hub) {
+          // Held to the sphere's surface (or to the middle, when there is only one hub).
+          const d = Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z) || 1;
+          const f = sphere ? ((sphere - d) / d) * 0.08 * alpha : -0.05 * alpha;
+          p.vx += p.x * f; p.vy += p.y * f; p.vz += p.z * f;
+        } else {
+          const g = 0.0008 * alpha;
+          p.vx -= p.x * g; p.vy -= p.y * g; p.vz -= p.z * g;
+        }
         p.vx *= 0.82; p.vy *= 0.82; p.vz *= 0.82;
         p.x += p.vx; p.y += p.vy; p.z += p.vz;
       }
@@ -196,8 +229,17 @@
         ctx.fillRect(p.x, p.y, 1.2, 1.2);
       }
 
+      // The globe grows and shrinks smoothly with whatever is on it.
+      let extent = 0;
+      for (const n of nodes) extent = Math.max(extent, Math.sqrt(n.x * n.x + n.y * n.y + n.z * n.z));
+      globe += (Math.max(120, extent * 1.12) - globe) * 0.06;
+      const center = project({ x: 0, y: 0, z: 0 });
+      drawAtmosphere(center);
+      drawGlobe(center, false);
+
       for (const n of nodes) n.p = project(n);
-      const fade = (p) => Math.max(0.18, Math.min(1, 1.55 - p.depth / (cam.dist * 1.5)));
+      // Near side bright, far side dim: what makes it read as a ball rather than a flat web.
+      const fade = (p) => Math.max(0.2, Math.min(1, 1 - 0.75 * ((p.depth - (center.depth - globe)) / (2 * globe))));
 
       ctx.lineCap = 'round';
       for (const l of links) {
@@ -248,7 +290,8 @@
           ctx.stroke();
         }
 
-        const labelled = n.hub || n === hover || hoverNear(n) || (focus && on) || (few && p.s > 0.95) || p.s > 1.5;
+        // Entry names show on the near side of the globe; the far side stays quiet.
+        const labelled = n.hub || n === hover || hoverNear(n) || (focus && on) || (few && a > 0.72) || p.s > 1.5;
         if (labelled && a > 0.2) {
           const size = n.hub ? Math.min(15, 10.5 + p.s * 2.5) : Math.min(13, 9.5 + p.s * 2);
           ctx.font = `${n.hub ? 600 : 500} ${size}px "Segoe UI Variable Text","Segoe UI",Inter,Roboto,system-ui,sans-serif`;
@@ -267,6 +310,52 @@
           }
         }
       }
+      drawGlobe(center, true);
+    }
+
+    function drawAtmosphere(center) {
+      if (center.depth < 10) return;
+      const r = globe * center.s;
+      const g = ctx.createRadialGradient(center.x, center.y, r * 0.2, center.x, center.y, r * 1.18);
+      g.addColorStop(0, 'rgba(139,124,255,0.035)');
+      g.addColorStop(0.82, 'rgba(139,124,255,0.05)');
+      g.addColorStop(0.9, 'rgba(160,150,255,0.09)');
+      g.addColorStop(1, 'rgba(139,124,255,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(center.x, center.y, r * 1.18, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Latitude and longitude lines, split into the half facing the camera and the half behind.
+    function drawGlobe(center, front) {
+      const R = globe;
+      const SEG = 72;
+      const rings = [];
+      for (const lat of [-60, -30, 0, 30, 60]) {
+        const c = Math.cos(lat * Math.PI / 180), y = Math.sin(lat * Math.PI / 180) * R;
+        rings.push((t) => ({ x: R * c * Math.cos(t), y, z: R * c * Math.sin(t) }));
+      }
+      for (let k = 0; k < 6; k++) {
+        const lon = (k * Math.PI) / 6;
+        rings.push((t) => ({ x: R * Math.cos(t) * Math.cos(lon), y: R * Math.sin(t), z: R * Math.cos(t) * Math.sin(lon) }));
+      }
+      ctx.beginPath();
+      for (const ring of rings) {
+        let prev = project(ring(0));
+        for (let i = 1; i <= SEG; i++) {
+          const p = project(ring((i / SEG) * Math.PI * 2));
+          const near = (prev.depth + p.depth) / 2 < center.depth;
+          if (near === front && p.depth > 10 && prev.depth > 10) {
+            ctx.moveTo(prev.x, prev.y);
+            ctx.lineTo(p.x, p.y);
+          }
+          prev = p;
+        }
+      }
+      ctx.strokeStyle = front ? 'rgba(170,160,255,0.085)' : 'rgba(139,124,255,0.04)';
+      ctx.lineWidth = front ? 1 : 0.8;
+      ctx.stroke();
     }
 
     function frame() {
@@ -276,9 +365,9 @@
         // nothing: the pointer is steering
       } else if (Math.abs(spin.yaw) > 0.0001 || Math.abs(spin.pitch) > 0.0001) {
         cam.yaw += spin.yaw; cam.pitch = clampPitch(cam.pitch + spin.pitch);
-        spin.yaw *= 0.94; spin.pitch *= 0.94;
+        spin.yaw *= 0.965; spin.pitch *= 0.965; // a flick keeps the globe turning for a while
       } else if (idle) {
-        cam.yaw += 0.0016;
+        cam.yaw += 0.0022;
       }
       const goal = focus ? focus : { x: 0, y: 0, z: 0 };
       cam.look.x += (goal.x - cam.look.x) * 0.07;
@@ -389,7 +478,7 @@
 
     function resetCamera() {
       focus = null;
-      cam.yaw = 0.6; cam.pitch = -0.35; cam.goal = 760;
+      cam.yaw = 0.6; cam.pitch = -0.35; cam.goal = Math.min(1700, Math.max(560, (sphere || 140) * 3.3));
       spin = { yaw: 0, pitch: 0 };
     }
 

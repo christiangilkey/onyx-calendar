@@ -26,6 +26,7 @@
     menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
     device: '<rect x="7" y="3" width="10" height="18" rx="2.5"/><path d="M11 18h2"/>',
     target: '<circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="2.5"/>',
+    qr: '<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><rect x="8" y="8" width="3" height="3"/><rect x="13" y="8" width="3" height="3"/><rect x="8" y="13" width="3" height="3"/><path d="M13 13h3v3"/>',
   };
   const COLORS = ['#8b7cff', '#4aa8ff', '#3fd0c9', '#5fd38d', '#f5b83d', '#ff9f4a', '#ff6b6b', '#ff7eb6', '#b9b9c2'];
   const PROVIDER = { google: 'Google', microsoft: 'Outlook', ics: 'Link', local: 'Local' };
@@ -860,9 +861,9 @@
               h('h4', null, 'Connect your phone'),
               h('ol', null,
                 h('li', null, 'Install Onyx Calendar for Android: the .apk on the GitHub release page.'),
-                h('li', null, 'Point the phone\'s camera at this code and tap the link it shows.'),
-                h('li', null, 'Onyx opens and connects. Done.')),
-              h('p', null, 'No camera link? In the app, enter an address below and the token.'))),
+                h('li', null, 'Open Onyx on the phone and tap Scan QR code.'),
+                h('li', null, 'Point the phone at this code. It connects by itself.')),
+              h('p', null, 'Scan with the Onyx app itself, not the camera app. To type it in instead, use an address below and the token.'))),
           h('pre', { class: 'code' }, `Addresses: ${p.addresses.join('   ')}\nToken:     ${p.token}`),
           h('div', { class: 'row' }, copyBtn(p.link, 'Copy pairing link'), copyBtn(p.token, 'Copy token')));
       }).catch((err) => box.replaceChildren(h('p', null, err.message)));
@@ -883,9 +884,11 @@
           field('Status', c?.online === false ? 'Not reachable right now: showing the last sync.' : `Connected through ${c?.last || c?.addresses?.[0] || '…'}`,
             h('span', { class: `badge ${c?.online === false ? 'bad' : 'ok'}` }, c?.online === false ? 'Offline' : 'Online')),
           field('PC addresses', (c?.addresses || []).join('  ·  '), null),
-          h('div', { class: 'row' }, h('button', { class: 'btn danger', onclick: () => {
-            if (confirm('Disconnect this phone from your PC?')) { onyx.unpair(); location.reload(); }
-          } }, 'Disconnect'))),
+          h('div', { class: 'row' },
+            onyx.canScan && h('button', { class: 'btn', onclick: (e) => scanToPair(e.currentTarget) }, icon('qr'), 'Scan a new code'),
+            h('button', { class: 'btn danger', onclick: () => {
+              if (confirm('Disconnect this phone from your PC?')) { onyx.unpair(); location.reload(); }
+            } }, 'Disconnect'))),
         S.accounts.length > 0 && h('div', { class: 'card' }, h('h4', null, 'Accounts on the PC'),
           S.accounts.map((a) => h('div', { class: 'acct' }, h('span', { class: 'badge' }, PROVIDER[a.provider]), h('span', { class: 'who' }, a.label)))),
       ];
@@ -1145,6 +1148,20 @@
     return true;
   };
 
+  /** Opens the phone's QR scanner; a scanned pairing code connects and restarts the app. */
+  async function scanToPair(button) {
+    const label = [...button.childNodes];
+    button.disabled = true;
+    button.replaceChildren('Scanning…');
+    try {
+      if (await onyx.scan()) { location.reload(); return; }
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+    button.disabled = false;
+    button.replaceChildren(...label);
+  }
+
   // Android, before it is paired with a PC (or when the PC can't be reached at all).
   function showConnect(problem) {
     const address = h('input', { type: 'text', placeholder: 'PC address, e.g. 192.168.1.20', spellcheck: false, autocomplete: 'off', inputMode: 'url' });
@@ -1165,14 +1182,16 @@
         go.textContent = 'Connect';
       }
     } }, address, token, go);
+    const scan = h('button', { class: 'btn primary wide scan-btn', onclick: () => scanToPair(scan) }, icon('qr'), 'Scan QR code');
     $('#connect').replaceChildren(h('div', { class: 'connect-card' },
       h('div', { class: 'brand big' }, h('span', { class: 'mark' }), 'Onyx'),
       h('h2', null, onyx.paired() ? 'Can\'t reach your PC' : 'Connect to your PC'),
       problem && h('p', { class: 'problem' }, problem),
       h('ol', null,
         h('li', null, 'On your PC, open Onyx Calendar, then Settings → Phone.'),
-        h('li', null, 'Point this phone\'s camera at the QR code and tap the link.')),
-      h('p', { class: 'or' }, 'Or type it in (you can also paste the pairing link into the address box):'),
+        h('li', null, onyx.canScan ? 'Tap Scan QR code below and point this phone at the code.' : 'Enter the address and token shown there.')),
+      onyx.canScan && scan,
+      h('p', { class: 'or' }, onyx.canScan ? 'Or type it in instead:' : 'Address and token (or paste the pairing link into the address box):'),
       form,
       onyx.paired() && h('button', { class: 'btn ghost wide', onclick: () => location.reload() }, 'Try again')));
     $('#connect').hidden = false;

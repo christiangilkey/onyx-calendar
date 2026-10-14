@@ -502,4 +502,5 @@ body.mobile #graph-bar .bar-label:not(#graph-stats) { display: none; }
 body.mobile #graph-hint { display: none; }
 body.mobile.mobile #toasts { bottom: calc(92px + env(safe-area-inset-bottom, 0px)); width: calc(100vw - 32px); }#graph-bar .bar-row { display: contents; }#graph-foot { position: absolute; right: 12px; bottom: 10px; display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11.5px; }
 body.mobile #graph-foot { bottom: calc(86px + env(safe-area-inset-bottom, 0px)); }#sidebar > * { flex-shrink: 0; }
-#views-mobile .ico { display: none !important; }body:has(#popover:not([hidden])) #fab, body:has(#modal:not([hidden])) #fab { display: none; }body.mobile .connect-card .brand { display: flex; }
+#views-mobile .ico { display: none !important; }body:has(#popover:not([hidden])) #fab, body:has(#modal:not([hidden])) #fab { display: none; }body.mobile .connect-card .brand { display: flex; }.connect-card .scan-btn { height: 54px !important; font-size: 16px !important; gap: 10px; }
+.connect-card .scan-btn .ico { width: 22px; height: 22px; }

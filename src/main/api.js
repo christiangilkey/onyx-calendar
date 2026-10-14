@@ -10,6 +10,7 @@ const accounts = require('./accounts');
 const library = require('./library');
 const notion = require('./providers/notion');
 const drive = require('./providers/drive');
+const news = require('./news');
 const { version } = require('../../package.json');
 
 let afterSettings = async () => {};
@@ -111,6 +112,12 @@ const handlers = {
   'notion:connect': withState((key) => notion.connect(key)),
   'notion:disconnect': withState(() => notion.disconnect()),
   'drive:search': (query) => drive.search(query),
+  // The News panel: YouTube news channels, shared by the PC and the phone.
+  news: (force) => news.list(!!force),
+  'news:add': (input) => news.addChannel(input),
+  'news:set': (id, on) => news.setChannel(id, on),
+  'news:remove': (id) => news.removeChannel(id),
+  'news:reset': () => news.resetChannels(),
   // Keys and links, from either the PC or the phone; they are stored once, on the PC.
   'google:credentials': withState((text) => setGoogleClient(text)),
   'microsoft:client': withState((id) => { store.data.microsoft.clientId = String(id || '').trim(); store.save(); }),

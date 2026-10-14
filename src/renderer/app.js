@@ -17,6 +17,9 @@
     trash: '<path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13"/>',
     check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
     undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+    news: '<rect x="3.5" y="4.5" width="17" height="12.5" rx="2.5"/><path d="M8.5 20.5h7M12 17v3.5"/><path d="M10.2 8.3l4.3 2.45-4.3 2.45z"/>',
+    play: '<path d="M7 4.8v14.4L19 12z"/>',
+    next: '<path d="M6 5.5v13l9-6.5z"/><path d="M18 5.5v13"/>',
     archive: '<rect x="3.5" y="4.5" width="17" height="4.5" rx="1.5"/><path d="M5.5 9v9.5a1.5 1.5 0 0 0 1.5 1.5h10a1.5 1.5 0 0 0 1.5-1.5V9M10 13h4"/>',
     clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
     calendar: '<rect x="4" y="5" width="16" height="15" rx="3"/><path d="M4 10h16M8.5 3v4M15.5 3v4"/>',
@@ -786,6 +789,238 @@
       toast(err.message, 'error');
     }
   });
+
+  // ------------------------------------------------------------ news
+  // A collapsible tab on the right: the latest videos from YouTube news channels (read
+  // by the PC from each channel's feed), a player, and the channels' 24/7 live streams.
+
+  const YT = 'https://www.youtube-nocookie.com';
+  const NEWS_REFRESH_MS = 10 * 60 * 1000;
+  const news = { stories: [], channels: [], at: 0, filter: 'all', current: null, playing: false, loading: false, problems: '', shown: '' };
+
+  const newsOpen = () => (MOBILE ? document.body.classList.contains('drawer-news') : $('#layout').classList.contains('news-open'));
+
+  function setNewsOpen(open) {
+    if (MOBILE) {
+      document.body.classList.remove('drawer-left', 'drawer-right');
+      document.body.classList.toggle('drawer-news', open);
+    } else {
+      $('#layout').classList.toggle('news-open', open);
+      if (S.settings.newsPanel !== open) saveSettings({ newsPanel: open }, true);
+      requestAnimationFrame(() => calendar.updateSize());
+    }
+    if (!open) return stopNews();
+    if (Date.now() - news.at > 5 * 60 * 1000) loadNews(); else renderNews();
+  }
+
+  /** Collapsing the tab stops whatever is playing. */
+  function stopNews() {
+    news.playing = false;
+    renderPlayer();
+  }
+
+  async function loadNews(force) {
+    if (news.loading) return;
+    news.loading = true;
+    $('#news-refresh').classList.add('spin');
+    if (!news.stories.length) renderNews();
+    try {
+      const res = await onyx.news(force);
+      news.stories = res.stories;
+      news.channels = res.channels;
+      news.at = Date.now();
+      const problems = res.errors.join('  ·  ');
+      if (problems && problems !== news.problems) toast(`News: ${problems}`, 'warn');
+      news.problems = problems;
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      news.loading = false;
+      $('#news-refresh').classList.remove('spin');
+    }
+    // The panel opens on the newest story that has been watched at all: a stream that is
+    // only scheduled (no views yet) would just say "Live in 2 hours".
+    const first = news.stories.find((s) => s.views !== 0) || news.stories[0];
+    if (!news.current && first) news.current = { kind: 'video', ...first };
+    renderNews();
+  }
+
+  const ago = (iso) => {
+    const min = Math.max(0, Math.round((Date.now() - new Date(iso)) / 60000));
+    if (min < 1) return 'just now';
+    if (min < 60) return `${min}m ago`;
+    if (min < 48 * 60) return `${Math.round(min / 60)}h ago`;
+    return `${Math.round(min / 1440)}d ago`;
+  };
+  const okVideo = (id) => /^[\w-]{11}$/.test(id || '');
+  const okChannel = (id) => /^UC[\w-]{22}$/.test(id || '');
+  const shownStories = () => news.stories.filter((s) => news.filter === 'all' || s.channelId === news.filter);
+  const watchUrl = (c) => (c.kind === 'live' ? `https://www.youtube.com/channel/${c.channelId}/live` : `https://www.youtube.com/watch?v=${c.id}`);
+
+  function embedUrl(c) {
+    const q = 'autoplay=1&rel=0&playsinline=1&enablejsapi=1';
+    return c.kind === 'live' ? `${YT}/embed/live_stream?channel=${c.channelId}&${q}` : `${YT}/embed/${c.id}?${q}`;
+  }
+
+  function play(c) {
+    if (c.kind === 'live' ? !okChannel(c.channelId) : !okVideo(c.id)) return;
+    news.current = c;
+    news.playing = true;
+    renderNews();
+  }
+
+  /** The story after the one playing, in the list as filtered; used by Next and when a video ends. */
+  function playNext() {
+    const list = shownStories();
+    const i = list.findIndex((s) => s.id === news.current?.id);
+    const next = list[i + 1] || list[0];
+    if (next && next.id !== news.current?.id) play({ kind: 'video', ...next });
+  }
+
+  // With enablejsapi, the player reports its state to the page once it is asked to.
+  window.addEventListener('message', (e) => {
+    if (e.origin !== YT || e.source !== $('#news-player iframe')?.contentWindow) return;
+    let data;
+    try { data = JSON.parse(e.data); } catch { return; }
+    const state = data.event === 'onStateChange' ? data.info : data.info?.playerState;
+    if (state === 0 && news.current?.kind === 'video') playNext(); // 0: ended
+  });
+
+  function renderPlayer() {
+    const c = news.current;
+    const key = c ? `${c.kind}:${c.id || c.channelId}:${news.playing}` : `none:${news.loading}`;
+    const box = $('#news-player');
+    // Re-rendering must not reload a video that is already playing.
+    if (key !== news.shown || !box.firstChild) {
+      news.shown = key;
+      const screen = h('div', { class: 'news-screen' });
+      if (!c) {
+        screen.append(h('div', { class: 'news-empty-screen' }, news.loading ? 'Loading the news…' : 'No stories yet. Pick some channels with the button above.'));
+      } else if (news.playing) {
+        const frame = h('iframe', {
+          src: embedUrl(c), title: c.title || `${c.channel} live`, allow: 'autoplay; encrypted-media; picture-in-picture; fullscreen',
+          allowFullscreen: true, referrerPolicy: 'strict-origin-when-cross-origin',
+        });
+        frame.addEventListener('load', () => frame.contentWindow?.postMessage(JSON.stringify({ event: 'listening', id: 1, channel: 'widget' }), YT));
+        screen.append(frame);
+      } else {
+        const poster = h('button', { class: 'news-poster', title: 'Play', onclick: () => play(c) }, h('span', { class: 'play' }, icon('play')));
+        if (c.kind === 'video' && okVideo(c.id)) poster.style.backgroundImage = `url("https://i.ytimg.com/vi/${c.id}/hqdefault.jpg")`;
+        screen.append(poster);
+      }
+      box.replaceChildren(screen, h('div', { class: 'news-now' }));
+    }
+    const now = box.querySelector('.news-now');
+    if (!c) { now.replaceChildren(); return; }
+    now.replaceChildren(
+      h('div', { class: 'title' }, c.kind === 'live' ? h('span', { class: 'badge-live' }, 'LIVE') : null, c.kind === 'live' ? ` ${c.channel}` : c.title),
+      h('div', { class: 'meta' },
+        h('span', null, c.kind === 'live' ? '24/7 stream' : `${c.channel} · ${ago(c.published)}`),
+        h('span', { class: 'grow' }),
+        c.kind === 'video' && shownStories().length > 1 && h('button', { class: 'btn', title: 'Play the next story', onclick: playNext }, icon('next'), 'Next'),
+        h('button', { class: 'btn', title: 'Open it on YouTube', onclick: () => onyx.open(watchUrl(c)) }, icon('link'), 'YouTube')));
+  }
+
+  function renderFilter() {
+    const on = news.channels.filter((c) => c.on);
+    if (news.filter !== 'all' && !on.some((c) => c.id === news.filter)) news.filter = 'all';
+    const chip = (label, active, onclick, cls = '') => h('button', { class: `news-chip ${cls}${active ? ' on' : ''}`, onclick }, cls === 'live' && h('i'), label);
+    const pick = (id) => { news.filter = id; renderNews(); };
+    const live = news.channels.filter((c) => c.live && okChannel(c.id));
+    $('#news-filter').replaceChildren(
+      h('div', { class: 'news-chips' },
+        chip('All', news.filter === 'all', () => pick('all')),
+        on.map((c) => chip(c.name, news.filter === c.id, () => pick(c.id)))),
+      live.length > 0 && h('div', { class: 'news-chips', title: 'Channels with a 24/7 live stream' },
+        h('span', { class: 'news-chips-label' }, 'Live'),
+        live.map((c) => chip(c.name, news.current?.kind === 'live' && news.current.channelId === c.id && news.playing,
+          () => play({ kind: 'live', channelId: c.id, channel: c.name }), 'live'))));
+  }
+
+  function renderList() {
+    const box = $('#news-list');
+    const list = shownStories();
+    $('#news-updated').textContent = list.length || '';
+    if (!list.length) {
+      box.replaceChildren(h('div', { class: 'empty' }, news.loading ? 'Loading…'
+        : news.channels.some((c) => c.on) ? 'No new stories right now.' : 'No channels are switched on. Pick some with the button above.'));
+      return;
+    }
+    box.replaceChildren(...list.map((s) => {
+      const thumb = h('div', { class: 'news-thumb' });
+      if (okVideo(s.id)) thumb.style.backgroundImage = `url("https://i.ytimg.com/vi/${s.id}/mqdefault.jpg")`;
+      return h('button', { class: `news-row${news.current?.id === s.id && news.playing ? ' playing' : ''}`, title: s.title, onclick: () => play({ kind: 'video', ...s }) },
+        thumb, h('div', null, h('div', { class: 't' }, s.title), h('div', { class: 'm' }, h('b', null, s.channel), ` · ${ago(s.published)}`)));
+    }));
+  }
+
+  function renderNews() {
+    renderPlayer();
+    renderFilter();
+    renderList();
+  }
+
+  /** Which channels feed the panel: switch them on and off, add any YouTube channel. */
+  function openNewsChannels(anchor) {
+    const list = h('div', { class: 'news-channels' });
+    const input = h('input', { type: 'text', placeholder: '@handle or channel link', spellcheck: false, autocomplete: 'off' });
+    const change = async (fn) => {
+      try {
+        news.channels = await fn();
+        draw();
+        loadNews();
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    };
+    const draw = () => list.replaceChildren(...news.channels.map((c) => h('label', null,
+      h('input', { type: 'checkbox', checked: c.on, onchange: (e) => change(() => onyx.setNewsChannel(c.id, e.target.checked)) }),
+      h('span', null, c.name), c.live && h('small', null, 'LIVE'),
+      h('button', { class: 'x', title: `Remove ${c.name}`, onclick: (e) => { e.preventDefault(); change(() => onyx.removeNewsChannel(c.id)); } }, icon('x')))));
+    const add = async () => {
+      const text = input.value.trim();
+      if (!text) return input.focus();
+      addBtn.disabled = true;
+      try {
+        news.channels = await onyx.addNewsChannel(text);
+        input.value = '';
+        toast(`Added ${news.channels.at(-1)?.name || 'the channel'}`);
+        draw();
+        loadNews();
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+      addBtn.disabled = false;
+    };
+    const addBtn = h('button', { class: 'btn primary', onclick: add }, 'Add');
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') add(); });
+    draw();
+    showPopover(anchor, [
+      h('b', null, 'News channels'),
+      h('p', { class: 'pop-meta' }, 'Stories from the channels switched on, newest first. LIVE channels also have a 24/7 stream.'),
+      list,
+      h('div', { class: 'row' }, input, addBtn),
+      h('div', { class: 'pop-actions' },
+        h('button', { class: 'btn ghost', onclick: () => change(() => onyx.resetNewsChannels()) }, 'Reset to the default list'),
+        h('div', { class: 'grow' }),
+        h('button', { class: 'btn', onclick: () => closePopover() }, 'Done')),
+    ]);
+  }
+
+  function buildNews() {
+    const tab = $('#news-tab');
+    tab.prepend(icon('news'));
+    if (MOBILE) document.body.append(tab); // a fixed handle can't live inside the sliding drawer
+    tab.onclick = () => setNewsOpen(!newsOpen());
+    $('#news-close').append(icon(MOBILE ? 'x' : 'right'));
+    $('#news-close').onclick = () => setNewsOpen(false);
+    $('#news-refresh').append(icon('refresh'));
+    $('#news-refresh').onclick = () => loadNews(true);
+    $('#news-channels').append(icon('sliders'));
+    $('#news-channels').onclick = (e) => openNewsChannels(e.currentTarget.getBoundingClientRect());
+    setInterval(() => { if (newsOpen()) loadNews(); }, NEWS_REFRESH_MS);
+    if (!MOBILE && S.settings.newsPanel) setNewsOpen(true);
+  }
 
   // ------------------------------------------------------------ sidebar
 
@@ -1712,7 +1947,10 @@
 
   // ------------------------------------------------------------ chrome and start-up
 
-  function closeDrawers() { document.body.classList.remove('drawer-left', 'drawer-right'); }
+  function closeDrawers() {
+    if (document.body.classList.contains('drawer-news')) setNewsOpen(false);
+    document.body.classList.remove('drawer-left', 'drawer-right');
+  }
 
   function newBlock() {
     if (graph.on) closeGraph();
@@ -1802,7 +2040,7 @@
     if (!$('#update-dialog').hidden) { if (!$('.upd-bar') && !$('.upd-icon.spin')) closeUpdateDialog(); }
     else if (!$('#popover').hidden) closePopover();
     else if (!$('#modal').hidden) closeSettings();
-    else if (document.body.classList.contains('drawer-left') || document.body.classList.contains('drawer-right')) closeDrawers();
+    else if (['drawer-left', 'drawer-right', 'drawer-news'].some((c) => document.body.classList.contains(c))) closeDrawers();
     else if (graph.on) closeGraph();
     else return false;
     return true;
@@ -1872,6 +2110,7 @@
     $('#layout').classList.toggle('no-tasks', !S.settings.tasksPanel && !MOBILE);
     $('#toggle-tasks').classList.toggle('on', S.settings.tasksPanel && !MOBILE);
     buildCalendar();
+    buildNews();
     renderSidebar();
     loadTasks();
 

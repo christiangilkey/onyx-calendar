@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, clipboard, dialog, ipcMain, nativeImage, shell } = require('electron');
+const { app, BrowserWindow, Menu, Tray, clipboard, dialog, ipcMain, nativeImage, session, shell } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
@@ -104,9 +104,24 @@ function createTray() {
   tray.on('click', showWindow);
 }
 
+// The window is a local file, so the YouTube player in the News panel would get no
+// Referer and refuse to play ("Error 153: video player configuration"). Its requests
+// are given one naming the app.
+function allowYouTubeEmbeds() {
+  session.defaultSession.webRequest.onBeforeSendHeaders(
+    { urls: ['https://www.youtube-nocookie.com/*', 'https://www.youtube.com/*'] },
+    (details, done) => {
+      const headers = details.requestHeaders;
+      if (!headers.Referer && !headers.referer) headers.Referer = 'https://onyx-calendar.app/';
+      done({ requestHeaders: headers });
+    },
+  );
+}
+
 async function boot() {
   store.load();
   Menu.setApplicationMenu(null);
+  allowYouTubeEmbeds();
   registerIpc();
   api.onSettingsChanged(async (before, now) => {
     if (now.launchAtLogin !== before.launchAtLogin && app.isPackaged) {

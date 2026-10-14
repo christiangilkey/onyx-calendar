@@ -14,6 +14,7 @@ const DEFAULTS = {
     hour12: true,
     weekStart: 0,        // 0 = Sunday
     tasksPanel: true,
+    newsPanel: false,    // the News tab on the right is open
     closeToTray: true,
     launchAtLogin: false,
     defaultCalendar: '', // where new time blocks are saved
@@ -35,6 +36,7 @@ const DEFAULTS = {
   notes: [],             // { id, title, body, created, updated } written in Onyx, shown on the globe
   pins: [],              // { id, source: 'notion' | 'drive', ref, title, url, kind, added, notes } pinned to the globe
   notion: null,          // { name, workspace } of the connected Notion integration
+  news: null,            // { channels: [{ id, name, on, live?, custom? }] } for the News panel (news.js)
   secrets: { googleClientSecret: '', tokens: {}, mcpToken: '', notionToken: '' },
 };
 

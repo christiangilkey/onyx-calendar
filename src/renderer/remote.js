@@ -16,7 +16,7 @@
   const CACHE = 'onyx.cache.';
   const TIMEOUT_MS = 7000;
   // Settings that belong to this phone rather than to the shared calendar.
-  const PHONE_ONLY = ['view', 'tasksPanel'];
+  const PHONE_ONLY = ['view', 'tasksPanel', 'newsPanel'];
 
   const read = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } };
   const write = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage full: the cache is optional */ } };
@@ -215,6 +215,11 @@
     deleteTask: (id) => call('task:delete', id),
     setTags: (id, tags) => call('tags:set', id, tags),
     setMemo: (id, text) => call('memo:set', id, text),
+    news: (force) => call('news', force),
+    addNewsChannel: (input) => call('news:add', input),
+    setNewsChannel: (id, on) => call('news:set', id, on),
+    removeNewsChannel: (id) => call('news:remove', id),
+    resetNewsChannels: () => call('news:reset'),
     globe: () => call('globe'),
     createNote: (data) => call('note:create', data),
     updateNote: (id, patch) => call('note:update', id, patch),

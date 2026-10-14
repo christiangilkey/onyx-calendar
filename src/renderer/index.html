@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://i.ytimg.com; font-src 'self' data:; frame-src https://www.youtube-nocookie.com">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Onyx Calendar</title>
   <link rel="stylesheet" href="styles.css">
@@ -87,6 +87,23 @@
         </div>
       </form>
       <div id="task-items"></div>
+    </aside>
+
+    <aside id="news">
+      <button id="news-tab" title="News: the latest stories from YouTube news channels"><span class="news-tab-label">News</span></button>
+      <div id="news-body">
+        <div class="panel-head">
+          <h2>News</h2>
+          <span id="news-updated" class="count"></span>
+          <div class="grow"></div>
+          <button id="news-channels" class="icon-btn" title="Pick news channels"></button>
+          <button id="news-refresh" class="icon-btn" title="Check for new stories"></button>
+          <button id="news-close" class="icon-btn" title="Collapse the News tab"></button>
+        </div>
+        <div id="news-player"></div>
+        <div id="news-filter"></div>
+        <div id="news-list"></div>
+      </div>
     </aside>
   </div>
 

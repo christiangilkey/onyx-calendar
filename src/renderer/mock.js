@@ -78,6 +78,23 @@
     { id: 'drive/d2', source: 'drive', ref: 'd2', title: 'Arabic flashcards export', url: 'https://drive.google.com/', kind: 'doc' },
   ];
   Object.assign(tags, { 'note/1': ['arabic', 'study'], 'note/2': ['study'], 'note/3': ['family'], 'notion/a1': ['study'], 'drive/d1': ['work', 'admin'], 'drive/d2': ['arabic'] });
+  // The News panel: a few channels and stories (video id, channel, title, minutes ago).
+  let newsChannels = [
+    { id: 'UC16niRr50-MSBwiO3YDb3RA', name: 'BBC News', on: true },
+    { id: 'UChqUTb7kYRX8-EiaN3XFrSQ', name: 'Reuters', on: true },
+    { id: 'UCeY0bbntWzzVIaj2z3QigXg', name: 'NBC News', on: true, live: true },
+    { id: 'UCNye-wNBqNL5ZzHSJj3l8Bg', name: 'Al Jazeera English', on: true, live: true },
+    { id: 'UCknLrEdhRCp1aegoMqRaCZg', name: 'DW News', on: false, live: true },
+  ];
+  const DEMO_NEWS = [
+    ['uo819k4cjhs', 'UC16niRr50-MSBwiO3YDb3RA', 'Global news podcast: the day\'s top stories', 14],
+    ['jl4aqRIrwD0', 'UChqUTb7kYRX8-EiaN3XFrSQ', 'LIVE: Students protest over education costs', 38],
+    ['pE3naHw-avw', 'UCeY0bbntWzzVIaj2z3QigXg', 'Morning headlines: what you need to know today', 55],
+    ['JA_iZjKVYUk', 'UC16niRr50-MSBwiO3YDb3RA', 'Behind the scenes of a new TV drama', 95],
+    ['5tQNnrjqkFI', 'UChqUTb7kYRX8-EiaN3XFrSQ', 'King visits city on the north African coast', 140],
+    ['nhK-Cw9pNXs', 'UCeY0bbntWzzVIaj2z3QigXg', 'Recovery after surgery "proceeding as expected"', 210],
+  ];
+
   const DEMO_NOTION = [
     { source: 'notion', ref: 'a1', title: 'Study plan 2026', url: 'https://www.notion.so/', kind: 'page', icon: '📚' },
     { source: 'notion', ref: 'a2', title: 'Reading list', url: 'https://www.notion.so/', kind: 'database', icon: '📖' },
@@ -216,6 +233,23 @@
     deleteNote: async (id) => { notes = notes.filter((x) => x.id !== id); delete tags[id]; },
     addPin: async (r) => { const p = { id: `${r.source}/${r.ref}`, source: r.source, ref: r.ref, title: r.title, url: r.url, kind: r.kind }; pins = [...pins.filter((x) => x.id !== p.id), p]; setTags(p.id, r.tags); return withTags(p); },
     updatePin: async (id, d) => { const p = pins.find((x) => x.id === id); if (d.tags) setTags(id, d.tags); if ('notes' in d) p.notes = d.notes; return withTags(p); },
+    news: async () => {
+      const on = newsChannels.filter((c) => c.on);
+      const stories = DEMO_NEWS.filter(([, ch]) => on.some((c) => c.id === ch)).map(([id, ch, title, min]) => ({
+        id, title, channelId: ch, channel: newsChannels.find((c) => c.id === ch).name,
+        published: new Date(Date.now() - min * 60000).toISOString(), thumb: `https://i.ytimg.com/vi/${id}/mqdefault.jpg`,
+      }));
+      return { stories, channels: structuredClone(newsChannels), errors: [] };
+    },
+    setNewsChannel: async (id, on) => { newsChannels.find((c) => c.id === id).on = on; return structuredClone(newsChannels); },
+    removeNewsChannel: async (id) => { newsChannels = newsChannels.filter((c) => c.id !== id); return structuredClone(newsChannels); },
+    resetNewsChannels: async () => structuredClone(newsChannels),
+    addNewsChannel: async (input) => {
+      const handle = String(input).replace(/^.*@/, '').trim();
+      if (!/^[\w.-]{3,30}$/.test(handle)) throw new Error('Paste a YouTube channel link or its @handle.');
+      newsChannels.push({ id: `UC${handle.padEnd(22, 'x').slice(0, 22)}`, name: handle, on: true, custom: true });
+      return structuredClone(newsChannels);
+    },
     setMemo: async (id, text) => { const e = events.find((x) => x.id === id); if (e) e.memo = String(text || '').trimEnd(); return e?.memo || ''; },
     removePin: async (id) => { pins = pins.filter((x) => x.id !== id); delete tags[id]; },
     searchNotion: async (q) => DEMO_NOTION.filter((r) => r.title.toLowerCase().includes(String(q).toLowerCase())),

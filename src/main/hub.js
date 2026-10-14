@@ -131,6 +131,7 @@ function taskAsEvent(t) {
     id: t.id, calendarId: t.listId, calendarName: t.listName, color: t.color, kind: 'task',
     title: t.label, location: '', notes: t.notes, link: '', writable: false,
     piCall: !!(t.call && !t.call.quiet && !t.call.past), done: t.done,
+    movable: !t.mirror && !t.done, // dragged to another day in the calendar (see moveTask)
   };
   if (t.start) {
     return { ...base, allDay: false, start: t.start, end: new Date(new Date(t.start).getTime() + TASK_BLOCK_MINUTES * 60000).toISOString() };
@@ -366,6 +367,30 @@ async function updateTask(id, patch) {
   return unifyTask(cal, raw, new Set());
 }
 
+/**
+ * Moves a task dragged in the calendar. `to` is { date: 'YYYY-MM-DD' } for a day, or
+ * { start: ISO } for a time on a day. The due date changes, and so does the name when it
+ * holds a date or time, because that is what the Pi (and Onyx) read first.
+ */
+async function moveTask(id, to) {
+  const { calendarId } = parseId(id);
+  const cal = findCalendar(calendarId);
+  const task = (await listTasks(cal, true)).find((t) => t.id === id);
+  if (!task) throw Object.assign(new Error('That task no longer exists.'), { status: 404 });
+  if (task.mirror) throw new Error('This task follows a calendar entry for the Pi. Move the entry instead.');
+  const named = parseName(task.title);
+  const base = named.date || named.time ? named.spoken : task.title;
+  if (to?.start) {
+    const start = new Date(to.start);
+    if (Number.isNaN(start.getTime())) throw new Error('That is not a time.');
+    return updateTask(id, { title: mirrorName(base, start), due: localDate(start) });
+  }
+  const due = String(to?.date || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(due)) throw new Error('That is not a date.');
+  // Onto a whole day: a date or time written in the name would pin it elsewhere, so it goes.
+  return updateTask(id, { ...(base !== task.title ? { title: base } : {}), due });
+}
+
 async function deleteTask(id) {
   const { acct, calendarId, rawCal, rawItem } = parseId(id);
   await PROVIDERS[acct.provider].deleteTask(req(acct), rawCal, rawItem);
@@ -557,6 +582,6 @@ function removeLocalCalendar(id) {
 
 module.exports = {
   calendars, refreshCalendars, invalidate, getEvents, createEvent, updateEvent, deleteEvent,
-  getTasks, createTask, updateTask, deleteTask, setPiCall, freeTime, addLocalCalendar, removeLocalCalendar,
+  getTasks, createTask, updateTask, moveTask, deleteTask, setPiCall, freeTime, addLocalCalendar, removeLocalCalendar,
   setTags, allTags, setTagColor, renameTag, deleteTag,
 };

@@ -128,7 +128,7 @@
   const withTags = (x) => ({ ...x, tags: tags[x.id] || [] });
   const taskEvent = (t) => ({
     id: t.id, calendarId: t.listId, calendarName: t.listName, color: t.color, kind: 'task', title: t.label, location: '', notes: '', link: '',
-    writable: false, piCall: !!(t.call && !t.call.quiet && !t.call.past),
+    writable: false, piCall: !!(t.call && !t.call.quiet && !t.call.past), movable: !t.mirror && !t.done,
     ...(t.start ? { allDay: false, start: t.start, end: new Date(new Date(t.start).getTime() + 1800000).toISOString() }
       : { allDay: true, start: t.date, end: ymd(new Date(new Date(`${t.date}T00:00`).getTime() + 86400000)) }),
   });
@@ -174,6 +174,17 @@
         t.call = null;
       }
       if (newTags) setTags(id, newTags);
+      return withTags(t);
+    },
+    moveTask: async (id, to) => {
+      const t = tasks.find((x) => x.id === id);
+      if (to.start) {
+        const d = new Date(to.start);
+        t.date = ymd(d); t.due = t.date; t.time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; t.start = d.toISOString();
+      } else {
+        t.date = to.date; t.due = to.date; t.time = null; t.start = null;
+      }
+      t.call = null;
       return withTags(t);
     },
     deleteTask: async (id) => { tasks = tasks.filter((x) => x.id !== id); delete tags[id]; },

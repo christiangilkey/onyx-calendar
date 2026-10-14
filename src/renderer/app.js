@@ -173,7 +173,9 @@
     return {
       id: e.id, title: e.title, start: e.start, end: e.end, allDay: e.allDay,
       backgroundColor: e.color, borderColor: e.color,
-      editable: e.writable && e.kind === 'event',
+      // Tasks can be dragged to another day or time, but keep their length.
+      editable: e.kind === 'task' ? !!e.movable : e.writable && e.kind === 'event',
+      durationEditable: e.kind === 'event' && e.writable,
       classNames: [e.kind === 'task' ? 'is-task' : 'is-event', matchesFilter(e.tags) ? '' : 'is-dim'],
       extendedProps: { src: e },
     };
@@ -215,6 +217,7 @@
   async function onMove(info) {
     const e = info.event;
     const src = e.extendedProps.src;
+    if (src.kind === 'task') return moveTaskTo(info);
     const end = e.end || (e.allDay ? addDays(e.start, 1) : new Date(e.start.getTime() + 3600000));
     try {
       const saved = await onyx.updateEvent(src.id, e.allDay
@@ -222,6 +225,22 @@
         : { start: e.start.toISOString(), end: end.toISOString(), allDay: false });
       if (saved.warning) toast(saved.warning, 'warn');
       refetch();
+    } catch (err) {
+      info.revert();
+      toast(err.message, 'error');
+    }
+  }
+
+  /** A task dropped on another day (or time): its due date in Google Tasks / To Do follows. */
+  async function moveTaskTo(info) {
+    const e = info.event;
+    try {
+      const t = await onyx.moveTask(e.extendedProps.src.id, e.allDay ? { date: ymd(e.start) } : { start: e.start.toISOString() });
+      const day = toDate(t.date).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
+      const call = t.call && !t.call.quiet && !t.call.past ? ` · the Pi phones at ${fmtTime(new Date(t.call.at))}` : '';
+      toast(`Moved to ${day}${t.start ? ` ${fmtTime(new Date(t.start))}` : ''}${call}`);
+      refetch();
+      loadTasks(true);
     } catch (err) {
       info.revert();
       toast(err.message, 'error');

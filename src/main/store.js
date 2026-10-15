@@ -36,7 +36,10 @@ const DEFAULTS = {
   notes: [],             // { id, title, body, created, updated } written in Onyx, shown on the globe
   pins: [],              // { id, source: 'notion' | 'drive', ref, title, url, kind, added, notes } pinned to the globe
   notion: null,          // { name, workspace } of the connected Notion integration
-  news: null,            // { channels: [{ id, name, on, live?, custom? }] } for the News panel (news.js)
+  goals: [],             // long-term goals: { id, title, notes, start, end, color, listId, steps: [{ id, title, due, done, taskId }] } (goals.js)
+  repeats: {},           // task id -> { rule, day } for tasks that repeat; Onyx adds the next one when it is done (repeat.js)
+  repeatSpawned: {},     // completed task id -> the task added after it, so Undo can take that back
+  news: null,          // { channels: [{ id, name, on, live?, custom? }] } for the News panel (news.js)
   secrets: { googleClientSecret: '', tokens: {}, mcpToken: '', notionToken: '' },
 };
 

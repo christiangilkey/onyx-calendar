@@ -17,6 +17,8 @@
     trash: '<path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13"/>',
     check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
     undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+    flag: '<path d="M5.5 21V4"/><path d="M5.5 4.5h11.5l-2.4 3.8 2.4 3.8H5.5"/>',
+    repeat: '<path d="M4.5 10.5a6.5 6.5 0 0 1 11.3-3.8L18 9"/><path d="M18 4.5V9h-4.5"/><path d="M19.5 13.5a6.5 6.5 0 0 1-11.3 3.8L6 15"/><path d="M6 19.5V15h4.5"/>',
     news: '<rect x="3.5" y="4.5" width="17" height="12.5" rx="2.5"/><path d="M8.5 20.5h7M12 17v3.5"/><path d="M10.2 8.3l4.3 2.45-4.3 2.45z"/>',
     play: '<path d="M7 4.8v14.4L19 12z"/>',
     next: '<path d="M6 5.5v13l9-6.5z"/><path d="M18 5.5v13"/>',
@@ -75,6 +77,7 @@
   let S = null;          // app state from the main process
   let calendar = null;   // FullCalendar instance
   let tasks = [];
+  let goals = [];        // long-term goals with their steps and progress (goals.js)
   let forceNext = false; // next event fetch bypasses the cache
   let miniMonth = new Date();
   let closePopover = () => {};
@@ -204,7 +207,7 @@
       // Tasks can be dragged to another day or time, but keep their length.
       editable: e.kind === 'task' ? !!e.movable : e.writable && e.kind === 'event',
       durationEditable: e.kind === 'event' && e.writable,
-      classNames: [e.kind === 'task' ? 'is-task' : 'is-event', matchesFilter(e.tags) ? '' : 'is-dim'],
+      classNames: [e.kind === 'task' ? 'is-task' : e.kind === 'goal' ? 'is-goal' : 'is-event', matchesFilter(e.tags) ? '' : 'is-dim'],
       extendedProps: { src: e },
     };
   }
@@ -233,9 +236,17 @@
     // The block being dragged out has no entry behind it yet: show just its times.
     if (!src) return { domNodes: [h('div', { class: 'ev' }, h('div', { class: 'ev-title' }, h('span', { class: 't' }, arg.timeText || 'New block')))] };
     const notes = notesOf(src);
+    if (src.kind === 'goal') {
+      // A goal's time frame: one bar with its progress.
+      const p = src.progress || { done: 0, total: 0, percent: 0 };
+      return { domNodes: [h('div', { class: 'ev goal-bar', css: { '--p': `${p.percent}%` }, title: `Goal: ${src.title}\n${p.done} of ${p.total} steps done${notes ? `\n\n${notes}` : ''}` },
+        h('div', { class: 'ev-title' }, icon('flag'), h('span', { class: 't' }, src.title), p.total > 0 && h('span', { class: 'goal-pct' }, `${p.done}/${p.total}`)))] };
+    }
     const title = h('div', { class: 'ev-title' },
       src.kind === 'task' && h('span', { class: 'dot' }),
       h('span', { class: 't' }, arg.event.title),
+      src.goal && h('span', { class: 'ev-goal', title: `A step toward: ${src.goal.title}` }, icon('flag')),
+      src.repeat && h('span', { title: REPEAT[src.repeat] }, icon('repeat')),
       src.piCall && icon('phone'),
       notes && icon('note'),
       src.kind === 'event' && !src.writable && icon('lock'),
@@ -330,6 +341,7 @@
         const src = info.event.extendedProps.src;
         const anchor = info.el.getBoundingClientRect();
         if (src.kind === 'task') openTask(tasks.find((t) => t.id === src.id) || { id: src.id, title: src.title, label: src.title, listName: src.calendarName }, anchor);
+        else if (src.kind === 'goal') openGoalById(src.id, anchor);
         else openEditor({ src, start: toDate(src.start), end: toDate(src.end), allDay: src.allDay }, anchor);
       },
       eventDrop: onMove,
@@ -501,6 +513,12 @@
 
   // ------------------------------------------------------------ tasks
 
+  const REPEAT = {
+    daily: 'Every day', weekdays: 'Every weekday', weekly: 'Every week', biweekly: 'Every 2 weeks', monthly: 'Every month', yearly: 'Every year',
+  };
+  const ordinal = (n) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th')}`;
+  const REPEAT_SHORT ={ daily: 'daily', weekdays: 'weekdays', weekly: 'weekly', biweekly: '2 weeks', monthly: 'monthly', yearly: 'yearly' };
+
   async function loadTasks(force) {
     try {
       const res = await onyx.tasks(force);
@@ -510,6 +528,16 @@
       toast(err.message, 'error');
     }
     renderTasks();
+    loadGoals();
+  }
+
+  async function loadGoals() {
+    try {
+      goals = await onyx.goals();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+    renderGoals();
   }
 
   function callBadge(t) {
@@ -526,7 +554,10 @@
       h('button', { class: 'tick', title: 'Mark done (moves it to Archived)', onclick: () => completeTask(t, row) }, icon('check')),
       h('div', { class: 'task-body', onclick: (e) => openTask(t, e.currentTarget.getBoundingClientRect()) },
         h('div', { class: 'task-name' }, t.label),
-        h('div', { class: 'task-meta' }, when && h('span', null, when), callBadge(t), h('span', null, t.listName),
+        h('div', { class: 'task-meta' }, when && h('span', null, when), callBadge(t),
+          t.repeat && h('span', { class: 'rep', title: `${REPEAT[t.repeat]}: Onyx adds the next one when this is done` }, icon('repeat'), REPEAT_SHORT[t.repeat]),
+          t.goal && h('span', { class: 'goal-chip', css: { '--g': t.goal.color }, title: `A step toward: ${t.goal.title}` }, icon('flag'), t.goal.title),
+          h('span', null, t.listName),
           (t.tags || []).map((tag) => h('span', { class: 'mini-tag', css: { '--t': tagColor(tag) } }, `#${tag}`))),
         notePreview(notesOf(t))));
     return row;
@@ -544,11 +575,12 @@
   async function completeTask(t, row) {
     row?.classList.add('done');
     try {
-      await onyx.updateTask(t.id, { done: true });
+      const res = await onyx.updateTask(t.id, { done: true });
       undoStack.push({ id: t.id, label: t.label });
       if (undoStack.length > 30) undoStack.shift();
       syncUndo();
-      toast(`Archived "${t.label}"`, '', { label: 'Undo', run: () => restoreTask(t.id, t.label) });
+      const next = res?.next?.date ? `. Next one: ${fmtDay(fromYmd(res.next.date))}` : '';
+      toast(`Archived "${t.label}"${next}`, '', { label: 'Undo', run: () => restoreTask(t.id, t.label) });
       await loadTasks();
       refetch();
     } catch (err) {
@@ -723,6 +755,18 @@
     const date = !t.mirror && h('input', { type: 'date', value: t.date || '', title: 'Due date' });
     // Notes are the task's own notes in Google Tasks / To Do, so they show there too.
     const notes = notesField(t.notes);
+    // Repeating: Onyx adds the next one (with the next date) when this one is done.
+    const weekday = t.date ? fromYmd(t.date).toLocaleDateString([], { weekday: 'long' }) : '';
+    const dayNum = t.date ? fromYmd(t.date).getDate() : '';
+    const repeatLabel = (rule) => ({
+      weekly: weekday ? `Every week on ${weekday}` : REPEAT.weekly,
+      biweekly: weekday ? `Every 2 weeks on ${weekday}` : REPEAT.biweekly,
+      monthly: dayNum ? `Every month on the ${ordinal(dayNum)}` : REPEAT.monthly,
+    }[rule] || REPEAT[rule]);
+    const repeatPick = !t.mirror && t.provider && h('select', { title: 'Repeat' },
+      h('option', { value: '' }, 'Does not repeat'),
+      Object.keys(REPEAT).map((rule) => h('option', { value: rule }, repeatLabel(rule))));
+    if (repeatPick) repeatPick.value = t.repeat || '';
     const save = () => run(async () => {
       const patch = {};
       if (name.value.trim() && name.value.trim() !== t.title) patch.title = name.value.trim();
@@ -736,11 +780,18 @@
       } else if (date && !date.value && t.date && !t.dateInName) {
         await onyx.updateTask(t.id, { due: null });
       }
+      if (repeatPick && repeatPick.value !== (t.repeat || '')) {
+        await onyx.repeatTask(t.id, repeatPick.value || null);
+        toast(repeatPick.value ? `${repeatLabel(repeatPick.value)}. When it is done, the next one is added.` : 'No longer repeats');
+      }
     });
     showPopover(anchor, [
       name,
       h('div', { class: 'pop-meta' }, [t.listName, t.start ? `${fmtDay(new Date(t.start))}, ${fmtTime(new Date(t.start))}` : t.date ? fmtDay(fromYmd(t.date)) : 'No date'].filter(Boolean).join('  ·  ')),
+      t.goal && h('button', { class: 'row goal-link', css: { '--g': t.goal.color }, title: 'Open the goal', onclick: (e) => openGoalById(t.goal.id, e.currentTarget.getBoundingClientRect()) },
+        icon('flag'), h('span', null, 'A step toward ', h('b', null, t.goal.title))),
       date && h('div', { class: 'row' }, icon('calendar'), date),
+      repeatPick && h('div', { class: 'row' }, icon('repeat'), repeatPick),
       h('div', { class: 'row top' }, icon('note'), notes),
       h('div', { class: 'row' }, icon('tag'), tags.el),
       S.settings.pi.enabled && t.provider === 'google' && h('div', { class: 'row pi-row' }, icon('phone'),
@@ -1022,6 +1073,148 @@
     if (!MOBILE && S.settings.newsPanel) setNewsOpen(true);
   }
 
+  // ------------------------------------------------------------ goals
+  // A long-term goal: a name, a time frame and the steps toward it. Each step is a real
+  // task (Tasks panel, calendar, Google), the time frame is one bar on the calendar, and
+  // the globe shows the whole goal as one node.
+
+  function renderGoals() {
+    const box = $('#goal-list');
+    const add = (e) => openGoal(null, e.currentTarget.getBoundingClientRect());
+    box.replaceChildren(
+      h('div', { class: 'group-head' }, h('span', null, 'Goals'), h('button', { class: 'link-btn', onclick: add }, '+ New goal')),
+      ...goals.length
+        ? goals.map((g) => {
+          const p = g.progress;
+          const left = Math.round((fromYmd(g.end) - fromYmd(ymd(new Date()))) / 86400000);
+          const due = left < 0 ? 'past its target date' : left === 0 ? 'target today' : left < 60 ? `${left} days left` : `until ${fromYmd(g.end).toLocaleDateString([], { month: 'short', year: 'numeric' })}`;
+          return h('div', { class: `goal-row ${visible(g.id) ? 'on' : ''}`, css: { '--c': g.color } },
+            h('button', { class: 'box', title: visible(g.id) ? 'Shown on the calendar. Click to hide.' : 'Hidden from the calendar. Click to show.', onclick: () => toggleCalendar(g.id) }, icon('check')),
+            h('button', { class: 'goal-main', title: 'Open the goal', onclick: (e) => openGoal(g, e.currentTarget.getBoundingClientRect()) },
+              h('span', { class: 'goal-top' }, h('span', { class: 'name' }, g.title), h('span', { class: 'pct' }, p.total ? `${p.done}/${p.total}` : '')),
+              h('span', { class: 'goal-track' }, h('i', { css: { width: `${p.percent}%` } })),
+              h('span', { class: 'goal-when' }, due)));
+        })
+        : [h('p', { class: 'side-hint' }, 'Set a long-term goal with a target date and the steps to get there.')]);
+  }
+
+  async function openGoalById(id, anchor) {
+    let g = goals.find((x) => x.id === id);
+    if (!g) { await loadGoals(); g = goals.find((x) => x.id === id); }
+    if (g) openGoal(g, anchor); else toast('That goal no longer exists.', 'error');
+  }
+
+  function openGoal(g, anchor) {
+    const lists = S.calendars.filter((c) => c.kind === 'tasklist');
+    const title = h('input', { type: 'text', class: 'pop-title', placeholder: 'What do you want to achieve?', value: g ? g.title : '', spellcheck: false });
+    const start = h('input', { type: 'date', value: g ? g.start : ymd(new Date()), title: 'Starts' });
+    const end = h('input', { type: 'date', value: g ? g.end : ymd(addDays(new Date(), 90)), title: 'Target date' });
+    let color = g ? g.color : COLORS[goals.length % COLORS.length];
+    const swatches = h('div', { class: 'swatches' });
+    const palette = COLORS.includes(color) ? COLORS : [color, ...COLORS];
+    const drawSwatches = () => swatches.replaceChildren(...palette.map((c) => h('button', {
+      class: `swatch${c === color ? ' on' : ''}`, css: { '--c': c }, title: 'Colour', onclick: () => { color = c; drawSwatches(); },
+    })));
+    drawSwatches();
+    const notes = notesField(g?.notes, 'Why it matters, and how you will know you got there');
+    const tags = tagField(g ? g.tags : [...tagFilter].map((t) => tagInfo(t)?.name || t));
+    const listPick = !g && lists.length > 1 && h('select', { title: 'The task list the steps go into' },
+      lists.map((c) => h('option', { value: c.id }, `${c.name}  ·  ${c.accountLabel}`)));
+    if (listPick) listPick.value = (lists.find((c) => c.id === S.settings.pi.taskList) || lists.find((c) => c.provider === 'google') || lists[0]).id;
+
+    const steps = (g?.steps || []).map((s) => ({ ...s }));
+    const stepBox = h('div', { class: 'goal-steps' });
+    const drawSteps = (focus) => {
+      stepBox.replaceChildren(...steps.map((s, i) => {
+        const name = h('input', { type: 'text', value: s.title, placeholder: `Step ${i + 1}`, spellcheck: false, oninput: (e) => { s.title = e.target.value; } });
+        name.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') { e.preventDefault(); steps.splice(i + 1, 0, { title: '', due: null, done: false }); drawSteps(i + 1); }
+          if (e.key === 'Backspace' && !name.value && steps.length > 1) { e.preventDefault(); steps.splice(i, 1); drawSteps(Math.max(0, i - 1)); }
+        });
+        return h('div', { class: `goal-step${s.done ? ' done' : ''}` },
+          h('input', { type: 'checkbox', checked: !!s.done, title: 'Done', onchange: (e) => { s.done = e.target.checked; drawSteps(); } }),
+          name,
+          h('input', { type: 'date', value: s.due || '', title: 'Due', onchange: (e) => { s.due = e.target.value || null; } }),
+          h('button', { class: 'x', title: 'Remove this step (its task is deleted)', onclick: () => { steps.splice(i, 1); drawSteps(); } }, icon('x')));
+      }));
+      if (focus != null) stepBox.querySelectorAll('input[type=text]')[focus]?.focus();
+    };
+    if (!steps.length) steps.push({ title: '', due: null, done: false });
+    drawSteps();
+
+    // Spreads the steps without a date evenly from today (or the start) to the target date.
+    const spread = () => {
+      const undated = steps.filter((s) => s.title.trim() && !s.due && !s.done);
+      if (!undated.length) return toast('Every step already has a date.');
+      const from = fromYmd(start.value > ymd(new Date()) ? start.value : ymd(new Date()));
+      const span = Math.max(0, Math.round((fromYmd(end.value) - from) / 86400000));
+      undated.forEach((s, k) => { s.due = ymd(addDays(from, Math.round((span * (k + 1)) / undated.length))); });
+      drawSteps();
+    };
+
+    let busy = false;
+    const save = async () => {
+      if (busy) return;
+      busy = true;
+      const picked = tags.get();
+      const data = {
+        title: title.value.trim(), start: start.value, end: end.value, color, notes: cleanNote(notes.value), tags: picked,
+        steps: steps.filter((s) => s.title.trim()).map((s) => ({ id: s.id, title: s.title.trim(), due: s.due || null, done: !!s.done })),
+        ...(listPick ? { listId: listPick.value } : {}),
+      };
+      try {
+        const res = g ? await onyx.updateGoal(g.id, data) : await onyx.createGoal(data);
+        if (res.warnings?.length) toast(`Saved, but: ${res.warnings.join('  ·  ')}`, 'warn');
+        else if (!g) toast(`Goal set: ${res.steps.length} ${res.steps.length === 1 ? 'step' : 'steps'}${lists.length ? ' added to your tasks' : ''}`);
+        closePopover();
+        await loadTasks();
+        refetch();
+        if (!sameTags(picked, g?.tags)) reloadTags();
+      } catch (err) {
+        busy = false;
+        toast(err.message, 'error');
+      }
+    };
+    const remove = async () => {
+      const open = g.steps.filter((s) => s.taskId && !s.done).length;
+      if (!confirm(`Delete the goal "${g.title}"?${open ? ` Its ${open} open ${open === 1 ? 'step is' : 'steps are'} deleted from your tasks too.` : ''}`)) return;
+      try {
+        await onyx.deleteGoal(g.id);
+        closePopover();
+        await loadTasks();
+        refetch();
+        reloadTags();
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    };
+
+    const p = g?.progress;
+    showPopover(anchor, [
+      title,
+      p && p.total > 0 && h('div', { class: 'goal-progress', css: { '--c': color } },
+        h('span', { class: 'goal-track' }, h('i', { css: { width: `${p.percent}%` } })), h('span', null, `${p.done} of ${p.total} steps · ${p.percent}%`)),
+      h('div', { class: 'row' }, icon('calendar'), start, h('span', { class: 'dash' }, 'to'), end),
+      h('div', { class: 'row' }, icon('tag'), tags.el),
+      h('div', { class: 'row top' }, icon('note'), notes),
+      h('div', { class: 'row' }, h('span', { class: 'ico' }), swatches, listPick || null),
+      h('div', { class: 'goal-steps-head' }, h('b', null, 'Steps'),
+        h('div', { class: 'grow' }),
+        h('button', { class: 'link-btn', title: 'Give the steps without a date evenly spaced dates up to the target', onclick: spread }, 'Spread dates'),
+        h('button', { class: 'link-btn', onclick: () => { steps.push({ title: '', due: null, done: false }); drawSteps(steps.length - 1); } }, '+ Add step')),
+      stepBox,
+      h('p', { class: 'pop-meta' }, lists.length
+        ? 'Each step becomes a task in your Tasks panel, calendar and Google. On the globe the goal is one node.'
+        : 'Connect Google or Outlook so the steps also become tasks.'),
+      h('div', { class: 'pop-actions' },
+        g && h('button', { class: 'btn danger', onclick: remove }, icon('trash'), 'Delete'),
+        h('div', { class: 'grow' }),
+        h('button', { class: 'btn ghost', onclick: () => closePopover() }, 'Cancel'),
+        h('button', { class: 'btn primary', onclick: save }, g ? 'Save' : 'Set goal')),
+    ], null, { wide: true });
+    if (!MOBILE && !g) title.focus();
+  }
+
   // ------------------------------------------------------------ sidebar
 
   function renderMini() {
@@ -1078,6 +1271,7 @@
         h('span', { class: 'box' }, icon('check')),
         h('span', { class: 'name' }, c.name),
         h('span', { class: 'tag' }, c.kind === 'tasklist' ? 'tasks' : ''))))));
+    renderGoals();
     renderTagList();
   }
 
@@ -1441,13 +1635,14 @@
 
   const graph = {
     on: false, kind: 'week', anchor: new Date(), from: '', to: '', groupBy: 'tags', view: null, seq: 0,
-    show: { tasks: true, notes: true, notion: true, drive: true }, // what joins the calendar entries
+    show: { tasks: true, goals: true, notes: true, notion: true, drive: true }, // what joins the calendar entries
     lib: { notes: [], pins: [] },
   };
   window.onyxDebug = { globe: () => graph.view }; // lets tests find nodes on the canvas
 
   // Where notes and outside documents gather when they have no tags.
   const SOURCES = {
+    goals: { label: 'Goals', color: '#ffb547' },
     notes: { label: 'Notes', color: '#e4e0ff' },
     notion: { label: 'Notion', color: '#c4c4cc' },
     drive: { label: 'Drive', color: '#3ddc97' },
@@ -1515,7 +1710,8 @@
   });
 
   function graphItems(events) {
-    const items = events.filter((e) => visible(e.calendarId) && matchesFilter(e.tags)).map((e) => {
+    // A goal is one node: its time-frame bar and its steps' tasks are not drawn on their own.
+    const items = events.filter((e) => visible(e.calendarId) && matchesFilter(e.tags) && e.kind !== 'goal' && !e.goal).map((e) => {
       const t = e.kind === 'task' ? tasks.find((x) => x.id === e.id) : null;
       return t ? taskItem(t) : {
         id: e.id, title: e.title, color: e.color, calendarId: e.calendarId, calendarName: e.calendarName,
@@ -1527,8 +1723,20 @@
       const shown = new Set(items.map((i) => i.id));
       const today = ymd(new Date());
       for (const t of tasks) {
-        if (shown.has(t.id) || t.mirror || t.done || !visible(t.listId) || !matchesFilter(t.tags)) continue;
+        if (shown.has(t.id) || t.mirror || t.done || t.goal || !visible(t.listId) || !matchesFilter(t.tags)) continue;
         if (!t.date || t.date < today) items.push(taskItem(t));
+      }
+    }
+    // Goals span months, so they show whatever range is picked.
+    if (graph.show.goals) {
+      for (const g of goals) {
+        if (!visible(g.id) || !matchesFilter(g.tags)) continue;
+        const p = g.progress;
+        items.push(sourceItem('goals', {
+          id: g.id, title: p.total ? `${g.title} · ${p.done}/${p.total}` : g.title, tags: g.tags, kind: 'goal', shape: 'goal',
+          color: g.color, goal: g, progress: p.percent / 100,
+          notes: [g.notes, ...g.steps.map((s) => `${s.done ? '✓' : '○'} ${s.title}${s.due ? `  (${fmtDay(fromYmd(s.due))})` : ''}`)].filter(Boolean).join('\n'),
+        }));
       }
     }
     // Notes, Notion pages and Drive files have no date: they show whatever the range.
@@ -1572,6 +1780,8 @@
   function pickFromGraph(item, rect) {
     if (item.kind === 'task') {
       openTask(item.task || tasks.find((t) => t.id === item.id) || { id: item.id, title: item.title, label: item.title, listName: item.calendarName, tags: item.tags }, rect);
+    } else if (item.kind === 'goal') {
+      openGoal(item.goal, rect);
     } else if (item.kind === 'note') {
       openNote(item.note, rect);
     } else if (item.kind === 'pin') {
@@ -1796,6 +2006,7 @@
       seg([['tags', 'Tags'], ['calendars', 'Sources'], ['days', 'Days']], graph.groupBy, (g) => { graph.groupBy = g; renderGraphBar(); loadGraph(); }),
       h('span', { class: 'bar-label' }, 'Show'),
       chip('tasks', 'Tasks', 'Tasks that have no date'),
+      chip('goals', 'Goals', 'Long-term goals: one node each, standing for all of its steps'),
       chip('notes', 'Notes', 'Notes written in Onyx'),
       chip('notion', 'Notion', 'Notion pages pinned to the globe'),
       chip('drive', 'Drive', 'Google Drive files pinned to the globe'),

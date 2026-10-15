@@ -12,7 +12,7 @@
   /**
    * items: [{ id, title, color, calendarId, calendarName, tags, start, allDay, kind, shape?, home?, source? }]
    * groupBy: 'tags' | 'calendars' | 'days'
-   * shape: 'diamond' (notes) or 'square' (documents); circles otherwise.
+   * shape: 'diamond' (notes), 'square' (documents) or 'goal' (a ring showing `progress`, 0..1); circles otherwise.
    * home:   [key, label, colour], the cluster an item starts in when it has no tag:
    *         Overdue / Today / Tomorrow / a day / No date for tasks; Notes, Notion or Drive.
    * source: [key, label, colour], used instead of the calendar when grouping by source
@@ -293,10 +293,24 @@
           ctx.moveTo(p.x, p.y - rr); ctx.lineTo(p.x + rr, p.y); ctx.lineTo(p.x, p.y + rr); ctx.lineTo(p.x - rr, p.y); ctx.closePath();
         } else if (n.shape === 'square') { // Notion pages and Drive files
           ctx.roundRect(p.x - rr * 0.85, p.y - rr * 0.85, rr * 1.7, rr * 1.7, rr * 0.35);
+        } else if (n.shape === 'goal') { // a goal: bigger, with its progress as a ring
+          ctx.arc(p.x, p.y, rr * 1.25, 0, Math.PI * 2);
         } else {
           ctx.arc(p.x, p.y, rr, 0, Math.PI * 2);
         }
         ctx.fill();
+        if (n.shape === 'goal') {
+          const ring = rr * 1.25 + Math.max(2.5, 2.2 * p.s);
+          ctx.lineWidth = Math.max(1.2, 1.4 * p.s);
+          ctx.strokeStyle = `rgba(255,255,255,${0.16 * a})`;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, ring, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.strokeStyle = rgba(n.color, 0.95 * a);
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, ring, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, Math.max(0, n.item?.progress || 0)));
+          ctx.stroke();
+        }
         if (n.hub) {
           ctx.fillStyle = `rgba(0,0,0,${0.55 * a})`;
           ctx.beginPath();

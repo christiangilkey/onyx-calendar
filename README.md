@@ -6,6 +6,8 @@ A black, fast calendar for Windows and Android that puts everything in one place
 - **Time blocks.** Drag across the grid, type what the time is for, press Enter.
 - **Tasks.** Google Tasks and Microsoft To Do in a side panel, and on the grid at the time written in their name. Pick a due date as you add one, drag it to another day, and tick it off: done tasks go to the **Archived** tab (pick a day to see what you finished), and **Undo** at the top (or Ctrl+Z) brings the last one back.
 - **Notes on everything.** Every task, event, time block and pinned Notion page or Drive file has a notes box. Task and event notes are saved to Google or Outlook (so they show there too). Notes on read-only calendars and pinned documents are kept in Onyx. Entries with notes show a note icon, and hovering one shows its notes.
+- **Goals.** Set a long-term goal with a time frame and the steps toward it (**+ New goal** in the sidebar; **Spread dates** spaces the steps out up to the target). Each step becomes a real task, in the Tasks panel, on the calendar and in Google. The time frame shows as one bar across the calendar with its progress, and on the globe the goal is a single node (with a progress ring) rather than one node per step. Ticking off a step, in Onyx or in Google, moves the goal along.
+- **Repeating tasks.** Click a task and pick **Repeat**: every day, weekday, week, 2 weeks, month or year. Google Tasks doesn't let other apps set a repeat, so Onyx keeps the rule: when you tick the task off (in Onyx or in Google Tasks), Onyx adds the next one with the next date, and Undo takes it back.
 - **News tab.** A collapsible tab on the right edge opens a YouTube panel with the latest stories from news channels (BBC, Reuters, AP, NBC, CBS and Al Jazeera to start), newest first, plus 24/7 live streams. Pick channels, or add any YouTube channel by its link or @handle. It needs no YouTube account or API key, and collapsing the tab stops the video.
 - **Tags.** Tag any block, event or task. Tags stay in Onyx (they are never written to Google or Microsoft), and the sidebar filters by them.
 - **Globe view.** One button flips to a 3D globe of everything in a day, week, month or range, plus your notes, Notion pages and Google Drive files, clustered by tag, source or day.
@@ -178,6 +180,7 @@ From Docker on the same PC use `http://host.docker.internal:4747/mcp`. The first
 | `create_task` | Add a task |
 | `complete_task` | Mark a task done |
 | `list_notes` | Notes, and Notion pages and Drive files pinned to the globe, optionally only one tag |
+| `list_goals` | Long-term goals with their time frame, progress and steps |
 | `create_note` | Write a note (with tags) |
 
 For plain scripts there is also JSON over HTTP:

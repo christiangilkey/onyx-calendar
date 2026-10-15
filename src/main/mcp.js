@@ -62,7 +62,7 @@ const briefEvent = (e) => ({
 
 const briefTask = (t) => ({
   id: t.id, title: t.title, list: t.listName, due_date: t.date, time: t.time, tags: t.tags || [],
-  ...(t.notes ? { notes: t.notes } : {}),
+  ...(t.notes ? { notes: t.notes } : {}), ...(t.goal ? { goal: t.goal.title } : {}), ...(t.repeat ? { repeats: t.repeat } : {}),
   pi_call: t.call ? (t.call.past ? 'already due' : t.call.quiet ? 'skipped: quiet hours' : localStamp(t.call.at)) : null,
 });
 
@@ -236,6 +236,18 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'Task id from list_tasks.' } }, required: ['id'] },
     write: true,
     run: async (a) => { await hub.updateTask(a.id, { done: true }); return { completed: a.id }; },
+  },
+  {
+    name: 'list_goals',
+    description: "The user's long-term goals: each with its time frame, progress, and steps (each step is a task, with its due date and whether it is done).",
+    inputSchema: { type: 'object', properties: {} },
+    run: async () => ({
+      goals: (await require('./goals').list()).map((g) => ({
+        id: g.id, title: g.title, start: g.start, target: g.end, tags: g.tags, ...(g.notes ? { notes: g.notes } : {}),
+        progress: `${g.progress.done} of ${g.progress.total} steps (${g.progress.percent}%)`,
+        steps: g.steps.map((s) => ({ title: s.title, due: s.due, done: s.done })),
+      })),
+    }),
   },
   {
     name: 'list_notes',

@@ -8,6 +8,7 @@ const google = require('./providers/google');
 const microsoft = require('./providers/microsoft');
 const ics = require('./providers/ics');
 const { parseName, mirrorName, callTime } = require('./taskname');
+const repeat = require('./repeat');
 
 const PROVIDERS = { google, microsoft };
 const LOCAL = { id: 'local', provider: 'local', label: 'On this PC' };
@@ -130,7 +131,7 @@ function taskAsEvent(t) {
   const base = {
     id: t.id, calendarId: t.listId, calendarName: t.listName, color: t.color, kind: 'task',
     title: t.label, location: '', notes: t.notes, link: '', writable: false,
-    piCall: !!(t.call && !t.call.quiet && !t.call.past), done: t.done,
+    piCall: !!(t.call && !t.call.quiet && !t.call.past), done: t.done, goal: t.goal, repeat: t.repeat,
     movable: !t.mirror && !t.done, // dragged to another day in the calendar (see moveTask)
   };
   if (t.start) {
@@ -163,6 +164,7 @@ async function getEvents(start, end, { includeHidden = false, force = false } = 
   }));
   const events = lists.flat()
     .map((e) => ({ ...e, tags: tagsOf(e.id), memo: memoOf(e.id) }))
+    .concat(require('./goals').spans(start, end, includeHidden)) // goals.js needs this module: loaded late
     .sort((a, b) => toDate(a.start) - toDate(b.start));
   return { events, errors: [...errors] };
 }
@@ -269,6 +271,27 @@ async function deleteEvent(id) {
 
 // ---------------------------------------------------------------- tasks
 
+/** The goal a task is a step of, if any: { id, title, color }. */
+function goalOfTask(id) {
+  for (const g of store.data.goals) {
+    if (g.steps.some((s) => s.taskId === id)) return { id: g.id, title: g.title, color: g.color };
+  }
+  return null;
+}
+
+/** Keeps a goal's step in line with a change made to its task. */
+function syncStep(id, fields) {
+  for (const g of store.data.goals) {
+    for (const s of g.steps) {
+      if (s.taskId !== id) continue;
+      if ('title' in fields) s.title = fields.title;
+      if ('due' in fields) s.due = fields.due;
+      if ('done' in fields) s.done = fields.done;
+      store.save();
+    }
+  }
+}
+
 function unifyTask(cal, t, mirrors) {
   const id = `${cal.id}/${enc(t.rawId)}`;
   const now = new Date();
@@ -280,6 +303,7 @@ function unifyTask(cal, t, mirrors) {
     title: t.title, label: p.date || p.time ? p.spoken : t.title, notes: t.notes,
     due: t.due, done: t.done, completed: t.completed || null, date, dateInName: !!p.date, time: p.time ? `${pad(p.time[0])}:${pad(p.time[1])}` : null,
     start: start ? start.toISOString() : null, mirror: mirrors.has(id), call: null, tags: tagsOf(id),
+    goal: goalOfTask(id), repeat: store.data.repeats[id]?.rule || null,
   };
   // The Pi only reads Google Tasks, and only phones for a task with a time in its name.
   const pi = store.data.settings.pi;
@@ -304,18 +328,52 @@ async function listTasks(cal, force) {
   return raw.map((t) => unifyTask(cal, t, mirrors));
 }
 
-/** Every open task in every task list. Returns { tasks, errors }. */
+/**
+ * Every open task in every task list. Returns { tasks, errors, failed } (`failed`: the
+ * lists that could not be read). A repeating task that was done elsewhere gets its next
+ * one added here.
+ */
 async function getTasks({ force = false } = {}) {
   const errors = new Set();
-  const lists = await Promise.all(calendars().filter((c) => c.kind === 'tasklist').map(async (cal) => {
+  const failed = new Set();
+  const all = calendars().filter((c) => c.kind === 'tasklist');
+  const lists = await Promise.all(all.map(async (cal) => {
     try {
       return await listTasks(cal, force);
     } catch (err) {
+      failed.add(cal.id);
       errors.add(err.message.includes(cal.accountLabel) ? err.message : `${cal.accountLabel}: ${err.message}`);
       return [];
     }
   }));
-  return { tasks: lists.flat(), errors: [...errors] };
+  const tasks = lists.flat();
+  if (Object.keys(store.data.repeats).length) {
+    const open = new Set(tasks.map((t) => t.id));
+    tasks.push(...await repeat.reconcile(module.exports, open, failed, new Set(all.map((c) => c.id))));
+  }
+  return { tasks, errors: [...errors], failed: [...failed] };
+}
+
+/** One task, open or done, as Onyx shows it; null when it was deleted. */
+async function fetchTask(id) {
+  const { acct, calendarId, rawCal, rawItem } = parseId(id);
+  const raw = await PROVIDERS[acct.provider].getTask(req(acct), rawCal, rawItem);
+  return raw && unifyTask(findCalendar(calendarId), raw, new Set());
+}
+
+/**
+ * Makes a task repeat (`rule`: daily, weekdays, weekly, biweekly, monthly, yearly) or
+ * stop repeating (null). A task without a date starts today.
+ */
+async function setRepeat(id, rule) {
+  const { calendarId } = parseId(id);
+  const cal = findCalendar(calendarId);
+  const task = (await listTasks(cal, true)).find((t) => t.id === id);
+  if (!task) throw Object.assign(new Error('That task no longer exists.'), { status: 404 });
+  if (rule && task.mirror) throw new Error('This task follows a calendar entry for the Pi. It cannot repeat on its own.');
+  repeat.setRule(id, rule);
+  if (rule && !task.date) return updateTask(id, { due: localDate(new Date()) });
+  return { ...task, repeat: repeat.ruleOf(id)?.rule || null };
 }
 
 /**
@@ -400,7 +458,12 @@ async function updateTask(id, patch) {
   } else {
     raw = (taskCache.get(cal.id)?.items || []).find((t) => t.rawId === rawItem) || { rawId: rawItem, title: '', notes: '', due: null, done: false };
   }
-  return unifyTask(cal, raw, new Set());
+  const task = unifyTask(cal, raw, new Set());
+  syncStep(id, { ...('title' in fields ? { title: task.title } : {}), ...('due' in fields ? { due: task.date } : {}), ...('done' in fields ? { done: fields.done } : {}) });
+  // A repeating task that is done brings the next one; restoring it (Undo) takes that back.
+  if (fields.done === true && task.repeat) return { ...task, next: await repeat.spawnNext(module.exports, task) };
+  if (fields.done === false) await repeat.undoSpawn(module.exports, id);
+  return { ...task, repeat: repeat.ruleOf(id)?.rule || null };
 }
 
 /**
@@ -432,6 +495,9 @@ async function deleteTask(id) {
   await PROVIDERS[acct.provider].deleteTask(req(acct), rawCal, rawItem);
   invalidate(calendarId);
   dropTags(id);
+  if (store.data.repeats[id]) delete store.data.repeats[id];
+  for (const g of store.data.goals) for (const s of g.steps) if (s.taskId === id) s.taskId = null;
+  store.save();
 }
 
 // ---------------------------------------------------------------- tags
@@ -635,6 +701,6 @@ function removeLocalCalendar(id) {
 
 module.exports = {
   calendars, refreshCalendars, invalidate, getEvents, createEvent, updateEvent, deleteEvent,
-  getTasks, archivedTasks, createTask, updateTask, moveTask, deleteTask, setPiCall, freeTime, addLocalCalendar, removeLocalCalendar,
+  getTasks, archivedTasks, fetchTask, createTask, updateTask, moveTask, deleteTask, setRepeat, setPiCall, freeTime, addLocalCalendar, removeLocalCalendar,
   setTags, allTags, setTagColor, renameTag, deleteTag, setMemo, MAX_NOTE,
 };

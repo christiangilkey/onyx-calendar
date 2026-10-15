@@ -144,8 +144,61 @@
     }
   };
   const withTags = (x) => ({ ...x, tags: tags[x.id] || [] });
+
+  // Goals and repeating tasks (goals.js, repeat.js), kept simple.
+  const repeats = {};      // task id -> rule
+  const spawned = {};      // done task id -> the one added after it
+  let goals = [{
+    id: 'goal/arabic', title: 'Reach B1 Arabic', notes: 'Pass the OPI at level 2.', start: ymd(day(-30)), end: ymd(day(150)), color: '#ffb547', listId: 'g1/tl~main',
+    steps: [
+      { id: 's1', title: 'Learn the alphabet and its sounds', due: ymd(day(-20)), done: true, taskId: null },
+      { id: 's2', title: 'Anki 20 new words', due: null, done: false, taskId: 'g1/tl~main/e' },
+      { id: 's3', title: 'Read grammar chapter 4', due: null, done: false, taskId: 'g1/tl~main/g' },
+    ],
+  }];
+  tags['goal/arabic'] = ['study'];
+  repeats['g1/tl~main/e'] = 'daily';
+  const goalOf = (id) => { const g = goals.find((x) => x.steps.some((s) => s.taskId === id)); return g ? { id: g.id, title: g.title, color: g.color } : null; };
+  const taskOut = (t) => ({ ...withTags(t), goal: goalOf(t.id), repeat: repeats[t.id] || null });
+  const goalOut = (g) => {
+    const steps = g.steps.map((s) => {
+      const t = s.taskId && tasks.find((x) => x.id === s.taskId);
+      return t ? { ...s, title: t.title, due: t.date, done: !!t.done } : { ...s };
+    });
+    const done = steps.filter((s) => s.done).length;
+    return { ...g, steps, tags: tags[g.id] || [], progress: { done, total: steps.length, percent: steps.length ? Math.round((done / steps.length) * 100) : 0 } };
+  };
+  const nextDay = (date, rule) => {
+    const d = new Date(`${date}T00:00`);
+    const step = { daily: 1, weekdays: 1, weekly: 7, biweekly: 14 }[rule];
+    do {
+      if (step) d.setDate(d.getDate() + step); else if (rule === 'monthly') d.setMonth(d.getMonth() + 1); else d.setFullYear(d.getFullYear() + 1);
+    } while (ymd(d) <= ymd(new Date()) || (rule === 'weekdays' && (d.getDay() === 0 || d.getDay() === 6)));
+    return ymd(d);
+  };
+  const addTask = (d) => {
+    const t = { id: `g1/tl~main/${seq++}`, listId: 'g1/tl~main', listName: 'My Tasks', color: '#f5b83d', provider: 'google', title: d.title, label: d.title, notes: d.notes || '', due: d.due || null, date: d.due || null, time: null, start: null, done: false, mirror: false, call: null };
+    tasks.push(t);
+    if (d.tags) setTags(t.id, d.tags);
+    return t;
+  };
+  async function syncGoalSteps(g, incoming) {
+    const old = new Map(g.steps.map((s) => [s.id, s]));
+    g.steps = (incoming || []).filter((s) => s.title?.trim()).map((raw) => {
+      const s = old.get(raw.id) || { id: `s${seq++}`, taskId: null };
+      old.delete(s.id);
+      Object.assign(s, { title: raw.title.trim(), due: raw.due || null, done: !!raw.done });
+      const t = s.taskId && tasks.find((x) => x.id === s.taskId);
+      if (t) Object.assign(t, { title: s.title, label: s.title, due: s.due, date: s.due, done: s.done, completed: s.done ? new Date().toISOString() : null });
+      else if (!s.done) s.taskId = addTask({ title: s.title, due: s.due, notes: `A step toward: ${g.title}` }).id;
+      return s;
+    });
+    for (const s of old.values()) if (s.taskId) tasks = tasks.filter((x) => x.id !== s.taskId || x.done);
+  }
+
   const taskEvent = (t) => ({
     id: t.id, calendarId: t.listId, calendarName: t.listName, color: t.color, kind: 'task', title: t.label, location: '', notes: t.notes || '', link: '',
+    goal: goalOf(t.id), repeat: repeats[t.id] || null,
     writable: false, piCall: !!(t.call && !t.call.quiet && !t.call.past), movable: !t.mirror && !t.done,
     ...(t.start ? { allDay: false, start: t.start, end: new Date(new Date(t.start).getTime() + 1800000).toISOString() }
       : { allDay: true, start: t.date, end: ymd(new Date(new Date(`${t.date}T00:00`).getTime() + 86400000)) }),
@@ -155,12 +208,44 @@
     state: async () => snapshot(),
     refresh: async () => snapshot(),
     events: async (start, end) => ({
-      events: [...events, ...tasks.filter((t) => t.date && !t.done).map(taskEvent)]
+      events: [...events, ...tasks.filter((t) => t.date && !t.done).map(taskEvent),
+        ...goals.map(goalOut).map((g) => ({
+          id: g.id, calendarId: g.id, calendarName: 'Goals', color: g.color, kind: 'goal', title: g.title, allDay: true,
+          start: g.start, end: ymd(new Date(new Date(`${g.end}T00:00`).getTime() + 86400000)), notes: g.notes, writable: false, progress: g.progress,
+        }))]
         .filter((e) => new Date(e.end) > new Date(start) && new Date(e.start) < new Date(end))
         .filter((e) => !state.settings.hidden[e.calendarId])
         .map(withTags),
       errors: [],
     }),
+    goals: async () => goals.map(goalOut),
+    createGoal: async (d) => {
+      if (!d.title) throw new Error('A goal needs a name.');
+      const g = { id: `goal/${seq++}`, title: d.title, notes: d.notes || '', start: d.start, end: d.end, color: d.color, listId: 'g1/tl~main', steps: [] };
+      goals.push(g);
+      setTags(g.id, d.tags);
+      await syncGoalSteps(g, d.steps);
+      return { ...goalOut(g), warnings: [] };
+    },
+    updateGoal: async (id, d) => {
+      const g = goals.find((x) => x.id === id);
+      Object.assign(g, { title: d.title, notes: d.notes, start: d.start, end: d.end, color: d.color });
+      if (d.tags) setTags(id, d.tags);
+      await syncGoalSteps(g, d.steps);
+      return { ...goalOut(g), warnings: [] };
+    },
+    deleteGoal: async (id) => {
+      const g = goals.find((x) => x.id === id);
+      for (const s of g.steps) if (s.taskId) tasks = tasks.filter((x) => x.id !== s.taskId || x.done);
+      goals = goals.filter((x) => x !== g);
+      delete tags[id];
+    },
+    repeatTask: async (id, rule) => {
+      const t = tasks.find((x) => x.id === id);
+      if (rule) repeats[id] = rule; else delete repeats[id];
+      if (rule && !t.date) Object.assign(t, { due: ymd(new Date()), date: ymd(new Date()) });
+      return taskOut(t);
+    },
     createEvent: async (d) => {
       const c = cal(d.calendarId);
       const e = { id: `${c.id}/${seq++}`, calendarId: c.id, calendarName: c.name, color: c.color, kind: 'event', location: '', link: '', writable: true, ...d, title: d.title || 'Time block' };
@@ -179,17 +264,13 @@
     },
     deleteEvent: async (id) => { events = events.filter((x) => x.id !== id); delete tags[id]; },
     setCall: async (event, on) => { events.find((x) => x.id === event.id).piCall = on; return { piCall: on }; },
-    tasks: async () => ({ tasks: tasks.filter((t) => !t.done).map(withTags), errors: [] }),
+    tasks: async () => ({ tasks: tasks.filter((t) => !t.done).map(taskOut), errors: [] }),
     archivedTasks: async (from, to = from) => {
       const min = new Date(`${from}T00:00`), max = new Date(new Date(`${to}T00:00`).getTime() + 86400000);
       const done = tasks.filter((t) => t.done && t.completed && new Date(t.completed) >= min && new Date(t.completed) < max);
       return { tasks: done.sort((a, b) => b.completed.localeCompare(a.completed)).map(withTags), errors: [] };
     },
-    createTask: async (d) => {
-      const t = { id: `g1/tl~main/${seq++}`, listId: 'g1/tl~main', listName: 'My Tasks', color: '#f5b83d', provider: 'google', title: d.title, label: d.title, notes: '', due: d.due || null, date: d.due || null, time: null, start: null, done: false, mirror: false, call: null };
-      tasks.push(t);
-      return withTags(t);
-    },
+    createTask: async (d) => taskOut(addTask(d)),
     updateTask: async (id, patch) => {
       const t = tasks.find((x) => x.id === id);
       const { tags: newTags, ...rest } = patch;
@@ -202,7 +283,24 @@
         t.call = null;
       }
       if (newTags) setTags(id, newTags);
-      return withTags(t);
+      if (rest.done === true && repeats[id]) {
+        // A repeating task done: the next one, and the rule (and goal step) move to it.
+        const next = addTask({ title: t.title, due: nextDay(t.date || ymd(new Date()), repeats[id]), notes: t.notes, tags: tags[id] });
+        repeats[next.id] = repeats[id];
+        delete repeats[id];
+        spawned[id] = next.id;
+        for (const g of goals) for (const s of g.steps) if (s.taskId === id) s.taskId = next.id;
+        return { ...taskOut(t), next: taskOut(next) };
+      }
+      if (rest.done === false && spawned[id] && repeats[spawned[id]]) {
+        const nextId = spawned[id];
+        repeats[id] = repeats[nextId];
+        delete repeats[nextId];
+        for (const g of goals) for (const s of g.steps) if (s.taskId === nextId) s.taskId = id;
+        tasks = tasks.filter((x) => x.id !== nextId);
+        delete spawned[id];
+      }
+      return taskOut(t);
     },
     moveTask: async (id, to) => {
       const t = tasks.find((x) => x.id === id);
@@ -213,7 +311,7 @@
         t.date = to.date; t.due = to.date; t.time = null; t.start = null;
       }
       t.call = null;
-      return withTags(t);
+      return taskOut(t);
     },
     deleteTask: async (id) => { tasks = tasks.filter((x) => x.id !== id); delete tags[id]; },
     setTags: async (id, list) => setTags(id, list),

@@ -403,6 +403,63 @@ pre.code {
 }
 .toast .toast-action:hover { background: var(--raise-2); }
 
+/* ------------------------------------------------------------ goals and repeating tasks */
+
+#goal-list { display: flex; flex-direction: column; gap: 2px; }
+.goal-row { display: flex; align-items: flex-start; gap: 9px; padding: 5px 6px; border-radius: 7px; }
+.goal-row:hover { background: var(--raise); }
+.goal-row .box {
+  width: 14px; height: 14px; margin-top: 2px; border-radius: 4.5px; border: 1.5px solid var(--c); flex: none; display: grid; place-items: center;
+  background: transparent; padding: 0; cursor: pointer; transition: background .12s;
+}
+.goal-row .box .ico { width: 10px; height: 10px; color: #000; opacity: 0; }
+.goal-row .box .ico svg { stroke-width: 3.2; }
+.goal-row.on .box { background: var(--c); }
+.goal-row.on .box .ico { opacity: 1; }
+.goal-main { flex: 1; min-width: 0; border: 0; background: transparent; padding: 0; text-align: left; cursor: pointer; color: var(--soft); display: flex; flex-direction: column; gap: 4px; }
+.goal-main:hover .name { color: var(--text); }
+.goal-top { display: flex; align-items: baseline; gap: 6px; }
+.goal-top .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.goal-row:not(.on) .name { color: var(--muted); }
+.goal-top .pct { font-size: 10.5px; color: var(--muted); }
+.goal-track { display: block; height: 4px; border-radius: 2px; background: #1d1d22; overflow: hidden; flex: 1; }
+.goal-main .goal-track { flex: none; width: 100%; }
+.goal-track i { display: block; height: 100%; border-radius: 2px; background: var(--c); }
+.goal-when { font-size: 10.5px; color: var(--faint); }
+.goal-progress { display: flex; align-items: center; gap: 10px; font-size: 11.5px; color: var(--muted); }
+.goal-progress .goal-track { height: 6px; }
+.swatches { display: flex; gap: 6px; flex: 1; }
+.swatches .swatch { width: 18px; height: 18px; border-radius: 50%; border: 0; padding: 0; background: var(--c); cursor: pointer; }
+.swatches .swatch.on { box-shadow: 0 0 0 2px #0e0e10, 0 0 0 4px var(--c); }
+.goal-steps-head { display: flex; align-items: center; gap: 10px; margin-top: 2px; }
+.goal-steps-head b { font-weight: 600; }
+.goal-steps-head .link-btn, .link-btn.inline { border: 0; background: transparent; color: var(--accent); cursor: pointer; font-size: 12px; padding: 2px 0; }
+.goal-steps { display: flex; flex-direction: column; gap: 5px; max-height: 250px; overflow-y: auto; margin: 0 -2px; padding: 0 2px; }
+.goal-step { display: flex; align-items: center; gap: 7px; }
+.goal-step input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--accent); flex: none; margin: 0; }
+.goal-step input[type=text] { flex: 1; min-width: 0; height: 30px; }
+.goal-step input[type=date] { width: 132px; flex: none; height: 30px; color-scheme: dark; }
+.goal-step.done input[type=text] { text-decoration: line-through; color: var(--muted); }
+.goal-step .x { width: 24px; height: 24px; border: 0; background: transparent; color: var(--faint); cursor: pointer; border-radius: 6px; display: grid; place-items: center; padding: 0; flex: none; }
+.goal-step .x:hover { color: var(--danger); background: var(--raise-2); }
+.goal-step .x .ico { width: 12px; height: 12px; }
+#popover input[type=date] { color-scheme: dark; }
+.goal-link {
+  border: 1px solid color-mix(in srgb, var(--g) 35%, var(--line-2)); background: color-mix(in srgb, var(--g) 9%, transparent);
+  border-radius: 8px; padding: 6px 9px; color: var(--soft); cursor: pointer; text-align: left; font-size: 12.5px;
+}
+.goal-link .ico { color: var(--g); }
+.goal-link b { color: var(--text); font-weight: 600; }
+.task-meta .goal-chip { display: inline-flex; align-items: center; gap: 3px; color: color-mix(in srgb, var(--g) 70%, #fff); max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-meta .goal-chip .ico, .task-meta .rep .ico { width: 11px; height: 11px; flex: none; }
+.task-meta .rep { display: inline-flex; align-items: center; gap: 3px; color: #a9b4ff; }
+/* A goal's time frame on the calendar: a quiet bar that fills with its progress. */
+.fc .is-goal { background: color-mix(in srgb, var(--c) 12%, #0b0b0d) !important; border: 1px dashed color-mix(in srgb, var(--c) 55%, transparent) !important; cursor: pointer; }
+.goal-bar { background: linear-gradient(90deg, color-mix(in srgb, var(--c) 30%, transparent) var(--p), transparent var(--p)); border-radius: 4px; }
+.goal-bar .ev-title { color: color-mix(in srgb, var(--c) 45%, #fff); }
+.goal-pct { margin-left: auto; font-size: 10px; font-weight: 600; opacity: .8; padding-left: 6px; }
+.ev-title .ev-goal { display: inline-flex; }
+
 /* ------------------------------------------------------------ news */
 
 #news { border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; min-width: 0; }

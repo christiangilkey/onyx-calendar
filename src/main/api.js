@@ -11,6 +11,7 @@ const library = require('./library');
 const notion = require('./providers/notion');
 const drive = require('./providers/drive');
 const news = require('./news');
+const goals = require('./goals');
 const { version } = require('../../package.json');
 
 let afterSettings = async () => {};
@@ -91,6 +92,11 @@ const handlers = {
   'task:move': (id, to) => hub.moveTask(id, to),
   'tasks:archived': (from, to) => hub.archivedTasks(from, to),
   'task:delete': (id) => hub.deleteTask(id),
+  'task:repeat': (id, rule) => hub.setRepeat(id, rule),
+  goals: (force) => goals.list({ force: !!force }),
+  'goal:create': (data) => goals.create(data),
+  'goal:update': (id, data) => goals.update(id, data),
+  'goal:delete': (id, keepTasks) => goals.remove(id, { keepTasks: !!keepTasks }),
   'tags:set': (id, tags) => hub.setTags(id, tags),
   'memo:set': (id, text) => hub.setMemo(id, text),
   'tag:color': withState((tag, color) => hub.setTagColor(tag, color)),

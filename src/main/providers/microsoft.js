@@ -135,4 +135,14 @@ const updateTask = async (req, listId, id, d) =>
 const deleteTask = (req, listId, id) =>
   req(`${GRAPH}/me/todo/lists/${enc(listId)}/tasks/${enc(id)}`, { method: 'DELETE' });
 
-module.exports = { calendars, events, createEvent, updateEvent, deleteEvent, tasks, completedTasks, createTask, updateTask, deleteTask };
+/** One task, open or completed; null when it was deleted. */
+async function getTask(req, listId, id) {
+  try {
+    return toTask(await req(`${GRAPH}/me/todo/lists/${enc(listId)}/tasks/${enc(id)}`));
+  } catch (err) {
+    if (err.status === 404) return null;
+    throw err;
+  }
+}
+
+module.exports = { calendars, events, createEvent, updateEvent, deleteEvent, tasks, completedTasks, getTask, createTask, updateTask, deleteTask };

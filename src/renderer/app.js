@@ -1647,8 +1647,12 @@
           name,
           often,
           s.repeat
-            ? h('span', { class: 'step-count', title: `Done ${s.count || 0} of the ${s.target || '…'} ${days} until the target date` },
-              s.target ? `${s.count || 0}/${s.target} ${days}` : 'new')
+            ? [
+              // A habit's time of day: each day's task is placed (and the Pi phones) at it.
+              h('input', { type: 'time', class: 'step-time', value: s.time || '', title: 'Time of day (optional)', onchange: (e) => { s.time = e.target.value || null; } }),
+              h('span', { class: 'step-count', title: `Done ${s.count || 0} of the ${s.target || '…'} ${days} until the target date` },
+                s.target ? `${s.count || 0}/${s.target}` : 'new'),
+            ]
             : h('input', { type: 'date', value: s.due || '', title: 'Due', onchange: (e) => { s.due = e.target.value || null; } }),
           timer,
           h('button', { class: 'x', title: 'Remove this step (its task is deleted)', onclick: () => { steps.splice(i, 1); drawSteps(); } }, icon('x')));
@@ -1675,7 +1679,7 @@
       const picked = tags.get();
       const data = {
         title: title.value.trim(), start: start.value, end: end.value, color, notes: cleanNote(notes.value), tags: picked,
-        steps: steps.filter((s) => s.title.trim()).map((s) => ({ id: s.id, title: s.title.trim(), due: s.repeat ? null : s.due || null, done: !!s.done, repeat: s.repeat || null })),
+        steps: steps.filter((s) => s.title.trim()).map((s) => ({ id: s.id, title: s.title.trim(), due: s.repeat ? null : s.due || null, done: !!s.done, repeat: s.repeat || null, time: s.repeat ? s.time || null : null })),
         ...(listPick ? { listId: listPick.value } : {}),
       };
       try {

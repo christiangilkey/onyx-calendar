@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const store = require('./store');
 const hub = require('./hub');
 const repeat = require('./repeat');
+const { mirrorName } = require('./taskname');
 
 const MAX_STEPS = 100;
 const MAX_GOALS = 60;
@@ -29,7 +30,14 @@ function find(id) {
 
 // A step is done once (a checkbox), or repeats (daily, weekdays, weekly): a repeating
 // step's task comes back after each time it is done, and every time counts toward it.
+// A repeating step can have a time of day ("HH:MM"): like any task's time, it is written
+// into the task's name (so the calendar places it and the Pi phones about it), and each
+// next task keeps it (repeat.js).
 const STEP_REPEATS = ['daily', 'weekdays', 'weekly'];
+const isTime = (s) => /^([01]\d|2[0-3]):[0-5]\d$/.test(String(s || ''));
+const at = (day, time) => new Date(+day.slice(0, 4), +day.slice(5, 7) - 1, +day.slice(8, 10), +time.slice(0, 2), +time.slice(3, 5));
+/** The name a step's task carries on `due`: with the step's time, when it has one. */
+const taskName = (title, due, time) => (time && due ? mirrorName(title, at(due, time)) : title);
 
 /** How many times a repeating step is due between `start` and `end` (inclusive). */
 function timesDue(rule, start, end) {
@@ -106,7 +114,7 @@ async function syncSteps(g, incoming) {
     try {
       // A repeating step starts on the goal's first day (or today, if that has passed).
       const due = s.due || (s.repeat ? [g.start, ymd(new Date())].sort().at(-1) : null);
-      const t = await hub.createTask({ title: s.title, due, listId: g.listId, notes: `A step toward: ${g.title}` });
+      const t = await hub.createTask({ title: taskName(s.title, due, s.time), due, listId: g.listId, notes: `A step toward: ${g.title}` });
       s.taskId = t.id;
       s.due = t.date || due;
       if (s.repeat) repeat.setRule(t.id, s.repeat);
@@ -118,9 +126,10 @@ async function syncSteps(g, incoming) {
     const rule = STEP_REPEATS.includes(raw.repeat) ? raw.repeat : null;
     const due = isDate(raw.due) ? raw.due : null;
     const done = rule ? false : !!raw.done; // a repeating step is never done once and for all
+    const time = rule && isTime(raw.time) ? raw.time : null;
     let s = old.get(raw.id);
     if (!s) {
-      s = { id: newId('s'), title, due, done, taskId: null, ...(rule ? { repeat: rule, log: [] } : {}) };
+      s = { id: newId('s'), title, due, done, taskId: null, ...(rule ? { repeat: rule, log: [] } : {}), ...(time ? { time } : {}) };
       await addTask(s);
     } else {
       old.delete(s.id);
@@ -132,7 +141,10 @@ async function syncSteps(g, incoming) {
       if (title !== s.title) patch.title = title;
       if (due !== s.due && !(rule && !due)) patch.due = due;
       if (done !== s.done) patch.done = done;
+      // A new or cleared time, or a new name for a step with a time: the task's name says it.
+      if ((s.time || null) !== time || ('title' in patch && time)) patch.title = taskName(title, 'due' in patch ? due : s.due, time);
       Object.assign(s, { title, due: 'due' in patch ? due : s.due, done });
+      if (time) s.time = time; else delete s.time;
       if (s.taskId && Object.keys(patch).length) {
         try {
           await hub.updateTask(s.taskId, patch);
@@ -211,10 +223,15 @@ async function list({ force = false } = {}) {
         if (!s.taskId) continue;
         const t = open.get(s.taskId);
         // A repeating step's next task was already added (repeat.reconcile, in getTasks).
+        // Its name is the task's without the date and time, which the step keeps apart.
         const next = t
-          ? { title: t.title, due: t.date || null, done: false }
+          ? { title: s.repeat ? t.label : t.title, due: t.date || null, done: false }
           : !s.repeat && lists.has(listOf(s.taskId)) && !skip.has(listOf(s.taskId)) ? { done: true } : null;
         if (next && Object.entries(next).some(([k, v]) => s[k] !== v)) { Object.assign(s, next); changed = true; }
+        if (t && s.repeat && (s.time || null) !== (t.time || null)) {
+          if (t.time) s.time = t.time; else delete s.time;
+          changed = true;
+        }
       }
     }
     if (changed) store.save();

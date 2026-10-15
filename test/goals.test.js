@@ -194,6 +194,39 @@ test('a daily goal step counts each day it is done, and ticking it is saved at o
   assert.equal([...tasks.values()].filter((t) => t.title === 'Push-ups' && !t.done).length, 1, 'no extra copy left behind');
 });
 
+test('a repeating goal step can have a time: its tasks carry it, each day, and it can change or go', async () => {
+  reset();
+  const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const today = new Date();
+  const end = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 9);
+  const g = await goals.create({ title: 'Get fit', start: ymd(today), end: ymd(end), steps: [{ title: 'Run', repeat: 'daily', time: '07:30' }] });
+  const step = g.steps[0];
+  assert.equal(step.time, '07:30');
+  let { tasks: open } = await hub.getTasks({ force: true });
+  let task = open.find((t) => t.id === step.taskId);
+  assert.equal(task.time, '07:30');
+  assert.equal(task.label, 'Run');
+  assert.equal(task.date, ymd(today));
+
+  // Done today: the next day's task keeps the time, and the step keeps its plain name.
+  let after = await goals.setStep(g.id, step.id, true);
+  ({ tasks: open } = await hub.getTasks({ force: true }));
+  task = open.find((t) => t.id === after.steps[0].taskId);
+  const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+  assert.deepEqual([task.date, task.time, task.label], [ymd(tomorrow), '07:30', 'Run']);
+  after = (await goals.list({ force: true })).find((x) => x.id === g.id);
+  assert.deepEqual([after.steps[0].title, after.steps[0].time], ['Run', '07:30']);
+
+  // A new time, then none.
+  await goals.update(g.id, { steps: [{ id: step.id, title: 'Run', repeat: 'daily', time: '18:00' }] });
+  ({ tasks: open } = await hub.getTasks({ force: true }));
+  assert.equal(open.find((t) => t.id === after.steps[0].taskId).time, '18:00');
+  const cleared = await goals.update(g.id, { steps: [{ id: step.id, title: 'Run', repeat: 'daily', time: null }] });
+  ({ tasks: open } = await hub.getTasks({ force: true }));
+  task = open.find((t) => t.id === after.steps[0].taskId);
+  assert.deepEqual([task.time, task.title, cleared.steps[0].time], [null, 'Run', undefined]);
+});
+
 test('a pomodoro split gives a task its length on the calendar and moves on with its repeat', async () => {
   reset();
   store.data.pomodoro = {};

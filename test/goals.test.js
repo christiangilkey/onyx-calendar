@@ -227,6 +227,39 @@ test('a repeating goal step can have a time: its tasks carry it, each day, and i
   assert.deepEqual([task.time, task.title, cleared.steps[0].time], [null, 'Run', undefined]);
 });
 
+test('a goal step can be a pomodoro block: set in the goal, kept on its task, carried by its repeats', async () => {
+  reset();
+  const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const today = new Date();
+  const end = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 9);
+  const split = { work: 25, rest: 5, minutes: 90 };
+  const g = await goals.create({
+    title: 'Learn Arabic', start: ymd(today), end: ymd(end),
+    steps: [
+      { title: 'Study', repeat: 'daily', time: '18:00', pomodoro: split },
+      { title: 'Mock exam', due: ymd(end), time: '09:00', pomodoro: split },
+      { title: 'No time, no timer', repeat: 'daily', pomodoro: split },
+    ],
+  });
+  const [daily, once, untimed] = g.steps;
+  assert.deepEqual([daily.pomodoro, once.pomodoro, untimed.pomodoro], [split, split, null]);
+  let { tasks: open } = await hub.getTasks({ force: true });
+  const exam = open.find((t) => t.id === once.taskId);
+  assert.deepEqual([exam.label, exam.date, exam.time, exam.pomodoro], ['Mock exam', ymd(end), '09:00', split]);
+  const listed = (await goals.list({ force: true })).find((x) => x.id === g.id);
+  assert.deepEqual([listed.steps[1].title, listed.steps[1].time], ['Mock exam', '09:00']);
+
+  // Done today: tomorrow's task is a pomodoro block too.
+  const after = await goals.setStep(g.id, daily.id, true);
+  assert.deepEqual(after.steps[0].pomodoro, split);
+
+  // Switched off in the goal.
+  const off = await goals.update(g.id, { steps: after.steps.map((s) => ({ ...s, pomodoro: s.id === daily.id ? null : s.pomodoro })) });
+  assert.equal(off.steps[0].pomodoro, null);
+  ({ tasks: open } = await hub.getTasks({ force: true }));
+  assert.equal(open.find((t) => t.id === off.steps[0].taskId).pomodoro, null);
+});
+
 test('a pomodoro split gives a task its length on the calendar and moves on with its repeat', async () => {
   reset();
   store.data.pomodoro = {};

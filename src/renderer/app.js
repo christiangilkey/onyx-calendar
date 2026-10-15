@@ -208,7 +208,6 @@
     const el = h('div', { class: 'pomo-field' }, h('label', { class: 'check' }, on, h('b', null, 'Pomodoro')), body, summary);
     return { el, get, sync };
   }
-  const samePomodoro = (a, b) => JSON.stringify(a || null) === JSON.stringify(b || null);
 
   // ---- the timer in the top bar: starts by itself when a pomodoro block's time comes
 
@@ -783,17 +782,10 @@
       return { start: s.toISOString(), end: e.toISOString(), allDay: false, at: s };
     };
 
-    // Pomodoro: split the block into work and rest chunks (a timed block only).
-    const blockMinutes = () => { const r = range(); return r.allDay ? 0 : Math.round((new Date(r.end) - new Date(r.start)) / 60000); };
-    const pomo = pomodoroField(src?.pomodoro, { duration: blockMinutes });
-    const pomoRow = h('div', { class: 'row top' }, icon('clock'), pomo.el);
-
     const sync = () => {
       const r = range();
       for (const el of [startTime, endTime, dash]) el.hidden = r.allDay;
       untilRow.hidden = !r.allDay && !multiDay;
-      pomoRow.hidden = r.allDay;
-      pomo.sync();
       const st = piStatus(r.at, r.allDay);
       callHint.textContent = st.text;
       callHint.className = st.tone;
@@ -823,10 +815,9 @@
           saved = await onyx.updateEvent(src.id, data);
         }
         if (saved?.warning) toast(saved.warning, 'warn');
-        // The split is kept in Onyx, by the entry's id (a new id when it moved calendar).
-        const split = r.allDay ? null : pomo.get();
-        const id = saved?.id || src?.id;
-        if (id && !samePomodoro(split, saved?.pomodoro ?? src?.pomodoro)) await savePomodoro(id, split);
+        // Pomodoro splits are set on goal steps; a block that already has one keeps it. It is
+        // kept by the entry's id, which is new when the entry moved calendar.
+        if (src?.pomodoro && saved?.id && saved.id !== src.id && !saved.pomodoro) await savePomodoro(saved.id, src.pomodoro);
         closePopover();
         refetch();
         refreshPomodoros();
@@ -857,7 +848,6 @@
       readOnly && src.notes && h('div', { class: 'row top pop-meta' }, icon('note'), h('div', { class: 'note-text' }, src.notes)),
       memo && h('div', { class: 'row top' }, icon('note'), memo),
       h('div', { class: 'row' }, icon('tag'), tags.el),
-      pomoRow,
       src?.location && h('div', { class: 'row pop-meta' }, icon('pin'), src.location),
       S.settings.pi.enabled && h('div', { class: 'row pi-row' }, icon('phone'),
         h('div', { class: 'txt' }, h('b', null, 'Phone reminder'), callHint),
@@ -1145,9 +1135,12 @@
       h('option', { value: '' }, 'Does not repeat'),
       Object.keys(REPEAT).map((rule) => h('option', { value: rule }, repeatLabel(rule))));
     if (repeatPick) repeatPick.value = t.repeat || '';
-    // Pomodoro: a start time and a length (Google Tasks have neither), split into chunks.
-    const pomoTime = h('input', { type: 'time', value: t.time || '', step: 300, title: 'When it starts (written into the name, which the Pi reads)' });
-    const pomo = !t.mirror && t.provider && pomodoroField(t.pomodoro, { length: true, extra: [h('span', null, 'At'), pomoTime] });
+    // Pomodoro splits are set on goal steps (openGoal). A task that has one says so; one
+    // that is not a goal step (set before 1.14) can have it taken off here.
+    let dropPomodoro = false;
+    const pomoInfo = t.pomodoro && h('div', { class: 'row pomo-info' }, icon('clock'),
+      h('span', { class: 'pomo-info-text' }, `Pomodoro: ${t.pomodoro.work} min work, ${t.pomodoro.rest} min rest${t.pomodoro.minutes ? `, for ${t.pomodoro.minutes} min` : ''}${t.goal ? '. Change it in the goal.' : ''}`),
+      !t.goal && h('button', { class: 'link-btn inline', onclick: (e) => { dropPomodoro = true; e.currentTarget.closest('.pomo-info').remove(); } }, 'Remove'));
     const save = () => run(async () => {
       const patch = {};
       if (name.value.trim() && name.value.trim() !== t.title) patch.title = name.value.trim();
@@ -1165,17 +1158,8 @@
         await onyx.repeatTask(t.id, repeatPick.value || null);
         toast(repeatPick.value ? `${repeatLabel(repeatPick.value)}. When it is done, the next one is added.` : 'No longer repeats');
       }
-      if (pomo) {
-        const split = pomo.get();
-        if (split) {
-          const time = pomoTime.value || t.time;
-          if (!time) throw new Error('Give it a start time, so the timer knows when to begin.');
-          if (time !== t.time) {
-            const day = (date && date.value) || t.date || ymd(new Date());
-            await onyx.moveTask(t.id, { start: at(day, time).toISOString() });
-          }
-        }
-        if (!samePomodoro(split, t.pomodoro)) await savePomodoro(t.id, split);
+      if (dropPomodoro) {
+        await savePomodoro(t.id, null);
         refreshPomodoros();
       }
     });
@@ -1187,7 +1171,7 @@
         icon('flag'), h('span', null, 'A step toward ', h('b', null, t.goal.title))),
       date && h('div', { class: 'row' }, icon('calendar'), date),
       repeatPick && h('div', { class: 'row' }, icon('repeat'), repeatPick),
-      pomo && h('div', { class: 'row top' }, icon('clock'), pomo.el),
+      pomoInfo,
       t.series && !t.series.managed && h('button', { class: 'row goal-link series-link', css: { '--g': '#a9b4ff' }, title: 'Edit every copy of this repeating task', onclick: (e) => openSeries(t.series, e.currentTarget.getBoundingClientRect()) },
         icon('repeat'), h('span', null, h('b', null, seriesText(t.series)), ` · set in Google Tasks · ${t.series.count} open copies. Edit all`)),
       h('div', { class: 'row top' }, icon('note'), notes),
@@ -1635,13 +1619,22 @@
         const box = h('input', { type: 'checkbox', checked, title: s.repeat ? 'Done today' : 'Done' });
         box.onchange = () => tick(s, box.checked, box);
         const days = { daily: 'days', weekdays: 'days', weekly: 'weeks' }[s.repeat];
-        // The step's task carries its time and pomodoro split: the button opens it.
-        const task = s.taskId && tasks.find((x) => x.id === s.taskId);
-        const timer = task && h('button', {
-          class: `x pomo-btn${task.pomodoro ? ' on' : ''}`,
-          title: task.pomodoro ? `Pomodoro: ${task.pomodoro.work} min work, ${task.pomodoro.rest} min rest${task.time ? ` at ${fmtTime(at('2000-01-01', task.time))}` : ''}` : 'Pomodoro: give this step a time and split it into work and rest chunks',
-          onclick: (e) => { const rect = e.currentTarget.getBoundingClientRect(); closePopover(); openTask(task, rect); },
+        // Pomodoro: the clock opens the step's work / rest split under it. It runs from the
+        // step's time (a habit's time box, or the time beside a one-off step's split).
+        const p = s.pomodoro;
+        const timer = h('button', {
+          class: `x pomo-btn${p ? ' on' : ''}${s.pomoOpen ? ' open' : ''}`,
+          title: p ? `Pomodoro: ${p.work} min work, ${p.rest} min rest${p.minutes ? ` for ${p.minutes} min` : ''}${s.time ? ` at ${fmtTime(at('2000-01-01', s.time))}` : ''}` : 'Pomodoro: split this step into work and rest chunks, with a timer',
+          onclick: () => { s.pomoOpen = !s.pomoOpen; drawSteps(); },
         }, icon('clock'));
+        let pomoRow = null;
+        if (s.pomoOpen) {
+          const startAt = !s.repeat && h('input', { type: 'time', class: 'step-time', value: s.time || '', step: 300, title: 'When it starts', onchange: (e) => { s.time = e.target.value || null; } });
+          const field = pomodoroField(p, { length: true, extra: startAt ? [h('span', null, 'At'), startAt] : [] });
+          field.el.addEventListener('change', () => { s.pomodoro = field.get(); timer.classList.toggle('on', !!s.pomodoro); });
+          pomoRow = h('div', { class: 'step-pomo' }, field.el,
+            s.repeat && !s.time && h('small', { class: 'pomo-summary' }, 'Give the step a time (beside Daily) so the timer knows when to start.'));
+        }
         return h('div', { class: `goal-step${!s.repeat && s.done ? ' done' : ''}${s.repeat ? ' habit' : ''}` },
           box,
           name,
@@ -1649,13 +1642,14 @@
           s.repeat
             ? [
               // A habit's time of day: each day's task is placed (and the Pi phones) at it.
-              h('input', { type: 'time', class: 'step-time', value: s.time || '', title: 'Time of day (optional)', onchange: (e) => { s.time = e.target.value || null; } }),
+              h('input', { type: 'time', class: 'step-time', value: s.time || '', title: 'Time of day (optional)', onchange: (e) => { s.time = e.target.value || null; if (s.pomoOpen) drawSteps(); } }),
               h('span', { class: 'step-count', title: `Done ${s.count || 0} of the ${s.target || '…'} ${days} until the target date` },
                 s.target ? `${s.count || 0}/${s.target}` : 'new'),
             ]
             : h('input', { type: 'date', value: s.due || '', title: 'Due', onchange: (e) => { s.due = e.target.value || null; } }),
           timer,
-          h('button', { class: 'x', title: 'Remove this step (its task is deleted)', onclick: () => { steps.splice(i, 1); drawSteps(); } }, icon('x')));
+          h('button', { class: 'x step-remove', title: 'Remove this step (its task is deleted)', onclick: () => { steps.splice(i, 1); drawSteps(); } }, icon('x')),
+          pomoRow);
       }));
       if (focus != null) stepBox.querySelectorAll('input[type=text]')[focus]?.focus();
     };
@@ -1675,11 +1669,21 @@
     let busy = false;
     const save = async () => {
       if (busy) return;
+      // A pomodoro step needs to know when to start: a time, and for a one-off step a date.
+      const untimed = steps.find((s) => s.title.trim() && s.pomodoro && (!s.time || (!s.repeat && !s.due)));
+      if (untimed) {
+        untimed.pomoOpen = true;
+        drawSteps();
+        return toast(`Give "${untimed.title.trim()}" ${!untimed.repeat && !untimed.due ? 'a date and ' : ''}a time, so its pomodoro timer knows when to start.`, 'warn');
+      }
       busy = true;
       const picked = tags.get();
       const data = {
         title: title.value.trim(), start: start.value, end: end.value, color, notes: cleanNote(notes.value), tags: picked,
-        steps: steps.filter((s) => s.title.trim()).map((s) => ({ id: s.id, title: s.title.trim(), due: s.repeat ? null : s.due || null, done: !!s.done, repeat: s.repeat || null, time: s.repeat ? s.time || null : null })),
+        steps: steps.filter((s) => s.title.trim()).map((s) => ({
+          id: s.id, title: s.title.trim(), due: s.repeat ? null : s.due || null, done: !!s.done, repeat: s.repeat || null,
+          time: s.repeat || s.due ? s.time || null : null, pomodoro: s.pomodoro || null,
+        })),
         ...(listPick ? { listId: listPick.value } : {}),
       };
       try {
@@ -1689,6 +1693,7 @@
         closePopover();
         await loadTasks();
         refetch();
+        refreshPomodoros();
         if (!sameTags(picked, g?.tags)) reloadTags();
       } catch (err) {
         busy = false;

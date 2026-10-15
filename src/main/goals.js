@@ -30,9 +30,11 @@ function find(id) {
 
 // A step is done once (a checkbox), or repeats (daily, weekdays, weekly): a repeating
 // step's task comes back after each time it is done, and every time counts toward it.
-// A repeating step can have a time of day ("HH:MM"): like any task's time, it is written
-// into the task's name (so the calendar places it and the Pi phones about it), and each
-// next task keeps it (repeat.js).
+// A step can have a time of day ("HH:MM"; a one-off step needs a date for it): like any
+// task's time, it is written into the task's name (so the calendar places it and the Pi
+// phones about it), and a repeating step's next task keeps it (repeat.js). A step with a
+// time can be a pomodoro block: its split is kept on its task (hub.setPomodoro), so the
+// calendar and the top bar's timer use it, and each next task of a repeat takes it on.
 const STEP_REPEATS = ['daily', 'weekdays', 'weekly'];
 const isTime = (s) => /^([01]\d|2[0-3]):[0-5]\d$/.test(String(s || ''));
 const at = (day, time) => new Date(+day.slice(0, 4), +day.slice(5, 7) - 1, +day.slice(8, 10), +time.slice(0, 2), +time.slice(3, 5));
@@ -55,10 +57,11 @@ function timesDue(rule, start, end) {
 }
 
 function stepOut(g, s) {
-  if (!s.repeat) return { ...s };
+  const pomodoro = s.taskId ? store.data.pomodoro?.[s.taskId] || null : null;
+  if (!s.repeat) return { ...s, pomodoro };
   const target = timesDue(s.repeat, g.start, g.end);
   const log = s.log || [];
-  return { ...s, log: [...log], count: log.length, target, doneToday: log.some((e) => e.date === ymd(new Date())) };
+  return { ...s, pomodoro, log: [...log], count: log.length, target, doneToday: log.some((e) => e.date === ymd(new Date())) };
 }
 
 /**
@@ -126,7 +129,7 @@ async function syncSteps(g, incoming) {
     const rule = STEP_REPEATS.includes(raw.repeat) ? raw.repeat : null;
     const due = isDate(raw.due) ? raw.due : null;
     const done = rule ? false : !!raw.done; // a repeating step is never done once and for all
-    const time = rule && isTime(raw.time) ? raw.time : null;
+    const time = isTime(raw.time) && (rule || due) ? raw.time : null;
     let s = old.get(raw.id);
     if (!s) {
       s = { id: newId('s'), title, due, done, taskId: null, ...(rule ? { repeat: rule, log: [] } : {}), ...(time ? { time } : {}) };
@@ -141,8 +144,8 @@ async function syncSteps(g, incoming) {
       if (title !== s.title) patch.title = title;
       if (due !== s.due && !(rule && !due)) patch.due = due;
       if (done !== s.done) patch.done = done;
-      // A new or cleared time, or a new name for a step with a time: the task's name says it.
-      if ((s.time || null) !== time || ('title' in patch && time)) patch.title = taskName(title, 'due' in patch ? due : s.due, time);
+      // A new or cleared time, or a new name or day for a step with a time: the task's name says it.
+      if ((s.time || null) !== time || (('title' in patch || 'due' in patch) && time)) patch.title = taskName(title, 'due' in patch ? due : s.due, time);
       Object.assign(s, { title, due: 'due' in patch ? due : s.due, done });
       if (time) s.time = time; else delete s.time;
       if (s.taskId && Object.keys(patch).length) {
@@ -153,6 +156,12 @@ async function syncSteps(g, incoming) {
         }
       } else if (!s.taskId) {
         await addTask(s); // a step from before a task list was connected
+      }
+    }
+    if ('pomodoro' in (raw || {}) && s.taskId) {
+      const cfg = raw.pomodoro && time ? raw.pomodoro : null; // the timer needs to know when to start
+      if (JSON.stringify(store.data.pomodoro?.[s.taskId] || null) !== JSON.stringify(cfg)) {
+        try { hub.setPomodoro(s.taskId, cfg); } catch (err) { warn(s, err); }
       }
     }
     next.push(s);
@@ -223,12 +232,13 @@ async function list({ force = false } = {}) {
         if (!s.taskId) continue;
         const t = open.get(s.taskId);
         // A repeating step's next task was already added (repeat.reconcile, in getTasks).
-        // Its name is the task's without the date and time, which the step keeps apart.
+        // Its name is the task's without the date and time, which the step keeps apart
+        // (a one-off step only when the name has a time: a date alone stays in the name).
         const next = t
-          ? { title: s.repeat ? t.label : t.title, due: t.date || null, done: false }
+          ? { title: s.repeat || t.time ? t.label : t.title, due: t.date || null, done: false }
           : !s.repeat && lists.has(listOf(s.taskId)) && !skip.has(listOf(s.taskId)) ? { done: true } : null;
         if (next && Object.entries(next).some(([k, v]) => s[k] !== v)) { Object.assign(s, next); changed = true; }
-        if (t && s.repeat && (s.time || null) !== (t.time || null)) {
+        if (t && (s.time || null) !== (t.time || null)) {
           if (t.time) s.time = t.time; else delete s.time;
           changed = true;
         }

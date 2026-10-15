@@ -437,7 +437,10 @@ pre.code {
 .goal-steps-head b { font-weight: 600; }
 .goal-steps-head .link-btn, .link-btn.inline { border: 0; background: transparent; color: var(--accent); cursor: pointer; font-size: 12px; padding: 2px 0; }
 .goal-steps { display: flex; flex-direction: column; gap: 5px; max-height: 250px; overflow-y: auto; margin: 0 -2px; padding: 0 2px; }
-.goal-step { display: flex; align-items: center; gap: 7px; }
+.goal-step { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 7px; }
+/* A step's pomodoro split, opened by its clock: a line of its own under the step. */
+.goal-step .step-pomo { flex-basis: 100%; display: flex; flex-direction: column; gap: 4px; padding: 6px 0 4px 22px; }
+.goal-step .pomo-btn.open { background: var(--raise-2); }
 .goal-step input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--accent); flex: none; margin: 0; }
 .goal-step input[type=text] { flex: 1; min-width: 0; height: 30px; }
 .goal-step input[type=date] { width: 132px; flex: none; height: 30px; color-scheme: dark; }
@@ -779,13 +782,15 @@ body.mobile .goal-steps-head .link-btn { font-size: 14px; padding: 6px 0; }
 body.mobile .goal-steps { max-height: none; overflow: visible; gap: 0; }
 body.mobile .goal-step { flex-wrap: wrap; gap: 8px 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
 body.mobile .goal-step:last-child { border-bottom: 0; }
-body.mobile #popover .goal-step input[type=checkbox] { width: 22px; height: 22px; order: 0; }
-body.mobile .goal-step input[type=text] { order: 1; flex: 1 1 calc(100% - 22px - 32px - 20px); }
-body.mobile .goal-step .x:last-child { order: 2; width: 32px; height: 32px; }
-body.mobile .goal-step .step-often { order: 3; flex: 1 1 0; width: auto; margin-left: 32px; font-size: 14px; }
-body.mobile .goal-step input[type=date], body.mobile .goal-step .step-time { order: 4; flex: 1.4 1 0; width: auto; min-width: 0; }
-body.mobile .goal-step .step-count { order: 4; flex: none; width: auto; min-width: 32px; font-size: 13px; }
-body.mobile .goal-step .pomo-btn { order: 5; width: 32px; height: 32px; }
+body.mobile #popover .goal-step > input[type=checkbox] { width: 22px; height: 22px; order: 0; }
+body.mobile .goal-step > input[type=text] { order: 1; flex: 1 1 calc(100% - 22px - 32px - 20px); }
+body.mobile .goal-step > .step-remove { order: 2; width: 32px; height: 32px; }
+body.mobile .goal-step > .step-often { order: 3; flex: 1 1 0; width: auto; margin-left: 32px; font-size: 14px; }
+body.mobile .goal-step > input[type=date], body.mobile .goal-step > .step-time { order: 4; flex: 1.4 1 0; width: auto; min-width: 0; }
+body.mobile .goal-step > .step-count { order: 4; flex: none; width: auto; min-width: 32px; font-size: 13px; }
+body.mobile .goal-step > .pomo-btn { order: 5; width: 32px; height: 32px; }
+body.mobile .goal-step > .step-pomo { order: 6; padding-left: 32px; }
+body.mobile .goal-step .pomo-opts select, body.mobile .goal-step .pomo-opts input[type=time] { height: 36px; font-size: 14px; }
 
 body.mobile #modal { place-items: stretch; }
 body.mobile .sheet { width: 100vw; height: 100vh; border-radius: 0; grid-template-columns: 1fr; grid-template-rows: auto 1fr; border: 0; }
@@ -869,4 +874,7 @@ body.mobile #graph-bar .grow { display: none; }
 .upd-notes { max-height: 220px; overflow-y: auto; white-space: pre-wrap; color: var(--soft); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; line-height: 1.5; font-size: 12.5px; user-select: text; }
 .upd-bar { height: 8px; border-radius: 4px; background: var(--raise-2); overflow: hidden; }
 .upd-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), #b9b0ff); border-radius: 4px; transition: width .25s; }
-body.mobile #update-btn { display: none; }
+body.mobile #update-btn { display: none; }.pomo-info { font-size: 12px; color: var(--muted); }
+.pomo-info .pomo-info-text { flex: 1; min-width: 0; }
+.goal-step .step-pomo .check { display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; }
+body.mobile #popover .goal-step .step-pomo .check input[type=checkbox] { width: 20px; height: 20px; }

@@ -8,6 +8,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(ApkInstallerPlugin.class); // in-app updates
+        registerPlugin(OnyxWidgetPlugin.class);   // the home-screen widgets
         super.onCreate(savedInstanceState);
     }
 }

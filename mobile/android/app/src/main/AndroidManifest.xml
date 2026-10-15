@@ -23,15 +23,57 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Pairing links from the QR code on the PC: onyx://pair?a=...&t=... -->
+            <!-- Pairing links from the QR code on the PC: onyx://pair?a=...&t=...
+                 and taps on a widget: onyx://open?view=calendar|globe&date=... -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="onyx" android:host="pair" />
+                <data android:scheme="onyx" android:host="open" />
             </intent-filter>
 
         </activity>
+
+        <!-- The home-screen widgets: the calendar, and the same widget starting on the globe. -->
+        <receiver
+            android:name=".OnyxWidget"
+            android:exported="true"
+            android:label="@string/widget_calendar_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/onyx_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".OnyxGlobeWidget"
+            android:exported="true"
+            android:label="@string/widget_globe_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/onyx_globe_widget_info" />
+        </receiver>
+
+        <!-- The rows of a widget's agenda. -->
+        <service
+            android:name=".OnyxWidgetService"
+            android:exported="false"
+            android:permission="android.permission.BIND_REMOTEVIEWS" />
+
+        <!-- Taps on a widget's rows: opens the app on a day, or ticks a task off; never seen. -->
+        <activity
+            android:name=".WidgetActionActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

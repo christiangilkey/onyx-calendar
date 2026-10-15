@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The widget at medium and large sizes: a header, the agenda or the globe, and a status line. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_bg"
+    android:orientation="vertical"
+    android:padding="10dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageButton
+            android:id="@+id/widget_prev"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:background="@drawable/widget_btn"
+            android:contentDescription="Previous"
+            android:src="@drawable/ic_w_prev" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp">
+
+            <TextView
+                android:id="@+id/widget_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="Today"
+                android:textColor="#FFF1F1F4"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_subtitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="#FF7F7F89"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <ImageButton
+            android:id="@+id/widget_next"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:background="@drawable/widget_btn"
+            android:contentDescription="Next"
+            android:src="@drawable/ic_w_next" />
+
+        <ImageButton
+            android:id="@+id/widget_toggle"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:background="@drawable/widget_btn"
+            android:contentDescription="Switch between calendar and globe"
+            android:src="@drawable/ic_w_globe" />
+
+        <ImageButton
+            android:id="@+id/widget_refresh"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:background="@drawable/widget_btn"
+            android:contentDescription="Refresh"
+            android:src="@drawable/ic_w_refresh" />
+
+        <ImageButton
+            android:id="@+id/widget_open"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:background="@drawable/widget_btn"
+            android:contentDescription="Open Onyx"
+            android:src="@drawable/ic_w_open" />
+    </LinearLayout>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="6dp"
+        android:layout_weight="1">
+
+        <ListView
+            android:id="@+id/widget_list"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:divider="@null"
+            android:dividerHeight="4dp"
+            android:scrollbars="none" />
+
+        <ImageView
+            android:id="@+id/widget_globe"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="Your globe"
+            android:scaleType="fitCenter"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/widget_empty"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:padding="12dp"
+            android:text="Loading…"
+            android:textColor="#FF7F7F89"
+            android:textSize="13sp" />
+    </FrameLayout>
+
+    <TextView
+        android:id="@+id/widget_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:ellipsize="end"
+        android:gravity="end"
+        android:maxLines="1"
+        android:textColor="#FF4B4B53"
+        android:textSize="10sp" />
+</LinearLayout>

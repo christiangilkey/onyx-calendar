@@ -74,6 +74,21 @@
 
   const CACHED = new Set(['state', 'events', 'tasks', 'globe']);
 
+  // The home-screen widgets fetch from the PC themselves: they get its address and token
+  // from here, and a nudge to refresh after anything is changed in the app.
+  const Widget = window.Capacitor?.Plugins?.OnyxWidget;
+  function syncWidget() {
+    if (!Widget) return;
+    const ask = conn ? Widget.configure({ addresses: conn.addresses, last: conn.last || '', token: conn.token }) : Widget.configure({ clear: true });
+    ask?.catch?.(() => {});
+  }
+  let widgetTimer = null;
+  function nudgeWidget(name) {
+    if (!Widget || CACHED.has(name) || !name.includes(':')) return; // only after a change
+    clearTimeout(widgetTimer);
+    widgetTimer = setTimeout(() => Widget.refresh()?.catch?.(() => {}), 1500);
+  }
+
   async function call(name, ...args) {
     if (!conn) throw new Error('This phone is not connected to Onyx on your PC yet.');
     const order = [conn.last, ...conn.addresses.filter((a) => a !== conn.last)].filter(Boolean);
@@ -90,6 +105,7 @@
       if (!body.ok) throw new Error(body.error);
       if (CACHED.has(name)) write(cacheKey(name, args), body.value);
       if (name === 'events') rememberEvents(body.value.events);
+      nudgeWidget(name);
       return body.value;
     }
     setOnline(false);
@@ -121,6 +137,7 @@
       const state = await call('state');
       if (!online) throw new Error('Could not reach the PC at that address.');
       write(CONN, conn);
+      syncWidget();
       return state;
     } catch (err) {
       conn = previous;
@@ -196,6 +213,7 @@
     unpair: () => {
       conn = null;
       localStorage.removeItem(CONN);
+      syncWidget();
       for (const key of Object.keys(localStorage)) if (key.startsWith(CACHE)) localStorage.removeItem(key);
     },
     onOnline: (fn) => listeners.add(fn),
@@ -293,10 +311,20 @@
   if (App) {
     setTimeout(checkUpdate, 8000);
     setInterval(checkUpdate, 6 * 60 * 60 * 1000);
+    syncWidget(); // a phone paired before the widgets existed hands them its connection now
     const handle = async (url) => {
       // The launch link is reported again after the reload below, so each link is used once.
       if (!url || !url.startsWith('onyx://') || read('onyx.used-link', '') === url) return;
       write('onyx.used-link', url);
+      // A tap on a home-screen widget: onyx://open?view=calendar|globe&date=YYYY-MM-DD
+      if (url.startsWith('onyx://open')) {
+        const q = new URL(url.replace('onyx://open', 'https://onyx.local/open')).searchParams;
+        const detail = { view: q.get('view') || 'calendar', date: q.get('date') || '' };
+        // The window may still be starting: it picks this up when it is ready.
+        window.onyxPendingOpen = detail;
+        window.dispatchEvent(new CustomEvent('onyx:open', { detail }));
+        return;
+      }
       try {
         await window.onyx.pairLink(url);
         location.reload();

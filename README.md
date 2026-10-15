@@ -20,7 +20,7 @@ A black, fast calendar for Windows and Android that puts everything in one place
 - **News tab.** A collapsible tab on the right edge opens a YouTube panel with the latest stories from news channels (BBC, Reuters, AP, NBC, CBS and Al Jazeera to start), newest first, plus 24/7 live streams. Pick channels, or add any YouTube channel by its link or @handle. It needs no YouTube account or API key, and collapsing the tab stops the video.
 - **Tags.** Tag any block, event or task. Tags stay in Onyx (they are never written to Google or Microsoft), and the sidebar filters by them.
 - **Globe view.** One button flips to a 3D globe of everything in a day, week, month or range, plus your notes, Notion pages and Google Drive files, clustered by tag, source or day.
-- **Android app.** The same calendar on your phone, connected to the PC app.
+- **Android app.** The same calendar on your phone, connected to the PC app, with home-screen widgets for the calendar and the globe that resize from a one-row strip to the whole screen.
 - **Raspberry Pi phone reminders.** Flip "Phone reminder" on any block or event and a Raspberry Pi running [`task_caller`](#raspberry-pi-phone-reminders) phones you before it starts.
 - **MCP server.** Hermes, the Pi, or any other agent can read the calendar and add to it over your network.
 
@@ -159,6 +159,18 @@ Scan from inside the Onyx app: the phone's camera app hands `onyx://` links to G
 - **Everything is shared, both ways.** The phone has no separate copy: notes, pinned Notion and Drive items, tags, time blocks, tasks, hidden calendars and Pi settings all live in Onyx on the PC, so a change on one shows on the other (the phone checks every minute and whenever you open it; the PC sees phone changes at once).
 - **Keys too.** The Notion secret, the Google credentials file, the Outlook app ID and calendar links can be entered on either device (phone: **Settings → Keys & accounts**) and are saved once, on the PC. The Google and Microsoft sign-in itself happens on the PC, in its browser.
 - The server's own settings, the pairing code and removing accounts stay on the PC.
+
+### Home-screen widgets
+
+Long-press the home screen → **Widgets** → **Onyx**: there are two, **Onyx Calendar** and **Onyx Globe** (the same widget, starting on the calendar or the globe). Either one switches between the two with its globe / calendar button, and both resize freely; the layout follows the size:
+
+| Size | Calendar | Globe |
+|---|---|---|
+| One row (a strip) | What's next, and when | A small globe, with how many items and clusters |
+| Medium | The day's agenda: ‹ › step through days, tap the date for today | The globe: ↺ ↻ turn it |
+| Tall | The whole week, a heading for each day | The globe, bigger |
+
+Tap an entry to open that day in the app, tap ✓ on a task to tick it off (in Google Tasks), tap the globe to open the app's globe. The widgets fetch from the PC themselves (with the same pairing as the app): every 30 minutes, after anything changes in the app, and with ↻. When the PC can't be reached they keep showing the last copy and say so.
 
 The APK is built by GitHub Actions ([`.github/workflows/android.yml`](.github/workflows/android.yml)) whenever a version tag is pushed, and signed with a key kept in the repository's Actions secrets, so each new version installs over the last one.
 

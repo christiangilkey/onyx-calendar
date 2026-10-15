@@ -4,4 +4,9 @@
     <string name="title_activity_main">Onyx Calendar</string>
     <string name="package_name">com.onyxcalendar.app</string>
     <string name="custom_url_scheme">com.onyxcalendar.app</string>
+    <!-- The home-screen widgets -->
+    <string name="widget_calendar_label">Onyx Calendar</string>
+    <string name="widget_globe_label">Onyx Globe</string>
+    <string name="widget_calendar_description">Your day or week, with tasks to tick off. Resize it from one row to the whole screen.</string>
+    <string name="widget_globe_description">Your globe of tags and entries, to turn and open. Resize it to any size.</string>
 </resources>

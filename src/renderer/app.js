@@ -3039,6 +3039,22 @@
     refreshPomodoros();
     setInterval(tickPomodoro, 1000);
     setInterval(refreshPomodoros, 60000);
+
+    // A tap on a home-screen widget (phone): open the globe, or the calendar on that day.
+    const openFromWidget = (d) => {
+      if (!d) return;
+      window.onyxPendingOpen = null;
+      closePopover();
+      closeDrawers();
+      if (d.view === 'globe') {
+        if (!graph.on) toggleGlobe();
+      } else {
+        if (graph.on) closeGraph();
+        if (d.date) calendar.gotoDate(d.date);
+      }
+    };
+    window.addEventListener('onyx:open', (e) => openFromWidget(e.detail));
+    openFromWidget(window.onyxPendingOpen);
     renderSidebar();
     loadTasks();
 

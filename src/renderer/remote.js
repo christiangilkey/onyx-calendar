@@ -102,7 +102,14 @@
       }
       setOnline(true);
       if (conn.last !== address) { conn.last = address; write(CONN, conn); }
-      if (!body.ok) throw new Error(body.error);
+      if (!body.ok) {
+        // An older Onyx on the PC doesn't know the commands newer app builds send.
+        if (/^Unknown command/.test(body.error || '')) {
+          const pc = read(`${CACHE}state`, null)?.version;
+          throw Object.assign(new Error(`Onyx on your PC${pc ? ` (${pc})` : ''} is older than this app and can't do that yet. Update Onyx on the PC (Settings → Updates).`), { outdated: true });
+        }
+        throw new Error(body.error);
+      }
       if (CACHED.has(name)) write(cacheKey(name, args), body.value);
       if (name === 'events') rememberEvents(body.value.events);
       nudgeWidget(name);

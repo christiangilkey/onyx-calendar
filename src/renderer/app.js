@@ -367,6 +367,24 @@
     setTimeout(() => el.remove(), action ? 8000 : kind ? 7000 : 3200);
   }
 
+  // The phone talking to an older Onyx on the PC: say so once, not on every reload.
+  let toldOutdated = false;
+  function outdated(err) {
+    if (!err?.outdated) return false;
+    if (!toldOutdated) toast(err.message, 'warn');
+    toldOutdated = true;
+    return true;
+  }
+
+  /** Saves a pomodoro split. An older PC without the timer keeps the entry and just skips the split. */
+  async function savePomodoro(id, split) {
+    try {
+      await onyx.setPomodoro(id, split);
+    } catch (err) {
+      if (!outdated(err)) throw err;
+    }
+  }
+
   let lastProblems = '';
   function showProblems(errors) {
     const text = (errors || []).join('  ·  ');
@@ -731,7 +749,7 @@
         // The split is kept in Onyx, by the entry's id (a new id when it moved calendar).
         const split = r.allDay ? null : pomo.get();
         const id = saved?.id || src?.id;
-        if (id && !samePomodoro(split, saved?.pomodoro ?? src?.pomodoro)) await onyx.setPomodoro(id, split);
+        if (id && !samePomodoro(split, saved?.pomodoro ?? src?.pomodoro)) await savePomodoro(id, split);
         closePopover();
         refetch();
         refreshPomodoros();
@@ -810,7 +828,7 @@
     try {
       goals = await onyx.goals();
     } catch (err) {
-      toast(err.message, 'error');
+      if (!outdated(err)) toast(err.message, 'error');
     }
     renderGoals();
   }
@@ -1080,7 +1098,7 @@
             await onyx.moveTask(t.id, { start: at(day, time).toISOString() });
           }
         }
-        if (!samePomodoro(split, t.pomodoro)) await onyx.setPomodoro(t.id, split);
+        if (!samePomodoro(split, t.pomodoro)) await savePomodoro(t.id, split);
         refreshPomodoros();
       }
     });

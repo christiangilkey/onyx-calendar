@@ -20,7 +20,7 @@ A black, fast calendar for Windows and Android that puts everything in one place
 - **News tab.** A collapsible tab on the right edge opens a YouTube panel with the latest stories from news channels (BBC, Reuters, AP, NBC, CBS and Al Jazeera to start), newest first, plus 24/7 live streams. Pick channels, or add any YouTube channel by its link or @handle. It needs no YouTube account or API key, and collapsing the tab stops the video.
 - **Tags.** Tag any block, event or task. Tags stay in Onyx (they are never written to Google or Microsoft), and the sidebar filters by them.
 - **Globe view.** One button flips to a 3D globe of everything in a day, week, month or range, plus your notes, Notion pages and Google Drive files, clustered by tag, source or day.
-- **Android app.** The same calendar on your phone, connected to the PC app, with home-screen widgets for the calendar and the globe that resize from a one-row strip to the whole screen.
+- **Android app.** The same calendar on your phone, connected to the PC app, with a home-screen widget that resizes from a one-row strip to a 4×4 month and beyond.
 - **Raspberry Pi phone reminders.** Flip "Phone reminder" on any block or event and a Raspberry Pi running [`task_caller`](#raspberry-pi-phone-reminders) phones you before it starts.
 - **MCP server.** Hermes, the Pi, or any other agent can read the calendar and add to it over your network.
 
@@ -162,15 +162,16 @@ Scan from inside the Onyx app: the phone's camera app hands `onyx://` links to G
 
 ### Home-screen widgets
 
-Long-press the home screen → **Widgets** → **Onyx**: there are two, **Onyx Calendar** and **Onyx Globe** (the same widget, starting on the calendar or the globe). Either one switches between the two with its globe / calendar button, and both resize freely; the layout follows the size:
+Long-press the home screen → **Widgets** → **Onyx Calendar**. It is added at 4×4 and resizes freely; the layout follows the size:
 
-| Size | Calendar | Globe |
-|---|---|---|
-| One row (a strip) | What's next, and when | A small globe, with how many items and clusters |
-| Medium | The day's agenda: ‹ › step through days, tap the date for today | The globe: ↺ ↻ turn it |
-| Tall | The whole week, a heading for each day | The globe, bigger |
+| Size | Shows |
+|---|---|
+| One row (a strip) | What's next, and when |
+| Medium | The day's agenda: ‹ › step through days, tap the date for today |
+| Tall and narrow | The whole week, a heading for each day |
+| 4×4 and up | The month, with a dot in an entry's colour on each busy day, and the agenda of the day you tap below it. ‹ › change the month; tap the month's name for today |
 
-Tap an entry to open that day in the app, tap ✓ on a task to tick it off (in Google Tasks), tap the globe to open the app's globe. The widgets fetch from the PC themselves (with the same pairing as the app): every 30 minutes, after anything changes in the app, and with ↻. When the PC can't be reached they keep showing the last copy and say so.
+Tap an entry to open that day in the app, tap ✓ on a task to tick it off (in Google Tasks). The widgets fetch from the PC themselves (with the same pairing as the app): every 30 minutes, after anything changes in the app, and with ↻. When the PC can't be reached they keep showing the last copy and say so.
 
 The APK and the Windows installer are built by GitHub Actions ([`.github/workflows/android.yml`](.github/workflows/android.yml)) whenever a version tag is pushed, and attached to the release, whose notes are the tag's message. A release can also be made from the Actions tab (**Release → Run workflow**, with the version and its notes). The APK is signed with a key kept in the repository's Actions secrets, so each new version installs over the last one.
 

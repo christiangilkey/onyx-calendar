@@ -35,7 +35,7 @@
 
         </activity>
 
-        <!-- The home-screen widgets: the calendar, and the same widget starting on the globe. -->
+        <!-- The home-screen widget. -->
         <receiver
             android:name=".OnyxWidget"
             android:exported="true"
@@ -46,18 +46,6 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/onyx_widget_info" />
-        </receiver>
-
-        <receiver
-            android:name=".OnyxGlobeWidget"
-            android:exported="true"
-            android:label="@string/widget_globe_label">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/onyx_globe_widget_info" />
         </receiver>
 
         <!-- The rows of a widget's agenda. -->

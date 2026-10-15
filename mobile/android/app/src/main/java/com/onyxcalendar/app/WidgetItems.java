@@ -11,10 +11,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 /** The agenda the PC sent (GET /api/agenda), read into entries for the widgets. */
 final class WidgetItems {
@@ -82,7 +79,7 @@ final class WidgetItems {
         return out;
     }
 
-    /** What is on one day: all-day entries first, then by time. Goal bars stay on the globe. */
+    /** What is on one day: all-day entries first, then by time. Goal bars are left out. */
     static List<Item> onDay(List<Item> all, LocalDate day) {
         List<Item> out = new ArrayList<>();
         for (Item it : all) {
@@ -112,54 +109,5 @@ final class WidgetItems {
             }
         }
         return best;
-    }
-
-    // ------------------------------------------------------------ the globe
-
-    static final class Node {
-        String title;
-        int color;
-        Node(String title, int color) { this.title = title; this.color = color; }
-    }
-
-    /** Everything on the globe (the week's entries and every open task), by tag cluster. */
-    static Map<String, List<Node>> clusters(JSONObject data) {
-        Map<String, Integer> tagColors = new HashMap<>();
-        JSONArray tagList = data.optJSONArray("tags");
-        if (tagList != null) {
-            for (int i = 0; i < tagList.length(); i++) {
-                JSONObject t = tagList.optJSONObject(i);
-                if (t != null) tagColors.put(t.optString("name").toLowerCase(), parseColor(t.optString("color"), 0xFF8B7CFF));
-            }
-        }
-        Map<String, List<Node>> out = new LinkedHashMap<>();
-        java.util.Set<String> seen = new java.util.HashSet<>();
-        List<JSONObject> all = new ArrayList<>();
-        for (String key : new String[] { "events", "tasks" }) {
-            JSONArray a = data.optJSONArray(key);
-            if (a != null) for (int i = 0; i < a.length(); i++) if (a.optJSONObject(i) != null) all.add(a.optJSONObject(i));
-        }
-        for (JSONObject o : all) {
-            String id = o.optString("id");
-            if (!id.isEmpty() && !seen.add(id)) continue; // a dated task is in both lists
-            List<String> tags = tags(o);
-            String key = tags.isEmpty() ? "" : tags.get(0).toLowerCase();
-            int color = key.isEmpty() ? parseColor(o.optString("color"), 0xFF8A8A94) : tagColors.getOrDefault(key, 0xFF8B7CFF);
-            List<Node> list = out.get(key);
-            if (list == null) { list = new ArrayList<>(); out.put(key, list); }
-            list.add(new Node(o.optString("title"), color));
-        }
-        return out;
-    }
-
-    static int tagColor(JSONObject data, String tag) {
-        JSONArray tagList = data.optJSONArray("tags");
-        if (tagList != null) {
-            for (int i = 0; i < tagList.length(); i++) {
-                JSONObject t = tagList.optJSONObject(i);
-                if (t != null && t.optString("name").equalsIgnoreCase(tag)) return parseColor(t.optString("color"), 0xFF8B7CFF);
-            }
-        }
-        return 0xFF8A8A94;
     }
 }

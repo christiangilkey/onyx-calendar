@@ -13,9 +13,13 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.temporal.TemporalAdjusters;
+import java.time.temporal.WeekFields;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * What the home-screen widgets show, and how they get it. The widgets read straight
@@ -24,7 +28,8 @@ import java.util.List;
  */
 final class WidgetData {
     private static final String PREFS = "onyx_widget";
-    static final int DAYS = 7; // the agenda window fetched from the selected day
+    static final int WEEK = 7;    // the days a tall widget lists
+    static final int WINDOW = 49; // the days fetched: the month grid (6 weeks) and a week past it
 
     private WidgetData() {}
 
@@ -110,20 +115,20 @@ final class WidgetData {
     }
 
     /**
-     * Fetches the agenda from `start` for a week, the open tasks and the tags, and keeps
-     * them. On failure the last copy stays and the error is noted for the widget's footer.
+     * Fetches the agenda around `day` (from the top of its month's grid, for WINDOW days) and
+     * the open tasks, and keeps them. On failure the last copy stays and the error is noted
+     * for the widget's footer.
      */
-    static void fetch(Context ctx, LocalDate start) {
+    static void fetch(Context ctx, LocalDate day) {
         try {
-            String q = "?start=" + URLEncoder.encode(start.toString(), "UTF-8") + "&days=" + DAYS;
+            LocalDate start = gridStart(day);
+            String q = "?start=" + URLEncoder.encode(start.toString(), "UTF-8") + "&days=" + WINDOW;
             JSONObject agenda = new JSONObject(call(ctx, "GET", "/api/agenda" + q, null));
             JSONObject tasks = new JSONObject(call(ctx, "GET", "/api/tasks", null));
-            JSONObject tags = new JSONObject(call(ctx, "GET", "/api/tags", null));
             JSONObject data = new JSONObject();
             data.put("start", start.toString());
             data.put("events", agenda.optJSONArray("events") != null ? agenda.optJSONArray("events") : new JSONArray());
             data.put("tasks", tasks.optJSONArray("tasks") != null ? tasks.optJSONArray("tasks") : new JSONArray());
-            data.put("tags", tags.optJSONArray("tags") != null ? tags.optJSONArray("tags") : new JSONArray());
             prefs(ctx).edit()
                 .putString("data", data.toString())
                 .putLong("updated", System.currentTimeMillis())
@@ -142,6 +147,16 @@ final class WidgetData {
         if (!res.optBoolean("ok", false)) throw new Exception(res.optString("error", "The PC could not mark it done."));
     }
 
+    /** The phone's first day of the week (Monday or Sunday, by its language and region). */
+    static DayOfWeek weekStart() {
+        return WeekFields.of(Locale.getDefault()).getFirstDayOfWeek();
+    }
+
+    /** The first day in the month grid that holds `day`: the week start on or before the 1st. */
+    static LocalDate gridStart(LocalDate day) {
+        return day.withDayOfMonth(1).with(TemporalAdjusters.previousOrSame(weekStart()));
+    }
+
     /** The last data fetched, or an empty set. */
     static JSONObject cached(Context ctx) {
         try {
@@ -153,14 +168,6 @@ final class WidgetData {
 
     // ------------------------------------------------------------ each widget's own choices
 
-    static String mode(Context ctx, int id, String fallback) {
-        return prefs(ctx).getString("mode_" + id, fallback);
-    }
-
-    static void setMode(Context ctx, int id, String mode) {
-        prefs(ctx).edit().putString("mode_" + id, mode).apply();
-    }
-
     static int dayOffset(Context ctx, int id) {
         return prefs(ctx).getInt("day_" + id, 0);
     }
@@ -169,15 +176,8 @@ final class WidgetData {
         prefs(ctx).edit().putInt("day_" + id, offset).apply();
     }
 
-    static float yaw(Context ctx, int id) {
-        return prefs(ctx).getFloat("yaw_" + id, 35f);
-    }
-
-    static void setYaw(Context ctx, int id, float yaw) {
-        prefs(ctx).edit().putFloat("yaw_" + id, yaw).apply();
-    }
-
     static void forget(Context ctx, int id) {
+        // mode_ and yaw_ were the globe's (before 1.12.1): cleared too.
         prefs(ctx).edit().remove("mode_" + id).remove("day_" + id).remove("yaw_" + id).apply();
     }
 }

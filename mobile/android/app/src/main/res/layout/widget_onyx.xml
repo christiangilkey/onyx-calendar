@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The widget at medium and large sizes: a header, the agenda or the globe, and a status line. -->
+<!-- The widget at medium and large sizes: a header, the agenda, and a status line. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
@@ -60,14 +60,6 @@
             android:src="@drawable/ic_w_next" />
 
         <ImageButton
-            android:id="@+id/widget_toggle"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
-            android:background="@drawable/widget_btn"
-            android:contentDescription="Switch between calendar and globe"
-            android:src="@drawable/ic_w_globe" />
-
-        <ImageButton
             android:id="@+id/widget_refresh"
             android:layout_width="34dp"
             android:layout_height="34dp"
@@ -97,14 +89,6 @@
             android:divider="@null"
             android:dividerHeight="4dp"
             android:scrollbars="none" />
-
-        <ImageView
-            android:id="@+id/widget_globe"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:contentDescription="Your globe"
-            android:scaleType="fitCenter"
-            android:visibility="gone" />
 
         <TextView
             android:id="@+id/widget_empty"

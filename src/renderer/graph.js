@@ -230,7 +230,6 @@
     }
 
     const lit = (n) => !focus || n === focus || neighbours.get(focus.id)?.has(n.id);
-    const hoverNear = (n) => hover && (n === hover || neighbours.get(hover.id)?.has(n.id));
 
     function draw() {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -276,7 +275,6 @@
       }
 
       const order = nodes.filter((n) => n.p.depth > 10).sort((x, y) => y.p.depth - x.p.depth);
-      const few = nodes.length < 70;
       for (const n of order) {
         const { p } = n;
         const on = lit(n);
@@ -330,8 +328,9 @@
           ctx.stroke();
         }
 
-        // Entry names show on the near side of the globe; the far side stays quiet.
-        const labelled = n.hub || n === hover || hoverNear(n) || (focus && on) || (few && a > 0.72) || p.s > 1.5;
+        // Clusters are always named; an entry's name shows only once its cluster is picked
+        // (or, with a mouse, while pointing at the entry itself).
+        const labelled = n.hub || n === hover || (focus && on);
         if (labelled && a > 0.2) {
           const size = n.hub ? Math.min(15, 10.5 + p.s * 2.5) : Math.min(13, 9.5 + p.s * 2);
           ctx.font = `${n.hub ? 600 : 500} ${size}px "Segoe UI Variable Text","Segoe UI",Inter,Roboto,system-ui,sans-serif`;

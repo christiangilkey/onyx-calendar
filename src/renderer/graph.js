@@ -2,7 +2,7 @@
 // day), drawn on a plain canvas with a small 3D force simulation.
 //
 //   OnyxGraph.build(items, options)  -> { nodes, links }
-//   OnyxGraph.create(canvas, { onPick })  -> { setData, resetCamera, destroy }
+//   OnyxGraph.create(canvas, { onPick })  -> { setData, resetCamera, setInsets, destroy }
 /* exported OnyxGraph */
 (() => {
   'use strict';
@@ -89,6 +89,11 @@
     let neighbours = new Map(); // node id -> ids it is linked to
     let alpha = 1;
     let width = 0, height = 0, dpr = 1;
+    // What covers the canvas at the top (the toolbar) and bottom (the footer), so the globe
+    // sits in the middle of what is left. `midY` eases to it when the toolbar folds or opens.
+    const insets = { top: 0, bottom: 0 };
+    let midY = null;
+    const targetMidY = () => insets.top + Math.max(0, height - insets.top - insets.bottom) / 2;
 
     // Camera: orbit angles, distance, and a point it looks at (flies to a picked cluster).
     const cam = { yaw: 0.6, pitch: -0.35, dist: 760, focal: 640, look: { x: 0, y: 0, z: 0 }, goal: null };
@@ -221,7 +226,7 @@
       const y2 = y0 * cp - z1 * sp, z2 = y0 * sp + z1 * cp;
       const depth = z2 + cam.dist;
       const s = cam.focal / Math.max(depth, 1);
-      return { x: width / 2 + x1 * s, y: height * 0.54 + y2 * s, s, depth }; // a little low: the toolbar covers the top
+      return { x: width / 2 + x1 * s, y: (midY ?? targetMidY()) + y2 * s, s, depth };
     }
 
     const lit = (n) => !focus || n === focus || neighbours.get(focus.id)?.has(n.id);
@@ -447,6 +452,8 @@
         cam.dist += (cam.goal - cam.dist) * 0.08;
         if (Math.abs(cam.goal - cam.dist) < 1) cam.goal = null;
       }
+      const mid = targetMidY();
+      midY = midY == null || Math.abs(mid - midY) < 0.5 ? mid : midY + (mid - midY) * 0.15;
       draw();
       raf = requestAnimationFrame(frame);
     }
@@ -636,6 +643,8 @@
     return {
       setData,
       resetCamera,
+      /** Pixels of the canvas covered at the top and bottom: the globe centres in the rest. */
+      setInsets: (top, bottom) => { insets.top = Math.max(0, top || 0); insets.bottom = Math.max(0, bottom || 0); },
       /**
        * Something is dragged over the canvas from outside (a task from the Tasks panel):
        * returns the cluster under the pointer, { key, label }, or null, and draws the

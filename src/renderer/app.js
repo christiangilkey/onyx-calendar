@@ -106,11 +106,26 @@
    */
   function tagField(initial, onChange) {
     let tags = [...(initial || [])];
-    const listId = `tags-${Math.random().toString(36).slice(2)}`;
-    const input = h('input', { type: 'text', placeholder: tags.length ? 'Add tag' : 'Add tags…', spellcheck: false, autocomplete: 'off', list: listId });
+    const input = h('input', { type: 'text', placeholder: tags.length ? 'Add tag' : 'Add tags…', spellcheck: false, autocomplete: 'off' });
     const chips = h('span', { class: 'chips' });
-    const box = h('div', { class: 'tags-field', onclick: () => input.focus() }, chips, input,
-      h('datalist', { id: listId }, S.tags.map((t) => h('option', { value: t.name }))));
+    // Existing tags to tap, shown while typing (the browser's own suggestion list draws
+    // badly in the Android app, so this is ours). Filtered by what is typed.
+    const suggest = h('div', { class: 'tag-suggest', hidden: true });
+    const box = h('div', { class: 'tags-field', onclick: () => input.focus() }, chips, input, suggest);
+    const has = (name) => tags.some((x) => x.toLowerCase() === name.toLowerCase());
+    const showSuggestions = () => {
+      const q = input.value.replace(/^#+/, '').trim().toLowerCase();
+      const list = S.tags.filter((t) => !has(t.name) && (!q || t.name.toLowerCase().includes(q))).slice(0, 12);
+      suggest.hidden = !list.length || document.activeElement !== input;
+      suggest.replaceChildren(...list.map((t) => h('button', {
+        type: 'button', class: 'tag-pick', css: { '--t': t.color },
+        onpointerdown: (e) => e.preventDefault(), // keep the keyboard up
+        onclick: (e) => { e.stopPropagation(); tags.push(t.name); input.value = ''; draw(); showSuggestions(); },
+      }, `#${t.name}`)));
+    };
+    input.addEventListener('focus', showSuggestions);
+    input.addEventListener('input', showSuggestions);
+    input.addEventListener('blur', () => { suggest.hidden = true; });
     const draw = () => {
       chips.replaceChildren(...tags.map((t) => h('span', { class: 'chip', css: { '--t': tagColor(t) } }, `#${t}`,
         h('button', { type: 'button', title: 'Remove tag', onclick: (e) => { e.stopPropagation(); tags = tags.filter((x) => x !== t); draw(); } }, icon('x')))));
@@ -129,7 +144,6 @@
       if ((e.key === 'Enter' || e.key === ',' || e.key === 'Tab') && input.value.trim()) { e.preventDefault(); e.stopPropagation(); add(); }
       else if (e.key === 'Backspace' && !input.value && tags.length) { tags.pop(); draw(); }
     });
-    input.addEventListener('change', () => { if (S.tags.some((t) => t.name === input.value)) add(); });
     draw();
     const toggle = (name) => {
       const has = tags.some((x) => x.toLowerCase() === name.toLowerCase());
@@ -2818,6 +2832,17 @@
     run();
   }
 
+  /** Tells the globe how much of the canvas the toolbar (top) and the footer (bottom) cover. */
+  function fitGlobe() {
+    if (!graph.view || !graph.on) return;
+    const canvas = $('#graph-canvas').getBoundingClientRect();
+    const bar = $('#graph-bar').getBoundingClientRect();
+    const foot = $('#graph-foot')?.getBoundingClientRect();
+    const top = bar.height ? bar.bottom - canvas.top + 8 : 0;
+    const bottom = foot?.height ? canvas.bottom - foot.top + 8 : 0;
+    graph.view.setInsets(top, bottom);
+  }
+
   function renderGraphBar() {
     const seg = (options, current, onPick) => h('div', { class: 'segmented' },
       options.map(([value, label]) => h('button', { class: value === current ? 'on' : '', onclick: () => onPick(value) }, label)));
@@ -2883,7 +2908,12 @@
     }
     graph.on = true;
     $('#graph').hidden = false;
-    if (!graph.view) graph.view = OnyxGraph.create($('#graph-canvas'), { onPick: pickFromGraph, onMove: moveOnGlobe });
+    if (!graph.view) {
+      graph.view = OnyxGraph.create($('#graph-canvas'), { onPick: pickFromGraph, onMove: moveOnGlobe });
+      // The globe centres between the toolbar and the footer, and follows them as they change.
+      new ResizeObserver(fitGlobe).observe($('#graph-bar'));
+      new ResizeObserver(fitGlobe).observe($('#graph'));
+    }
     for (const b of document.querySelectorAll('[data-view]')) b.classList.remove('on');
     $('#globe-toggle').classList.add('on');
     $('#globe-toggle').title = 'Back to the calendar (G)';

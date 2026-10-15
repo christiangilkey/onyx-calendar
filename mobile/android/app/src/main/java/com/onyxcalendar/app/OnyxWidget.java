@@ -244,12 +244,12 @@ public class OnyxWidget extends AppWidgetProvider {
         LocalDate today = LocalDate.now();
         LocalDate picked = today.plusDays(WidgetData.dayOffset(ctx, id));
         Locale locale = Locale.getDefault();
-        String monthName = picked.getMonth().getDisplayName(TextStyle.FULL_STANDALONE, locale);
+        String monthName = picked.getMonth().getDisplayName(TextStyle.FULL, locale);
         v.setTextViewText(R.id.widget_title, picked.getYear() == today.getYear() ? monthName : monthName + " " + picked.getYear());
 
         LocalDate first = WidgetData.gridStart(picked);
         for (int i = 0; i < 7; i++) {
-            String name = first.plusDays(i).getDayOfWeek().getDisplayName(TextStyle.NARROW_STANDALONE, locale);
+            String name = first.plusDays(i).getDayOfWeek().getDisplayName(TextStyle.NARROW, locale);
             v.setTextViewText(WidgetMonthIds.WEEKDAYS[i], name);
         }
         // Five weeks are enough for most months: the sixth row shows only when needed.

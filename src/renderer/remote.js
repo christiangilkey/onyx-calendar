@@ -52,6 +52,24 @@
     }
   }
 
+  // Tailscale's addresses (100.64.0.0/10) reach the PC from any network, not just its wifi.
+  const isTailscale = (address) => /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(address);
+  // Addresses the PC reports itself (wifi and Tailscale), as opposed to ones typed in by hand.
+  const isLocal = (address) => isTailscale(address) || /^(192\.168|10|172\.(1[6-9]|2\d|3[01]))\.\d+\.\d+(:\d+)?$/.test(address);
+
+  // The PC sends its current addresses with its state, so a phone paired before Tailscale
+  // was set up (or before the PC's wifi address changed) picks up the new ones by itself.
+  // The address that just answered and any typed-in ones are kept; stale wifi ones are dropped.
+  function learnAddresses(value, answered) {
+    const m = value?.mcp;
+    if (!Array.isArray(m?.addresses) || !m.addresses.length || !m.port) return;
+    const next = [...new Set([answered, ...m.addresses.map((a) => `${a}:${m.port}`), ...conn.addresses.filter((a) => !isLocal(a))])];
+    if (next.join() === conn.addresses.join()) return;
+    conn.addresses = next;
+    write(CONN, conn);
+    syncWidget();
+  }
+
   const cacheKey = (name, args) => CACHE + name + (name === 'events' ? `.${args[0]}.${args[1]}` : '');
 
   // Events seen in any range, so a slightly different range can still be shown offline.
@@ -110,6 +128,7 @@
         }
         throw new Error(body.error);
       }
+      learnAddresses(body.value, address);
       if (CACHED.has(name)) write(cacheKey(name, args), body.value);
       if (name === 'events') rememberEvents(body.value.events);
       nudgeWidget(name);
@@ -118,7 +137,9 @@
     setOnline(false);
     const cached = CACHED.has(name) ? fromCache(name, args) : null;
     if (cached) return cached;
-    throw new Error('Can\'t reach Onyx on your PC. Check that it is running, and that the phone is on the same wifi (or on Tailscale).');
+    throw new Error(conn.addresses.some(isTailscale)
+      ? 'Can\'t reach Onyx on your PC. Check that it is running, and that Tailscale is on, on both the PC and this phone.'
+      : 'Can\'t reach Onyx on your PC. Check that it is running and that the phone is on the same wifi. To use Onyx away from home, set up Tailscale: Settings → Connection.');
   }
 
   const withLocal = (state) => (state ? { ...state, settings: { ...state.settings, ...local } } : state);
@@ -192,7 +213,7 @@
   window.onyx = {
     isPhone: true,
     paired: () => !!conn,
-    connection: () => (conn ? { addresses: conn.addresses, last: conn.last, online } : null),
+    connection: () => (conn ? { addresses: conn.addresses, last: conn.last, online, anywhere: conn.addresses.filter(isTailscale) } : null),
     pair,
     pairLink: (link) => pair(parseLink(link)),
     // The phone's own QR scanner, so pairing never goes through the camera app or a browser.

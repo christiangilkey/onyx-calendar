@@ -1806,6 +1806,20 @@
 
   const field = (title, hint, control) => h('div', { class: 'field' }, h('div', { class: 'txt' }, h('b', null, title), hint && h('small', null, hint)), control);
   const toggle = (checked, onchange, disabled) => h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked, disabled, onchange: (e) => onchange(e.target.checked) }), h('span'));
+  // Tailscale's addresses (100.64.0.0/10) reach the PC from any network, not just its wifi.
+  const isTailscale = (address) => /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(address);
+  /** How to set up Tailscale, so the phone reaches the PC away from home. */
+  const tailscaleSteps = (on) => h('div', { class: 'card' },
+    h('h4', null, 'Use your phone away from home'),
+    h('p', null, 'Tailscale is a free app that links your devices privately over the internet, so the phone reaches this calendar from mobile data or any wifi.'),
+    h('ol', null,
+      h('li', null, 'Install Tailscale on the PC and sign in.'),
+      h('li', null, 'Install Tailscale on the phone and sign in with the same account.'),
+      h('li', null, on === 'phone'
+        ? 'Open Onyx once while the phone can reach the PC (at home, or with Tailscale on). It picks up the PC\'s Tailscale address by itself; this box goes away when it has.'
+        : 'Open Onyx on the phone once while it can reach this PC. It picks up the Tailscale address by itself, no new scan needed.')),
+    h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => onyx.open(on === 'phone' ? 'https://play.google.com/store/apps/details?id=com.tailscale.ipn' : 'https://tailscale.com/download') },
+      icon('link'), on === 'phone' ? 'Get Tailscale for Android' : 'Download Tailscale')));
   const copyBtn = (text, label = 'Copy') => h('button', { class: 'btn', onclick: () => onyx.copy(text).then(() => toast('Copied')) }, label);
 
   const PANES = {
@@ -1928,6 +1942,7 @@
     phone() {
       const box = h('div', { class: 'card pair' }, h('p', null, 'Loading…'));
       onyx.pairing().then((p) => {
+        const tailscale = p.addresses.map((a) => a.replace(/:\d+$/, '')).find(isTailscale);
         if (!p.running || !p.lan) {
           box.replaceChildren(h('h4', null, 'Turn on the server first'),
             h('p', null, 'The phone connects through the MCP server. In the MCP server tab, switch the server on and turn on "Reachable from your network".'),
@@ -1943,13 +1958,18 @@
                 h('li', null, 'Install Onyx Calendar for Android: the .apk on the GitHub release page.'),
                 h('li', null, 'Point the phone\'s camera at this code and open the link, then tap Open in Onyx. (Or tap Scan QR code in the Onyx app.)'),
                 h('li', null, 'It connects by itself.')),
-              h('p', null, 'The phone needs to be on the same wifi as this PC (or on Tailscale). To type it in instead, use an address below and the token.'))),
+              h('p', null, 'To type it in instead, use an address below and the token.'))),
           h('pre', { class: 'code' }, `Addresses: ${p.addresses.join('   ')}\nToken:     ${p.token}`),
-          h('div', { class: 'row' }, copyBtn(p.link, 'Copy pairing link'), copyBtn(p.token, 'Copy token')));
+          h('div', { class: 'row' }, copyBtn(p.link, 'Copy pairing link'), copyBtn(p.token, 'Copy token')),
+          field('Away from home', tailscale
+            ? `On: phones reach this PC from any network through Tailscale (${tailscale}).`
+            : 'Off: phones reach this PC only on the same wifi. Set up Tailscale below to use them anywhere.',
+          h('span', { class: `badge ${tailscale ? 'ok' : ''}` }, tailscale ? 'On' : 'Off')));
+        if (!tailscale) box.after(tailscaleSteps('pc'));
       }).catch((err) => box.replaceChildren(h('p', null, err.message)));
       return [
         h('h3', null, 'Phone'),
-        h('p', { class: 'lead' }, 'The Android app shows this calendar, your tasks and tags, and can add and change entries. It talks to Onyx on this PC, so this PC needs to be on. Away from home, install Tailscale on both and scan again: its address is added to the code automatically.'),
+        h('p', { class: 'lead' }, 'The Android app shows this calendar, your tasks and tags, and can add and change entries. It talks to Onyx on this PC, so this PC needs to be on: on the same wifi, or from anywhere with Tailscale.'),
         box,
       ];
     },
@@ -2033,11 +2053,16 @@
           field('Status', c?.online === false ? 'Not reachable right now: showing the last sync.' : `Connected through ${c?.last || c?.addresses?.[0] || '…'}`,
             h('span', { class: `badge ${c?.online === false ? 'bad' : 'ok'}` }, c?.online === false ? 'Offline' : 'Online')),
           field('PC addresses', (c?.addresses || []).join('  ·  '), null),
+          field('Away from home', c?.anywhere?.length
+            ? `Works from any network through Tailscale (${c.anywhere[0].replace(/:\d+$/, '')}). Keep Tailscale on, on both this phone and the PC.`
+            : 'Off: this phone reaches the PC only on the same wifi. Set up Tailscale below to use Onyx anywhere.',
+          h('span', { class: `badge ${c?.anywhere?.length ? 'ok' : ''}` }, c?.anywhere?.length ? 'On' : 'Off')),
           h('div', { class: 'row' },
             onyx.canScan && h('button', { class: 'btn', onclick: (e) => scanToPair(e.currentTarget) }, icon('qr'), 'Scan a new code'),
             h('button', { class: 'btn danger', onclick: () => {
               if (confirm('Disconnect this phone from your PC?')) { onyx.unpair(); location.reload(); }
             } }, 'Disconnect'))),
+        !c?.anywhere?.length && tailscaleSteps('phone'),
         S.accounts.length > 0 && h('div', { class: 'card' }, h('h4', null, 'Accounts on the PC'),
           S.accounts.map((a) => h('div', { class: 'acct' }, h('span', { class: 'badge' }, PROVIDER[a.provider]), h('span', { class: 'who' }, a.label)))),
       ];

@@ -54,3 +54,23 @@ test('any web link can be pinned to the globe, named, tagged and renamed', () =>
   assert.throws(() => library.addPin({ source: 'web', url: 'javascript:alert(1)' }), /Only web links/);
   assert.throws(() => library.addPin({ source: 'web', url: 'not a link' }), /not a web address/);
 });
+
+test('files and folders on this PC can be pinned, tagged and told apart when moved', () => {
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  Object.assign(store.data, { pins: [], tags: {} });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'onyx-pins-'));
+  const file = path.join(dir, 'Lease agreement.pdf');
+  fs.writeFileSync(file, 'x');
+  const [a, b] = library.addLocalPins([file, dir], ['home']);
+  assert.match(a.id, /^local\/[0-9a-f]{16}$/);
+  assert.deepEqual([a.title, a.kind, a.path, a.tags, a.missing], ['Lease agreement.pdf', 'pdf', file, ['home'], false]);
+  assert.equal(b.kind, 'dir');
+  assert.equal(library.addLocalPins([file], ['admin'])[0].id, a.id, 'pinned once; its tags add up');
+  assert.deepEqual(library.listPins().find((p) => p.id === a.id).tags, ['home', 'admin']);
+  assert.equal(library.updatePin(a.id, { title: 'Lease' }).title, 'Lease');
+  fs.rmSync(dir, { recursive: true, force: true });
+  assert.equal(library.listPins().find((p) => p.id === a.id).missing, true);
+  assert.throws(() => library.addLocalPins([path.join(dir, 'nope.txt')]), /Can't find nope.txt/);
+});

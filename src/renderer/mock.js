@@ -147,6 +147,17 @@
 
   // Goals and repeating tasks (goals.js, repeat.js), kept simple.
   const repeats = {};      // task id -> rule
+  // Pomodoro splits (hub.js setPomodoro), with a study block that is on right now for the timer.
+  const pomodoros = {};
+  {
+    const now = Date.now();
+    events.push({
+      id: 'local/blocks/pomo', calendarId: 'local/blocks', calendarName: 'Time Blocks', color: '#8b7cff', kind: 'event', title: 'Arabic study',
+      start: new Date(now - 24 * 60000 - 50000).toISOString(), end: new Date(now + 96 * 60000).toISOString(), allDay: false,
+      writable: true, location: '', notes: '', link: '',
+    });
+    pomodoros['local/blocks/pomo'] = { work: 25, rest: 5 };
+  }
   const spawned = {};      // done task id -> the one added after it
   let goals = [{
     id: 'goal/arabic', title: 'Reach B1 Arabic', notes: 'Pass the OPI at level 2.', start: ymd(day(-30)), end: ymd(day(150)), color: '#ffb547', listId: 'g1/tl~main',
@@ -163,7 +174,7 @@
     tasks.push({ id: `g1/tl~main/stretch${n}`, listId: 'g1/tl~main', listName: 'My Tasks', color: '#f5b83d', provider: 'google', title: 'Stretch 07:30', label: 'Stretch', notes: '', due: ymd(day(n)), date: ymd(day(n)), time: '07:30', start: day(n, 7, 30).toISOString(), done: false, mirror: false, call: null });
   }
   const goalOf = (id) => { const g = goals.find((x) => x.steps.some((s) => s.taskId === id)); return g ? { id: g.id, title: g.title, color: g.color } : null; };
-  const taskOut = (t) => ({ ...withTags(t), goal: goalOf(t.id), repeat: repeats[t.id] || null });
+  const taskOut = (t) => ({ ...withTags(t), goal: goalOf(t.id), repeat: repeats[t.id] || null, pomodoro: pomodoros[t.id] || null });
   /** Marks copies of the same task (or ones Onyx repeats) as one series, as series.js does. */
   const withSeries = (list) => {
     const groups = new Map();
@@ -230,9 +241,9 @@
 
   const taskEvent = (t) => ({
     id: t.id, calendarId: t.listId, calendarName: t.listName, color: t.color, kind: 'task', title: t.label, location: '', notes: t.notes || '', link: '',
-    goal: goalOf(t.id), repeat: repeats[t.id] || null,
+    goal: goalOf(t.id), repeat: repeats[t.id] || null, pomodoro: pomodoros[t.id] || null,
     writable: false, piCall: !!(t.call && !t.call.quiet && !t.call.past), movable: !t.mirror && !t.done,
-    ...(t.start ? { allDay: false, start: t.start, end: new Date(new Date(t.start).getTime() + 1800000).toISOString() }
+    ...(t.start ? { allDay: false, start: t.start, end: new Date(new Date(t.start).getTime() + (pomodoros[t.id]?.minutes || 30) * 60000).toISOString() }
       : { allDay: true, start: t.date, end: ymd(new Date(new Date(`${t.date}T00:00`).getTime() + 86400000)) }),
   });
 
@@ -247,9 +258,10 @@
         }))]
         .filter((e) => new Date(e.end) > new Date(start) && new Date(e.start) < new Date(end))
         .filter((e) => !state.settings.hidden[e.calendarId])
-        .map(withTags),
+        .map((e) => ({ ...withTags(e), pomodoro: pomodoros[e.id] || null })),
       errors: [],
     }),
+    setPomodoro: async (id, cfg) => { if (cfg) pomodoros[id] = cfg; else delete pomodoros[id]; return pomodoros[id] || null; },
     goals: async () => goals.map(goalOut),
     createGoal: async (d) => {
       if (!d.title) throw new Error('A goal needs a name.');
@@ -400,6 +412,17 @@
       const p = { id: `${r.source}/${r.ref}`, source: r.source, ref: r.ref, title: r.title, url: r.url, kind: r.kind, notes: r.notes || '' };
       pins = [...pins.filter((x) => x.id !== p.id), p]; setTags(p.id, r.tags); return withTags(p);
     },
+    // The preview has no file system: picking "finds" a file, dropping uses the file's name.
+    addFiles: async (paths, t) => paths.map((p) => {
+      const name = p.split(/[\\/]/).pop();
+      const pin = { id: `local/${p}`, source: 'local', ref: p, title: name, url: '', path: p, kind: /\.pdf$/i.test(p) ? 'pdf' : /\./.test(name) ? 'file' : 'dir', notes: '' };
+      pins = [...pins.filter((x) => x.id !== pin.id), pin];
+      if (t?.length) setTags(pin.id, t);
+      return withTags(pin);
+    }),
+    pickFiles: async (folders, t) => window.onyx.addFiles([folders ? 'C:\\Users\\you\\Documents\\Arabic course' : 'C:\\Users\\you\\Desktop\\Lease agreement.pdf'], t),
+    openFile: async () => {},
+    pathOf: (file) => `C:\\Users\\you\\Desktop\\${file.name}`,
     updatePin: async (id, d) => { const p = pins.find((x) => x.id === id); if (d.tags) setTags(id, d.tags); if ('notes' in d) p.notes = d.notes; return withTags(p); },
     news: async () => {
       const on = newsChannels.filter((c) => c.on);

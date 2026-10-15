@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 async function call(name, ...args) {
   const res = await ipcRenderer.invoke(name, ...args);
@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('onyx', {
   setGoalStep: (id, stepId, done) => call('goal:step', id, stepId, done),
   setTags: (id, tags) => call('tags:set', id, tags),
   setMemo: (id, text) => call('memo:set', id, text),
+  setPomodoro: (id, cfg) => call('pomodoro:set', id, cfg),
   news: (force) => call('news', force),
   addNewsChannel: (input) => call('news:add', input),
   setNewsChannel: (id, on) => call('news:set', id, on),
@@ -47,6 +48,12 @@ contextBridge.exposeInMainWorld('onyx', {
   addPin: (item) => call('pin:add', item),
   updatePin: (id, patch) => call('pin:update', id, patch),
   removePin: (id) => call('pin:remove', id),
+  // Files and folders on this PC, on the globe.
+  pickFiles: (folders, tags) => call('files:pick', !!folders, tags),
+  addFiles: (paths, tags) => call('files:add', paths, tags),
+  openFile: (id, reveal) => call('files:open', id, reveal),
+  // Where a file dropped on the window lives (Electron no longer puts it on File.path).
+  pathOf: (file) => webUtils.getPathForFile(file),
   searchNotion: (query) => call('notion:search', query),
   connectNotion: (key) => call('notion:connect', key),
   disconnectNotion: () => call('notion:disconnect'),

@@ -193,3 +193,25 @@ test('a daily goal step counts each day it is done, and ticking it is saved at o
   assert.equal(after.steps[0].taskId, daily.taskId);
   assert.equal([...tasks.values()].filter((t) => t.title === 'Push-ups' && !t.done).length, 1, 'no extra copy left behind');
 });
+
+test('a pomodoro split gives a task its length on the calendar and moves on with its repeat', async () => {
+  reset();
+  store.data.pomodoro = {};
+  const day = new Date(Date.now() + 2 * 86400000);
+  const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const t = await hub.createTask({ title: 'Study Arabic 18:00', due: ymd(day) });
+  assert.throws(() => hub.setPomodoro(t.id, { work: 2, rest: 5 }), /Work must be between 5 and 180/);
+  assert.deepEqual(hub.setPomodoro(t.id, { work: 25, rest: 5, minutes: 120 }), { work: 25, rest: 5, minutes: 120 });
+
+  const from = new Date(day.getFullYear(), day.getMonth(), day.getDate());
+  const { events } = await hub.getEvents(from.toISOString(), new Date(from.getTime() + 86400000).toISOString());
+  const block = events.find((e) => e.id === t.id);
+  assert.equal((new Date(block.end) - new Date(block.start)) / 60000, 120, 'drawn for its full length');
+  assert.deepEqual(block.pomodoro, { work: 25, rest: 5, minutes: 120 });
+
+  await hub.setRepeat(t.id, 'daily');
+  const done = await hub.updateTask(t.id, { done: true });
+  assert.deepEqual(done.next.pomodoro, { work: 25, rest: 5, minutes: 120 }, 'the next day has the same split');
+  hub.setPomodoro(done.next.id, null);
+  assert.equal(store.data.pomodoro[done.next.id], undefined);
+});

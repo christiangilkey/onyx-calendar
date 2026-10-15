@@ -57,7 +57,8 @@ function range(args) {
 const briefEvent = (e) => ({
   id: e.id, kind: e.kind, title: e.title, start: localStamp(e.start), end: localStamp(e.end), all_day: e.allDay,
   calendar: e.calendarName, ...(e.location ? { location: e.location } : {}), ...(e.notes ? { notes: e.notes } : {}), ...(e.memo ? { my_notes: e.memo } : {}),
-  pi_call: e.piCall, read_only: !e.writable, tags: e.tags || [], ...(e.warning ? { warning: e.warning } : {}),
+  pi_call: e.piCall, read_only: !e.writable, tags: e.tags || [],
+  ...(e.pomodoro ? { pomodoro: `${e.pomodoro.work} min work, ${e.pomodoro.rest} min rest` } : {}), ...(e.warning ? { warning: e.warning } : {}),
 });
 
 const briefTask = (t) => ({

@@ -102,6 +102,7 @@ async function addNext(hub, task, r) {
   const next = await hub.createTask({ title, due, listId: task.listId, notes: task.notes || '', tags: task.tags || [] });
   delete store.data.repeats[task.id];
   store.data.repeats[next.id] = { rule: r.rule, day };
+  if (store.data.pomodoro?.[task.id]) store.data.pomodoro[next.id] = { ...store.data.pomodoro[task.id] }; // and its work/rest split
   remember(task.id, next.id);
   // A repeating step of a goal stays the goal's step, and each time it is done is logged.
   for (const g of store.data.goals) {
@@ -112,7 +113,7 @@ async function addNext(hub, task, r) {
     }
   }
   store.save();
-  return { ...next, repeat: r.rule };
+  return { ...next, repeat: r.rule, pomodoro: store.data.pomodoro?.[next.id] || null };
 }
 
 /**

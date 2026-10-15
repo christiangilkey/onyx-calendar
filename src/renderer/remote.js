@@ -223,6 +223,7 @@
     setGoalStep: (id, stepId, done) => call('goal:step', id, stepId, done),
     setTags: (id, tags) => call('tags:set', id, tags),
     setMemo: (id, text) => call('memo:set', id, text),
+    setPomodoro: (id, cfg) => call('pomodoro:set', id, cfg),
     news: (force) => call('news', force),
     addNewsChannel: (input) => call('news:add', input),
     setNewsChannel: (id, on) => call('news:set', id, on),

@@ -140,6 +140,158 @@
 
   const sameTags = (a, b) => (a || []).join('\n') === (b || []).join('\n');
 
+  // ------------------------------------------------------------ pomodoro
+  // A block of time split into work and rest chunks (hub.js setPomodoro). The calendar
+  // draws the chunks inside the block, and the top bar runs the timer while it is on.
+
+  /** The chunks of a block `total` minutes long: [{ kind: 'work'|'rest', from, to }] in minutes. */
+  function pomodoroChunks(total, p) {
+    const out = [];
+    for (let t = 0; t < total;) {
+      const w = Math.min(p.work, total - t);
+      out.push({ kind: 'work', from: t, to: t + w });
+      t += w;
+      if (t >= total) break;
+      const r = Math.min(p.rest, total - t);
+      out.push({ kind: 'rest', from: t, to: t + r });
+      t += r;
+    }
+    return out;
+  }
+  const chunkSummary = (total, p) => {
+    const chunks = pomodoroChunks(total, p);
+    const work = chunks.filter((c) => c.kind === 'work').length;
+    const rest = chunks.length - work;
+    return `${work} × ${p.work} min work${rest ? `, ${rest} × ${p.rest} min rest` : ''}`;
+  };
+
+  /**
+   * The Pomodoro switch and its work / rest lengths (and, for a task, how long it runs).
+   * `duration()` gives the block's minutes for the summary line.
+   */
+  function pomodoroField(cfg, { length = false, duration = () => 60, extra = [] } = {}) {
+    const pick = (values, value, unit = 'min') => {
+      const all = [...new Set([...values, value])].sort((a, b) => a - b);
+      const sel = h('select', null, all.map((v) => h('option', { value: v }, `${v} ${unit}`)));
+      sel.value = String(value);
+      return sel;
+    };
+    const on = h('input', { type: 'checkbox', checked: !!cfg });
+    const work = pick([15, 20, 25, 30, 45, 50, 60, 90], cfg?.work || 25);
+    const rest = pick([3, 5, 10, 15, 20, 30], cfg?.rest || 5);
+    const len = length && pick([30, 45, 60, 90, 120, 150, 180, 240], cfg?.minutes || 60);
+    const summary = h('small', { class: 'pomo-summary' });
+    const body = h('div', { class: 'pomo-opts' }, ...extra, h('span', null, 'Work'), work, h('span', null, 'Rest'), rest, len && h('span', null, 'for'), len);
+    const get = () => (on.checked ? { work: +work.value, rest: +rest.value, ...(len ? { minutes: +len.value } : {}) } : null);
+    const sync = () => {
+      body.hidden = !on.checked;
+      const p = get();
+      summary.textContent = p ? chunkSummary(len ? p.minutes : duration(), p) : 'Split it into work and rest chunks, with a timer in the top bar';
+    };
+    for (const el of [on, work, rest, len].filter(Boolean)) el.addEventListener('change', sync);
+    sync();
+    const el = h('div', { class: 'pomo-field' }, h('label', { class: 'check' }, on, h('b', null, 'Pomodoro')), body, summary);
+    return { el, get, sync };
+  }
+  const samePomodoro = (a, b) => JSON.stringify(a || null) === JSON.stringify(b || null);
+
+  // ---- the timer in the top bar: starts by itself when a pomodoro block's time comes
+
+  const pomoRun = { blocks: [], key: '', dismissed: new Set(), parts: null, loading: false };
+
+  async function refreshPomodoros() {
+    if (!S || pomoRun.loading) return;
+    pomoRun.loading = true;
+    const now = new Date();
+    const from = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1); // a block may have started yesterday
+    try {
+      const { events } = await onyx.events(from.toISOString(), addDays(from, 3).toISOString());
+      pomoRun.blocks = events.filter((e) => e.pomodoro && !e.allDay && e.end && visible(e.calendarId));
+    } catch { /* keep the last list */ }
+    pomoRun.loading = false;
+    tickPomodoro();
+  }
+
+  /** Where `now` falls in a pomodoro block: the chunk it is in, time left, and which round. */
+  function pomodoroPhase(e, now) {
+    const start = new Date(e.start), end = new Date(e.end);
+    if (now < start || now >= end) return null;
+    const total = (end - start) / 60000;
+    const t = (now - start) / 60000;
+    const chunks = pomodoroChunks(total, e.pomodoro);
+    const index = chunks.findIndex((c) => t >= c.from && t < c.to);
+    if (index < 0) return null;
+    const c = chunks[index];
+    const works = chunks.filter((x) => x.kind === 'work');
+    return {
+      kind: c.kind, index, left: (c.to - t) * 60000, length: c.to - c.from,
+      round: works.filter((w) => w.from <= c.from).length, rounds: works.length,
+    };
+  }
+
+  /** A soft two-note chime: rising for work, falling for rest. */
+  function chime(kind) {
+    try {
+      const ctx = chime.ctx || (chime.ctx = new AudioContext());
+      ctx.resume?.();
+      (kind === 'work' ? [587, 880] : [880, 587]).forEach((f, i) => {
+        const o = ctx.createOscillator(), g = ctx.createGain(), t0 = ctx.currentTime + i * 0.2;
+        o.type = 'sine';
+        o.frequency.value = f;
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(0.22, t0 + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.5);
+        o.connect(g).connect(ctx.destination);
+        o.start(t0);
+        o.stop(t0 + 0.55);
+      });
+    } catch { /* no sound: the top bar still shows it */ }
+  }
+
+  function announce(e, p, first) {
+    chime(p.kind);
+    const title = first ? `Pomodoro: ${e.title}` : p.kind === 'work' ? `Back to work: ${e.title}` : `Rest: ${e.title}`;
+    const body = `${p.kind === 'work' ? 'Work' : 'Rest'} for ${Math.round(p.length)} min (round ${p.round} of ${p.rounds})`;
+    toast(`${title}. ${body}`);
+    try {
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') new Notification(title, { body, silent: true });
+      else if (typeof Notification !== 'undefined' && Notification.permission === 'default') Notification.requestPermission();
+    } catch { /* the toast is enough */ }
+  }
+
+  function tickPomodoro() {
+    const box = $('#pomo-timer');
+    const now = new Date();
+    const live = pomoRun.blocks.map((e) => ({ e, p: pomodoroPhase(e, now) }))
+      .find((x) => x.p && !pomoRun.dismissed.has(`${x.e.id}|${x.e.start}`));
+    if (!live) { pomoRun.key = ''; box.hidden = true; return; }
+    const { e, p } = live;
+    const block = `${e.id}|${e.start}`;
+    const key = `${block}|${p.index}`;
+    if (key !== pomoRun.key) {
+      const first = !pomoRun.key.startsWith(`${block}|`);
+      pomoRun.key = key;
+      announce(e, p, first);
+    }
+    // Built once and updated in place, so the stop button can be clicked between ticks.
+    if (!pomoRun.parts) {
+      const parts = { label: h('span', { class: 'pomo-label' }), time: h('span', { class: 'pomo-time' }), round: h('span', { class: 'pomo-round' }) };
+      parts.stop = h('button', { class: 'pomo-stop', title: 'Stop the timer for this block', onclick: () => { pomoRun.dismissed.add(parts.block); tickPomodoro(); } }, icon('x'));
+      box.replaceChildren(icon('clock'), parts.label, parts.time, parts.round, parts.stop);
+      pomoRun.parts = parts;
+    }
+    const parts = pomoRun.parts;
+    parts.block = block;
+    const secs = Math.max(0, Math.ceil(p.left / 1000));
+    parts.label.textContent = `${e.title} - ${p.kind === 'work' ? 'working' : 'rest'}`;
+    parts.time.textContent = `${Math.floor(secs / 60)}:${pad(secs % 60)}`;
+    parts.round.textContent = `${p.round}/${p.rounds}`;
+    box.className = p.kind;
+    box.style.setProperty('--done', `${Math.min(100, 100 - (p.left / (p.length * 60000)) * 100)}%`);
+    box.title = `${e.title}: ${p.kind === 'work' ? 'working' : 'resting'}, round ${p.round} of ${p.rounds}. Ends ${fmtTime(new Date(e.end))}.`;
+    box.hidden = false;
+  }
+
   // ------------------------------------------------------------ where an entry came from
 
   const ORIGIN = {
@@ -281,7 +433,10 @@
     if (force) forceNext = true;
     calendar.refetchEvents();
     if (graph.on) loadGraph();
+    clearTimeout(refetch.pomo);
+    refetch.pomo = setTimeout(refreshPomodoros, 400); // blocks may have moved or changed
   }
+
 
   function eventContent(arg) {
     const src = arg.event.extendedProps.src;
@@ -299,6 +454,7 @@
       h('span', { class: 't' }, arg.event.title),
       src.goal && h('span', { class: 'ev-goal', title: `A step toward: ${src.goal.title}` }, icon('flag')),
       src.repeat && h('span', { title: REPEAT[src.repeat] }, icon('repeat')),
+      src.pomodoro && h('span', { class: 'ev-pomo', title: `Pomodoro: ${src.pomodoro.work} min work, ${src.pomodoro.rest} min rest` }, icon('clock')),
       src.piCall && icon('phone'),
       notes && icon('note'),
       src.kind === 'event' && !src.writable && icon('lock'),
@@ -306,6 +462,22 @@
         src.tags.slice(0, 4).map((t) => h('i', { css: { '--t': tagColor(t) } }))));
     // Hovering an entry shows its notes.
     return { domNodes: [h('div', { class: 'ev', title: notes ? `${arg.event.title}\n\n${notes}` : null }, title, arg.timeText && h('div', { class: 'ev-time' }, arg.timeText))] };
+  }
+
+  /**
+   * A pomodoro block in the day and week views shows its rest chunks as darker bands, at
+   * their real place and size (a 2-hour block of 25/5 has its 4 rests where they fall).
+   */
+  function drawPomodoroStripes(arg) {
+    const p = arg.event.extendedProps.src?.pomodoro;
+    if (!p || arg.event.allDay || !arg.view.type.startsWith('timeGrid') || !arg.event.end) return;
+    const total = (arg.event.end - arg.event.start) / 60000;
+    if (total <= 0) return;
+    const bands = pomodoroChunks(total, p).filter((c) => c.kind === 'rest')
+      .map((c) => `transparent ${(c.from / total) * 100}%, rgba(0,0,0,.5) ${(c.from / total) * 100}%, rgba(0,0,0,.5) ${(c.to / total) * 100}%, transparent ${(c.to / total) * 100}%`);
+    if (!bands.length) return;
+    arg.el.classList.add('pomo');
+    arg.el.style.backgroundImage = `linear-gradient(to bottom, transparent 0%, ${bands.join(', ')}, transparent 100%)`;
   }
 
   async function onMove(info) {
@@ -378,7 +550,10 @@
       editable: true,
       events: source,
       eventContent,
-      eventDidMount: (arg) => arg.el.style.setProperty('--c', arg.event.extendedProps.src?.color || '#8b7cff'),
+      eventDidMount: (arg) => {
+        arg.el.style.setProperty('--c', arg.event.extendedProps.src?.color || '#8b7cff');
+        drawPomodoroStripes(arg);
+      },
       // Month headers stand for a weekday, not a real date, so they use FullCalendar's own text.
       dayHeaderContent: (arg) => (arg.view.type === 'dayGridMonth'
         ? { domNodes: [h('span', { class: 'dh-dow' }, arg.text)] }
@@ -513,10 +688,17 @@
       return { start: s.toISOString(), end: e.toISOString(), allDay: false, at: s };
     };
 
+    // Pomodoro: split the block into work and rest chunks (a timed block only).
+    const blockMinutes = () => { const r = range(); return r.allDay ? 0 : Math.round((new Date(r.end) - new Date(r.start)) / 60000); };
+    const pomo = pomodoroField(src?.pomodoro, { duration: blockMinutes });
+    const pomoRow = h('div', { class: 'row top' }, icon('clock'), pomo.el);
+
     const sync = () => {
       const r = range();
       for (const el of [startTime, endTime, dash]) el.hidden = r.allDay;
       untilRow.hidden = !r.allDay && !multiDay;
+      pomoRow.hidden = r.allDay;
+      pomo.sync();
       const st = piStatus(r.at, r.allDay);
       callHint.textContent = st.text;
       callHint.className = st.tone;
@@ -546,8 +728,13 @@
           saved = await onyx.updateEvent(src.id, data);
         }
         if (saved?.warning) toast(saved.warning, 'warn');
+        // The split is kept in Onyx, by the entry's id (a new id when it moved calendar).
+        const split = r.allDay ? null : pomo.get();
+        const id = saved?.id || src?.id;
+        if (id && !samePomodoro(split, saved?.pomodoro ?? src?.pomodoro)) await onyx.setPomodoro(id, split);
         closePopover();
         refetch();
+        refreshPomodoros();
         if (!sameTags(data.tags, src?.tags)) reloadTags();
       } catch (err) {
         busy = false;
@@ -575,6 +762,7 @@
       readOnly && src.notes && h('div', { class: 'row top pop-meta' }, icon('note'), h('div', { class: 'note-text' }, src.notes)),
       memo && h('div', { class: 'row top' }, icon('note'), memo),
       h('div', { class: 'row' }, icon('tag'), tags.el),
+      pomoRow,
       src?.location && h('div', { class: 'row pop-meta' }, icon('pin'), src.location),
       S.settings.pi.enabled && h('div', { class: 'row pi-row' }, icon('phone'),
         h('div', { class: 'txt' }, h('b', null, 'Phone reminder'), callHint),
@@ -862,6 +1050,9 @@
       h('option', { value: '' }, 'Does not repeat'),
       Object.keys(REPEAT).map((rule) => h('option', { value: rule }, repeatLabel(rule))));
     if (repeatPick) repeatPick.value = t.repeat || '';
+    // Pomodoro: a start time and a length (Google Tasks have neither), split into chunks.
+    const pomoTime = h('input', { type: 'time', value: t.time || '', step: 300, title: 'When it starts (written into the name, which the Pi reads)' });
+    const pomo = !t.mirror && t.provider && pomodoroField(t.pomodoro, { length: true, extra: [h('span', null, 'At'), pomoTime] });
     const save = () => run(async () => {
       const patch = {};
       if (name.value.trim() && name.value.trim() !== t.title) patch.title = name.value.trim();
@@ -879,6 +1070,19 @@
         await onyx.repeatTask(t.id, repeatPick.value || null);
         toast(repeatPick.value ? `${repeatLabel(repeatPick.value)}. When it is done, the next one is added.` : 'No longer repeats');
       }
+      if (pomo) {
+        const split = pomo.get();
+        if (split) {
+          const time = pomoTime.value || t.time;
+          if (!time) throw new Error('Give it a start time, so the timer knows when to begin.');
+          if (time !== t.time) {
+            const day = (date && date.value) || t.date || ymd(new Date());
+            await onyx.moveTask(t.id, { start: at(day, time).toISOString() });
+          }
+        }
+        if (!samePomodoro(split, t.pomodoro)) await onyx.setPomodoro(t.id, split);
+        refreshPomodoros();
+      }
     });
     showPopover(anchor, [
       name,
@@ -888,6 +1092,7 @@
         icon('flag'), h('span', null, 'A step toward ', h('b', null, t.goal.title))),
       date && h('div', { class: 'row' }, icon('calendar'), date),
       repeatPick && h('div', { class: 'row' }, icon('repeat'), repeatPick),
+      pomo && h('div', { class: 'row top' }, icon('clock'), pomo.el),
       t.series && !t.series.managed && h('button', { class: 'row goal-link series-link', css: { '--g': '#a9b4ff' }, title: 'Edit every copy of this repeating task', onclick: (e) => openSeries(t.series, e.currentTarget.getBoundingClientRect()) },
         icon('repeat'), h('span', null, h('b', null, seriesText(t.series)), ` · set in Google Tasks · ${t.series.count} open copies. Edit all`)),
       h('div', { class: 'row top' }, icon('note'), notes),
@@ -1335,6 +1540,13 @@
         const box = h('input', { type: 'checkbox', checked, title: s.repeat ? 'Done today' : 'Done' });
         box.onchange = () => tick(s, box.checked, box);
         const days = { daily: 'days', weekdays: 'days', weekly: 'weeks' }[s.repeat];
+        // The step's task carries its time and pomodoro split: the button opens it.
+        const task = s.taskId && tasks.find((x) => x.id === s.taskId);
+        const timer = task && h('button', {
+          class: `x pomo-btn${task.pomodoro ? ' on' : ''}`,
+          title: task.pomodoro ? `Pomodoro: ${task.pomodoro.work} min work, ${task.pomodoro.rest} min rest${task.time ? ` at ${fmtTime(at('2000-01-01', task.time))}` : ''}` : 'Pomodoro: give this step a time and split it into work and rest chunks',
+          onclick: (e) => { const rect = e.currentTarget.getBoundingClientRect(); closePopover(); openTask(task, rect); },
+        }, icon('clock'));
         return h('div', { class: `goal-step${!s.repeat && s.done ? ' done' : ''}${s.repeat ? ' habit' : ''}` },
           box,
           name,
@@ -1343,6 +1555,7 @@
             ? h('span', { class: 'step-count', title: `Done ${s.count || 0} of the ${s.target || '…'} ${days} until the target date` },
               s.target ? `${s.count || 0}/${s.target} ${days}` : 'new')
             : h('input', { type: 'date', value: s.due || '', title: 'Due', onchange: (e) => { s.due = e.target.value || null; } }),
+          timer,
           h('button', { class: 'x', title: 'Remove this step (its task is deleted)', onclick: () => { steps.splice(i, 1); drawSteps(); } }, icon('x')));
       }));
       if (focus != null) stepBox.querySelectorAll('input[type=text]')[focus]?.focus();
@@ -1842,7 +2055,7 @@
 
   const graph = {
     on: false, kind: 'week', anchor: new Date(), from: '', to: '', groupBy: 'tags', view: null, seq: 0,
-    show: { tasks: true, goals: true, notes: true, notion: true, drive: true, web: true }, // what joins the calendar entries
+    show: { tasks: true, goals: true, notes: true, notion: true, drive: true, web: true, local: true }, // what joins the calendar entries
     lib: { notes: [], pins: [] },
     events: [],          // the last range's entries, so the clusters can be redrawn without fetching
     hidden: readHidden(), // tag clusters switched off in the Clusters tab ('' stands for untagged)
@@ -1865,6 +2078,7 @@
     notion: { label: 'Notion', color: '#c4c4cc' },
     drive: { label: 'Drive', color: '#3ddc97' },
     web: { label: 'Links', color: '#9fd0ff' },
+    local: { label: 'Files', color: '#ffd28a' },
   };
 
   function graphRange() {
@@ -2096,7 +2310,15 @@
 
   function watchGlobeDrops() {
     const box = $('#graph');
+    // Files and folders dragged in from File Explorer or the desktop (only on the PC).
+    const filesDragged = (e) => !draggedTask && !!onyx.addFiles && [...(e.dataTransfer?.types || [])].includes('Files');
     box.addEventListener('dragover', (e) => {
+      if (filesDragged(e) && graph.view) {
+        e.preventDefault();
+        const hit = graph.view.dragOver(e.clientX, e.clientY, 'Add to the globe');
+        e.dataTransfer.dropEffect = 'copy';
+        return hit;
+      }
       if (!draggedTask || !graph.view) return;
       e.preventDefault();
       const hit = graph.view.dragOver(e.clientX, e.clientY, draggedTask.label);
@@ -2104,6 +2326,21 @@
     });
     box.addEventListener('dragleave', (e) => { if (!box.contains(e.relatedTarget)) graph.view?.dragOver(); });
     box.addEventListener('drop', async (e) => {
+      if (filesDragged(e) && graph.view) {
+        e.preventDefault();
+        const hit = graph.view.dragOver(e.clientX, e.clientY, '');
+        graph.view.dragOver();
+        const paths = [...e.dataTransfer.files].map((f) => onyx.pathOf(f)).filter(Boolean);
+        if (!paths.length) return;
+        // Dropped on a tag's cluster: the files take that tag.
+        const tag = hit?.key.startsWith('tag:') ? (tagInfo(hit.key.slice(4))?.name || hit.key.slice(4)) : null;
+        try {
+          afterFilesAdded(await onyx.addFiles(paths, tag ? [tag] : []), tag ? [tag] : []);
+        } catch (err) {
+          toast(err.message, 'error');
+        }
+        return;
+      }
       if (!draggedTask || !graph.view) return;
       e.preventDefault();
       const t = draggedTask;
@@ -2226,34 +2463,86 @@
 
   // ------------------------------------------------------------ Notion pages and Drive files
 
-  const KIND_LABEL = { link: 'Web link', page: 'Notion page', database: 'Notion database', doc: 'Google Doc', sheet: 'Google Sheet', slides: 'Google Slides', folder: 'Drive folder', form: 'Google Form', pdf: 'PDF', image: 'Image', video: 'Video', file: 'File' };
+  const KIND_LABEL = { link: 'Web link', dir: 'Folder', word: 'Document', audio: 'Audio', text: 'Text file', page: 'Notion page', database: 'Notion database', doc: 'Google Doc', sheet: 'Google Sheet', slides: 'Google Slides', folder: 'Drive folder', form: 'Google Form', pdf: 'PDF', image: 'Image', video: 'Video', file: 'File' };
 
   function openPin(pin, anchor) {
     const web = pin.source === 'web';
+    const local = pin.source === 'local';
+    const named = web || local; // their names on the globe are Onyx's own, so they can be renamed
     const tags = tagField(pin.tags);
-    const notes = notesField(pin.notes, web ? 'Your notes on this link' : `Your notes on this ${SOURCES[pin.source].label} item (kept in Onyx)`);
-    const name = web && h('input', { type: 'text', class: 'pop-title', value: pin.title, spellcheck: false });
+    const notes = notesField(pin.notes, web ? 'Your notes on this link' : local ? 'Your notes on this file' : `Your notes on this ${SOURCES[pin.source].label} item (kept in Onyx)`);
+    const name = named && h('input', { type: 'text', class: 'pop-title', value: pin.title, spellcheck: false });
     const save = async () => {
       const picked = tags.get();
       const patch = { tags: picked };
       if (cleanNote(notes.value) !== (pin.notes || '')) patch.notes = notes.value;
-      if (web && name.value.trim() && name.value.trim() !== pin.title) patch.title = name.value.trim();
+      if (named && name.value.trim() && name.value.trim() !== pin.title) patch.title = name.value.trim();
       try { await onyx.updatePin(pin.id, patch); await afterGlobeChange(!sameTags(picked, pin.tags)); } catch (err) { toast(err.message, 'error'); }
     };
+    // A file or folder opens with its own app on the PC; the phone can only list it.
+    const openLocal = (reveal) => onyx.openFile(pin.id, reveal).catch((err) => toast(err.message, 'error'));
+    const openButtons = local
+      ? (onyx.openFile
+        ? [h('button', { class: 'btn', title: 'Show it in File Explorer', onclick: () => openLocal(true) }, 'Show in folder'),
+          h('button', { class: 'btn', disabled: !!pin.missing, onclick: () => openLocal(false) }, icon('link'), 'Open')]
+        : [])
+      : [h('button', { class: 'btn', onclick: () => onyx.open(pin.url) }, icon('link'), 'Open')];
     notes.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) save(); });
     showPopover(anchor, [
-      web ? name : h('div', { class: 'pin-head' }, h('span', { class: `src-badge ${pin.source}` }, SOURCES[pin.source].label), h('b', null, pin.title)),
-      h('p', { class: 'pop-meta' }, web ? pin.url : KIND_LABEL[pin.kind] || 'Document'),
+      named ? name : h('div', { class: 'pin-head' }, h('span', { class: `src-badge ${pin.source}` }, SOURCES[pin.source].label), h('b', null, pin.title)),
+      local && h('div', { class: 'origin', css: { '--o': SOURCES.local.color } }, h('span', { class: 'origin-badge' }, pin.kind === 'dir' ? 'Folder on this PC' : 'File on this PC'),
+        h('span', { class: 'origin-text' }, onyx.openFile ? '' : 'Open it from Onyx on the PC')),
+      h('p', { class: `pop-meta${pin.missing ? ' problem' : ''}` }, web ? pin.url : local ? (pin.missing ? `Not found any more: ${pin.path}` : pin.path) : KIND_LABEL[pin.kind] || 'Document'),
       h('div', { class: 'row top' }, icon('note'), notes),
       h('div', { class: 'row' }, icon('tag'), tags.el),
       h('div', { class: 'pop-actions' },
-        h('button', { class: 'btn danger', title: 'Take it off the globe (it stays in ' + SOURCES[pin.source].label + ')', onclick: async () => {
+        h('button', { class: 'btn danger', title: local ? 'Take it off the globe (the file itself is not touched)' : `Take it off the globe (it stays in ${SOURCES[pin.source].label})`, onclick: async () => {
           try { await onyx.removePin(pin.id); await afterGlobeChange(true); } catch (err) { toast(err.message, 'error'); }
         } }, icon('x'), 'Remove'),
         h('div', { class: 'grow' }),
-        h('button', { class: 'btn', onclick: () => onyx.open(pin.url) }, icon('link'), 'Open'),
+        ...openButtons,
         h('button', { class: 'btn primary', onclick: save }, 'Save')),
     ]);
+  }
+
+  /** Pins files or a folder from this PC to the globe (the PC's own file picker), with tags. */
+  function openAddFile(anchor) {
+    const suggest = h('div', { class: 'picker-suggest' });
+    const tags = tagField(startingTags(), (picked) => suggest.replaceChildren(...S.tags.slice(0, 14).map((t) => h('button', {
+      class: `tag-pick${picked.some((x) => x.toLowerCase() === t.name.toLowerCase()) ? ' on' : ''}`, css: { '--t': t.color }, onclick: () => tags.toggle(t.name),
+    }, `#${t.name}`))));
+    const pick = async (folders) => {
+      const picked = tags.get();
+      try {
+        const pins = await onyx.pickFiles(folders, picked);
+        if (!pins.length) return; // the picker was closed
+        afterFilesAdded(pins, picked);
+        closePopover();
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    };
+    showPopover(anchor, [
+      h('b', null, 'Add from this PC'),
+      h('div', { class: 'row' }, icon('tag'), tags.el),
+      S.tags.length > 0 && suggest,
+      h('p', { class: 'pop-meta' }, 'Or drag files and folders from File Explorer or the desktop straight onto the globe: drop them on a tag\'s cluster to tag them.'),
+      h('div', { class: 'pop-actions' },
+        h('button', { class: 'btn ghost', onclick: () => closePopover() }, 'Cancel'),
+        h('div', { class: 'grow' }),
+        h('button', { class: 'btn', onclick: () => pick(true) }, 'Choose a folder…'),
+        h('button', { class: 'btn primary', onclick: () => pick(false) }, 'Choose files…')),
+    ]);
+  }
+
+  function afterFilesAdded(pins, picked) {
+    const ids = new Set(pins.map((p) => p.id));
+    graph.lib.pins = [...graph.lib.pins.filter((p) => !ids.has(p.id)), ...pins];
+    if (!graph.show.local) { graph.show.local = true; renderGraphBar(); }
+    const what = pins.length === 1 ? `"${pins[0].title}"` : `${pins.length} items`;
+    toast(`Added ${what} to the globe${picked.length ? ` with ${picked.map((t) => `#${t}`).join(' ')}` : ''}`);
+    loadGraph();
+    if (picked.length) reloadTags();
   }
 
   /** Pins any web link to the globe, with a name, tags and notes. */
@@ -2431,11 +2720,13 @@
       chip('notion', 'Notion', 'Notion pages pinned to the globe'),
       chip('drive', 'Drive', 'Google Drive files pinned to the globe'),
       chip('web', 'Links', 'Web links pinned to the globe'),
+      chip('local', 'Files', 'Files and folders from this PC pinned to the globe'),
       h('div', { class: 'grow' }),
       addBtn('Note', (r) => openNote(null, r)),
       addBtn('Notion', (r) => openPicker('notion', r)),
       addBtn('Drive', (r) => openPicker('drive', r)),
-      addBtn('Link', (r) => openAddLink(r))));
+      addBtn('Link', (r) => openAddLink(r)),
+      onyx.pickFiles && addBtn('File', (r) => openAddFile(r))));
   }
 
   function openGraph() {
@@ -2745,6 +3036,9 @@
     $('#toggle-tasks').classList.toggle('on', S.settings.tasksPanel && !MOBILE);
     buildCalendar();
     buildNews();
+    refreshPomodoros();
+    setInterval(tickPomodoro, 1000);
+    setInterval(refreshPomodoros, 60000);
     renderSidebar();
     loadTasks();
 

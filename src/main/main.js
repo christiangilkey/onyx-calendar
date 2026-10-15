@@ -10,6 +10,7 @@ const accounts = require('./accounts');
 const hub = require('./hub');
 const mcp = require('./mcp');
 const api = require('./api');
+const library = require('./library');
 const updater = require('./updater');
 
 const { state } = api;
@@ -49,6 +50,8 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, '../preload.js'),
       contextIsolation: true, nodeIntegration: false, sandbox: true,
+      // The pomodoro timer chimes by itself when a block starts, without a click first.
+      autoplayPolicy: 'no-user-gesture-required',
     },
   });
   if (saved.maximized) win.maximize();
@@ -174,6 +177,17 @@ const HANDLERS = {
   // Web links only (links written in notes may be http): never files or other apps' schemes.
   open: (url) => { if (/^https?:\/\/[^\s]+$/i.test(String(url))) shell.openExternal(url); },
   copy: (text) => clipboard.writeText(String(text)),
+  // Files and folders on this PC, pinned to the globe. These stay off the phone's list
+  // (api.remote): only someone at the PC can pick, add or open them.
+  'files:pick': async (folders, tags) => {
+    const res = await dialog.showOpenDialog(win, {
+      title: folders ? 'Add folders to the globe' : 'Add files to the globe',
+      properties: folders ? ['openDirectory', 'multiSelections'] : ['openFile', 'multiSelections'],
+    });
+    return res.canceled ? [] : library.addLocalPins(res.filePaths, tags);
+  },
+  'files:add': (paths, tags) => library.addLocalPins(paths, tags),
+  'files:open': (id, reveal) => library.openLocal(id, !!reveal),
 };
 
 function registerIpc() {

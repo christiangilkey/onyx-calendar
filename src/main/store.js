@@ -39,6 +39,7 @@ const DEFAULTS = {
   goals: [],             // long-term goals: { id, title, notes, start, end, color, listId, steps: [{ id, title, due, done, taskId }] } (goals.js)
   repeats: {},           // task id -> { rule, day } for tasks that repeat; Onyx adds the next one when it is done (repeat.js)
   repeatSpawned: {},
+  pomodoro: {},          // event or task id -> { work, rest, minutes? }: split into work and rest chunks (hub.js)
   madeHere: {},          // event or task id -> date it was added from Onyx (so a window can say where it came from)     // completed task id -> the task added after it, so Undo can take that back
   news: null,          // { channels: [{ id, name, on, live?, custom? }] } for the News panel (news.js)
   secrets: { googleClientSecret: '', tokens: {}, mcpToken: '', notionToken: '' },

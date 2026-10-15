@@ -102,6 +102,7 @@ const handlers = {
   'goal:step': (id, stepId, done) => goals.setStep(id, stepId, !!done),
   'tags:set': (id, tags) => hub.setTags(id, tags),
   'memo:set': (id, text) => hub.setMemo(id, text),
+  'pomodoro:set': (id, cfg) => hub.setPomodoro(id, cfg),
   'tag:color': withState((tag, color) => hub.setTagColor(tag, color)),
   'tag:rename': withState((from, to) => hub.renameTag(from, to)),
   'tag:delete': withState((tag) => hub.deleteTag(tag)),

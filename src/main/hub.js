@@ -106,6 +106,34 @@ function markMadeHere(id) {
   store.save();
 }
 
+// ---------------------------------------------------------------- pomodoro
+// A block of time (an event, or a task with a time) can be split into work and rest
+// chunks: 25 minutes on, 5 off, and so on. The split lives in Onyx; a task also gets a
+// length (`minutes`), since Google Tasks and To Do have none.
+
+const pomodoroOf = (id) => store.data.pomodoro[id] || null;
+
+/** Sets (or, with null, clears) the pomodoro split of one event or task. */
+function setPomodoro(id, cfg) {
+  if (!id) throw new Error('Nothing to set it on.');
+  if (!cfg) {
+    delete store.data.pomodoro[id];
+  } else {
+    const num = (v, lo, hi, name) => {
+      const n = Math.round(Number(v));
+      if (!Number.isFinite(n) || n < lo || n > hi) throw new Error(`${name} must be between ${lo} and ${hi} minutes.`);
+      return n;
+    };
+    store.data.pomodoro[id] = {
+      work: num(cfg.work ?? 25, 5, 180, 'Work'),
+      rest: num(cfg.rest ?? 5, 1, 60, 'Rest'),
+      ...(cfg.minutes != null ? { minutes: num(cfg.minutes, 10, 720, 'The length') } : {}),
+    };
+  }
+  store.save();
+  return pomodoroOf(id);
+}
+
 function unify(cal, e) {
   const id = `${cal.id}/${enc(e.rawId)}`;
   return {
@@ -148,7 +176,9 @@ function taskAsEvent(t) {
     movable: !t.mirror && !t.done, // dragged to another day in the calendar (see moveTask)
   };
   if (t.start) {
-    return { ...base, allDay: false, start: t.start, end: new Date(new Date(t.start).getTime() + TASK_BLOCK_MINUTES * 60000).toISOString() };
+    // A task with a pomodoro split has a real length; others are drawn as a short block.
+    const minutes = t.pomodoro?.minutes || TASK_BLOCK_MINUTES;
+    return { ...base, allDay: false, start: t.start, end: new Date(new Date(t.start).getTime() + minutes * 60000).toISOString() };
   }
   const day = toDate(t.date);
   return { ...base, allDay: true, start: t.date, end: localDate(new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1)) };
@@ -176,7 +206,7 @@ async function getEvents(start, end, { includeHidden = false, force = false } = 
     }
   }));
   const events = lists.flat()
-    .map((e) => ({ ...e, tags: tagsOf(e.id), memo: memoOf(e.id) }))
+    .map((e) => ({ ...e, tags: tagsOf(e.id), memo: memoOf(e.id), pomodoro: pomodoroOf(e.id) }))
     .concat(require('./goals').spans(start, end, includeHidden)) // goals.js needs this module: loaded late
     .sort((a, b) => toDate(a.start) - toDate(b.start));
   return { events, errors: [...errors] };
@@ -246,8 +276,9 @@ async function updateEvent(id, patch) {
   // Saving to a different calendar is a copy followed by a delete.
   if (patch.calendarId && patch.calendarId !== calendarId) {
     const created = await createEvent({ ...patch, piCall: wantCall, tags: patch.tags || tagsOf(id) });
+    if (pomodoroOf(id)) store.data.pomodoro[created.id] = pomodoroOf(id); // the split goes with it
     await deleteEvent(id);
-    return created;
+    return { ...created, pomodoro: pomodoroOf(created.id) };
   }
   if ('tags' in patch) setTags(id, patch.tags);
   if (!cal.writable) throw new Error(`"${cal.name}" is read-only.`);
@@ -280,6 +311,7 @@ async function deleteEvent(id) {
   invalidate(cal.id);
   dropTags(id);
   setMemo(id, '');
+  delete store.data.pomodoro[id];
   await setPiCall({ id }, false).catch((err) => console.error('onyx: could not remove the Pi reminder:', err.message));
 }
 
@@ -318,6 +350,7 @@ function unifyTask(cal, t, mirrors) {
     due: t.due, done: t.done, completed: t.completed || null, date, dateInName: !!p.date, time: p.time ? `${pad(p.time[0])}:${pad(p.time[1])}` : null,
     start: start ? start.toISOString() : null, mirror: mirrors.has(id), call: null, tags: tagsOf(id),
     goal: goalOfTask(id), repeat: store.data.repeats[id]?.rule || null, madeHere: store.data.madeHere[id] || null,
+    pomodoro: pomodoroOf(id),
   };
   // The Pi only reads Google Tasks, and only phones for a task with a time in its name.
   const pi = store.data.settings.pi;
@@ -512,6 +545,7 @@ async function deleteTask(id) {
   invalidate(calendarId);
   dropTags(id);
   if (store.data.repeats[id]) delete store.data.repeats[id];
+  delete store.data.pomodoro[id];
   for (const g of store.data.goals) for (const s of g.steps) if (s.taskId === id) s.taskId = null;
   store.save();
 }
@@ -717,6 +751,6 @@ function removeLocalCalendar(id) {
 
 module.exports = {
   calendars, refreshCalendars, invalidate, getEvents, createEvent, updateEvent, deleteEvent,
-  getTasks, archivedTasks, fetchTask, createTask, updateTask, moveTask, deleteTask, setRepeat, setPiCall, freeTime, addLocalCalendar, removeLocalCalendar,
+  getTasks, archivedTasks, fetchTask, createTask, updateTask, moveTask, deleteTask, setRepeat, setPomodoro, setPiCall, freeTime, addLocalCalendar, removeLocalCalendar,
   setTags, allTags, setTagColor, renameTag, deleteTag, setMemo, MAX_NOTE,
 };

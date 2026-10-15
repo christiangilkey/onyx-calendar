@@ -62,7 +62,7 @@ const briefEvent = (e) => ({
 
 const briefTask = (t) => ({
   id: t.id, title: t.title, list: t.listName, due_date: t.date, time: t.time, tags: t.tags || [],
-  ...(t.notes ? { notes: t.notes } : {}), ...(t.goal ? { goal: t.goal.title } : {}), ...(t.repeat ? { repeats: t.repeat } : {}),
+  ...(t.notes ? { notes: t.notes } : {}), ...(t.goal ? { goal: t.goal.title } : {}), ...(t.series ? { repeats: t.series.rule || (t.series.everyDays ? `every ${t.series.everyDays} days` : 'yes'), open_copies: t.series.count } : t.repeat ? { repeats: t.repeat } : {}),
   pi_call: t.call ? (t.call.past ? 'already due' : t.call.quiet ? 'skipped: quiet hours' : localStamp(t.call.at)) : null,
 });
 

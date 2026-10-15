@@ -350,10 +350,13 @@
     }
 
     // While an item is being dragged: a dashed line to the cluster it would join, and its name.
+    // An item dragged in from outside the canvas (the Tasks panel) is drawn the same way.
     function drawHeld() {
-      if (!held?.active || !held.node.p) return;
-      const p = held.node.p;
-      const t = held.target;
+      const outside = incoming && !held?.active;
+      if (!outside && (!held?.active || !held.node.p)) return;
+      const p = outside ? incoming : held.node.p;
+      const t = outside ? incoming.target : held.target;
+      const name = outside ? incoming.label : held.node.label;
       ctx.save();
       if (t?.p) {
         const r = (6 + Math.sqrt(t.count) * 2.2) * t.p.s;
@@ -371,7 +374,7 @@
       ctx.font = '600 12px "Segoe UI",Inter,Roboto,system-ui,sans-serif';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      const text = t ? `Move to ${t.label}` : held.node.label;
+      const text = t ? `Move to ${t.label}` : name;
       const w = ctx.measureText(text).width + 16;
       ctx.fillStyle = 'rgba(14,14,16,0.92)';
       ctx.beginPath(); ctx.roundRect(p.x + 12, p.y - 13, w, 26, 8); ctx.fill();
@@ -468,6 +471,7 @@
     // Dragging an item (not a hub) moves just that item; letting go over another
     // cluster reports the move (onMove), and the item springs back otherwise.
     let held = null; // { node, from: hub it started in, target: hub under the pointer, active }
+    let incoming = null; // { x, y, label, target }: something dragged over the canvas from elsewhere
 
     /** Undoes the camera rotation: a screen-space step at scale s becomes a world-space step. */
     function screenToWorld(dx, dy, s) {
@@ -632,6 +636,20 @@
     return {
       setData,
       resetCamera,
+      /**
+       * Something is dragged over the canvas from outside (a task from the Tasks panel):
+       * returns the cluster under the pointer, { key, label }, or null, and draws the
+       * drag. Called with no point when the drag leaves or ends.
+       */
+      dragOver: (clientX, clientY, label) => {
+        if (clientX == null) { incoming = null; return null; }
+        const b = canvas.getBoundingClientRect();
+        const x = clientX - b.left, y = clientY - b.top;
+        lastInput = performance.now(); // hold the spin, so the cluster stays under the pointer
+        const target = hubUnder(x, y, null);
+        incoming = { x, y, s: 1, label, target };
+        return target ? { key: target.key, label: target.label } : null;
+      },
       /** Where a node (or `hub:<key>`) is drawn, in canvas pixels, and what it is: for tests and tooling. */
       locate: (id) => {
         const n = nodes.find((x) => x.id === id);

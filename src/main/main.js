@@ -171,7 +171,8 @@ const HANDLERS = {
   'update:check': () => updater.check(),
   'update:install': () => updater.install(),
   'update:state': () => updater.current(),
-  open: (url) => { if (/^https:\/\//i.test(String(url))) shell.openExternal(url); },
+  // Web links only (links written in notes may be http): never files or other apps' schemes.
+  open: (url) => { if (/^https?:\/\/[^\s]+$/i.test(String(url))) shell.openExternal(url); },
   copy: (text) => clipboard.writeText(String(text)),
 };
 

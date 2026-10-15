@@ -9,6 +9,7 @@ const microsoft = require('./providers/microsoft');
 const ics = require('./providers/ics');
 const { parseName, mirrorName, callTime } = require('./taskname');
 const repeat = require('./repeat');
+const series = require('./series');
 
 const PROVIDERS = { google, microsoft };
 const LOCAL = { id: 'local', provider: 'local', label: 'On this PC' };
@@ -94,13 +95,24 @@ function invalidate(calendarId) {
 
 // ---------------------------------------------------------------- events
 
+// Which entries were added from Onyx (rather than in Google, Outlook or To Do), so a
+// window can say where an entry came from. Only the newest are kept.
+const MAX_MADE_HERE = 4000;
+function markMadeHere(id) {
+  const made = store.data.madeHere;
+  made[id] = localDate(new Date());
+  const keys = Object.keys(made);
+  for (const k of keys.slice(0, Math.max(0, keys.length - MAX_MADE_HERE))) delete made[k];
+  store.save();
+}
+
 function unify(cal, e) {
   const id = `${cal.id}/${enc(e.rawId)}`;
   return {
     id, calendarId: cal.id, calendarName: cal.name, color: cal.color, kind: 'event',
     title: e.title, start: e.start, end: e.end, allDay: !!e.allDay,
     location: e.location || '', notes: e.notes || '', link: e.link || '',
-    writable: cal.writable, piCall: !!store.data.piLinks[id],
+    writable: cal.writable, piCall: !!store.data.piLinks[id], madeHere: store.data.madeHere[id] || null,
   };
 }
 
@@ -131,7 +143,8 @@ function taskAsEvent(t) {
   const base = {
     id: t.id, calendarId: t.listId, calendarName: t.listName, color: t.color, kind: 'task',
     title: t.label, location: '', notes: t.notes, link: '', writable: false,
-    piCall: !!(t.call && !t.call.quiet && !t.call.past), done: t.done, goal: t.goal, repeat: t.repeat,
+    piCall: !!(t.call && !t.call.quiet && !t.call.past), done: t.done, goal: t.goal, repeat: t.repeat, madeHere: t.madeHere,
+    provider: t.provider, mirror: t.mirror,
     movable: !t.mirror && !t.done, // dragged to another day in the calendar (see moveTask)
   };
   if (t.start) {
@@ -204,6 +217,7 @@ async function createEvent(data) {
     raw = await PROVIDERS[acct.provider].createEvent(req(acct), rawCal, fields);
   }
   invalidate(cal.id);
+  markMadeHere(`${cal.id}/${enc(raw.rawId)}`);
   const event = unify(cal, raw);
   if (data.tags) setTags(event.id, data.tags);
   return withCall(event, !!data.piCall, false);
@@ -303,7 +317,7 @@ function unifyTask(cal, t, mirrors) {
     title: t.title, label: p.date || p.time ? p.spoken : t.title, notes: t.notes,
     due: t.due, done: t.done, completed: t.completed || null, date, dateInName: !!p.date, time: p.time ? `${pad(p.time[0])}:${pad(p.time[1])}` : null,
     start: start ? start.toISOString() : null, mirror: mirrors.has(id), call: null, tags: tagsOf(id),
-    goal: goalOfTask(id), repeat: store.data.repeats[id]?.rule || null,
+    goal: goalOfTask(id), repeat: store.data.repeats[id]?.rule || null, madeHere: store.data.madeHere[id] || null,
   };
   // The Pi only reads Google Tasks, and only phones for a task with a time in its name.
   const pi = store.data.settings.pi;
@@ -351,6 +365,7 @@ async function getTasks({ force = false } = {}) {
     const open = new Set(tasks.map((t) => t.id));
     tasks.push(...await repeat.reconcile(module.exports, open, failed, new Set(all.map((c) => c.id))));
   }
+  series.annotate(tasks); // copies of a task that repeats in Google are marked as one series
   return { tasks, errors: [...errors], failed: [...failed] };
 }
 
@@ -442,6 +457,7 @@ async function createTask(data) {
   const { acct, rawCal } = parseId(cal.id);
   const raw = await PROVIDERS[acct.provider].createTask(req(acct), rawCal, fields);
   invalidate(cal.id);
+  markMadeHere(`${cal.id}/${enc(raw.rawId)}`);
   if (data.tags) setTags(`${cal.id}/${enc(raw.rawId)}`, data.tags);
   return unifyTask(cal, raw, new Set());
 }

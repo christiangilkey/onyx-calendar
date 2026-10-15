@@ -41,3 +41,16 @@ test('task notes are sent to Google Tasks', async () => {
   assert.deepEqual(sent, { notes: 'Two photos' });
   assert.equal(t.notes, 'Two photos');
 });
+
+test('any web link can be pinned to the globe, named, tagged and renamed', () => {
+  Object.assign(store.data, { pins: [], tags: {} });
+  const pin = library.addPin({ source: 'web', url: 'www.duolingo.com/course/ar', tags: ['arabic'], notes: 'Daily lesson' });
+  assert.match(pin.id, /^web\/[0-9a-f]{16}$/);
+  assert.equal(pin.url, 'https://www.duolingo.com/course/ar');
+  assert.equal(pin.title, 'duolingo.com');
+  assert.deepEqual([pin.tags, pin.notes, pin.kind], [['arabic'], 'Daily lesson', 'link']);
+  assert.equal(library.addPin({ source: 'web', url: 'https://www.duolingo.com/course/ar' }).id, pin.id, 'the same link is pinned once');
+  assert.equal(library.updatePin(pin.id, { title: 'Duolingo Arabic' }).title, 'Duolingo Arabic');
+  assert.throws(() => library.addPin({ source: 'web', url: 'javascript:alert(1)' }), /Only web links/);
+  assert.throws(() => library.addPin({ source: 'web', url: 'not a link' }), /not a web address/);
+});

@@ -152,21 +152,50 @@
     id: 'goal/arabic', title: 'Reach B1 Arabic', notes: 'Pass the OPI at level 2.', start: ymd(day(-30)), end: ymd(day(150)), color: '#ffb547', listId: 'g1/tl~main',
     steps: [
       { id: 's1', title: 'Learn the alphabet and its sounds', due: ymd(day(-20)), done: true, taskId: null },
-      { id: 's2', title: 'Anki 20 new words', due: null, done: false, taskId: 'g1/tl~main/e' },
+      { id: 's2', title: 'Anki 20 new words', due: null, done: false, taskId: 'g1/tl~main/e', repeat: 'daily', log: [ymd(day(-3)), ymd(day(-2)), ymd(day(-1))].map((date) => ({ date, taskId: null })) },
       { id: 's3', title: 'Read grammar chapter 4', due: null, done: false, taskId: 'g1/tl~main/g' },
     ],
   }];
   tags['goal/arabic'] = ['study'];
   repeats['g1/tl~main/e'] = 'daily';
+  // A task that repeats in Google Tasks: missed days pile up as copies with the same name.
+  for (const n of [-2, -1, 0]) {
+    tasks.push({ id: `g1/tl~main/stretch${n}`, listId: 'g1/tl~main', listName: 'My Tasks', color: '#f5b83d', provider: 'google', title: 'Stretch 07:30', label: 'Stretch', notes: '', due: ymd(day(n)), date: ymd(day(n)), time: '07:30', start: day(n, 7, 30).toISOString(), done: false, mirror: false, call: null });
+  }
   const goalOf = (id) => { const g = goals.find((x) => x.steps.some((s) => s.taskId === id)); return g ? { id: g.id, title: g.title, color: g.color } : null; };
   const taskOut = (t) => ({ ...withTags(t), goal: goalOf(t.id), repeat: repeats[t.id] || null });
+  /** Marks copies of the same task (or ones Onyx repeats) as one series, as series.js does. */
+  const withSeries = (list) => {
+    const groups = new Map();
+    for (const t of list) { const k = `${t.listId}|${t.label.toLowerCase()}`; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t); }
+    for (const [key, copies] of groups) {
+      const managed = copies.find((t) => repeats[t.id]);
+      if (copies.length < 2 && !managed) continue;
+      copies.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+      const s = {
+        key, label: copies[0].label, count: copies.length, rule: managed ? repeats[managed.id] : 'daily', everyDays: null,
+        time: copies.find((t) => t.time)?.time || null, managed: !!managed, ids: copies.map((t) => t.id),
+        overdue: copies.filter((t) => t.date && t.date < ymd(new Date())).length,
+      };
+      for (const t of copies) t.series = s;
+    }
+    return list;
+  };
+  const timesDue = (rule, start, end) => {
+    const span = Math.round((new Date(`${end}T00:00`) - new Date(`${start}T00:00`)) / 86400000) + 1;
+    return rule === 'weekly' ? Math.ceil(span / 7) : rule === 'weekdays' ? Math.round((span * 5) / 7) : span;
+  };
   const goalOut = (g) => {
     const steps = g.steps.map((s) => {
       const t = s.taskId && tasks.find((x) => x.id === s.taskId);
-      return t ? { ...s, title: t.title, due: t.date, done: !!t.done } : { ...s };
+      const base = t ? { ...s, title: t.title, due: t.date, done: s.repeat ? false : !!t.done } : { ...s };
+      if (!s.repeat) return base;
+      const log = s.log || [];
+      return { ...base, count: log.length, target: timesDue(s.repeat, g.start, g.end), doneToday: log.some((e) => e.date === ymd(new Date())) };
     });
-    const done = steps.filter((s) => s.done).length;
-    return { ...g, steps, tags: tags[g.id] || [], progress: { done, total: steps.length, percent: steps.length ? Math.round((done / steps.length) * 100) : 0 } };
+    const share = steps.reduce((sum, s) => sum + (s.repeat ? Math.min(1, s.count / s.target) : s.done ? 1 : 0), 0);
+    const done = steps.filter((s) => (s.repeat ? s.count >= s.target : s.done)).length;
+    return { ...g, steps, tags: tags[g.id] || [], progress: { done, total: steps.length, percent: steps.length ? Math.round((share / steps.length) * 100) : 0 } };
   };
   const nextDay = (date, rule) => {
     const d = new Date(`${date}T00:00`);
@@ -187,10 +216,13 @@
     g.steps = (incoming || []).filter((s) => s.title?.trim()).map((raw) => {
       const s = old.get(raw.id) || { id: `s${seq++}`, taskId: null };
       old.delete(s.id);
-      Object.assign(s, { title: raw.title.trim(), due: raw.due || null, done: !!raw.done });
+      const rule = raw.repeat || null;
+      Object.assign(s, { title: raw.title.trim(), due: rule ? s.due || ymd(new Date()) : raw.due || null, done: rule ? false : !!raw.done });
+      if (rule) { s.repeat = rule; s.log ||= []; } else delete s.repeat;
       const t = s.taskId && tasks.find((x) => x.id === s.taskId);
       if (t) Object.assign(t, { title: s.title, label: s.title, due: s.due, date: s.due, done: s.done, completed: s.done ? new Date().toISOString() : null });
       else if (!s.done) s.taskId = addTask({ title: s.title, due: s.due, notes: `A step toward: ${g.title}` }).id;
+      if (rule) repeats[s.taskId] = rule; else delete repeats[s.taskId];
       return s;
     });
     for (const s of old.values()) if (s.taskId) tasks = tasks.filter((x) => x.id !== s.taskId || x.done);
@@ -264,7 +296,38 @@
     },
     deleteEvent: async (id) => { events = events.filter((x) => x.id !== id); delete tags[id]; },
     setCall: async (event, on) => { events.find((x) => x.id === event.id).piCall = on; return { piCall: on }; },
-    tasks: async () => ({ tasks: tasks.filter((t) => !t.done).map(taskOut), errors: [] }),
+    tasks: async () => ({ tasks: withSeries(tasks.filter((t) => !t.done).map(taskOut)), errors: [] }),
+    updateSeries: async (key, d) => {
+      const copies = withSeries(tasks.filter((t) => !t.done).map(taskOut)).filter((t) => t.series?.key === key);
+      if (d.rule !== undefined && !copies[0]?.series.managed) throw new Error('Google Tasks does not let other apps change how often its tasks repeat. Change that in the Google Tasks app; the name, time and notes can be changed here.');
+      for (const c of copies) {
+        const t = tasks.find((x) => x.id === c.id);
+        Object.assign(t, { label: d.label, title: d.time ? `${d.label} ${d.time}` : d.label, time: d.time || null, ...('notes' in d ? { notes: d.notes } : {}) });
+      }
+      return { changed: copies.length, warnings: [] };
+    },
+    clearSeries: async (key) => {
+      const copies = withSeries(tasks.filter((t) => !t.done).map(taskOut)).filter((t) => t.series?.key === key);
+      const late = copies.filter((t) => t.date < ymd(new Date()));
+      const keep = late.length === copies.length ? late.at(-1) : null;
+      for (const c of late) if (c !== keep) Object.assign(tasks.find((x) => x.id === c.id), { done: true, completed: new Date().toISOString() });
+      return { done: late.length - (keep ? 1 : 0) };
+    },
+    setGoalStep: async (id, stepId, done) => {
+      const g = goals.find((x) => x.id === id);
+      const s = g.steps.find((x) => x.id === stepId);
+      const today = ymd(new Date());
+      if (s.repeat) {
+        s.log ||= [];
+        if (done && !s.log.some((e) => e.date === today)) s.log.push({ date: today, taskId: null });
+        if (!done) s.log = s.log.filter((e) => e.date !== today);
+      } else {
+        s.done = done;
+        const t = s.taskId && tasks.find((x) => x.id === s.taskId);
+        if (t) Object.assign(t, { done, completed: done ? new Date().toISOString() : null });
+      }
+      return goalOut(g);
+    },
     archivedTasks: async (from, to = from) => {
       const min = new Date(`${from}T00:00`), max = new Date(new Date(`${to}T00:00`).getTime() + 86400000);
       const done = tasks.filter((t) => t.done && t.completed && new Date(t.completed) >= min && new Date(t.completed) < max);
@@ -329,7 +392,14 @@
     createNote: async (d) => { const n = { id: `note/${seq++}`, title: d.title || 'Untitled note', body: d.body || '', created: new Date().toISOString(), updated: new Date().toISOString(), kind: 'note' }; notes.push(n); setTags(n.id, d.tags); return withTags(n); },
     updateNote: async (id, d) => { const n = notes.find((x) => x.id === id); Object.assign(n, { title: d.title ?? n.title, body: d.body ?? n.body }); if (d.tags) setTags(id, d.tags); return withTags(n); },
     deleteNote: async (id) => { notes = notes.filter((x) => x.id !== id); delete tags[id]; },
-    addPin: async (r) => { const p = { id: `${r.source}/${r.ref}`, source: r.source, ref: r.ref, title: r.title, url: r.url, kind: r.kind }; pins = [...pins.filter((x) => x.id !== p.id), p]; setTags(p.id, r.tags); return withTags(p); },
+    addPin: async (r) => {
+      if (r.source === 'web') {
+        let u; try { u = new URL(/^www\./i.test(r.url) ? `https://${r.url}` : r.url); } catch { throw new Error('That is not a web address.'); }
+        r = { ...r, url: u.href, ref: u.href, title: r.title || u.hostname.replace(/^www\./, ''), kind: 'link' };
+      }
+      const p = { id: `${r.source}/${r.ref}`, source: r.source, ref: r.ref, title: r.title, url: r.url, kind: r.kind, notes: r.notes || '' };
+      pins = [...pins.filter((x) => x.id !== p.id), p]; setTags(p.id, r.tags); return withTags(p);
+    },
     updatePin: async (id, d) => { const p = pins.find((x) => x.id === id); if (d.tags) setTags(id, d.tags); if ('notes' in d) p.notes = d.notes; return withTags(p); },
     news: async () => {
       const on = newsChannels.filter((c) => c.on);

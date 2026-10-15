@@ -96,10 +96,14 @@
       S.tags = (await onyx.state()).tags;
     } catch { /* keep the old list */ }
     renderSidebar();
+    if (graph.on) renderClusters(); // the Clusters tab lists the tags too
   }
 
-  /** A row of tag chips with a text box to add more. get() returns the tags. */
-  function tagField(initial) {
+  /**
+   * A row of tag chips with a text box to add more. get() returns the tags; toggle(name)
+   * adds or removes one; onChange(tags) runs whenever they change.
+   */
+  function tagField(initial, onChange) {
     let tags = [...(initial || [])];
     const listId = `tags-${Math.random().toString(36).slice(2)}`;
     const input = h('input', { type: 'text', placeholder: tags.length ? 'Add tag' : 'Add tags…', spellcheck: false, autocomplete: 'off', list: listId });
@@ -110,6 +114,7 @@
       chips.replaceChildren(...tags.map((t) => h('span', { class: 'chip', css: { '--t': tagColor(t) } }, `#${t}`,
         h('button', { type: 'button', title: 'Remove tag', onclick: (e) => { e.stopPropagation(); tags = tags.filter((x) => x !== t); draw(); } }, icon('x')))));
       input.placeholder = tags.length ? 'Add tag' : 'Add tags…';
+      onChange?.(tags);
     };
     const add = () => {
       for (const part of input.value.split(',')) {
@@ -125,10 +130,57 @@
     });
     input.addEventListener('change', () => { if (S.tags.some((t) => t.name === input.value)) add(); });
     draw();
-    return { el: box, get: () => { if (input.value.trim()) add(); return tags; } };
+    const toggle = (name) => {
+      const has = tags.some((x) => x.toLowerCase() === name.toLowerCase());
+      tags = has ? tags.filter((x) => x.toLowerCase() !== name.toLowerCase()) : [...tags, name];
+      draw();
+    };
+    return { el: box, input, toggle, get: () => { if (input.value.trim()) add(); return tags; } };
   }
 
   const sameTags = (a, b) => (a || []).join('\n') === (b || []).join('\n');
+
+  // ------------------------------------------------------------ where an entry came from
+
+  const ORIGIN = {
+    google: { calendar: ['Google Calendar', '#4aa8ff'], tasklist: ['Google Tasks', '#f5b83d'] },
+    microsoft: { calendar: ['Outlook', '#3b9cf5'], tasklist: ['Microsoft To Do', '#7aa7ff'] },
+    ics: { calendar: ['Calendar link', '#3fd0c9'] },
+    local: { calendar: ['Onyx', '#8b7cff'] },
+  };
+
+  /**
+   * One line at the top of an entry's window: where it lives (Google Calendar, Google
+   * Tasks, Outlook, To Do, a calendar link, or Onyx), which calendar or list and account,
+   * and how it got there (added from Onyx, a goal's step, a Pi reminder, a repeat...).
+   */
+  function originRow(x) {
+    if (x.kind === 'goal') {
+      const list = S.calendars.find((c) => c.id === x.listId);
+      return h('div', { class: 'origin', css: { '--o': '#8b7cff' } }, h('span', { class: 'origin-badge' }, 'Onyx goal'),
+        h('span', { class: 'origin-text' }, `Kept in Onyx on this PC${list ? `. Its steps are tasks in ${PROVIDER_TASKS[list.provider] || 'your tasks'}: ${list.name} · ${list.accountLabel}` : ''}`));
+    }
+    const isTask = x.kind === 'task' || 'listId' in x || String(x.id || '').includes('/tl~');
+    const calId = x.listId || x.calendarId || String(x.id || '').split('/').slice(0, 2).join('/');
+    const cal = S.calendars.find((c) => c.id === calId);
+    const provider = cal?.provider || x.provider || (calId.startsWith('local/') ? 'local' : '');
+    const [badge, color] = ORIGIN[provider]?.[isTask ? 'tasklist' : 'calendar'] || ['Unknown source', '#7f7f89'];
+    const where = [cal?.name || x.listName || x.calendarName, provider !== 'local' && cal?.accountLabel !== cal?.name && cal?.accountLabel].filter(Boolean).join(' · ');
+    const series = tasks.find((t) => t.id === x.id)?.series || x.series;
+    let how;
+    if (provider === 'local') how = 'A time block made in Onyx, kept on this PC';
+    else if (x.mirror) how = 'Made by Onyx so the Raspberry Pi phones you about a calendar entry';
+    else if (x.goal) how = `Added by Onyx as a step of the goal "${x.goal.title}"`;
+    else if (series && !series.managed) how = 'Repeats in Google Tasks';
+    else if (x.madeHere) how = `Added from Onyx on ${fmtDay(fromYmd(x.madeHere))}`;
+    else if (provider === 'ics') how = 'From a subscribed calendar link (read-only)';
+    else how = `Synced from ${badge}`;
+    if (x.repeat || series?.managed) how += ', repeated by Onyx';
+    return h('div', { class: 'origin', css: { '--o': color }, title: `${badge}${where ? ` · ${where}` : ''}\n${how}` },
+      h('span', { class: 'origin-badge' }, badge),
+      h('span', { class: 'origin-text' }, [where, how].filter(Boolean).join('  ·  ')));
+  }
+  const PROVIDER_TASKS = { google: 'Google Tasks', microsoft: 'Microsoft To Do' };
 
   // ------------------------------------------------------------ notes on entries
   // Every task, event, block and pinned document has a notes box. Notes go to Google or
@@ -240,7 +292,7 @@
       // A goal's time frame: one bar with its progress.
       const p = src.progress || { done: 0, total: 0, percent: 0 };
       return { domNodes: [h('div', { class: 'ev goal-bar', css: { '--p': `${p.percent}%` }, title: `Goal: ${src.title}\n${p.done} of ${p.total} steps done${notes ? `\n\n${notes}` : ''}` },
-        h('div', { class: 'ev-title' }, icon('flag'), h('span', { class: 't' }, src.title), p.total > 0 && h('span', { class: 'goal-pct' }, `${p.done}/${p.total}`)))] };
+        h('div', { class: 'ev-title' }, icon('flag'), h('span', { class: 't' }, src.title), p.total > 0 && h('span', { class: 'goal-pct' }, `${p.percent}%`)))] };
     }
     const title = h('div', { class: 'ev-title' },
       src.kind === 'task' && h('span', { class: 'dot' }),
@@ -364,11 +416,41 @@
 
   // ------------------------------------------------------------ popover
 
+  // Web links written in an entry's notes: "https://…", "http://…" or "www.…".
+  const LINK = /\bhttps?:\/\/[^\s<>"'`]+|\bwww\.[a-z0-9-]+(?:\.[a-z0-9-]+)+[^\s<>"'`]*/gi;
+  function linksIn(text) {
+    const found = (String(text || '').match(LINK) || [])
+      .map((u) => u.replace(/[.,;:!?)\]}]+$/, ''))
+      .map((u) => (/^www\./i.test(u) ? `https://${u}` : u));
+    return [...new Set(found)].slice(0, 4);
+  }
+  const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u; } };
+
+  /**
+   * An "Open link" button for every link in the window's notes (notes boxes, a note's
+   * text, read-only notes), kept up to date while typing.
+   */
+  function addLinkButtons(pop) {
+    const bar = h('div', { class: 'note-links' });
+    const refresh = () => {
+      const text = [...pop.querySelectorAll('textarea, .note-text')].map((el) => (el.tagName === 'TEXTAREA' ? el.value : el.textContent)).join('\n');
+      const urls = linksIn(text);
+      bar.hidden = !urls.length;
+      bar.replaceChildren(...urls.map((u) => h('button', { class: 'btn link-open', title: u, onclick: () => onyx.open(u) },
+        icon('link'), urls.length > 1 ? `Open ${hostOf(u)}` : 'Open link')));
+    };
+    const actions = pop.querySelector('.pop-actions');
+    if (actions) actions.before(bar); else pop.append(bar);
+    pop.oninput = refresh; // a property, so one popover's listener replaces the last one's
+    refresh();
+  }
+
   function showPopover(anchor, nodes, onClose, { wide = false } = {}) {
     closePopover();
     const pop = $('#popover');
     pop.classList.toggle('wide', wide);
     pop.replaceChildren(...nodes.filter((n) => n && n.nodeType));
+    addLinkButtons(pop);
     pop.hidden = false;
     closePopover = () => {
       closePopover = () => {};
@@ -485,6 +567,7 @@
 
     const nodes = [
       title,
+      src && originRow(src),
       h('div', { class: 'row' }, icon('clock'), date, startTime, dash, endTime),
       untilRow,
       h('div', { class: 'row' }, icon('calendar'), calendarPick, h('label', { class: 'check' }, allDay, 'All day')),
@@ -517,7 +600,11 @@
     daily: 'Every day', weekdays: 'Every weekday', weekly: 'Every week', biweekly: 'Every 2 weeks', monthly: 'Every month', yearly: 'Every year',
   };
   const ordinal = (n) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th')}`;
-  const REPEAT_SHORT ={ daily: 'daily', weekdays: 'weekdays', weekly: 'weekly', biweekly: '2 weeks', monthly: 'monthly', yearly: 'yearly' };
+  const REPEAT_SHORT = { daily: 'daily', weekdays: 'weekdays', weekly: 'weekly', biweekly: '2 weeks', monthly: 'monthly', yearly: 'yearly' };
+
+  /** "Every day at 6:00 PM" for a repeating series (series.js). */
+  const seriesText = (s) => `${s.rule ? REPEAT[s.rule] : s.everyDays ? `Every ${s.everyDays} days` : 'Repeats'}${s.time ? ` at ${fmtTime(at('2000-01-01', s.time))}` : ''}`;
+  const repeatBadge = (t) => (t.series ? (REPEAT_SHORT[t.series.rule] || 'repeated') : t.repeat ? REPEAT_SHORT[t.repeat] : null);
 
   async function loadTasks(force) {
     try {
@@ -550,12 +637,19 @@
 
   function taskRow(t) {
     const when = t.start ? `${fmtDay(new Date(t.start))}, ${fmtTime(new Date(t.start))}` : t.date ? fmtDay(fromYmd(t.date)) : '';
-    const row = h('div', { class: 'task', css: { '--c': t.color } },
+    // Draggable onto a cluster on the globe (see dropOnGlobe).
+    const row = h('div', {
+      class: 'task', css: { '--c': t.color }, draggable: !MOBILE,
+      ondragstart: (e) => taskDragStart(t, e), ondragend: taskDragEnd,
+    },
       h('button', { class: 'tick', title: 'Mark done (moves it to Archived)', onclick: () => completeTask(t, row) }, icon('check')),
       h('div', { class: 'task-body', onclick: (e) => openTask(t, e.currentTarget.getBoundingClientRect()) },
         h('div', { class: 'task-name' }, t.label),
         h('div', { class: 'task-meta' }, when && h('span', null, when), callBadge(t),
-          t.repeat && h('span', { class: 'rep', title: `${REPEAT[t.repeat]}: Onyx adds the next one when this is done` }, icon('repeat'), REPEAT_SHORT[t.repeat]),
+          repeatBadge(t) && h('span', {
+            class: 'rep',
+            title: t.series && !t.series.managed ? `${seriesText(t.series)}, set in Google Tasks (${t.series.count} open copies)` : `${REPEAT[t.repeat]}: Onyx adds the next one when this is done`,
+          }, icon('repeat'), repeatBadge(t)),
           t.goal && h('span', { class: 'goal-chip', css: { '--g': t.goal.color }, title: `A step toward: ${t.goal.title}` }, icon('flag'), t.goal.title),
           h('span', null, t.listName),
           (t.tags || []).map((tag) => h('span', { class: 'mini-tag', css: { '--t': tagColor(tag) } }, `#${tag}`))),
@@ -763,7 +857,8 @@
       biweekly: weekday ? `Every 2 weeks on ${weekday}` : REPEAT.biweekly,
       monthly: dayNum ? `Every month on the ${ordinal(dayNum)}` : REPEAT.monthly,
     }[rule] || REPEAT[rule]);
-    const repeatPick = !t.mirror && t.provider && h('select', { title: 'Repeat' },
+    // A task that repeats in Google Tasks is edited as a series (openSeries), not given a second repeat here.
+    const repeatPick = !t.mirror && t.provider && !(t.series && !t.series.managed) && h('select', { title: 'Repeat' },
       h('option', { value: '' }, 'Does not repeat'),
       Object.keys(REPEAT).map((rule) => h('option', { value: rule }, repeatLabel(rule))));
     if (repeatPick) repeatPick.value = t.repeat || '';
@@ -787,11 +882,14 @@
     });
     showPopover(anchor, [
       name,
+      originRow(t),
       h('div', { class: 'pop-meta' }, [t.listName, t.start ? `${fmtDay(new Date(t.start))}, ${fmtTime(new Date(t.start))}` : t.date ? fmtDay(fromYmd(t.date)) : 'No date'].filter(Boolean).join('  ·  ')),
       t.goal && h('button', { class: 'row goal-link', css: { '--g': t.goal.color }, title: 'Open the goal', onclick: (e) => openGoalById(t.goal.id, e.currentTarget.getBoundingClientRect()) },
         icon('flag'), h('span', null, 'A step toward ', h('b', null, t.goal.title))),
       date && h('div', { class: 'row' }, icon('calendar'), date),
       repeatPick && h('div', { class: 'row' }, icon('repeat'), repeatPick),
+      t.series && !t.series.managed && h('button', { class: 'row goal-link series-link', css: { '--g': '#a9b4ff' }, title: 'Edit every copy of this repeating task', onclick: (e) => openSeries(t.series, e.currentTarget.getBoundingClientRect()) },
+        icon('repeat'), h('span', null, h('b', null, seriesText(t.series)), ` · set in Google Tasks · ${t.series.count} open copies. Edit all`)),
       h('div', { class: 'row top' }, icon('note'), notes),
       h('div', { class: 'row' }, icon('tag'), tags.el),
       S.settings.pi.enabled && t.provider === 'google' && h('div', { class: 'row pi-row' }, icon('phone'),
@@ -803,6 +901,70 @@
     ]);
     name.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
     notes.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) save(); });
+  }
+
+  /**
+   * A repeating task as one thing: its name, time and notes go to every open copy in
+   * Google Tasks. How often it repeats can be changed here only for repeats Onyx keeps;
+   * Google's API has no way to change the repeat of a task set up in Google Tasks.
+   */
+  function openSeries(s, anchor) {
+    const copies = tasks.filter((t) => t.series?.key === s.key);
+    const first = copies[0] || {};
+    const name = h('input', { type: 'text', class: 'pop-title', value: s.label, spellcheck: false });
+    const time = h('input', { type: 'time', value: s.time || '', step: 300, title: 'Time (the Pi phones about it)' });
+    const notes = notesField(first.notes);
+    const rule = h('select', { disabled: !s.managed, title: s.managed ? 'How often' : 'Set in Google Tasks' },
+      s.managed && h('option', { value: '' }, 'Does not repeat'),
+      !s.rule && !s.managed && h('option', { value: '' }, s.everyDays ? `Every ${s.everyDays} days` : 'Repeats (how often is unclear)'),
+      Object.keys(REPEAT).map((r) => h('option', { value: r }, REPEAT[r])));
+    rule.value = s.rule || '';
+    const today = ymd(new Date());
+    const save = async () => {
+      const data = { label: name.value.trim(), time: time.value || '' };
+      if (cleanNote(notes.value) !== cleanNote(first.notes)) data.notes = cleanNote(notes.value);
+      if (s.managed && (rule.value || null) !== s.rule) data.rule = rule.value || null;
+      try {
+        const res = await onyx.updateSeries(s.key, data);
+        if (res.warnings?.length) toast(`Saved, but: ${res.warnings.join('  ·  ')}`, 'warn');
+        else toast(res.changed ? `Updated ${res.changed} ${res.changed === 1 ? 'copy' : 'copies'} in Google Tasks` : 'Saved');
+        closePopover();
+        await loadTasks();
+        refetch();
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    };
+    const clear = async () => {
+      try {
+        const res = await onyx.clearSeries(s.key);
+        toast(`Marked ${res.done} overdue ${res.done === 1 ? 'copy' : 'copies'} done`);
+        closePopover();
+        await loadTasks();
+        refetch();
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    };
+    showPopover(anchor, [
+      name,
+      originRow(first),
+      h('div', { class: 'pop-meta' }, `${seriesText(s)}  ·  ${first.listName || ''}  ·  ${s.count} open ${s.count === 1 ? 'copy' : 'copies'}`),
+      h('div', { class: 'row' }, icon('repeat'), rule, h('span', { class: 'dash' }, 'at'), time),
+      h('p', { class: 'pop-meta' }, s.managed
+        ? 'Onyx keeps this repeat: when it is done, the next one is added to Google Tasks.'
+        : 'This repeats in Google Tasks, which does not let other apps change how often, so change that in the Google Tasks app. The name, time and notes here go to every open copy.'),
+      h('div', { class: 'row top' }, icon('note'), notes),
+      copies.length > 1 && h('div', { class: 'series-copies' }, copies.map((t) => h('span', { class: t.date && t.date < today ? 'late' : '' },
+        t.date ? fmtDay(fromYmd(t.date)) : 'No date'))),
+      h('div', { class: 'pop-actions' },
+        s.overdue > 0 && !s.managed && h('button', { class: 'btn', title: 'Missed days pile up in Google Tasks; this ticks them off (the newest stays)', onclick: clear },
+          icon('check'), `Clear ${s.overdue} overdue`),
+        h('div', { class: 'grow' }),
+        h('button', { class: 'btn ghost', onclick: () => closePopover() }, 'Cancel'),
+        h('button', { class: 'btn primary', onclick: save }, 'Save')),
+    ]);
+    name.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
   }
 
   // The add bar: a name, and optionally a due date (picked, or Today / Tomorrow).
@@ -1091,7 +1253,7 @@
           return h('div', { class: `goal-row ${visible(g.id) ? 'on' : ''}`, css: { '--c': g.color } },
             h('button', { class: 'box', title: visible(g.id) ? 'Shown on the calendar. Click to hide.' : 'Hidden from the calendar. Click to show.', onclick: () => toggleCalendar(g.id) }, icon('check')),
             h('button', { class: 'goal-main', title: 'Open the goal', onclick: (e) => openGoal(g, e.currentTarget.getBoundingClientRect()) },
-              h('span', { class: 'goal-top' }, h('span', { class: 'name' }, g.title), h('span', { class: 'pct' }, p.total ? `${p.done}/${p.total}` : '')),
+              h('span', { class: 'goal-top' }, h('span', { class: 'name' }, g.title), h('span', { class: 'pct' }, p.total ? `${p.percent}%` : '')),
               h('span', { class: 'goal-track' }, h('i', { css: { width: `${p.percent}%` } })),
               h('span', { class: 'goal-when' }, due)));
         })
@@ -1124,6 +1286,40 @@
 
     const steps = (g?.steps || []).map((s) => ({ ...s }));
     const stepBox = h('div', { class: 'goal-steps' });
+    // The progress bar follows every tick at once (a tick is saved straight away).
+    const progressBox = h('div', { class: 'goal-progress', css: { '--c': color } });
+    const drawProgress = (p) => {
+      progressBox.hidden = !p || !p.total;
+      if (p) progressBox.replaceChildren(h('span', { class: 'goal-track' }, h('i', { css: { width: `${p.percent}%` } })), h('span', null, `${p.percent}%  ·  ${p.done} of ${p.total} steps complete`));
+    };
+    drawProgress(g?.progress);
+
+    // Ticking a step of a saved goal saves it at once and moves the progress bar.
+    const tick = async (s, done, box) => {
+      if (!g || !s.id) { if (s.repeat) s.doneToday = done; else s.done = done; return drawSteps(); }
+      box.disabled = true;
+      try {
+        const saved = await onyx.setGoalStep(g.id, s.id, done);
+        for (const fresh of saved.steps) {
+          const mine = steps.find((x) => x.id === fresh.id);
+          if (mine) Object.assign(mine, { done: fresh.done, count: fresh.count, target: fresh.target, doneToday: fresh.doneToday, taskId: fresh.taskId, due: fresh.repeat ? mine.due : fresh.due });
+        }
+        Object.assign(g, saved);
+        goals = goals.map((x) => (x.id === saved.id ? saved : x));
+        drawProgress(saved.progress);
+        drawSteps();
+        renderGoals();
+        loadTasks();
+        refetch();
+        if (done) toast(s.repeat ? `${s.title}: done today (${saved.steps.find((x) => x.id === s.id)?.count || 1} so far)` : `${s.title}: done`);
+      } catch (err) {
+        box.disabled = false;
+        box.checked = !done;
+        toast(err.message, 'error');
+      }
+    };
+
+    const HOW_OFTEN = [['', 'Once'], ['daily', 'Daily'], ['weekdays', 'Weekdays'], ['weekly', 'Weekly']];
     const drawSteps = (focus) => {
       stepBox.replaceChildren(...steps.map((s, i) => {
         const name = h('input', { type: 'text', value: s.title, placeholder: `Step ${i + 1}`, spellcheck: false, oninput: (e) => { s.title = e.target.value; } });
@@ -1131,10 +1327,22 @@
           if (e.key === 'Enter') { e.preventDefault(); steps.splice(i + 1, 0, { title: '', due: null, done: false }); drawSteps(i + 1); }
           if (e.key === 'Backspace' && !name.value && steps.length > 1) { e.preventDefault(); steps.splice(i, 1); drawSteps(Math.max(0, i - 1)); }
         });
-        return h('div', { class: `goal-step${s.done ? ' done' : ''}` },
-          h('input', { type: 'checkbox', checked: !!s.done, title: 'Done', onchange: (e) => { s.done = e.target.checked; drawSteps(); } }),
+        const often = h('select', { class: 'step-often', title: 'How often: once, or a habit that repeats until the target date' },
+          HOW_OFTEN.map(([v, l]) => h('option', { value: v }, l)));
+        often.value = s.repeat || '';
+        often.onchange = () => { s.repeat = often.value || null; if (s.repeat) s.done = false; drawSteps(); };
+        const checked = s.repeat ? !!s.doneToday : !!s.done;
+        const box = h('input', { type: 'checkbox', checked, title: s.repeat ? 'Done today' : 'Done' });
+        box.onchange = () => tick(s, box.checked, box);
+        const days = { daily: 'days', weekdays: 'days', weekly: 'weeks' }[s.repeat];
+        return h('div', { class: `goal-step${!s.repeat && s.done ? ' done' : ''}${s.repeat ? ' habit' : ''}` },
+          box,
           name,
-          h('input', { type: 'date', value: s.due || '', title: 'Due', onchange: (e) => { s.due = e.target.value || null; } }),
+          often,
+          s.repeat
+            ? h('span', { class: 'step-count', title: `Done ${s.count || 0} of the ${s.target || '…'} ${days} until the target date` },
+              s.target ? `${s.count || 0}/${s.target} ${days}` : 'new')
+            : h('input', { type: 'date', value: s.due || '', title: 'Due', onchange: (e) => { s.due = e.target.value || null; } }),
           h('button', { class: 'x', title: 'Remove this step (its task is deleted)', onclick: () => { steps.splice(i, 1); drawSteps(); } }, icon('x')));
       }));
       if (focus != null) stepBox.querySelectorAll('input[type=text]')[focus]?.focus();
@@ -1144,7 +1352,7 @@
 
     // Spreads the steps without a date evenly from today (or the start) to the target date.
     const spread = () => {
-      const undated = steps.filter((s) => s.title.trim() && !s.due && !s.done);
+      const undated = steps.filter((s) => s.title.trim() && !s.due && !s.done && !s.repeat);
       if (!undated.length) return toast('Every step already has a date.');
       const from = fromYmd(start.value > ymd(new Date()) ? start.value : ymd(new Date()));
       const span = Math.max(0, Math.round((fromYmd(end.value) - from) / 86400000));
@@ -1159,7 +1367,7 @@
       const picked = tags.get();
       const data = {
         title: title.value.trim(), start: start.value, end: end.value, color, notes: cleanNote(notes.value), tags: picked,
-        steps: steps.filter((s) => s.title.trim()).map((s) => ({ id: s.id, title: s.title.trim(), due: s.due || null, done: !!s.done })),
+        steps: steps.filter((s) => s.title.trim()).map((s) => ({ id: s.id, title: s.title.trim(), due: s.repeat ? null : s.due || null, done: !!s.done, repeat: s.repeat || null })),
         ...(listPick ? { listId: listPick.value } : {}),
       };
       try {
@@ -1189,11 +1397,10 @@
       }
     };
 
-    const p = g?.progress;
     showPopover(anchor, [
       title,
-      p && p.total > 0 && h('div', { class: 'goal-progress', css: { '--c': color } },
-        h('span', { class: 'goal-track' }, h('i', { css: { width: `${p.percent}%` } })), h('span', null, `${p.done} of ${p.total} steps · ${p.percent}%`)),
+      g && originRow({ kind: 'goal', listId: g.listId }),
+      progressBox,
       h('div', { class: 'row' }, icon('calendar'), start, h('span', { class: 'dash' }, 'to'), end),
       h('div', { class: 'row' }, icon('tag'), tags.el),
       h('div', { class: 'row top' }, icon('note'), notes),
@@ -1635,9 +1842,20 @@
 
   const graph = {
     on: false, kind: 'week', anchor: new Date(), from: '', to: '', groupBy: 'tags', view: null, seq: 0,
-    show: { tasks: true, goals: true, notes: true, notion: true, drive: true }, // what joins the calendar entries
+    show: { tasks: true, goals: true, notes: true, notion: true, drive: true, web: true }, // what joins the calendar entries
     lib: { notes: [], pins: [] },
+    events: [],          // the last range's entries, so the clusters can be redrawn without fetching
+    hidden: readHidden(), // tag clusters switched off in the Clusters tab ('' stands for untagged)
+    clustersOpen: false,
   };
+
+  // Which tag clusters are switched off is a per-screen preference, kept in this browser.
+  function readHidden() {
+    try { return new Set(JSON.parse(localStorage.getItem('onyx.globe.hidden') || '[]')); } catch { return new Set(); }
+  }
+  function saveHidden() {
+    try { localStorage.setItem('onyx.globe.hidden', JSON.stringify([...graph.hidden])); } catch { /* not kept: still works for now */ }
+  }
   window.onyxDebug = { globe: () => graph.view }; // lets tests find nodes on the canvas
 
   // Where notes and outside documents gather when they have no tags.
@@ -1646,6 +1864,7 @@
     notes: { label: 'Notes', color: '#e4e0ff' },
     notion: { label: 'Notion', color: '#c4c4cc' },
     drive: { label: 'Drive', color: '#3ddc97' },
+    web: { label: 'Links', color: '#9fd0ff' },
   };
 
   function graphRange() {
@@ -1711,7 +1930,9 @@
 
   function graphItems(events) {
     // A goal is one node: its time-frame bar and its steps' tasks are not drawn on their own.
-    const items = events.filter((e) => visible(e.calendarId) && matchesFilter(e.tags) && e.kind !== 'goal' && !e.goal).map((e) => {
+    // A repeating task is one node too, not one per copy.
+    const inSeries = new Set(tasks.filter((t) => t.series).map((t) => t.id));
+    const items = events.filter((e) => visible(e.calendarId) && matchesFilter(e.tags) && e.kind !== 'goal' && !e.goal && !inSeries.has(e.id)).map((e) => {
       const t = e.kind === 'task' ? tasks.find((x) => x.id === e.id) : null;
       return t ? taskItem(t) : {
         id: e.id, title: e.title, color: e.color, calendarId: e.calendarId, calendarName: e.calendarName,
@@ -1723,8 +1944,24 @@
       const shown = new Set(items.map((i) => i.id));
       const today = ymd(new Date());
       for (const t of tasks) {
-        if (shown.has(t.id) || t.mirror || t.done || t.goal || !visible(t.listId) || !matchesFilter(t.tags)) continue;
+        if (shown.has(t.id) || t.mirror || t.done || t.goal || t.series || !visible(t.listId) || !matchesFilter(t.tags)) continue;
         if (!t.date || t.date < today) items.push(taskItem(t));
+      }
+      const seen = new Set();
+      for (const t of tasks) {
+        const s = t.series;
+        if (!s || seen.has(s.key) || t.goal || !visible(t.listId)) continue;
+        seen.add(s.key);
+        const copies = tasks.filter((x) => x.series?.key === s.key);
+        const tags = [...new Set(copies.flatMap((x) => x.tags || []))];
+        if (!matchesFilter(tags)) continue;
+        const next = copies.find((x) => x.date && x.date >= today) || copies.at(-1);
+        items.push({
+          id: `series:${s.key}`, title: `${s.label} (repeated)`, color: t.color, calendarId: t.listId, calendarName: t.listName, tags,
+          start: next.start || next.date || null, allDay: !next.start, kind: 'series', series: s,
+          home: ['repeat', 'Repeating', '#a9b4ff'],
+          notes: `${seriesText(s)}${s.managed ? '' : ' (set in Google Tasks)'}\n${s.count} open ${s.count === 1 ? 'copy' : 'copies'}${s.overdue ? `, ${s.overdue} overdue` : ''}`,
+        });
       }
     }
     // Goals span months, so they show whatever range is picked.
@@ -1733,9 +1970,11 @@
         if (!visible(g.id) || !matchesFilter(g.tags)) continue;
         const p = g.progress;
         items.push(sourceItem('goals', {
-          id: g.id, title: p.total ? `${g.title} · ${p.done}/${p.total}` : g.title, tags: g.tags, kind: 'goal', shape: 'goal',
+          id: g.id, title: p.total ? `${g.title} · ${p.percent}%` : g.title, tags: g.tags, kind: 'goal', shape: 'goal',
           color: g.color, goal: g, progress: p.percent / 100,
-          notes: [g.notes, ...g.steps.map((s) => `${s.done ? '✓' : '○'} ${s.title}${s.due ? `  (${fmtDay(fromYmd(s.due))})` : ''}`)].filter(Boolean).join('\n'),
+          notes: [g.notes, ...g.steps.map((s) => (s.repeat
+            ? `↻ ${s.title}  (${s.count || 0} of ${s.target} ${s.repeat === 'weekly' ? 'weeks' : 'days'}${s.doneToday ? ', done today' : ''})`
+            : `${s.done ? '✓' : '○'} ${s.title}${s.due ? `  (${fmtDay(fromYmd(s.due))})` : ''}`))].filter(Boolean).join('\n'),
         }));
       }
     }
@@ -1750,7 +1989,15 @@
         items.push(sourceItem(p.source, { id: p.id, title: p.title, tags: p.tags, kind: 'pin', shape: 'square', pin: p, notes: notesOf(p) }));
       }
     }
-    return items;
+    // Tag clusters switched off in the Clusters tab: their clusters go, and so does anything
+    // that only belonged to them ('' stands for everything without a tag).
+    if (!graph.hidden.size) return items;
+    return items.flatMap((it) => {
+      const tags = it.tags || [];
+      if (!tags.length) return graph.hidden.has('') ? [] : [it];
+      const kept = tags.filter((t) => !graph.hidden.has(t.toLowerCase()));
+      return kept.length ? [{ ...it, tags: kept }] : [];
+    });
   }
 
   async function loadGraph() {
@@ -1766,7 +2013,15 @@
       toast(err.message, 'error');
     }
     if (seq !== graph.seq || !graph.on) return;
-    const items = graphItems(events);
+    graph.events = events;
+    drawGraph();
+  }
+
+  /** Builds the globe from what was last loaded: quick, so the Clusters tab can call it on every tick. */
+  function drawGraph() {
+    if (!graph.on || !graph.view) return;
+    renderClusters();
+    const items = graphItems(graph.events);
     const data = OnyxGraph.build(items, {
       groupBy: graph.groupBy, tagColor,
       dayLabel: (key) => fromYmd(key).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }),
@@ -1777,11 +2032,95 @@
     $('#graph-empty').hidden = items.length > 0;
   }
 
+  // ---- the Clusters tab: which tag clusters the globe shows
+
+  function renderClusters() {
+    const box = $('#graph-clusters');
+    const toggle = (key, on) => {
+      if (on) graph.hidden.delete(key); else graph.hidden.add(key);
+      saveHidden();
+      drawGraph(); // straight away: no Save
+    };
+    const head = h('button', { class: 'clusters-tab', title: 'Pick which tag clusters the globe shows', onclick: () => { graph.clustersOpen = !graph.clustersOpen; renderClusters(); } },
+      icon('tag'), 'Clusters', graph.hidden.size > 0 && h('span', { class: 'count' }, `${graph.hidden.size} off`));
+    if (!graph.clustersOpen) { box.replaceChildren(head); box.classList.remove('open'); return; }
+    box.classList.add('open');
+    const row = (key, label, color, count) => h('label', { class: 'cluster-row', css: { '--t': color } },
+      h('input', { type: 'checkbox', checked: !graph.hidden.has(key), onchange: (e) => toggle(key, e.target.checked) }),
+      h('span', { class: 'dot' }), h('span', { class: 'name' }, label), count != null && h('span', { class: 'n' }, count));
+    box.replaceChildren(head,
+      h('div', { class: 'clusters-body' },
+        h('div', { class: 'clusters-all' },
+          h('button', { class: 'link-btn inline', onclick: () => { graph.hidden.clear(); saveHidden(); drawGraph(); } }, 'Show all'),
+          h('button', { class: 'link-btn inline', onclick: () => { for (const t of S.tags) graph.hidden.add(t.name.toLowerCase()); graph.hidden.add(''); saveHidden(); drawGraph(); } }, 'Hide all')),
+        S.tags.length
+          ? S.tags.map((t) => row(t.name.toLowerCase(), `#${t.name}`, t.color, t.count))
+          : h('p', { class: 'pop-meta' }, 'No tags yet: tag anything to give it a cluster.'),
+        row('', 'Without a tag', '#8a8a94', null)));
+  }
+
+  // ---- dragging a task from the Tasks panel onto a cluster
+
+  let draggedTask = null;
+  let dragHinted = false;
+
+  function taskDragStart(t, e) {
+    draggedTask = t;
+    e.dataTransfer.setData('text/plain', t.label);
+    e.dataTransfer.effectAllowed = 'move';
+    document.body.classList.add('dragging-task');
+    if (!graph.on && !dragHinted) {
+      dragHinted = true;
+      toast('Open the globe view (G) to drop tasks into its clusters.');
+    }
+  }
+
+  function taskDragEnd() {
+    draggedTask = null;
+    graph.view?.dragOver();
+    document.body.classList.remove('dragging-task');
+  }
+
+  /** What a dragged task stands for on the globe: its goal, its repeating series, or itself. */
+  function globeItemFor(t) {
+    if (t.goal) {
+      const g = goals.find((x) => x.id === t.goal.id);
+      if (g) return { id: g.id, kind: 'goal', tags: g.tags || [], goal: g, home: ['goals'] };
+    }
+    if (t.series) {
+      const copies = tasks.filter((x) => x.series?.key === t.series.key);
+      return { id: `series:${t.series.key}`, kind: 'series', series: t.series, tags: [...new Set(copies.flatMap((x) => x.tags || []))], home: ['repeat'] };
+    }
+    return taskItem(t);
+  }
+
+  function watchGlobeDrops() {
+    const box = $('#graph');
+    box.addEventListener('dragover', (e) => {
+      if (!draggedTask || !graph.view) return;
+      e.preventDefault();
+      const hit = graph.view.dragOver(e.clientX, e.clientY, draggedTask.label);
+      e.dataTransfer.dropEffect = hit ? 'move' : 'none';
+    });
+    box.addEventListener('dragleave', (e) => { if (!box.contains(e.relatedTarget)) graph.view?.dragOver(); });
+    box.addEventListener('drop', async (e) => {
+      if (!draggedTask || !graph.view) return;
+      e.preventDefault();
+      const t = draggedTask;
+      const hit = graph.view.dragOver(e.clientX, e.clientY, t.label);
+      taskDragEnd();
+      if (!hit) return toast('Drop it on a cluster.');
+      await moveOnGlobe(globeItemFor(t), hit.key, null, hit.label);
+    });
+  }
+
   function pickFromGraph(item, rect) {
     if (item.kind === 'task') {
       openTask(item.task || tasks.find((t) => t.id === item.id) || { id: item.id, title: item.title, label: item.title, listName: item.calendarName, tags: item.tags }, rect);
     } else if (item.kind === 'goal') {
       openGoal(item.goal, rect);
+    } else if (item.kind === 'series') {
+      openSeries(item.series, rect);
     } else if (item.kind === 'note') {
       openNote(item.note, rect);
     } else if (item.kind === 'pin') {
@@ -1804,6 +2143,7 @@
     const saveTags = (next) => {
       if (item.kind === 'note') return onyx.updateNote(item.id, { tags: next });
       if (item.kind === 'pin') return onyx.updatePin(item.id, { tags: next });
+      if (item.kind === 'series') return Promise.all(item.series.ids.map((id) => onyx.setTags(id, next)));
       return onyx.setTags(item.id, next);
     };
     try {
@@ -1886,21 +2226,24 @@
 
   // ------------------------------------------------------------ Notion pages and Drive files
 
-  const KIND_LABEL = { page: 'Notion page', database: 'Notion database', doc: 'Google Doc', sheet: 'Google Sheet', slides: 'Google Slides', folder: 'Drive folder', form: 'Google Form', pdf: 'PDF', image: 'Image', video: 'Video', file: 'File' };
+  const KIND_LABEL = { link: 'Web link', page: 'Notion page', database: 'Notion database', doc: 'Google Doc', sheet: 'Google Sheet', slides: 'Google Slides', folder: 'Drive folder', form: 'Google Form', pdf: 'PDF', image: 'Image', video: 'Video', file: 'File' };
 
   function openPin(pin, anchor) {
+    const web = pin.source === 'web';
     const tags = tagField(pin.tags);
-    const notes = notesField(pin.notes, `Your notes on this ${SOURCES[pin.source].label} item (kept in Onyx)`);
+    const notes = notesField(pin.notes, web ? 'Your notes on this link' : `Your notes on this ${SOURCES[pin.source].label} item (kept in Onyx)`);
+    const name = web && h('input', { type: 'text', class: 'pop-title', value: pin.title, spellcheck: false });
     const save = async () => {
       const picked = tags.get();
       const patch = { tags: picked };
       if (cleanNote(notes.value) !== (pin.notes || '')) patch.notes = notes.value;
+      if (web && name.value.trim() && name.value.trim() !== pin.title) patch.title = name.value.trim();
       try { await onyx.updatePin(pin.id, patch); await afterGlobeChange(!sameTags(picked, pin.tags)); } catch (err) { toast(err.message, 'error'); }
     };
     notes.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) save(); });
     showPopover(anchor, [
-      h('div', { class: 'pin-head' }, h('span', { class: `src-badge ${pin.source}` }, SOURCES[pin.source].label), h('b', null, pin.title)),
-      h('p', { class: 'pop-meta' }, KIND_LABEL[pin.kind] || 'Document'),
+      web ? name : h('div', { class: 'pin-head' }, h('span', { class: `src-badge ${pin.source}` }, SOURCES[pin.source].label), h('b', null, pin.title)),
+      h('p', { class: 'pop-meta' }, web ? pin.url : KIND_LABEL[pin.kind] || 'Document'),
       h('div', { class: 'row top' }, icon('note'), notes),
       h('div', { class: 'row' }, icon('tag'), tags.el),
       h('div', { class: 'pop-actions' },
@@ -1911,6 +2254,49 @@
         h('button', { class: 'btn', onclick: () => onyx.open(pin.url) }, icon('link'), 'Open'),
         h('button', { class: 'btn primary', onclick: save }, 'Save')),
     ]);
+  }
+
+  /** Pins any web link to the globe, with a name, tags and notes. */
+  function openAddLink(anchor) {
+    const url = h('input', { type: 'url', class: 'pop-title', placeholder: 'Paste a link…  https://', spellcheck: false, autocomplete: 'off' });
+    const name = h('input', { type: 'text', placeholder: 'Name (optional: the site\'s name is used)', spellcheck: false });
+    const suggest = h('div', { class: 'picker-suggest' });
+    const tags = tagField(startingTags(), (picked) => suggest.replaceChildren(...S.tags.slice(0, 14).map((t) => h('button', {
+      class: `tag-pick${picked.some((x) => x.toLowerCase() === t.name.toLowerCase()) ? ' on' : ''}`, css: { '--t': t.color }, onclick: () => tags.toggle(t.name),
+    }, `#${t.name}`))));
+    const notes = notesField('', 'Notes (optional)');
+    let busy = false;
+    const add = async () => {
+      if (busy) return;
+      if (!url.value.trim()) { url.focus(); return; }
+      busy = true;
+      const picked = tags.get();
+      try {
+        const pin = await onyx.addPin({ source: 'web', url: url.value.trim(), title: name.value.trim(), tags: picked, notes: cleanNote(notes.value) });
+        graph.lib.pins = [...graph.lib.pins.filter((p) => p.id !== pin.id), pin];
+        if (!graph.show.web) { graph.show.web = true; renderGraphBar(); }
+        toast(`Added "${pin.title}"${picked.length ? ` with ${picked.map((t) => `#${t}`).join(' ')}` : ''}`);
+        closePopover();
+        loadGraph();
+        if (picked.length) reloadTags();
+      } catch (err) {
+        busy = false;
+        toast(err.message, 'error');
+      }
+    };
+    url.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); name.focus(); } });
+    name.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
+    showPopover(anchor, [
+      url,
+      h('div', { class: 'row' }, icon('link'), name),
+      h('div', { class: 'row' }, icon('tag'), tags.el),
+      S.tags.length > 0 && suggest,
+      h('div', { class: 'row top' }, icon('note'), notes),
+      h('div', { class: 'pop-actions' }, h('div', { class: 'grow' }),
+        h('button', { class: 'btn ghost', onclick: () => closePopover() }, 'Cancel'),
+        h('button', { class: 'btn primary', onclick: add }, 'Add to globe')),
+    ]);
+    if (!MOBILE) url.focus();
   }
 
   /** Search Notion or Drive and pin results to the globe. */
@@ -1933,28 +2319,62 @@
       list.replaceChildren(...results.map((r) => {
         const id = `${r.source}/${r.ref}`;
         const add = h('button', { class: `btn ${on.has(id) ? '' : 'primary'}`, disabled: on.has(id) }, on.has(id) ? 'On globe' : 'Add');
-        add.onclick = async () => {
-          add.disabled = true;
-          try {
-            const tags = startingTags();
-            const pin = await onyx.addPin({ ...r, tags });
-            graph.lib.pins = [...graph.lib.pins.filter((p) => p.id !== pin.id), pin];
-            add.textContent = 'On globe';
-            add.classList.remove('primary');
-            loadGraph();
-            if (tags.length) reloadTags();
-          } catch (err) {
-            add.disabled = false;
-            toast(err.message, 'error');
-          }
-        };
-        return h('div', { class: 'picker-row' },
+        const row = h('div', { class: 'picker-row' },
           h('span', { class: 'picker-icon' }, r.icon || (r.source === 'drive' ? '▤' : '◧')),
           h('div', { class: 'picker-text' }, h('b', null, r.title),
             h('small', null, [KIND_LABEL[r.kind], r.account, r.edited && new Date(r.edited).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })].filter(Boolean).join('  ·  '))),
           add);
+        const pin = async (tags, btn) => {
+          btn.disabled = true;
+          try {
+            const saved = await onyx.addPin({ ...r, tags });
+            graph.lib.pins = [...graph.lib.pins.filter((p) => p.id !== saved.id), saved];
+            closeAsk();
+            add.textContent = 'On globe';
+            add.classList.remove('primary');
+            add.disabled = true;
+            toast(tags.length ? `Added with ${tags.map((t) => `#${t}`).join(' ')}` : `Added to ${label}`);
+            loadGraph();
+            if (tags.length) reloadTags();
+          } catch (err) {
+            btn.disabled = false;
+            toast(err.message, 'error');
+          }
+        };
+        // Add first asks which tags (if any) it should carry: tags place it in clusters on the globe.
+        add.onclick = () => {
+          if (row.nextElementSibling?.classList.contains('picker-ask')) return closeAsk();
+          closeAsk();
+          const suggest = h('div', { class: 'picker-suggest' });
+          const refresh = (picked) => suggest.replaceChildren(...S.tags.slice(0, 14).map((t) => {
+            const isOn = picked.some((x) => x.toLowerCase() === t.name.toLowerCase());
+            return h('button', { class: `tag-pick${isOn ? ' on' : ''}`, css: { '--t': t.color }, onclick: () => field.toggle(t.name) }, `#${t.name}`);
+          }));
+          const field = tagField(startingTags(), refresh);
+          const addTagged = h('button', { class: 'btn primary', onclick: (e) => pin(field.get(), e.currentTarget) }, 'Add');
+          const ask = h('div', { class: 'picker-ask' },
+            h('div', { class: 'picker-ask-q' }, icon('tag'), h('span', null, 'Add a tag?'), h('small', null, 'optional: tags group it on the globe')),
+            field.el,
+            S.tags.length > 0 && suggest,
+            h('div', { class: 'picker-ask-actions' },
+              h('button', { class: 'btn ghost', onclick: (e) => pin([], e.currentTarget) }, 'No tag'),
+              h('div', { class: 'grow' }),
+              h('button', { class: 'btn ghost', onclick: closeAsk }, 'Cancel'),
+              addTagged));
+          // Enter in an empty tag box adds the item (Enter after typing a tag just adds the tag).
+          field.input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.defaultPrevented && !field.input.value.trim()) { e.preventDefault(); addTagged.click(); } });
+          row.classList.add('asking');
+          row.after(ask);
+          ask.scrollIntoView({ block: 'nearest' });
+          if (!MOBILE) field.input.focus();
+        };
+        return row;
       }));
     };
+    function closeAsk() {
+      list.querySelector('.picker-ask')?.remove();
+      list.querySelector('.picker-row.asking')?.classList.remove('asking');
+    }
 
     const run = async () => {
       const mine = ++seq;
@@ -1971,7 +2391,7 @@
     showPopover(anchor, [
       input,
       list,
-      h('p', { class: 'pop-meta' }, tagFilter.size ? `New items get the tags picked in the sidebar: ${startingTags().map((t) => `#${t}`).join(' ')}` : 'Tip: pick tags in the sidebar first and new items get them, or tag them on the globe.'),
+      h('p', { class: 'pop-meta' }, 'Click Add on an item to choose its tags, or add it without one.'),
       h('div', { class: 'pop-actions' }, h('div', { class: 'grow' }), h('button', { class: 'btn ghost', onclick: () => closePopover() }, 'Done')),
     ], null, { wide: true });
     if (!MOBILE) input.focus();
@@ -2010,10 +2430,12 @@
       chip('notes', 'Notes', 'Notes written in Onyx'),
       chip('notion', 'Notion', 'Notion pages pinned to the globe'),
       chip('drive', 'Drive', 'Google Drive files pinned to the globe'),
+      chip('web', 'Links', 'Web links pinned to the globe'),
       h('div', { class: 'grow' }),
       addBtn('Note', (r) => openNote(null, r)),
       addBtn('Notion', (r) => openPicker('notion', r)),
-      addBtn('Drive', (r) => openPicker('drive', r))));
+      addBtn('Drive', (r) => openPicker('drive', r)),
+      addBtn('Link', (r) => openAddLink(r))));
   }
 
   function openGraph() {
@@ -2198,6 +2620,7 @@
     $('#add-calendar').append(icon('plus'), onyx.isPhone ? 'Settings' : 'Add calendar');
     $('#globe-toggle').append(icon('globe'));
     $('#globe-toggle').onclick = toggleGlobe;
+    watchGlobeDrops();
     $('#undo-btn').append(icon('undo'));
     $('#undo-btn').onclick = undoLast;
     $('#archive-prev').append(icon('left'));

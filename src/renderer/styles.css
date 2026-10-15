@@ -440,6 +440,27 @@ pre.code {
 .goal-step input[type=text] { flex: 1; min-width: 0; height: 30px; }
 .goal-step input[type=date] { width: 132px; flex: none; height: 30px; color-scheme: dark; }
 .goal-step.done input[type=text] { text-decoration: line-through; color: var(--muted); }
+.goal-step .step-often { width: 92px; flex: none; height: 30px; padding: 0 6px; font-size: 12px; color: var(--muted); }
+.goal-step.habit .step-often { color: #a9b4ff; }
+.goal-step .step-count { width: 132px; flex: none; font-size: 11.5px; color: #a9b4ff; text-align: center; white-space: nowrap; }
+.goal-step input[type=checkbox]:disabled { opacity: .5; }
+.note-links { display: flex; flex-wrap: wrap; gap: 6px; }
+.note-links[hidden] { display: none; }
+.note-links .link-open { height: 28px; padding: 0 10px; font-size: 12px; color: #9fd0ff; border-color: color-mix(in srgb, #4aa8ff 40%, var(--line-2)); }
+.note-links .link-open .ico { width: 13px; height: 13px; }
+.origin { display: flex; align-items: flex-start; gap: 8px; font-size: 11.5px; color: var(--muted); line-height: 1.45; margin-top: -4px; }
+.origin-badge {
+  flex: none; display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px 1px 7px; border-radius: 10px; font-size: 11px; font-weight: 600;
+  color: color-mix(in srgb, var(--o) 70%, #fff); background: color-mix(in srgb, var(--o) 14%, transparent); border: 1px solid color-mix(in srgb, var(--o) 35%, transparent);
+}
+.origin-badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--o); }
+.origin-text { padding-top: 1px; overflow-wrap: anywhere; }
+.series-copies { display: flex; flex-wrap: wrap; gap: 5px; }
+.series-copies span { font-size: 11px; padding: 2px 7px; border-radius: 10px; background: var(--raise); color: var(--soft); }
+.series-copies span.late { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.series-link .ico { color: #a9b4ff; }
+.task[draggable=true] { cursor: grab; }
+body.dragging-task #graph { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent); }
 .goal-step .x { width: 24px; height: 24px; border: 0; background: transparent; color: var(--faint); cursor: pointer; border-radius: 6px; display: grid; place-items: center; padding: 0; flex: none; }
 .goal-step .x:hover { color: var(--danger); background: var(--raise-2); }
 .goal-step .x .ico { width: 12px; height: 12px; }
@@ -585,6 +606,31 @@ pre.code {
 #graph-bar .range-pick { display: inline-flex; align-items: center; gap: 6px; }
 #graph-bar .range-pick input { height: 28px; }
 #graph-bar .dash { color: var(--faint); }
+/* The Clusters tab: bottom left, opening upward, so it never covers the toolbar. */
+#graph-clusters {
+  position: absolute; left: 12px; bottom: 12px; z-index: 2; display: flex; flex-direction: column-reverse;
+  max-height: calc(100% - 120px); width: 230px; border-radius: 12px; background: rgba(12,12,15,.82);
+  border: 1px solid var(--line-2); backdrop-filter: blur(10px); overflow: hidden;
+}
+#graph-clusters:not(.open) { width: auto; }
+.clusters-tab {
+  display: flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px; border: 0; background: transparent; color: var(--soft);
+  cursor: pointer; font-size: 12.5px; font-weight: 600; flex: none;
+}
+.clusters-tab:hover { color: var(--text); }
+.clusters-tab .ico { width: 14px; height: 14px; color: var(--accent); }
+.clusters-tab .count { margin-left: auto; color: var(--warn, #f5b83d); background: transparent; font-weight: 500; }
+#graph-clusters.open .clusters-tab { border-top: 1px solid var(--line-2); }
+.clusters-body { overflow-y: auto; padding: 8px 6px 6px; display: flex; flex-direction: column; gap: 1px; }
+.clusters-all { display: flex; gap: 12px; padding: 0 6px 6px; }
+.cluster-row { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 7px; cursor: pointer; font-size: 12.5px; }
+.cluster-row:hover { background: var(--raise); }
+.cluster-row input { width: 14px; height: 14px; margin: 0; accent-color: var(--t); flex: none; }
+.cluster-row .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--t); flex: none; }
+.cluster-row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--soft); }
+.cluster-row:has(input:not(:checked)) .name { color: var(--faint); text-decoration: line-through; }
+.cluster-row .n { font-size: 10.5px; color: var(--faint); }
+body.mobile #graph-clusters { bottom: calc(86px + env(safe-area-inset-bottom, 0px)); left: 8px; }
 #graph-hint { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); color: var(--faint); font-size: 11px; pointer-events: none; white-space: nowrap; }
 #graph-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); pointer-events: none; text-align: center; padding: 20px; }
 #views button .ico, #views-mobile button .ico { width: 13px; height: 13px; margin-right: 5px; vertical-align: -2px; }
@@ -712,6 +758,23 @@ body.mobile #graph-foot { bottom: calc(86px + env(safe-area-inset-bottom, 0px));
 .picker-text b { display: block; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .picker-text small { color: var(--muted); font-size: 11px; }
 .picker-row .btn { height: 28px; padding: 0 10px; flex: none; }
+.picker-row.asking { background: var(--raise); border-radius: 8px 8px 0 0; }
+.picker-ask {
+  display: flex; flex-direction: column; gap: 8px; padding: 10px 10px 10px; margin: -2px 0 6px; border-radius: 0 0 8px 8px;
+  background: var(--raise); border-top: 1px solid var(--line-2);
+}
+.picker-ask-q { display: flex; align-items: center; gap: 7px; font-weight: 600; font-size: 12.5px; }
+.picker-ask-q .ico { width: 14px; height: 14px; color: var(--accent); }
+.picker-ask-q small { font-weight: 400; color: var(--muted); font-size: 11px; }
+.picker-suggest { display: flex; flex-wrap: wrap; gap: 5px; }
+.tag-pick {
+  height: 22px; padding: 0 8px; border-radius: 11px; border: 1px solid color-mix(in srgb, var(--t) 40%, var(--line-2));
+  background: transparent; color: color-mix(in srgb, var(--t) 60%, #fff); font-size: 11.5px; cursor: pointer;
+}
+.tag-pick:hover { background: color-mix(in srgb, var(--t) 12%, transparent); }
+.tag-pick.on { background: color-mix(in srgb, var(--t) 28%, transparent); border-color: var(--t); color: #fff; }
+.picker-ask-actions { display: flex; align-items: center; gap: 6px; }
+.picker-ask-actions .btn { height: 28px; padding: 0 10px; }
 .pop-meta.problem { color: var(--warn); }
 #graph-bar .chip-toggle {
   height: 26px; padding: 0 10px; border-radius: 13px; border: 1px solid var(--line-2); background: transparent; color: var(--faint); cursor: pointer; font-size: 12px;

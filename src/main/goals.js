@@ -7,6 +7,7 @@
 const crypto = require('crypto');
 const store = require('./store');
 const hub = require('./hub');
+const repeat = require('./repeat');
 
 const MAX_STEPS = 100;
 const MAX_GOALS = 60;
@@ -26,12 +27,44 @@ function find(id) {
   return g;
 }
 
+// A step is done once (a checkbox), or repeats (daily, weekdays, weekly): a repeating
+// step's task comes back after each time it is done, and every time counts toward it.
+const STEP_REPEATS = ['daily', 'weekdays', 'weekly'];
+
+/** How many times a repeating step is due between `start` and `end` (inclusive). */
+function timesDue(rule, start, end) {
+  const from = new Date(+start.slice(0, 4), +start.slice(5, 7) - 1, +start.slice(8, 10));
+  const to = new Date(+end.slice(0, 4), +end.slice(5, 7) - 1, +end.slice(8, 10));
+  const span = Math.round((to - from) / 86400000) + 1;
+  if (span <= 0) return 1;
+  if (rule === 'weekly') return Math.max(1, Math.ceil(span / 7));
+  if (rule === 'weekdays') {
+    let n = 0;
+    for (let i = 0; i < span; i++) { const d = new Date(from.getFullYear(), from.getMonth(), from.getDate() + i).getDay(); if (d % 6) n++; }
+    return Math.max(1, n);
+  }
+  return span;
+}
+
+function stepOut(g, s) {
+  if (!s.repeat) return { ...s };
+  const target = timesDue(s.repeat, g.start, g.end);
+  const log = s.log || [];
+  return { ...s, log: [...log], count: log.length, target, doneToday: log.some((e) => e.date === ymd(new Date())) };
+}
+
+/**
+ * Progress: a one-off step counts when done; a repeating step counts in part, by how
+ * many of its due days were done (12 of 90 days is 0.13 of a step).
+ */
 function out(g) {
-  const total = g.steps.length;
-  const done = g.steps.filter((s) => s.done).length;
+  const steps = g.steps.map((s) => stepOut(g, s));
+  const total = steps.length;
+  const share = steps.reduce((sum, s) => sum + (s.repeat ? Math.min(1, s.count / s.target) : s.done ? 1 : 0), 0);
+  const done = steps.filter((s) => (s.repeat ? s.count >= s.target : s.done)).length;
   return {
-    ...g, steps: g.steps.map((s) => ({ ...s })), tags: store.data.tags[g.id] || [],
-    progress: { done, total, percent: total ? Math.round((done / total) * 100) : 0 },
+    ...g, steps, tags: store.data.tags[g.id] || [],
+    progress: { done, total, percent: total ? Math.round((share / total) * 100) : 0 },
   };
 }
 
@@ -71,27 +104,35 @@ async function syncSteps(g, incoming) {
   const addTask = async (s) => {
     if (!g.listId || s.done) return;
     try {
-      const t = await hub.createTask({ title: s.title, due: s.due, listId: g.listId, notes: `A step toward: ${g.title}` });
+      // A repeating step starts on the goal's first day (or today, if that has passed).
+      const due = s.due || (s.repeat ? [g.start, ymd(new Date())].sort().at(-1) : null);
+      const t = await hub.createTask({ title: s.title, due, listId: g.listId, notes: `A step toward: ${g.title}` });
       s.taskId = t.id;
-      s.due = t.date || s.due;
+      s.due = t.date || due;
+      if (s.repeat) repeat.setRule(t.id, s.repeat);
     } catch (err) { warn(s, err); }
   };
   for (const raw of (incoming || []).slice(0, MAX_STEPS)) {
     const title = String(raw?.title || '').trim().slice(0, 300);
     if (!title) continue;
+    const rule = STEP_REPEATS.includes(raw.repeat) ? raw.repeat : null;
     const due = isDate(raw.due) ? raw.due : null;
-    const done = !!raw.done;
+    const done = rule ? false : !!raw.done; // a repeating step is never done once and for all
     let s = old.get(raw.id);
     if (!s) {
-      s = { id: newId('s'), title, due, done, taskId: null };
+      s = { id: newId('s'), title, due, done, taskId: null, ...(rule ? { repeat: rule, log: [] } : {}) };
       await addTask(s);
     } else {
       old.delete(s.id);
+      if ((s.repeat || null) !== rule) {
+        if (rule) { s.repeat = rule; s.log ||= []; } else delete s.repeat;
+        if (s.taskId) repeat.setRule(s.taskId, rule);
+      }
       const patch = {};
       if (title !== s.title) patch.title = title;
-      if (due !== s.due) patch.due = due;
+      if (due !== s.due && !(rule && !due)) patch.due = due;
       if (done !== s.done) patch.done = done;
-      Object.assign(s, { title, due, done });
+      Object.assign(s, { title, due: 'due' in patch ? due : s.due, done });
       if (s.taskId && Object.keys(patch).length) {
         try {
           await hub.updateTask(s.taskId, patch);
@@ -169,15 +210,48 @@ async function list({ force = false } = {}) {
       for (const s of g.steps) {
         if (!s.taskId) continue;
         const t = open.get(s.taskId);
+        // A repeating step's next task was already added (repeat.reconcile, in getTasks).
         const next = t
           ? { title: t.title, due: t.date || null, done: false }
-          : lists.has(listOf(s.taskId)) && !skip.has(listOf(s.taskId)) ? { done: true } : null;
+          : !s.repeat && lists.has(listOf(s.taskId)) && !skip.has(listOf(s.taskId)) ? { done: true } : null;
         if (next && Object.entries(next).some(([k, v]) => s[k] !== v)) { Object.assign(s, next); changed = true; }
       }
     }
     if (changed) store.save();
   }
   return all().map(out);
+}
+
+/**
+ * Ticks a step (or unticks it) straight away, without saving the rest of the goal. For
+ * a repeating step, ticked means done today: its task is done (so the next one comes)
+ * and the day is logged; unticking takes today's back. Returns the goal.
+ */
+async function setStep(id, stepId, done) {
+  const g = find(id);
+  const s = g.steps.find((x) => x.id === stepId);
+  if (!s) throw Object.assign(new Error('That step is no longer part of the goal.'), { status: 404 });
+  const today = ymd(new Date());
+  if (s.repeat) {
+    s.log ||= [];
+    const entry = s.log.find((e) => e.date === today);
+    if (done && !entry) {
+      if (s.taskId) {
+        if (!repeat.ruleOf(s.taskId)) repeat.setRule(s.taskId, s.repeat);
+        await hub.updateTask(s.taskId, { done: true }); // repeat.js logs the day and moves the step on
+      } else {
+        s.log.push({ date: today, taskId: null });
+      }
+    } else if (!done && entry) {
+      if (entry.taskId) await hub.updateTask(entry.taskId, { done: false }); // and repeat.js takes it back
+      s.log = s.log.filter((e) => e !== entry);
+    }
+  } else if (s.done !== !!done) {
+    if (s.taskId) await hub.updateTask(s.taskId, { done: !!done });
+    s.done = !!done;
+  }
+  store.save();
+  return out(g);
 }
 
 /** The goals' time frames as all-day bars for the calendar, between `start` and `end`. */
@@ -195,4 +269,4 @@ function spans(start, end, includeHidden = false) {
     });
 }
 
-module.exports = { list, create, update, remove, spans };
+module.exports = { list, create, update, remove, setStep, spans, timesDue };

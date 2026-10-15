@@ -141,3 +141,55 @@ test('a repeating task done in Google gets its next one on the next look; delete
   await hub.getTasks({ force: true });
   assert.equal(Object.keys(store.data.repeats).length, 0);
 });
+
+test('copies of a task that repeats in Google are one series, edited together', async () => {
+  reset();
+  const series = require('../src/main/series');
+  for (const due of ['2026-10-12', '2026-10-13', '2026-10-14']) await google.createTask(null, 'tasks', { title: 'Stretch', due });
+  await google.createTask(null, 'tasks', { title: 'Stretch', due: '2026-10-15' }).then((t) => { tasks.get(t.rawId).title = 'Unrelated'; });
+  hub.invalidate();
+  const { tasks: open } = await hub.getTasks({ force: true });
+  const copies = open.filter((t) => t.label === 'Stretch');
+  assert.equal(copies.length, 3);
+  assert.ok(copies.every((t) => t.series && t.series.count === 3 && t.series.rule === 'daily' && !t.series.managed));
+  assert.equal(open.find((t) => t.title === 'Unrelated').series, undefined);
+
+  await assert.rejects(series.update(hub, copies[0].series.key, { rule: 'weekly' }), /Google Tasks does not let other apps/);
+  const res = await series.update(hub, copies[0].series.key, { label: 'Stretch and breathe', time: '07:30', notes: 'Ten minutes' });
+  assert.equal(res.changed, 3);
+  assert.deepEqual([...tasks.values()].filter((t) => t.title.startsWith('Stretch')).map((t) => [t.title, t.notes]),
+    Array(3).fill(['Stretch and breathe 07:30', 'Ten minutes']));
+
+  assert.deepEqual(series.cadence(['2026-10-05', '2026-10-12', '2026-10-19']), { rule: 'weekly' });
+  assert.deepEqual(series.cadence(['2026-10-15', '2026-10-16', '2026-10-19']), { rule: 'weekdays' });
+  assert.deepEqual(series.cadence(['2026-10-01', '2026-10-04']), { everyDays: 3 });
+});
+
+test('a daily goal step counts each day it is done, and ticking it is saved at once', async () => {
+  reset();
+  const start = new Date();
+  const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 9); // 10 days
+  const g = await goals.create({
+    title: 'Get fit', start: ymd(start), end: ymd(end),
+    steps: [{ title: 'Push-ups', repeat: 'daily' }, { title: 'Buy a mat' }],
+  });
+  const daily = g.steps[0];
+  assert.equal(daily.target, 10);
+  assert.equal(store.data.repeats[daily.taskId].rule, 'daily');
+
+  let after = await goals.setStep(g.id, daily.id, true); // ticked in the goal: done today
+  assert.equal(after.steps[0].count, 1);
+  assert.equal(after.steps[0].doneToday, true);
+  assert.notEqual(after.steps[0].taskId, daily.taskId, 'the next day\'s task took over');
+  assert.equal(after.progress.percent, 5); // (1/10 + 0) / 2 steps
+
+  after = await goals.setStep(g.id, g.steps[1].id, true); // the one-off step
+  assert.equal(after.progress.percent, 55);
+  assert.equal(tasks.get(g.steps[1].taskId.split('/').pop()).done, true);
+
+  after = await goals.setStep(g.id, daily.id, false); // unticked: today is taken back
+  assert.equal(after.steps[0].count, 0);
+  assert.equal(after.steps[0].taskId, daily.taskId);
+  assert.equal([...tasks.values()].filter((t) => t.title === 'Push-ups' && !t.done).length, 1, 'no extra copy left behind');
+});

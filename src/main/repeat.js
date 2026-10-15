@@ -103,9 +103,13 @@ async function addNext(hub, task, r) {
   delete store.data.repeats[task.id];
   store.data.repeats[next.id] = { rule: r.rule, day };
   remember(task.id, next.id);
-  // A repeating step of a goal stays the goal's step.
+  // A repeating step of a goal stays the goal's step, and each time it is done is logged.
   for (const g of store.data.goals) {
-    for (const s of g.steps) if (s.taskId === task.id) Object.assign(s, { taskId: next.id, due, done: false });
+    for (const s of g.steps) {
+      if (s.taskId !== task.id) continue;
+      Object.assign(s, { taskId: next.id, due, done: false });
+      if (s.repeat) s.log = [...(s.log || []), { date: ymd(new Date()), taskId: task.id }];
+    }
   }
   store.save();
   return { ...next, repeat: r.rule };
@@ -121,10 +125,18 @@ async function undoSpawn(hub, id) {
   const r = ruleOf(nextId);
   delete store.data.repeatSpawned[id];
   if (!r) { store.save(); return false; } // the next one was done too: leave both
-  await hub.deleteTask(nextId).catch((err) => { if (err.status !== 404) throw err; });
+  // The rule and the goal step move back first: deleting the next task unlinks whatever points at it.
   store.data.repeats[id] = r;
-  for (const g of store.data.goals) for (const s of g.steps) if (s.taskId === nextId) s.taskId = id;
+  delete store.data.repeats[nextId];
+  for (const g of store.data.goals) {
+    for (const s of g.steps) {
+      if (s.taskId !== nextId) continue;
+      s.taskId = id;
+      if (s.log) s.log = s.log.filter((e) => e.taskId !== id);
+    }
+  }
   store.save();
+  await hub.deleteTask(nextId).catch((err) => { if (err.status !== 404) throw err; });
   return true;
 }
 

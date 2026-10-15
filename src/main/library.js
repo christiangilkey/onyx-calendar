@@ -1,8 +1,8 @@
 // Things that live on the globe without being calendar entries: notes written in
-// Onyx, and Notion pages and Google Drive files pinned to it. Like everything
-// else, they are grouped into clusters by their (Onyx-only) tags.
+// Onyx, and Notion pages, Google Drive files and web links pinned to it. Like
+// everything else, they are grouped into clusters by their (Onyx-only) tags.
 //
-// ids:  note/<id>   notion/<page id>   drive/<file id>
+// ids:  note/<id>   notion/<page id>   drive/<file id>   web/<hash of the link>
 
 const crypto = require('crypto');
 const store = require('./store');
@@ -59,7 +59,7 @@ function deleteNote(id) {
 
 // ---------------------------------------------------------------- pinned documents
 
-const SOURCES = new Set(['notion', 'drive']);
+const SOURCES = new Set(['notion', 'drive', 'web']);
 
 function pinOut(p) {
   return { ...p, notes: p.notes || '', tags: tagsOf(p.id) };
@@ -69,11 +69,25 @@ function listPins() {
   return lists().pins.map(pinOut);
 }
 
-/** Pins a Notion page or Drive file to the globe (or refreshes it if already pinned). */
-function addPin({ source, ref, title, url, kind = '', tags }) {
+/**
+ * Pins a Notion page, Drive file or any web link to the globe (or refreshes it if
+ * already pinned). A web link needs only its address; the title defaults to its site.
+ */
+function addPin({ source, ref, title, url, kind = '', tags, notes }) {
   if (!SOURCES.has(source)) throw new Error('Unknown source.');
+  if (source === 'web') {
+    url = String(url || '').trim();
+    if (/^www\./i.test(url)) url = `https://${url}`;
+    let parsed;
+    try { parsed = new URL(url); } catch { throw new Error('That is not a web address.'); }
+    if (!/^https?:$/.test(parsed.protocol)) throw new Error('Only web links (http or https) can be pinned.');
+    url = parsed.href;
+    ref = crypto.createHash('sha1').update(url).digest('hex').slice(0, 16);
+    title = String(title || '').trim() || parsed.hostname.replace(/^www\./, '');
+    kind = 'link';
+  }
   if (!ref || !url) throw new Error('That item has no link.');
-  if (!/^https:\/\//i.test(url)) throw new Error('Only https links can be pinned.');
+  if (source !== 'web' && !/^https:\/\//i.test(url)) throw new Error('Only https links can be pinned.');
   const id = `${source}/${ref}`;
   const d = lists();
   let pin = d.pins.find((p) => p.id === id);
@@ -82,6 +96,7 @@ function addPin({ source, ref, title, url, kind = '', tags }) {
     pin = { id, source, ref, title: String(title || 'Untitled'), url, kind, added: now() };
     d.pins.push(pin);
   }
+  if (notes) pin.notes = String(notes).replace(/\s+$/, '').slice(0, hub.MAX_NOTE);
   if (tags) hub.setTags(id, tags);
   store.save();
   return pinOut(pin);
@@ -91,6 +106,11 @@ function updatePin(id, patch = {}) {
   const pin = lists().pins.find((p) => p.id === id);
   if (!pin) throw new Error('That item is no longer on the globe.');
   if ('tags' in patch) hub.setTags(id, patch.tags);
+  // A web link's name is Onyx's own, so it can be renamed (Notion and Drive keep theirs).
+  if ('title' in patch && pin.source === 'web' && String(patch.title || '').trim()) {
+    pin.title = String(patch.title).trim().slice(0, 300);
+    store.save();
+  }
   if ('notes' in patch) {
     // Your notes on the page or file, kept in Onyx (Notion and Drive are only read).
     pin.notes = String(patch.notes ?? '').replace(/\s+$/, '').slice(0, hub.MAX_NOTE);

@@ -172,7 +172,7 @@ Long-press the home screen → **Widgets** → **Onyx**: there are two, **Onyx C
 
 Tap an entry to open that day in the app, tap ✓ on a task to tick it off (in Google Tasks), tap the globe to open the app's globe. The widgets fetch from the PC themselves (with the same pairing as the app): every 30 minutes, after anything changes in the app, and with ↻. When the PC can't be reached they keep showing the last copy and say so.
 
-The APK and the Windows installer are built by GitHub Actions ([`.github/workflows/android.yml`](.github/workflows/android.yml)) whenever a version tag is pushed, and attached to the release, whose notes are the tag's message. The APK is signed with a key kept in the repository's Actions secrets, so each new version installs over the last one.
+The APK and the Windows installer are built by GitHub Actions ([`.github/workflows/android.yml`](.github/workflows/android.yml)) whenever a version tag is pushed, and attached to the release, whose notes are the tag's message. A release can also be made from the Actions tab (**Release → Run workflow**, with the version and its notes). The APK is signed with a key kept in the repository's Actions secrets, so each new version installs over the last one.
 
 ## MCP server
 

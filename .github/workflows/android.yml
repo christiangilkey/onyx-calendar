@@ -1,19 +1,57 @@
-# Builds the Android app (APK) and the Windows installer, and attaches both to the
-# GitHub release for the tag, whose notes are the tag's message. Runs when a version
-# tag (v1.2.3) is pushed, or by hand from the Actions tab (then the builds are only
-# kept as workflow artifacts).
+# Builds the Android app (APK) and the Windows installer, and attaches both to a
+# GitHub release. Runs when a version tag (v1.2.3) is pushed, using the tag's message
+# as the release notes; or by hand from the Actions tab: given a version, it tags the
+# commit it runs on and releases it with the notes given, and without one it only
+# builds (the files are then kept as workflow artifacts).
 name: Release
 
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, e.g. v1.2.3 (must match package.json). Blank: just build.'
+        required: false
+        default: ''
+      notes:
+        description: 'Release notes (Markdown)'
+        required: false
+        default: ''
 
 permissions:
   contents: write
 
+env:
+  TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
+
 jobs:
+  # Makes the release first, so both builds have somewhere to attach their files.
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        if: env.TAG != ''
+
+      - name: Create the release
+        if: env.TAG != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTES: ${{ inputs.notes }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if [ "$TAG" != "v$VERSION" ]; then echo "::error::$TAG does not match package.json ($VERSION)"; exit 1; fi
+          if gh release view "$TAG" > /dev/null 2>&1; then echo "$TAG is already released: adding the files to it."; exit 0; fi
+          if [ "${{ github.event_name }}" = push ]; then
+            git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG" # checkout leaves out the tag's message
+            gh release create "$TAG" --title "Onyx Calendar $VERSION" --notes-from-tag
+          else
+            printf '%s\n' "${NOTES:-See the README for setup.}" > notes.md
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "Onyx Calendar $VERSION" --notes-file notes.md
+          fi
+
   apk:
+    needs: release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -68,17 +106,14 @@ jobs:
           path: ${{ env.APK }}
 
       - name: Attach it to the release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: env.TAG != ''
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          # Both jobs may get here first: whichever does creates the release.
-          gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "Onyx Calendar ${GITHUB_REF_NAME#v}" --notes-from-tag || true
-          for i in 1 2 3 4 5; do gh release upload "$GITHUB_REF_NAME" "$APK" --clobber && exit 0; sleep 10; done
-          exit 1
+        run: gh release upload "$TAG" "$APK" --clobber
 
   # The PC app's installer, and latest.yml, which tells installed copies an update is out.
   windows:
+    needs: release
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -102,11 +137,8 @@ jobs:
             dist/latest.yml
 
       - name: Attach it to the release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: env.TAG != ''
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "Onyx Calendar ${GITHUB_REF_NAME#v}" --notes-from-tag || true
-          for i in 1 2 3 4 5; do gh release upload "$GITHUB_REF_NAME" dist/*.exe dist/*.blockmap dist/latest.yml --clobber && exit 0; sleep 10; done
-          exit 1
+        run: gh release upload "$TAG" dist/*.exe dist/*.blockmap dist/latest.yml --clobber

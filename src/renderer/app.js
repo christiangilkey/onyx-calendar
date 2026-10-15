@@ -593,7 +593,7 @@
       eventDrop: onMove,
       eventResize: onMove,
       datesSet: (info) => {
-        if (!graph.on) $('#range').textContent = info.view.title;
+        if (!graph.on) $('#range').textContent = MOBILE ? shortTitle(info.view.currentStart, info.view.currentEnd, info.view.type) : info.view.title;
         for (const b of document.querySelectorAll('[data-view]')) b.classList.toggle('on', !graph.on && b.dataset.view === info.view.type);
         if (S.settings.view !== info.view.type) saveSettings({ view: info.view.type }, true);
         miniMonth = calendar.getDate();
@@ -1504,7 +1504,7 @@
     drawSwatches();
     const notes = notesField(g?.notes, 'Why it matters, and how you will know you got there');
     const tags = tagField(g ? g.tags : [...tagFilter].map((t) => tagInfo(t)?.name || t));
-    const listPick = !g && lists.length > 1 && h('select', { title: 'The task list the steps go into' },
+    const listPick = !g && lists.length > 1 && h('select', { class: 'goal-list-pick', title: 'The task list the steps go into' },
       lists.map((c) => h('option', { value: c.id }, `${c.name}  ·  ${c.accountLabel}`)));
     if (listPick) listPick.value = (lists.find((c) => c.id === S.settings.pi.taskList) || lists.find((c) => c.provider === 'google') || lists[0]).id;
 
@@ -1636,7 +1636,7 @@
       h('div', { class: 'row' }, icon('calendar'), start, h('span', { class: 'dash' }, 'to'), end),
       h('div', { class: 'row' }, icon('tag'), tags.el),
       h('div', { class: 'row top' }, icon('note'), notes),
-      h('div', { class: 'row' }, h('span', { class: 'ico' }), swatches, listPick || null),
+      h('div', { class: 'row goal-look' }, h('span', { class: 'ico' }), swatches, listPick || null),
       h('div', { class: 'goal-steps-head' }, h('b', null, 'Steps'),
         h('div', { class: 'grow' }),
         h('button', { class: 'link-btn', title: 'Give the steps without a date evenly spaced dates up to the target', onclick: spread }, 'Spread dates'),
@@ -2147,7 +2147,24 @@
     return [s, e];
   }
 
+  /** The phone's top bar has room for "Oct 15–17", not "Oct 15 – 17, 2026": the year only
+   *  when it isn't this year. `end` is the day after the last one shown. */
+  function shortTitle(start, end, type) {
+    const last = addDays(end, -1);
+    const year = (d) => (d.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {});
+    if (type === 'timeGridDay' || type === 'day') return start.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', ...year(start) });
+    if (type === 'dayGridMonth' || type === 'month') return start.toLocaleDateString([], { month: 'long', ...year(start) });
+    const md = { month: 'short', day: 'numeric' };
+    if (ymd(start) === ymd(last)) return start.toLocaleDateString([], { ...md, ...year(start) });
+    if (start.getMonth() === last.getMonth() && start.getFullYear() === last.getFullYear()) {
+      return `${start.toLocaleDateString([], md)}–${last.getDate()}${year(last).year ? `, ${last.getFullYear()}` : ''}`;
+    }
+    const lastYear = start.getFullYear() !== last.getFullYear() ? { year: 'numeric' } : year(last);
+    return `${start.toLocaleDateString([], md)} – ${last.toLocaleDateString([], { ...md, ...lastYear })}`;
+  }
+
   function graphTitle([s, e]) {
+    if (MOBILE) return shortTitle(s, e, graph.kind);
     const last = addDays(e, -1);
     if (graph.kind === 'day') return s.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
     if (graph.kind === 'month') return s.toLocaleDateString([], { month: 'long', year: 'numeric' });

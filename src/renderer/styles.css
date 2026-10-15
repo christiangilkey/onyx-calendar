@@ -707,6 +707,9 @@ body.mobile .nav h1 { font-size: 15px; margin-left: 4px; overflow: hidden; text-
 body.mobile .grow { display: none; }
 body.mobile .icon-btn { width: 38px; height: 38px; }
 body.mobile .icon-btn .ico { width: 19px; height: 19px; }
+/* Undo only takes room in the phone's top bar when there is something to undo. */
+body.mobile #undo-btn:disabled { display: none; }
+body.mobile .nav h1 { white-space: nowrap; }
 body.mobile #layout { grid-template-columns: minmax(0, 1fr); }
 body.mobile #news {
   position: fixed; z-index: 45; top: 0; bottom: 0; right: 0; width: min(420px, 100vw); padding-top: env(safe-area-inset-top, 0px);
@@ -759,6 +762,23 @@ body.mobile #popover {
 body.mobile #popover input, body.mobile #popover select { height: 40px; font-size: 15px; }
 body.mobile #popover .pop-title { height: 46px !important; font-size: 17px; }
 body.mobile #popover .btn { height: 40px; padding: 0 16px; }
+/* A goal on the phone: each step gets two lines (its name, then how often and when),
+   and the task list drops below the colours, so nothing is squeezed to a sliver. */
+body.mobile #popover .goal-look { flex-wrap: wrap; row-gap: 10px; }
+body.mobile #popover .goal-look .swatches { flex-wrap: wrap; gap: 10px; }
+body.mobile #popover .goal-look .swatch { width: 26px; height: 26px; }
+body.mobile #popover .goal-list-pick { flex: 1 1 100%; margin-left: 24px; }
+body.mobile .goal-steps-head { margin-top: 6px; gap: 16px; }
+body.mobile .goal-steps-head .link-btn { font-size: 14px; padding: 6px 0; }
+body.mobile .goal-steps { max-height: none; overflow: visible; gap: 0; }
+body.mobile .goal-step { flex-wrap: wrap; gap: 8px 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+body.mobile .goal-step:last-child { border-bottom: 0; }
+body.mobile #popover .goal-step input[type=checkbox] { width: 22px; height: 22px; order: 0; }
+body.mobile .goal-step input[type=text] { order: 1; flex: 1 1 calc(100% - 22px - 32px - 20px); }
+body.mobile .goal-step .x:last-child { order: 2; width: 32px; height: 32px; }
+body.mobile .goal-step .step-often { order: 3; flex: 1 1 0; width: auto; margin-left: 32px; font-size: 14px; }
+body.mobile .goal-step input[type=date], body.mobile .goal-step .step-count { order: 4; flex: 1.4 1 0; width: auto; min-width: 0; }
+body.mobile .goal-step .pomo-btn { order: 5; width: 32px; height: 32px; }
 
 body.mobile #modal { place-items: stretch; }
 body.mobile .sheet { width: 100vw; height: 100vh; border-radius: 0; grid-template-columns: 1fr; grid-template-rows: auto 1fr; border: 0; }

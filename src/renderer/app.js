@@ -601,6 +601,68 @@
       },
     });
     calendar.render();
+    swipeToChangeDates($('#calendar'));
+  }
+
+  // Swiping left or right on the calendar goes to the next or previous days, the same as
+  // the arrows. The calendar follows the finger, then slides over. A finger that rests
+  // first is left to the calendar (a long press moves an entry or blocks out time), and
+  // the screen's edges are left to Android's back gesture.
+  function swipeToChangeDates(el) {
+    const EDGE = 24, HOLD_MS = 250;
+    let t = null; // { x, y, at, dx, horizontal }
+    const harness = () => el.querySelector('.fc-view-harness');
+    const slide = (x, ms) => {
+      const v = harness();
+      if (!v) return;
+      v.style.transition = ms ? `transform ${ms}ms ease-out, opacity ${ms}ms ease-out` : 'none';
+      v.style.transform = x ? `translateX(${x}px)` : '';
+      v.style.opacity = x ? String(Math.max(0.35, 1 - Math.abs(x) / el.clientWidth)) : '';
+    };
+    const busy = () => el.querySelector('.fc-event-mirror, .fc-event-dragging, .fc-event-resizing');
+
+    el.addEventListener('touchstart', (e) => {
+      const p = e.touches[0];
+      t = e.touches.length === 1 && p.clientX > EDGE && p.clientX < innerWidth - EDGE && !busy()
+        ? { x: p.clientX, y: p.clientY, at: Date.now(), dx: 0, horizontal: null }
+        : null;
+    }, { passive: true });
+
+    el.addEventListener('touchmove', (e) => {
+      if (!t) return;
+      if (e.touches.length > 1 || busy()) { t = null; slide(0, 150); return; }
+      const p = e.touches[0];
+      const dx = p.clientX - t.x, dy = p.clientY - t.y;
+      if (t.horizontal === null) {
+        if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+        // Up and down is scrolling; a move after resting is the calendar's own drag.
+        t.horizontal = Math.abs(dx) > Math.abs(dy) * 1.3 && Date.now() - t.at < HOLD_MS;
+        if (!t.horizontal) { t = null; return; }
+        // FullCalendar would still start a time selection once the long press is up: telling it
+        // the touch scrolled makes it stand down, as it does when the grid scrolls.
+        window.dispatchEvent(new Event('scroll'));
+      }
+      e.preventDefault();
+      t.dx = dx;
+      slide(dx * 0.6, 0);
+    }, { passive: false });
+
+    const end = () => {
+      if (!t?.horizontal) { t = null; return; }
+      const { dx, at } = t;
+      t = null;
+      const far = Math.abs(dx) > el.clientWidth * 0.25 || (Math.abs(dx) > 50 && Date.now() - at < 300);
+      if (!far || busy()) return slide(0, 150);
+      const dir = dx < 0 ? 1 : -1;
+      slide(-dir * el.clientWidth * 0.5, 120);
+      setTimeout(() => {
+        nav(dir);
+        slide(dir * el.clientWidth * 0.3, 0);
+        requestAnimationFrame(() => requestAnimationFrame(() => slide(0, 180)));
+      }, 120);
+    };
+    el.addEventListener('touchend', end);
+    el.addEventListener('touchcancel', () => { t = null; slide(0, 150); });
   }
 
   const pointRect = (ev) => {

@@ -121,6 +121,8 @@ select { padding-right: 4px; }
 #sidebar { border-right: 1px solid var(--line); padding: 14px 12px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; background: var(--panel); }
 #stage { min-width: 0; min-height: 0; position: relative; }
 #calendar { position: absolute; inset: 0; }
+/* Sideways swipes on the calendar change the dates (swipeToChangeDates), so the browser keeps only up-and-down scrolling. */
+body.mobile #calendar, body.mobile #calendar .fc-scroller { touch-action: pan-y; }
 
 /* mini month */
 #mini { padding: 2px 2px 0; }
@@ -472,7 +474,8 @@ pre.code {
 .pomo-stop { width: 20px; height: 20px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; display: grid; place-items: center; padding: 0; flex: none; }
 .pomo-stop:hover { color: var(--text); background: rgba(255,255,255,.08); }
 .pomo-stop .ico { width: 11px; height: 11px; }
-body.mobile #pomo-timer { max-width: 120px; margin-right: 4px; }
+body.mobile #pomo-timer { max-width: 120px; min-width: 0; margin-right: 2px; gap: 5px; padding: 0 3px 0 8px; }
+body.mobile #pomo-timer .pomo-stop { width: 18px; height: 18px; }
 body.mobile #pomo-timer .pomo-label, body.mobile #pomo-timer .pomo-round { display: none; }
 .note-links { display: flex; flex-wrap: wrap; gap: 6px; }
 .note-links[hidden] { display: none; }

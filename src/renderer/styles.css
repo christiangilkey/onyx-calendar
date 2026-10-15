@@ -192,8 +192,8 @@ body.mobile #calendar, body.mobile #calendar .fc-scroller { touch-action: pan-y;
 .fc .fc-timegrid-axis, .fc .fc-timegrid-slot-label { border: 0; }
 .fc .fc-timegrid-slot { height: 26px; }
 .fc .fc-timegrid-slot-minor { border-top-color: transparent; }
-.fc .fc-timegrid-slot-label-cushion { font-size: 10.5px; color: var(--faint); padding: 0 10px 0 6px; transform: translateY(-50%); display: block; }
-.fc .fc-timegrid-axis-cushion { font-size: 10.5px; color: var(--faint); }
+.fc .fc-timegrid-slot-label-cushion { font-size: 10.5px; color: var(--text); padding: 0 10px 0 6px; transform: translateY(-50%); display: block; }
+.fc .fc-timegrid-axis-cushion { font-size: 10.5px; color: var(--text); }
 .fc .fc-timegrid-divider { padding: 0; border-color: var(--line); background: var(--line); }
 .fc .fc-timegrid-col.fc-day-today { background: rgba(255,255,255,.022); }
 .fc .fc-timegrid-now-indicator-line { border-width: 1.5px 0 0; }

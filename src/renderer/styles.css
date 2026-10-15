@@ -636,6 +636,12 @@ body.dragging-task #graph { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(-
 #graph-bar .range-pick { display: inline-flex; align-items: center; gap: 6px; }
 #graph-bar .range-pick input { height: 28px; }
 #graph-bar .dash { color: var(--faint); }
+#graph-bar .bar-spacer { flex: 1; }
+#graph-bar .bar-break { flex-basis: 100%; height: 0; }
+#graph-bar.folded { right: auto; max-width: calc(100% - 24px); }
+#graph-bar .bar-toggle { width: 30px; height: 30px; flex-shrink: 0; }
+#graph-bar .bar-toggle .ico { transition: transform .18s ease; }
+#graph-bar .bar-toggle.open .ico { transform: rotate(180deg); }
 /* The Clusters tab: bottom left, opening upward, so it never covers the toolbar. */
 #graph-clusters {
   position: absolute; left: 12px; bottom: 12px; z-index: 2; display: flex; flex-direction: column-reverse;
@@ -765,6 +771,7 @@ body.mobile .sheet nav { padding-right: 52px; }
 
 body.mobile #graph-bar { top: 8px; left: 8px; right: 8px; gap: 6px; padding: 6px; }
 body.mobile #graph-bar .bar-label:not(#graph-stats) { display: none; }
+body.mobile #graph-bar.folded { right: auto; }
 body.mobile #graph-hint { display: none; }
 body.mobile.mobile #toasts { bottom: calc(92px + env(safe-area-inset-bottom, 0px)); width: calc(100vw - 32px); }#graph-bar .bar-row { display: contents; }#graph-foot { position: absolute; right: 12px; bottom: 10px; display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11.5px; }
 body.mobile #graph-foot { bottom: calc(86px + env(safe-area-inset-bottom, 0px)); }#sidebar > * { flex-shrink: 0; }

@@ -8,6 +8,7 @@
   const ICONS = {
     left: '<path d="M15 6l-6 6 6 6"/>',
     right: '<path d="M9 6l6 6-6 6"/>',
+    down: '<path d="M6 9l6 6 6-6"/>',
     refresh: '<path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/>',
     sliders: '<path d="M4 7h9M19 7h1M4 17h1M11 17h9"/><circle cx="16" cy="7" r="2.4"/><circle cx="8" cy="17" r="2.4"/>',
     tasks: '<rect x="4" y="4" width="16" height="16" rx="4.5"/><path d="M8.5 12.3l2.4 2.4 4.6-5"/>',
@@ -2112,6 +2113,14 @@
   function saveHidden() {
     try { localStorage.setItem('onyx.globe.hidden', JSON.stringify([...graph.hidden])); } catch { /* not kept: still works for now */ }
   }
+  // Whether the globe's toolbar shows everything or just the period picker. Per screen too;
+  // on the phone it starts folded, since it would cover a third of the globe.
+  function readBarOpen() {
+    try { return JSON.parse(localStorage.getItem('onyx.globe.bar')) ?? !MOBILE; } catch { return !MOBILE; }
+  }
+  function saveBarOpen() {
+    try { localStorage.setItem('onyx.globe.bar', JSON.stringify(graph.barOpen)); } catch { /* not kept: still works for now */ }
+  }
   window.onyxDebug = { globe: () => graph.view }; // lets tests find nodes on the canvas
 
   // Where notes and outside documents gather when they have no tags.
@@ -2740,6 +2749,13 @@
       onclick: () => { graph.show[key] = !graph.show[key]; renderGraphBar(); loadGraph(); },
     }, label);
     const addBtn = (label, fn) => h('button', { class: 'btn add-btn', onclick: (e) => fn(e.currentTarget.getBoundingClientRect()) }, icon('plus'), label);
+    graph.barOpen ??= readBarOpen();
+    const open = graph.barOpen;
+    const toggle = h('button', {
+      class: `icon-btn bar-toggle ${open ? 'open' : ''}`, title: open ? 'Fewer options' : 'More options: clusters, what to show, and adding items',
+      'aria-expanded': String(open), onclick: () => { graph.barOpen = !open; saveBarOpen(); renderGraphBar(); },
+    }, icon('down'));
+    $('#graph-bar').classList.toggle('folded', !open);
     $('#graph-bar').replaceChildren(h('div', { class: 'bar-row' },
       seg([['day', 'Day'], ['week', 'Week'], ['month', 'Month'], ['range', 'Range']], graph.kind, (k) => {
         if (k === 'range' && graph.kind !== 'range') {
@@ -2754,22 +2770,25 @@
         loadGraph();
       }),
       graph.kind === 'range' && h('span', { class: 'range-pick' }, from, h('span', { class: 'dash' }, 'to'), to),
-      h('span', { class: 'bar-label' }, 'Cluster by'),
-      seg([['tags', 'Tags'], ['calendars', 'Sources'], ['days', 'Days']], graph.groupBy, (g) => { graph.groupBy = g; renderGraphBar(); loadGraph(); }),
-      h('span', { class: 'bar-label' }, 'Show'),
-      chip('tasks', 'Tasks', 'Tasks that have no date'),
-      chip('goals', 'Goals', 'Long-term goals: one node each, standing for all of its steps'),
-      chip('notes', 'Notes', 'Notes written in Onyx'),
-      chip('notion', 'Notion', 'Notion pages pinned to the globe'),
-      chip('drive', 'Drive', 'Google Drive files pinned to the globe'),
-      chip('web', 'Links', 'Web links pinned to the globe'),
-      chip('local', 'Files', 'Files and folders from this PC pinned to the globe'),
-      h('div', { class: 'grow' }),
-      addBtn('Note', (r) => openNote(null, r)),
-      addBtn('Notion', (r) => openPicker('notion', r)),
-      addBtn('Drive', (r) => openPicker('drive', r)),
-      addBtn('Link', (r) => openAddLink(r)),
-      onyx.pickFiles && addBtn('File', (r) => openAddFile(r))));
+      // The arrow sits by the period picker; on the phone, at the end of that line.
+      MOBILE && h('div', { class: 'bar-spacer' }), toggle, MOBILE && open && h('div', { class: 'bar-break' }),
+      open && [
+        h('span', { class: 'bar-label' }, 'Cluster by'),
+        seg([['tags', 'Tags'], ['calendars', 'Sources'], ['days', 'Days']], graph.groupBy, (g) => { graph.groupBy = g; renderGraphBar(); loadGraph(); }),
+        h('span', { class: 'bar-label' }, 'Show'),
+        chip('tasks', 'Tasks', 'Tasks that have no date'),
+        chip('goals', 'Goals', 'Long-term goals: one node each, standing for all of its steps'),
+        chip('notes', 'Notes', 'Notes written in Onyx'),
+        chip('notion', 'Notion', 'Notion pages pinned to the globe'),
+        chip('drive', 'Drive', 'Google Drive files pinned to the globe'),
+        chip('web', 'Links', 'Web links pinned to the globe'),
+        chip('local', 'Files', 'Files and folders from this PC pinned to the globe'),
+        h('div', { class: 'grow' }),
+        addBtn('Note', (r) => openNote(null, r)),
+        addBtn('Notion', (r) => openPicker('notion', r)),
+        addBtn('Drive', (r) => openPicker('drive', r)),
+        addBtn('Link', (r) => openAddLink(r)),
+        onyx.pickFiles && addBtn('File', (r) => openAddFile(r))]));
   }
 
   function openGraph() {

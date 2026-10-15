@@ -82,7 +82,7 @@
    * onPick(item, rect): an item was clicked.
    * onMove(item, toKey, fromKey, toLabel): an item was dragged onto another cluster's hub.
    */
-  function create(canvas, { onPick, onMove: onMoveItem } = {}) {
+  function create(canvas, { onPick } = {}) {
     const ctx = canvas.getContext('2d');
     let nodes = [];
     let links = [];
@@ -474,9 +474,9 @@
 
     const local = (e) => { const b = canvas.getBoundingClientRect(); return { x: e.clientX - b.left, y: e.clientY - b.top }; };
 
-    // Dragging an item (not a hub) moves just that item; letting go over another
-    // cluster reports the move (onMove), and the item springs back otherwise.
-    let held = null; // { node, from: hub it started in, target: hub under the pointer, active }
+    // Dragging an item (not a hub) moves just that item around the globe, to look at it or
+    // make room; it never changes the item (tags and dates are changed in its window).
+    let held = null; // { node, active }
     let incoming = null; // { x, y, label, target }: something dragged over the canvas from elsewhere
 
     /** Undoes the camera rotation: a screen-space step at scale s becomes a world-space step. */
@@ -499,17 +499,6 @@
       return best;
     }
 
-    function startHold(node) {
-      // The cluster it is leaving: of the hubs it belongs to, the nearest one.
-      let from = null, bestD = Infinity;
-      for (const id of neighbours.get(node.id) || []) {
-        const hub = nodes.find((n) => n.id === id && n.hub);
-        if (!hub) continue;
-        const d = (hub.x - node.x) ** 2 + (hub.y - node.y) ** 2 + (hub.z - node.z) ** 2;
-        if (d < bestD) { from = hub; bestD = d; }
-      }
-      held = { node, from, target: null, active: false };
-    }
 
     function onDown(e) {
       try { canvas.setPointerCapture(e.pointerId); } catch { /* a synthetic pointer can't be captured */ }
@@ -518,8 +507,8 @@
       spin = { yaw: 0, pitch: 0 };
       if (pointers.size === 1) {
         drag = { start: local(e), last: local(e), moved: 0, t: performance.now() };
-        const n = onMoveItem ? pick(drag.start.x, drag.start.y) : null;
-        if (n && !n.hub) startHold(n);
+        const n = pick(drag.start.x, drag.start.y);
+        if (n && !n.hub) held = { node: n, active: false };
       } else {
         held = null;
         drag = { pinch: pinchDistance(), dist: cam.dist, moved: 99 };
@@ -561,8 +550,6 @@
         if (held.active) {
           const step = screenToWorld(dx, dy, held.node.p?.s || 1);
           held.node.x += step.x; held.node.y += step.y; held.node.z += step.z;
-          held.target = hubUnder(pt.x, pt.y, null);
-          if (held.target === held.from) held.target = null;
           canvas.style.cursor = 'grabbing';
         }
         return;
@@ -584,7 +571,6 @@
       if (h?.active) {
         h.node.pinned = false;
         alpha = Math.max(alpha, 0.5); // let it settle wherever it ends up
-        if (h.target) onMoveItem(h.node.item, h.target.key, h.from?.key || null, h.target.label);
         return;
       }
       if (!d || d.moved > 6) return;

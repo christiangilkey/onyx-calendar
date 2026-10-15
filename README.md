@@ -119,13 +119,9 @@ What else can live on the globe (it shows whatever date range is picked):
 
 Untagged notes and documents gather in their own Notes, Notion and Drive clusters. Picking tags in the sidebar first gives new notes and pins those tags.
 
-**Tasks group themselves.** A task without tags starts in **Overdue**, **Today**, **Tomorrow**, a cluster for its day, or **No date**. Overdue tasks always show, whatever range is picked. These groups are only a starting point:
+**Tasks group themselves.** A task without tags starts in **Overdue**, **Today**, **Tomorrow**, a cluster for its day, or **No date**. Overdue tasks always show, whatever range is picked. To move an item to another cluster, change its tags or date in its window (click it).
 
-- **Drag any item onto a tag cluster** to give it that tag (it leaves the tag it came from).
-- **Drag a task onto Today, Tomorrow, another day or No date** to change its due date in Google Tasks.
-- **Drag an item back onto its own Notes / Notion / Drive / Untagged cluster** to remove the tag it came from.
-
-Dragging empty space still spins the globe. A task whose date is written in its name (like "Dentist Oct 14 3pm") keeps that date until the name is changed.
+Dragging an item moves it around the globe (it doesn't change it); dragging empty space spins the globe. Item names show once you click their cluster. A task whose date is written in its name (like "Dentist Oct 14 3pm") keeps that date until the name is changed.
 
 Closing the window keeps the app running in the system tray so the MCP server stays available. Quit from the tray icon. This can be changed in **Settings → General**.
 

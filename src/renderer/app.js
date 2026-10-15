@@ -2913,7 +2913,7 @@
     graph.on = true;
     $('#graph').hidden = false;
     if (!graph.view) {
-      graph.view = OnyxGraph.create($('#graph-canvas'), { onPick: pickFromGraph, onMove: moveOnGlobe });
+      graph.view = OnyxGraph.create($('#graph-canvas'), { onPick: pickFromGraph });
       // The globe centres between the toolbar and the footer, and follows them as they change.
       new ResizeObserver(fitGlobe).observe($('#graph-bar'));
       new ResizeObserver(fitGlobe).observe($('#graph'));

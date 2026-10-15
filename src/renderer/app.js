@@ -1578,7 +1578,7 @@
       class: `swatch${c === color ? ' on' : ''}`, css: { '--c': c }, title: 'Colour', onclick: () => { color = c; drawSwatches(); },
     })));
     drawSwatches();
-    const notes = notesField(g?.notes, 'Why it matters, and how you will know you got there');
+    const notes = notesField(g?.notes, 'Notes');
     const tags = tagField(g ? g.tags : [...tagFilter].map((t) => tagInfo(t)?.name || t));
     const listPick = !g && lists.length > 1 && h('select', { class: 'goal-list-pick', title: 'The task list the steps go into' },
       lists.map((c) => h('option', { value: c.id }, `${c.name}  ·  ${c.accountLabel}`)));

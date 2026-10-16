@@ -194,7 +194,9 @@
         const { a, b } = l;
         const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
         const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
-        const f = (d - l.len) / d * l.k * alpha;
+        // An opened cluster spreads its entries out, so their names have room.
+        const len = focus && (a === focus || b === focus) ? l.len * 2.6 : l.len;
+        const f = (d - len) / d * l.k * alpha;
         const wa = b.mass / (a.mass + b.mass), wb = a.mass / (a.mass + b.mass);
         a.vx += dx * f * wa; a.vy += dy * f * wa; a.vz += dz * f * wa;
         b.vx -= dx * f * wb; b.vy -= dy * f * wb; b.vz -= dz * f * wb;
@@ -230,7 +232,6 @@
     }
 
     const lit = (n) => !focus || n === focus || neighbours.get(focus.id)?.has(n.id);
-    const hoverNear = (n) => hover && (n === hover || neighbours.get(hover.id)?.has(n.id));
 
     function draw() {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -276,7 +277,6 @@
       }
 
       const order = nodes.filter((n) => n.p.depth > 10).sort((x, y) => y.p.depth - x.p.depth);
-      const few = nodes.length < 70;
       for (const n of order) {
         const { p } = n;
         const on = lit(n);
@@ -330,8 +330,8 @@
           ctx.stroke();
         }
 
-        // Entry names show on the near side of the globe; the far side stays quiet.
-        const labelled = n.hub || n === hover || hoverNear(n) || (focus && on) || (few && a > 0.72) || p.s > 1.5;
+        // Only clusters are named; an entry's name shows once its cluster is opened (tapped).
+        const labelled = n.hub || (focus && neighbours.get(focus.id)?.has(n.id));
         if (labelled && a > 0.2) {
           const size = n.hub ? Math.min(15, 10.5 + p.s * 2.5) : Math.min(13, 9.5 + p.s * 2);
           ctx.font = `${n.hub ? 600 : 500} ${size}px "Segoe UI Variable Text","Segoe UI",Inter,Roboto,system-ui,sans-serif`;
@@ -519,7 +519,9 @@
       spin = { yaw: 0, pitch: 0 };
       if (pointers.size === 1) {
         drag = { start: local(e), last: local(e), moved: 0, t: performance.now() };
-        const n = onMoveItem ? pick(drag.start.x, drag.start.y) : null;
+        // Only a mouse drags an entry to another cluster. A finger always turns the globe:
+        // on a phone, an entry moves by opening it and changing its tag.
+        const n = onMoveItem && e.pointerType === 'mouse' ? pick(drag.start.x, drag.start.y) : null;
         if (n && !n.hub) startHold(n);
       } else {
         held = null;
@@ -541,8 +543,8 @@
         if (h !== hover) {
           hover = h;
           canvas.style.cursor = h ? 'pointer' : 'grab';
-          // An item's notes show as its tooltip.
-          canvas.title = h?.item?.notes ? `${h.item.title}\n\n${h.item.notes.slice(0, 600)}` : '';
+          // An entry's name (and notes) show as its tooltip, since names aren't drawn until its cluster opens.
+          canvas.title = h?.item ? (h.item.notes ? `${h.item.title}\n\n${h.item.notes.slice(0, 600)}` : h.item.title) : '';
         }
         return;
       }
@@ -591,9 +593,11 @@
       if (!d || d.moved > 6) return;
       spin = { yaw: 0, pitch: 0 };
       const n = pick(pt.x, pt.y);
-      if (!n) { focus = null; return; }
+      if (!n) { if (focus) alpha = Math.max(alpha, 0.6); focus = null; return; }
       if (n.hub) {
+        // Tapping a cluster opens it (its entries spread out and show their names); again closes it.
         focus = focus === n ? null : n;
+        alpha = Math.max(alpha, 0.6);
         if (focus) cam.goal = Math.max(260, Math.min(cam.dist, 520));
         return;
       }
@@ -621,6 +625,7 @@
     }
 
     function resetCamera() {
+      if (focus) alpha = Math.max(alpha, 0.6);
       focus = null;
       cam.yaw = 0.6; cam.pitch = -0.35; cam.goal = Math.min(1700, Math.max(560, (sphere || 140) * 3.3));
       spin = { yaw: 0, pitch: 0 };

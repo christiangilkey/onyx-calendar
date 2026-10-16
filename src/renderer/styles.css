@@ -113,9 +113,10 @@ select { padding-right: 4px; }
 
 /* ------------------------------------------------------------ layout */
 
-#layout { --news-w: 34px; display: grid; grid-template-columns: 248px minmax(0, 1fr) 300px var(--news-w); height: calc(100% - var(--bar)); }
-#layout.no-tasks { grid-template-columns: 248px minmax(0, 1fr) var(--news-w); }
-#layout.news-open { --news-w: 380px; }
+/* --side-w, --tasks-w and --news-open-w are set by dragging the panels' edges (app.js). */
+#layout { --side-w: 248px; --tasks-w: 300px; --news-open-w: 380px; --news-w: 34px; position: relative; display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr) var(--tasks-w) var(--news-w); height: calc(100% - var(--bar)); }
+#layout.no-tasks { grid-template-columns: var(--side-w) minmax(0, 1fr) var(--news-w); }
+#layout.news-open { --news-w: var(--news-open-w); }
 #layout.no-tasks #tasks { display: none; }
 
 #sidebar { border-right: 1px solid var(--line); padding: 14px 12px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; background: var(--panel); }
@@ -250,7 +251,16 @@ body.mobile #calendar, body.mobile #calendar .fc-scroller { touch-action: pan-y;
 
 /* ------------------------------------------------------------ tasks panel */
 
-#tasks { border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
+#tasks { position: relative; border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+/* Drag handles on the left edge of the Tasks and News panels. */
+.panel-grip { position: absolute; top: 0; bottom: 0; left: -4px; width: 8px; z-index: 6; cursor: col-resize; touch-action: none; }
+.panel-grip::after { content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: transparent; transition: background .15s; }
+.panel-grip:hover::after, .panel-grip.on::after { background: var(--accent, #8b7cff); }
+body.resizing { cursor: col-resize; user-select: none; }
+body.resizing iframe { pointer-events: none; }
+/* The sidebar scrolls, so its grip sits on the layout, over the sidebar's right edge. */
+#layout > .panel-grip.side { left: calc(var(--side-w) - 5px); }
+#layout:not(.news-open) #news .panel-grip, body.mobile .panel-grip { display: none; }
 .panel-head { display: flex; align-items: center; gap: 8px; padding: 16px 16px 10px; }
 .panel-head h2 { font-size: 14px; font-weight: 600; }
 .count { font-size: 11px; color: var(--muted); background: var(--raise-2); padding: 1px 7px; border-radius: 10px; }
@@ -522,7 +532,7 @@ body.dragging-task #graph { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(-
 
 /* ------------------------------------------------------------ news */
 
-#news { border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+#news { position: relative; border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 #news-tab {
   flex: 1; width: 100%; border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 14px 0;
   display: flex; flex-direction: column; align-items: center; gap: 10px; transition: color .12s, background .12s;

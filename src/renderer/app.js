@@ -1358,6 +1358,7 @@
     } else {
       $('#layout').classList.toggle('news-open', open);
       if (S.settings.newsPanel !== open) saveSettings({ newsPanel: open }, true);
+      applyPanelWidths(); // the panels give way so the calendar keeps its room
       requestAnimationFrame(() => calendar.updateSize());
     }
     if (!open) return stopNews();
@@ -1892,8 +1893,84 @@
     }
   }
 
+  // ------------------------------------------------------------ panel widths
+  // The sidebar, Tasks and News panels are widened or narrowed by dragging their inner
+  // edge; the widths are kept per PC (settings.panels). Double-click an edge for the usual width.
+  const PANELS = {
+    side: { prop: '--side-w', def: 248, min: 200, max: 480, edge: 'right', grip: () => $('#layout'), el: () => $('#sidebar') },
+    tasks: { prop: '--tasks-w', def: 300, min: 230, max: 700, edge: 'left', grip: () => $('#tasks'), el: () => $('#tasks') },
+    news: { prop: '--news-open-w', def: 380, min: 300, max: 960, edge: 'left', grip: () => $('#news'), el: () => $('#news') },
+  };
+  const CALENDAR_MIN = 380; // the calendar always keeps at least this much width
+
+  function clampPanel(key, px) {
+    const p = PANELS[key];
+    const shown = (k) => {
+      const r = PANELS[k].el().getBoundingClientRect();
+      return r.width && getComputedStyle(PANELS[k].el()).display !== 'none' ? r.width : 0;
+    };
+    const others = Object.keys(PANELS).filter((k) => k !== key).reduce((sum, k) => sum + shown(k), 0);
+    const room = ($('#layout').clientWidth || window.innerWidth) - others - CALENDAR_MIN;
+    return Math.round(Math.max(p.min, Math.min(px, p.max, Math.max(p.min, room))));
+  }
+
+  function applyPanelWidths() {
+    if (MOBILE) return;
+    const saved = S?.settings?.panels || {};
+    // When room is short, Tasks gives way first, then the sidebar, then News.
+    for (const k of ['tasks', 'side', 'news']) $('#layout').style.setProperty(PANELS[k].prop, `${clampPanel(k, saved[k] || PANELS[k].def)}px`);
+  }
+
+  function savePanelWidth(key, px) {
+    S.settings.panels = { ...(S.settings.panels || {}), [key]: px };
+    saveSettings({ panels: { [key]: px } }, true);
+  }
+
+  if (!MOBILE) {
+    for (const [key, p] of Object.entries(PANELS)) {
+      const grip = h('div', { class: `panel-grip ${key}`, title: 'Drag to resize · double-click for the usual width' });
+      p.grip().prepend(grip);
+      grip.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        grip.setPointerCapture(e.pointerId);
+        const startX = e.clientX;
+        const startW = p.el().getBoundingClientRect().width;
+        let width = startW;
+        let frame = 0;
+        grip.classList.add('on');
+        document.body.classList.add('resizing');
+        const move = (ev) => {
+          const dx = ev.clientX - startX;
+          width = clampPanel(key, startW + (p.edge === 'left' ? -dx : dx));
+          $('#layout').style.setProperty(p.prop, `${width}px`);
+          if (!frame) frame = requestAnimationFrame(() => { frame = 0; calendar?.updateSize(); });
+        };
+        const up = () => {
+          grip.removeEventListener('pointermove', move);
+          grip.removeEventListener('pointerup', up);
+          grip.removeEventListener('pointercancel', up);
+          grip.classList.remove('on');
+          document.body.classList.remove('resizing');
+          calendar?.updateSize();
+          if (Math.round(width) !== Math.round(startW)) savePanelWidth(key, width);
+        };
+        grip.addEventListener('pointermove', move);
+        grip.addEventListener('pointerup', up);
+        grip.addEventListener('pointercancel', up);
+      });
+      grip.addEventListener('dblclick', () => {
+        $('#layout').style.setProperty(p.prop, `${clampPanel(key, p.def)}px`);
+        calendar?.updateSize();
+        savePanelWidth(key, null);
+      });
+    }
+    window.addEventListener('resize', applyPanelWidths);
+  }
+
   function applyState(next) {
     S = next;
+    applyPanelWidths();
     calendar.setOption('firstDay', S.settings.weekStart);
     for (const [k, v] of Object.entries(timeFormats())) calendar.setOption(k, v);
     $('#layout').classList.toggle('no-tasks', !S.settings.tasksPanel);

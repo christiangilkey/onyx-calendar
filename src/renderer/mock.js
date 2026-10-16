@@ -312,7 +312,7 @@
       return withTags(e);
     },
     deleteEvent: async (id) => { events = events.filter((x) => x.id !== id); delete tags[id]; },
-    setCall: async (event, on) => { events.find((x) => x.id === event.id).piCall = on; return { piCall: on }; },
+    setCall: async (event, on, before) => { const e = events.find((x) => x.id === event.id); e.piCall = on; e.callBefore = on ? before ?? null : null; return { piCall: on, callBefore: e.callBefore }; },
     tasks: async () => ({ tasks: withSeries(tasks.filter((t) => !t.done).map(taskOut)), errors: [] }),
     updateSeries: async (key, d) => {
       const copies = withSeries(tasks.filter((t) => !t.done).map(taskOut)).filter((t) => t.series?.key === key);

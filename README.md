@@ -138,6 +138,7 @@ The Pi only knows about Google Tasks, not calendar events. So when you turn on *
 - **Nothing changes on the Pi**, and calls still happen while this PC is off.
 - It works for any timed entry, including Outlook events and read-only calendar links.
 - The editor shows when the Pi will ring, and warns when that falls inside the Pi's quiet hours.
+- **Pick the call time:** under the switch, choose any half-hour from the day before up to the start (the Pi checks on the hour and half-hour). Onyx writes it into the task's notes as `Call at: 2026-10-20 12:00`, and the call moves with the entry if you move it. This needs the `task_caller.py` that reads that line (it then also says how long is left, e.g. "due in 3 hours"); an older one ignores it and calls at the usual lead time.
 - **Settings → Pi calls** must match the Pi's `config.json`: lead time (default 60 minutes) and quiet hours (default 10pm to 7am).
 - This PC and the Pi must be set to the same time zone.
 

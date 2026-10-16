@@ -215,3 +215,31 @@ test('a pomodoro split gives a task its length on the calendar and moves on with
   hub.setPomodoro(done.next.id, null);
   assert.equal(store.data.pomodoro[done.next.id], undefined);
 });
+
+test('a step with a time of day is a task at that time, and keeps its plain name', async () => {
+  reset();
+  const g = await goals.create({ title: 'Study', end: '2027-01-30', steps: [{ title: 'Review cards', due: '2026-11-03', time: '07:30' }, { title: 'Daily review', repeat: 'daily', time: '20:00' }] });
+  const [once, daily] = g.steps;
+  assert.equal(once.time, '07:30');
+  const raw = (s) => tasks.get(s.taskId.split('/').pop());
+  assert.match(raw(once).title, /^Review cards 2026-11-03 07:30$/);
+  const { tasks: open } = await hub.getTasks({ force: true });
+  const t = open.find((x) => x.id === once.taskId);
+  assert.deepEqual([t.date, t.time, t.label], ['2026-11-03', '07:30', 'Review cards']);
+  assert.match(raw(daily).title, /^Daily review \d{4}-\d{2}-\d{2} 20:00$/);
+
+  // A new time renames the task; the step keeps its own name.
+  await goals.update(g.id, { steps: [{ ...once, time: '09:00' }, daily] });
+  assert.match(raw(once).title, /^Review cards 2026-11-03 09:00$/);
+  assert.equal(store.data.goals[0].steps[0].title, 'Review cards');
+  assert.equal(store.data.goals[0].steps[0].time, '09:00');
+
+  // No time: back to a plain name.
+  await goals.update(g.id, { steps: [{ ...once, time: null }, daily] });
+  assert.equal(raw(once).title, 'Review cards');
+  assert.equal(store.data.goals[0].steps[0].time, undefined);
+  // Steps read back from their tasks keep the plain name and the time.
+  const [listed] = await goals.list({ force: true });
+  assert.deepEqual([listed.steps[0].title, listed.steps[0].time ?? null], ['Review cards', null]);
+  assert.deepEqual([listed.steps[1].title, listed.steps[1].time], ['Daily review', '20:00']);
+});

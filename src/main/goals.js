@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const store = require('./store');
 const hub = require('./hub');
 const repeat = require('./repeat');
+const { mirrorName } = require('./taskname');
 
 const MAX_STEPS = 100;
 const MAX_GOALS = 60;
@@ -19,6 +20,14 @@ const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
 const dayAfter = (s) => ymd(new Date(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10) + 1));
 const newId = (prefix) => `${prefix}${crypto.randomBytes(6).toString('hex')}`;
 const listOf = (taskId) => taskId.slice(0, taskId.lastIndexOf('/'));
+const isTime = (s) => /^([01]\d|2[0-3]):[0-5]\d$/.test(String(s || ''));
+/** A step's task name: with a time of day, the date and time are written into it (Google Tasks
+ *  has no times; Onyx and the Pi read them from the name, as for any task). */
+const taskTitle = (title, day, time) => {
+  if (!time || !day) return title;
+  const [h, m] = time.split(':').map(Number);
+  return mirrorName(title, new Date(+day.slice(0, 4), +day.slice(5, 7) - 1, +day.slice(8, 10), h, m));
+};
 
 const all = () => store.data.goals;
 function find(id) {
@@ -104,9 +113,9 @@ async function syncSteps(g, incoming) {
   const addTask = async (s) => {
     if (!g.listId || s.done) return;
     try {
-      // A repeating step starts on the goal's first day (or today, if that has passed).
-      const due = s.due || (s.repeat ? [g.start, ymd(new Date())].sort().at(-1) : null);
-      const t = await hub.createTask({ title: s.title, due, listId: g.listId, notes: `A step toward: ${g.title}` });
+      // A repeating step (or one with a time but no date) starts on the goal's first day, or today if that has passed.
+      const due = s.due || (s.repeat || s.time ? [g.start, ymd(new Date())].sort().at(-1) : null);
+      const t = await hub.createTask({ title: taskTitle(s.title, due, s.time), due, listId: g.listId, notes: `A step toward: ${g.title}` });
       s.taskId = t.id;
       s.due = t.date || due;
       if (s.repeat) repeat.setRule(t.id, s.repeat);
@@ -117,10 +126,11 @@ async function syncSteps(g, incoming) {
     if (!title) continue;
     const rule = STEP_REPEATS.includes(raw.repeat) ? raw.repeat : null;
     const due = isDate(raw.due) ? raw.due : null;
+    const time = isTime(raw.time) ? raw.time : null; // a time of day: the step's task sits at that time on the calendar
     const done = rule ? false : !!raw.done; // a repeating step is never done once and for all
     let s = old.get(raw.id);
     if (!s) {
-      s = { id: newId('s'), title, due, done, taskId: null, ...(rule ? { repeat: rule, log: [] } : {}) };
+      s = { id: newId('s'), title, due, done, taskId: null, ...(time ? { time } : {}), ...(rule ? { repeat: rule, log: [] } : {}) };
       await addTask(s);
     } else {
       old.delete(s.id);
@@ -129,10 +139,12 @@ async function syncSteps(g, incoming) {
         if (s.taskId) repeat.setRule(s.taskId, rule);
       }
       const patch = {};
-      if (title !== s.title) patch.title = title;
       if (due !== s.due && !(rule && !due)) patch.due = due;
+      // The name carries the date and time when the step has a time, so either changing renames the task.
+      if (title !== s.title || time !== (s.time || null) || (time && 'due' in patch)) patch.title = taskTitle(title, 'due' in patch ? due : s.due, time);
       if (done !== s.done) patch.done = done;
       Object.assign(s, { title, due: 'due' in patch ? due : s.due, done });
+      if (time) s.time = time; else delete s.time;
       if (s.taskId && Object.keys(patch).length) {
         try {
           await hub.updateTask(s.taskId, patch);
@@ -211,10 +223,15 @@ async function list({ force = false } = {}) {
         if (!s.taskId) continue;
         const t = open.get(s.taskId);
         // A repeating step's next task was already added (repeat.reconcile, in getTasks).
+        // The step keeps its plain name; a date and time written into the task's name are its due date and time.
         const next = t
-          ? { title: t.title, due: t.date || null, done: false }
+          ? { title: t.label, due: t.date || null, time: t.time || null, done: false }
           : !s.repeat && lists.has(listOf(s.taskId)) && !skip.has(listOf(s.taskId)) ? { done: true } : null;
-        if (next && Object.entries(next).some(([k, v]) => s[k] !== v)) { Object.assign(s, next); changed = true; }
+        if (next && Object.entries(next).some(([k, v]) => (s[k] ?? null) !== v)) {
+          Object.assign(s, next);
+          if (!s.time) delete s.time;
+          changed = true;
+        }
       }
     }
     if (changed) store.save();

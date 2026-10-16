@@ -259,3 +259,23 @@ test('tags stay in Onyx and follow their entry', async () => {
   assert.equal(store.data.tags[ev.id], undefined);
   assert.deepEqual(hub.allTags().map((t) => t.name), ['reading']);
 });
+
+test('a picked call time reaches the Pi as a "Call at" line, and moves with the event', async () => {
+  reset();
+  const ev = await hub.createEvent({ calendarId: 'g1/primary', title: 'Dentist', start: day(2, 15, 0), end: day(2, 16, 0), allDay: false, piCall: true, callBefore: 180 });
+  assert.equal(ev.callBefore, 180);
+  const at = (t) => (t.notes.match(/^Call at: (.+)$/m) || [])[1];
+  assert.deepEqual(piReads(mirrors()[0]), [ymd(day(2)), '15:00'], 'the name keeps the real start');
+  assert.equal(at(mirrors()[0]), `${ymd(day(2))} 12:00`);
+
+  // Moved an hour later: the call moves with it.
+  await hub.updateEvent(ev.id, { start: day(2, 16, 0), end: day(2, 17, 0), allDay: false });
+  assert.equal(at(mirrors()[0]), `${ymd(day(2))} 13:00`);
+  assert.equal(store.data.piLinks[ev.id].before, 180);
+
+  // Back to the usual time: no "Call at" line.
+  const back = await hub.updateEvent(ev.id, { callBefore: null });
+  assert.equal(back.callBefore, null);
+  assert.equal(at(mirrors()[0]), undefined);
+  assert.equal(mirrors().length, 1);
+});

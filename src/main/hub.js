@@ -141,7 +141,7 @@ function unify(cal, e) {
     id, calendarId: cal.id, calendarName: cal.name, color: cal.color, kind: 'event',
     title: e.title, start: e.start, end: e.end, allDay: !!e.allDay,
     location: e.location || '', notes: e.notes || '', link: e.link || '',
-    writable: cal.writable, piCall: !!store.data.piLinks[id], madeHere: store.data.madeHere[id] || null,
+    writable: cal.writable, piCall: !!store.data.piLinks[id], callBefore: callBeforeOf(id), madeHere: store.data.madeHere[id] || null,
   };
 }
 
@@ -251,21 +251,21 @@ async function createEvent(data) {
   markMadeHere(`${cal.id}/${enc(raw.rawId)}`);
   const event = unify(cal, raw);
   if (data.tags) setTags(event.id, data.tags);
-  return withCall(event, !!data.piCall, false);
+  return withCall(event, !!data.piCall, false, data.callBefore);
 }
 
 // The entry itself is already saved at this point, so a failure to set up the
 // Pi call is reported as a warning beside it rather than as a failed save.
-async function withCall(event, want, had) {
+async function withCall(event, want, had, before) {
   let warning = '';
   if (want || had) {
     try {
-      await setPiCall(event, want);
+      await setPiCall(event, want, before);
     } catch (err) {
       warning = `Saved, but the Pi phone reminder was not updated. ${err.message}`;
     }
   }
-  return { ...event, piCall: !!store.data.piLinks[event.id], tags: tagsOf(event.id), memo: memoOf(event.id), warning };
+  return { ...event, piCall: !!store.data.piLinks[event.id], callBefore: callBeforeOf(event.id), tags: tagsOf(event.id), memo: memoOf(event.id), warning };
 }
 
 async function updateEvent(id, patch) {
@@ -276,7 +276,7 @@ async function updateEvent(id, patch) {
 
   // Saving to a different calendar is a copy followed by a delete.
   if (patch.calendarId && patch.calendarId !== calendarId) {
-    const created = await createEvent({ ...patch, piCall: wantCall, tags: patch.tags || tagsOf(id) });
+    const created = await createEvent({ ...patch, piCall: wantCall, callBefore: 'callBefore' in patch ? patch.callBefore : callBeforeOf(id), tags: patch.tags || tagsOf(id) });
     if (pomodoroOf(id)) store.data.pomodoro[created.id] = pomodoroOf(id); // the split goes with it
     await deleteEvent(id);
     return { ...created, pomodoro: pomodoroOf(created.id) };
@@ -295,7 +295,7 @@ async function updateEvent(id, patch) {
     raw = await PROVIDERS[acct.provider].updateEvent(req(acct), rawCal, rawItem, fields);
   }
   invalidate(cal.id);
-  return withCall(unify(cal, raw), wantCall, hadCall);
+  return withCall(unify(cal, raw), wantCall, hadCall, 'callBefore' in patch ? patch.callBefore : undefined);
 }
 
 async function deleteEvent(id) {
@@ -332,6 +332,7 @@ function syncStep(id, fields) {
     for (const s of g.steps) {
       if (s.taskId !== id) continue;
       if ('title' in fields) s.title = fields.title;
+      if ('time' in fields) { if (fields.time) s.time = fields.time; else delete s.time; }
       if ('due' in fields) s.due = fields.due;
       if ('done' in fields) s.done = fields.done;
       store.save();
@@ -510,7 +511,8 @@ async function updateTask(id, patch) {
     raw = (taskCache.get(cal.id)?.items || []).find((t) => t.rawId === rawItem) || { rawId: rawItem, title: '', notes: '', due: null, done: false };
   }
   const task = unifyTask(cal, raw, new Set());
-  syncStep(id, { ...('title' in fields ? { title: task.title } : {}), ...('due' in fields ? { due: task.date } : {}), ...('done' in fields ? { done: fields.done } : {}) });
+  // A goal's step keeps its plain name; a date and time written into the task's name are its due date and time.
+  syncStep(id, { ...('title' in fields ? { title: task.label, time: task.time } : {}), ...('due' in fields ? { due: task.date } : {}), ...('done' in fields ? { done: fields.done } : {}) });
   // A repeating task that is done brings the next one; restoring it (Undo) takes that back.
   if (fields.done === true && task.repeat) return { ...task, next: await repeat.spawnNext(module.exports, task) };
   if (fields.done === false) await repeat.undoSpawn(module.exports, id);
@@ -663,9 +665,31 @@ function piTaskList() {
   return pick;
 }
 
-async function setPiCall(event, on) {
+// A call time picked for an entry is kept as minutes before its start, so it moves with
+// the entry. It reaches the Pi as a "Call at" line in the task's notes (task_caller.py);
+// a Pi without that update still calls lead_minutes before.
+const PI_NOTE = 'Phone reminder for a calendar entry. Managed by Onyx Calendar.';
+const callBeforeOf = (id) => store.data.piLinks[id]?.before ?? null;
+
+function cleanBefore(before) {
+  if (before == null || before === '') return null;
+  const n = Math.round(Number(before));
+  if (!Number.isFinite(n) || n < 1 || n > 24 * 60) throw new Error('Pick a call time within a day before it starts.');
+  return n;
+}
+
+function callNotes(start, before) {
+  if (before == null) return PI_NOTE;
+  const at = new Date(start.getTime() - before * 60000);
+  return `${PI_NOTE}
+Call at: ${localDate(at)} ${pad(at.getHours())}:${pad(at.getMinutes())}`;
+}
+
+/** Switches the Pi call for an entry on or off. `before`: minutes before the start to call (null: the usual lead; undefined: keep). */
+async function setPiCall(event, on, before) {
   const links = store.data.piLinks;
   const link = links[event.id];
+  const keep = before === undefined ? link?.before ?? null : cleanBefore(before);
   // The Pi needs a time of day, so an all-day entry can't have a call.
   if (!on || event.allDay) {
     if (link) {
@@ -676,19 +700,20 @@ async function setPiCall(event, on) {
     return false;
   }
   const start = new Date(event.start);
-  const fields = { title: mirrorName(event.title, start), due: localDate(start) };
+  const fields = { title: mirrorName(event.title, start), due: localDate(start), notes: callNotes(start, keep) };
+  const saved = (task) => ({ task, start: start.toISOString(), title: event.title, ...(keep != null ? { before: keep } : {}) });
   if (link) {
     try {
       await updateTask(link.task, fields);
-      links[event.id] = { task: link.task, start: start.toISOString(), title: event.title };
+      links[event.id] = saved(link.task);
       store.save();
       return true;
     } catch (err) {
       if (err.status !== 404 && err.status !== 410) throw err; // the task was deleted elsewhere: make a new one
     }
   }
-  const task = await createTask({ ...fields, listId: piTaskList().id, notes: 'Phone reminder for a calendar entry. Managed by Onyx Calendar.' });
-  links[event.id] = { task: task.id, start: start.toISOString(), title: event.title };
+  const task = await createTask({ ...fields, listId: piTaskList().id });
+  links[event.id] = saved(task.id);
   store.save();
   return true;
 }

@@ -14,7 +14,7 @@ contextBridge.exposeInMainWorld('onyx', {
   createEvent: (data) => call('event:create', data),
   updateEvent: (id, patch) => call('event:update', id, patch),
   deleteEvent: (id) => call('event:delete', id),
-  setCall: (event, on) => call('event:call', event, on),
+  setCall: (event, on, before) => call('event:call', event, on, before),
   tasks: (force) => call('tasks', force),
   createTask: (data) => call('task:create', data),
   updateTask: (id, patch) => call('task:update', id, patch),

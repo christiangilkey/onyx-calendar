@@ -183,9 +183,14 @@ function inQuietHours(when, quietStart, quietEnd) {
  * When the Pi will phone for something starting at `start`: the first half-hour
  * check that falls within the lead time. Returns { at, quiet }.
  */
-function callTime(start, pi) {
+/**
+ * When the Pi phones about something starting at `start`: the first half-hour check
+ * inside the lead time, or, with `before` (minutes), the first check from that many
+ * minutes before the start (a "Call at" line in the task's notes, see callNotes in hub.js).
+ */
+function callTime(start, pi, before = null) {
   const LEAD_SLACK_MINUTES = 2; // same slack as task_caller.py
-  const earliest = start.getTime() - (pi.leadMinutes + LEAD_SLACK_MINUTES) * 60000;
+  const earliest = start.getTime() - ((before ?? pi.leadMinutes) + LEAD_SLACK_MINUTES) * 60000;
   const half = 30 * 60000;
   const at = new Date(Math.ceil(earliest / half) * half);
   return { at, quiet: inQuietHours(at, pi.quietStart, pi.quietEnd) };

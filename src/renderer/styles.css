@@ -225,7 +225,12 @@ body.mobile #calendar, body.mobile #calendar .fc-scroller { touch-action: pan-y;
 /* A half-hour block has room for one line: the title wins over the times. */
 .fc-timegrid-event-short .ev-time { display: none; }
 .fc .fc-timegrid-event-short .fc-event-main { padding: 1px 7px; }
-.is-task .ev-title .dot { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid currentColor; flex: none; }
+.is-task .ev-title .dot { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid currentColor; flex: none; cursor: pointer; position: relative; transition: background .12s; }
+/* A bigger target than the circle itself, so it is easy to hit. */
+.is-task .ev-title .dot::before { content: ''; position: absolute; inset: -5px; }
+.is-task .ev-title .dot:hover { background: color-mix(in srgb, currentColor 45%, transparent); }
+.is-task.is-done .ev-title .dot { background: currentColor; }
+.is-task.is-done .ev-title .t { text-decoration: line-through; opacity: .6; }
 .fc .is-task.fc-timegrid-event, .fc .is-task.fc-daygrid-block-event {
   background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--c) 20%, #09090b) 0 8px, color-mix(in srgb, var(--c) 13%, #09090b) 8px 16px) !important;
 }
@@ -355,6 +360,7 @@ input[type=date]::-webkit-calendar-picker-indicator { opacity: .5; cursor: point
 .pi-row .txt b { font-weight: 600; display: block; }
 .pi-row .txt small { color: var(--muted); font-size: 11px; display: block; margin-top: 1px; }
 .pi-row .txt small.ok { color: var(--ok); }
+.pi-row .call-when { margin-top: 7px; width: 100%; height: 30px; font-size: 12px; }
 .pi-row .txt small.warn { color: var(--warn); }
 .pop-actions { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
 .pop-meta { color: var(--muted); font-size: 11.5px; line-height: 1.5; user-select: text; overflow-wrap: anywhere; }
@@ -453,10 +459,15 @@ pre.code {
 .goal-steps-head b { font-weight: 600; }
 .goal-steps-head .link-btn, .link-btn.inline { border: 0; background: transparent; color: var(--accent); cursor: pointer; font-size: 12px; padding: 2px 0; }
 .goal-steps { display: flex; flex-direction: column; gap: 5px; max-height: 250px; overflow-y: auto; margin: 0 -2px; padding: 0 2px; }
-.goal-step { display: flex; align-items: center; gap: 7px; }
+/* Two lines per step: the tick and name, then how often, the date, the time and the buttons. */
+.goal-step { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 7px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.goal-step:last-child { border-bottom: 0; }
 .goal-step input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--accent); flex: none; margin: 0; }
-.goal-step input[type=text] { flex: 1; min-width: 0; height: 30px; }
+.goal-step input[type=text] { flex: 1 1 calc(100% - 22px); min-width: 0; height: 30px; }
+.goal-step .step-often { margin-left: 22px; }
+.goal-step > .x:last-child { margin-left: auto; }
 .goal-step input[type=date] { width: 132px; flex: none; height: 30px; color-scheme: dark; }
+.goal-step input[type=time] { width: 98px; flex: none; height: 30px; color-scheme: dark; }
 .goal-step.done input[type=text] { text-decoration: line-through; color: var(--muted); }
 .goal-step .step-often { width: 92px; flex: none; height: 30px; padding: 0 6px; font-size: 12px; color: var(--muted); }
 .goal-step.habit .step-often { color: #a9b4ff; }

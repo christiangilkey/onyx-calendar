@@ -411,10 +411,10 @@
   // Mirrors callTime() in src/main/taskname.js: the Pi checks on the hour and
   // half-hour, and phones at the first check inside the lead time.
 
-  function piCallTime(start) {
+  function piCallTime(start, before = null) {
     const pi = S.settings.pi;
     const half = 30 * 60000;
-    const callAt = new Date(Math.ceil((start.getTime() - (pi.leadMinutes + 2) * 60000) / half) * half);
+    const callAt = new Date(Math.ceil((start.getTime() - ((before ?? pi.leadMinutes) + 2) * 60000) / half) * half);
     const mins = (v) => { const [a, b] = v.split(':').map(Number); return a * 60 + b; };
     const t = callAt.getHours() * 60 + callAt.getMinutes();
     const qs = mins(pi.quietStart), qe = mins(pi.quietEnd);
@@ -423,12 +423,20 @@
 
   const hasGoogleTasks = () => S.calendars.some((c) => c.kind === 'tasklist' && c.provider === 'google');
 
-  /** What the Pi will do for something starting at `start`: { text, tone, allowed }. */
-  function piStatus(start, allDay) {
+  /** The half-hour checks the Pi could phone at for something starting at `start`: from the day before up to the start. */
+  function callSlots(start) {
+    const half = 30 * 60000;
+    const out = [];
+    for (let t = Math.floor((start.getTime() - 60000) / half) * half; t > start.getTime() - 24 * 3600000 && t > Date.now(); t -= half) out.push(new Date(t));
+    return out;
+  }
+
+  /** What the Pi will do for something starting at `start` (`before`: a picked call time, as minutes before): { text, tone, allowed }. */
+  function piStatus(start, allDay, before = null) {
     if (!hasGoogleTasks()) return { text: 'Connect Google in Settings. The Pi reads Google Tasks.', tone: '', allowed: false };
     if (allDay) return { text: 'Needs a start time, so not for all-day entries.', tone: '', allowed: false };
     if (start <= new Date()) return { text: 'This has already started.', tone: '', allowed: false };
-    const call = piCallTime(start);
+    const call = piCallTime(start, before);
     if (call.quiet) return { text: `Would ring at ${fmtTime(call.at)}, inside quiet hours (${quietLabel()}), so the Pi skips it.`, tone: 'warn', allowed: true };
     return { text: `The Pi phones you at ${fmtTime(call.at)}${sameDay(call.at, start) ? '' : ' the day before'}.`, tone: 'ok', allowed: true };
   }
@@ -483,7 +491,8 @@
         h('div', { class: 'ev-title' }, icon('flag'), h('span', { class: 't' }, src.title), p.total > 0 && h('span', { class: 'goal-pct' }, `${p.percent}%`)))] };
     }
     const title = h('div', { class: 'ev-title' },
-      src.kind === 'task' && h('span', { class: 'dot' }),
+      // A task's circle: clicking it ticks the task off (eventClick); the rest opens it.
+      src.kind === 'task' && h('span', { class: 'dot', title: 'Mark done' }),
       h('span', { class: 't' }, arg.event.title),
       src.goal && h('span', { class: 'ev-goal', title: `A step toward: ${src.goal.title}` }, icon('flag')),
       src.repeat && h('span', { title: REPEAT[src.repeat] }, icon('repeat')),
@@ -600,6 +609,14 @@
         info.jsEvent.preventDefault();
         const src = info.event.extendedProps.src;
         const anchor = info.el.getBoundingClientRect();
+        if (src.kind === 'task' && info.jsEvent.target.closest?.('.dot')) {
+          // The circle fills in straight away; the task is archived (with Undo), as from the Tasks panel.
+          if (info.el.classList.contains('is-done')) return;
+          info.el.classList.add('is-done');
+          const t = tasks.find((x) => x.id === src.id) || { id: src.id, label: src.title };
+          completeTask(t, null).then(() => { if (!tasks.some((x) => x.id === src.id)) return; info.el.classList.remove('is-done'); });
+          return;
+        }
         if (src.kind === 'task') openTask(tasks.find((t) => t.id === src.id) || { id: src.id, title: src.title, label: src.title, listName: src.calendarName }, anchor);
         else if (src.kind === 'goal') openGoalById(src.id, anchor);
         else openEditor({ src, start: toDate(src.start), end: toDate(src.end), allDay: src.allDay }, anchor);
@@ -768,6 +785,10 @@
     const memo = readOnly && notesField(src.memo, 'Your notes: kept in Onyx, since this calendar is read-only');
     const call = h('input', { type: 'checkbox', checked: !!src?.piCall });
     const callHint = h('small');
+    // When the Pi phones: its usual lead time, or a half-hour picked here (kept as minutes before the start).
+    let callBefore = src?.callBefore ?? null;
+    const callWhen = h('select', { class: 'call-when', title: 'When the Pi phones you' });
+    callWhen.addEventListener('change', () => { callBefore = callWhen.value === '' ? null : Number(callWhen.value); sync(); });
     const untilRow = h('div', { class: 'row' }, h('span', { class: 'ico' }), h('span', { class: 'dash' }, 'until'), endDate);
     const dash = h('span', { class: 'dash' }, '–');
     const tags = tagField(src ? src.tags : [...tagFilter].map((t) => tagInfo(t)?.name || t));
@@ -794,12 +815,25 @@
       untilRow.hidden = !r.allDay && !multiDay;
       pomoRow.hidden = r.allDay;
       pomo.sync();
-      const st = piStatus(r.at, r.allDay);
+      const st = piStatus(r.at, r.allDay, callBefore);
       callHint.textContent = st.text;
       callHint.className = st.tone;
       call.disabled = !st.allowed && !call.checked;
+      callWhen.hidden = !call.checked || !st.allowed;
+      if (!callWhen.hidden) {
+        const day = (d) => (sameDay(d, r.at) ? '' : `, ${sameDay(d, addDays(r.at, -1)) ? 'day before' : fmtDay(d)}`);
+        const usual = piCallTime(r.at);
+        const options = callSlots(r.at).map((s) => ({ before: Math.round((r.at - s) / 60000), at: s }));
+        if (callBefore != null && !options.some((o) => o.before === callBefore)) options.push({ before: callBefore, at: piCallTime(r.at, callBefore).at });
+        callWhen.replaceChildren(
+          h('option', { value: '' }, `Usual time: ${fmtTime(usual.at)}${day(usual.at)}`),
+          ...options.sort((a, b) => a.at - b.at).map((o) => h('option', { value: o.before, selected: o.before === callBefore },
+            `Call at ${fmtTime(o.at)}${day(o.at)}${piCallTime(r.at, o.before).quiet ? ' · quiet hours' : ''}`)));
+        callWhen.value = callBefore == null ? '' : String(callBefore);
+      }
     };
     for (const el of [date, startTime, endTime, endDate, allDay]) el.addEventListener('input', sync);
+    call.addEventListener('change', sync);
 
     const save = async () => {
       if (busy) return;
@@ -809,6 +843,8 @@
         title: title.value.trim(), start: r.start, end: r.end, allDay: r.allDay, calendarId: calendarPick.value,
         ...(notes ? { notes: cleanNote(notes.value) } : {}), piCall: call.checked && !r.allDay, tags: tags.get(),
       };
+      const callChanged = data.piCall && callBefore !== (src?.callBefore ?? null);
+      if (callChanged) data.callBefore = callBefore;
       try {
         let saved = null;
         if (!src) {
@@ -816,7 +852,7 @@
           if (S.settings.defaultCalendar !== data.calendarId) saveSettings({ defaultCalendar: data.calendarId }, true);
         } else if (readOnly) {
           // A read-only calendar can still carry tags and a phone reminder: both live in Onyx.
-          if (data.piCall !== !!src.piCall) await onyx.setCall({ id: src.id, title: src.title, start: src.start, allDay: src.allDay }, data.piCall);
+          if (data.piCall !== !!src.piCall || callChanged) await onyx.setCall({ id: src.id, title: src.title, start: src.start, allDay: src.allDay }, data.piCall, data.piCall ? callBefore : null);
           if (!sameTags(data.tags, src.tags)) await onyx.setTags(src.id, data.tags);
           if (cleanNote(memo.value) !== (src.memo || '')) await onyx.setMemo(src.id, memo.value);
         } else {
@@ -860,7 +896,7 @@
       pomoRow,
       src?.location && h('div', { class: 'row pop-meta' }, icon('pin'), src.location),
       S.settings.pi.enabled && h('div', { class: 'row pi-row' }, icon('phone'),
-        h('div', { class: 'txt' }, h('b', null, 'Phone reminder'), callHint),
+        h('div', { class: 'txt' }, h('b', null, 'Phone reminder'), callHint, callWhen),
         h('label', { class: 'switch' }, call, h('span'))),
       readOnly && h('div', { class: 'pop-meta' }, 'This calendar is read-only here. ',
         src.link && h('a', { href: '#', onclick: (e) => { e.preventDefault(); onyx.open(src.link); } }, 'Open it in the browser')),
@@ -995,7 +1031,7 @@
       if (undoStack.length > 30) undoStack.shift();
       syncUndo();
       const next = res?.next?.date ? `. Next one: ${fmtDay(fromYmd(res.next.date))}` : '';
-      toast(`Archived "${t.label}"${next}`, '', { label: 'Undo', run: () => restoreTask(t.id, t.label) });
+      toast(`Done: "${t.label}" (moved to Archived)${next}`, '', { label: 'Undo', run: () => restoreTask(t.id, t.label) });
       await loadTasks();
       refetch();
     } catch (err) {
@@ -1233,7 +1269,7 @@
       S.settings.pi.enabled && t.provider === 'google' && h('div', { class: 'row pi-row' }, icon('phone'),
         h('div', { class: 'txt' }, h('b', null, 'Phone reminder'), h('small', { class: st.tone }, st.text))),
       h('div', { class: 'pop-actions' },
-        h('button', { class: 'btn', title: 'Mark done and move it to the Archived tab (Undo brings it back)', onclick: () => { closePopover(); completeTask(t); } }, icon('archive'), 'Archive'),
+        h('button', { class: 'btn complete', title: 'Mark it done: it moves to the Archived tab (Undo brings it back)', onclick: () => { closePopover(); completeTask(t); } }, icon('check'), 'Complete'),
         h('div', { class: 'grow' }),
         h('button', { class: 'btn primary', onclick: save }, 'Save')),
     ]);
@@ -1689,6 +1725,7 @@
             ? h('span', { class: 'step-count', title: `Done ${s.count || 0} of the ${s.target || '…'} ${days} until the target date` },
               s.target ? `${s.count || 0}/${s.target} ${days}` : 'new')
             : h('input', { type: 'date', value: s.due || '', title: 'Due', onchange: (e) => { s.due = e.target.value || null; } }),
+          h('input', { type: 'time', class: 'step-time', value: s.time || '', step: 300, title: 'Time of day (optional): the step goes on your calendar at that time', onchange: (e) => { s.time = e.target.value || null; } }),
           timer,
           h('button', { class: 'x', title: 'Remove this step (its task is deleted)', onclick: () => { steps.splice(i, 1); drawSteps(); } }, icon('x')));
       }));
@@ -1714,7 +1751,7 @@
       const picked = tags.get();
       const data = {
         title: title.value.trim(), start: start.value, end: end.value, color, notes: cleanNote(notes.value), tags: picked,
-        steps: steps.filter((s) => s.title.trim()).map((s) => ({ id: s.id, title: s.title.trim(), due: s.repeat ? null : s.due || null, done: !!s.done, repeat: s.repeat || null })),
+        steps: steps.filter((s) => s.title.trim()).map((s) => ({ id: s.id, title: s.title.trim(), due: s.repeat ? null : s.due || null, time: s.time || null, done: !!s.done, repeat: s.repeat || null })),
         ...(listPick ? { listId: listPick.value } : {}),
       };
       try {

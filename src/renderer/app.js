@@ -935,9 +935,47 @@
           }, icon('repeat'), repeatBadge(t)),
           t.goal && h('span', { class: 'goal-chip', css: { '--g': t.goal.color }, title: `A step toward: ${t.goal.title}` }, icon('flag'), t.goal.title),
           h('span', null, t.listName),
-          (t.tags || []).map((tag) => h('span', { class: 'mini-tag', css: { '--t': tagColor(tag) } }, `#${tag}`))),
+          (t.tags || []).map((tag) => h('span', { class: 'mini-tag', css: { '--t': tagColor(tag) } }, `#${tag}`)),
+          dateBubble(t)),
         notePreview(notesOf(t))));
     return row;
+  }
+
+  /**
+   * The small date chip at the end of a task's line: tap it, pick a day, and the task
+   * moves there (as dragging it in the calendar does; a time it has stays the same).
+   */
+  function dateBubble(t) {
+    if (t.mirror || !t.provider) return null;
+    const today = ymd(new Date());
+    const label = !t.date ? 'Date' : t.date === today ? 'Today' : t.date === ymd(addDays(new Date(), 1)) ? 'Tomorrow'
+      : fromYmd(t.date).toLocaleDateString([], { month: 'short', day: 'numeric' });
+    const input = h('input', { type: 'date', value: t.date || '', tabindex: -1, 'aria-hidden': 'true' });
+    input.addEventListener('click', (e) => e.stopPropagation());
+    input.addEventListener('change', async () => {
+      const day = input.value;
+      if (day === (t.date || '')) return;
+      try {
+        if (day) await onyx.moveTask(t.id, t.time ? { start: at(day, t.time).toISOString() } : { date: day });
+        else if (t.dateInName) throw new Error('This task has its date written in its name. Pick another day instead.');
+        else await onyx.updateTask(t.id, { due: null });
+        toast(day ? `"${t.label}" moved to ${fmtDay(fromYmd(day))}` : `"${t.label}" has no date now`);
+        await loadTasks(true);
+        refetch(true);
+      } catch (err) {
+        input.value = t.date || '';
+        toast(err.message, 'error');
+      }
+    });
+    const open = (e) => {
+      e.stopPropagation();
+      try { input.showPicker(); } catch { input.focus(); input.click(); }
+    };
+    return h('button', {
+      class: `date-bubble${t.date && t.date < today ? ' late' : ''}${t.date ? '' : ' none'}`,
+      title: t.date ? `Due ${fmtDay(fromYmd(t.date))}. Click to pick another day` : 'Pick a day for it',
+      onclick: open,
+    }, icon('calendar'), label, input);
   }
 
   // A task marked done is archived: it stays in Google Tasks / To Do as completed, the

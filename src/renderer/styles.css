@@ -303,6 +303,12 @@ body.mobile #calendar, body.mobile #calendar .fc-scroller { touch-action: pan-y;
 .task-meta .call { display: inline-flex; align-items: center; gap: 3px; color: var(--ok); }
 .task-meta .call.off { color: var(--faint); }
 .task-meta .ico { width: 11px; height: 11px; }
+/* The date chip at the end of a task's line: opens a date picker. */
+.date-bubble { position: relative; display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px 1px 6px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255,255,255,0.04); color: var(--text); font: inherit; font-size: 11px; line-height: 16px; cursor: pointer; }
+.date-bubble:hover { background: rgba(255,255,255,0.09); border-color: color-mix(in srgb, var(--line) 50%, #fff); }
+.date-bubble.none { color: var(--muted); border-style: dashed; }
+.date-bubble.late { color: #ff8a8a; border-color: rgba(255,107,107,0.35); }
+.date-bubble input { position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; border: 0; padding: 0; pointer-events: none; }
 .empty { padding: 28px 16px; text-align: center; color: var(--faint); line-height: 1.6; }
 
 /* ------------------------------------------------------------ popover (block editor) */

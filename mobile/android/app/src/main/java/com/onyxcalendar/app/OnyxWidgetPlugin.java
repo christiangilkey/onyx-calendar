@@ -1,6 +1,12 @@
 package com.onyxcalendar.app;
 
+import android.content.ActivityNotFoundException;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.net.Uri;
+
 import com.getcapacitor.JSArray;
+import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
@@ -11,7 +17,8 @@ import java.util.List;
 
 /**
  * Hands the PC's address and token from the app to the home-screen widgets (they fetch
- * from the PC themselves), and asks them to refresh after a change in the app.
+ * from the PC themselves), and asks them to refresh after a change in the app. Also opens
+ * news videos in Tamkeen, the Arabic study app, when it is installed.
  */
 @CapacitorPlugin(name = "OnyxWidget")
 public class OnyxWidgetPlugin extends Plugin {
@@ -39,5 +46,42 @@ public class OnyxWidgetPlugin extends Plugin {
     public void refresh(PluginCall call) {
         OnyxWidget.refreshAll(getContext());
         call.resolve();
+    }
+
+    private static final String TAMKEEN = "io.github.christiangilkey.arabicpodcaststudio";
+
+    /** Whether Tamkeen is installed (the manifest's <queries> lets the app see it). */
+    @PluginMethod
+    public void tamkeenInstalled(PluginCall call) {
+        boolean installed;
+        try {
+            getContext().getPackageManager().getPackageInfo(TAMKEEN, 0);
+            installed = true;
+        } catch (PackageManager.NameNotFoundException e) {
+            installed = false;
+        }
+        JSObject out = new JSObject();
+        out.put("installed", installed);
+        call.resolve(out);
+    }
+
+    /** Opens a YouTube video in Tamkeen's player through its link, tamkeen://watch?v=<id>. */
+    @PluginMethod
+    public void openTamkeen(PluginCall call) {
+        String id = call.getString("id", "");
+        if (id == null || !id.matches("[A-Za-z0-9_-]{11}")) {
+            call.reject("That is not a YouTube video.");
+            return;
+        }
+        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("tamkeen://watch?v=" + id + "&from=onyx"));
+        intent.setPackage(TAMKEEN);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            getContext().startActivity(intent);
+            call.resolve();
+        } catch (ActivityNotFoundException e) {
+            // Installed, but a version from before Tamkeen took these links.
+            call.reject("Update Tamkeen to its newest version, so it can open videos from Onyx.", "OUTDATED");
+        }
     }
 }

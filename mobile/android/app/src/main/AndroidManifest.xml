@@ -76,6 +76,11 @@
 
     <!-- Permissions -->
 
+    <!-- Tamkeen, the Arabic study app: Onyx checks whether it is installed and opens news videos in it. -->
+    <queries>
+        <package android:name="io.github.christiangilkey.arabicpodcaststudio" />
+    </queries>
+
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Installing updates downloaded inside the app -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />

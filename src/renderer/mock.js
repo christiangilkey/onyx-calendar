@@ -464,6 +464,7 @@
     },
     leaveDesktops: async () => { state.desktops = { linked: false, device: 'a1', name: 'DESKTOP-MAIN', invite: null, desktops: [] }; return structuredClone(state.desktops); },
     forgetDesktop: async (id) => { state.desktops.desktops = state.desktops.desktops.filter((x) => x.id !== id); return structuredClone(state.desktops); },
+    tamkeen: { info: async () => ({ installed: true }), watch: async (id) => { window.lastTamkeen = id; return true; } },
     syncDesktops: async () => structuredClone({ ...state.desktops, invite: null }),
     loadGoogleCredentials: async () => snapshot(),
     connectGoogle: async () => snapshot(),

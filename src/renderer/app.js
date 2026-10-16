@@ -1450,8 +1450,48 @@
     return c.kind === 'live' ? `${YT}/embed/live_stream?channel=${c.channelId}&${q}` : `${YT}/embed/${c.id}?${q}`;
   }
 
+  // Tamkeen, the Arabic study app: when it is installed on this device, a toggle in the
+  // News panel sends news videos to its player (clickable captions, word lookups) instead
+  // of playing them here. Live streams still play here: Tamkeen needs a video's captions.
+  const tamkeen = { installed: false, on: (() => { try { return localStorage.getItem('onyx.news-tamkeen') === '1'; } catch { return false; } })() };
+
+  function renderTamkeen() {
+    const b = $('#news-tamkeen');
+    b.hidden = !tamkeen.installed;
+    b.classList.toggle('on', tamkeen.on);
+    b.setAttribute('aria-pressed', String(tamkeen.on));
+    b.title = tamkeen.on
+      ? 'On: news videos open in Tamkeen\'s player. Click to play them here again'
+      : 'Open news videos in Tamkeen\'s player, with clickable captions';
+  }
+
+  $('#news-tamkeen').addEventListener('click', () => {
+    tamkeen.on = !tamkeen.on;
+    try { localStorage.setItem('onyx.news-tamkeen', tamkeen.on ? '1' : '0'); } catch { /* remembered for this visit only */ }
+    renderTamkeen();
+    toast(tamkeen.on ? 'News videos now open in Tamkeen' : 'News videos play here again');
+  });
+
+  onyx.tamkeen?.info().then((info) => { tamkeen.installed = !!info?.installed; renderTamkeen(); if (news.current) renderPlayer(); }).catch(() => {});
+
+  async function openInTamkeen(c) {
+    if (news.playing) { news.playing = false; renderNews(); } // one player at a time
+    try {
+      await onyx.tamkeen.watch(c.id);
+      toast(`Opening "${c.title || 'the video'}" in Tamkeen`);
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
   function play(c) {
     if (c.kind === 'live' ? !okChannel(c.channelId) : !okVideo(c.id)) return;
+    if (tamkeen.on && tamkeen.installed && c.kind === 'video') {
+      news.current = c;
+      renderNews();
+      openInTamkeen(c);
+      return;
+    }
     news.current = c;
     news.playing = true;
     renderNews();
@@ -1506,6 +1546,7 @@
         h('span', null, c.kind === 'live' ? '24/7 stream' : `${c.channel} · ${ago(c.published)}`),
         h('span', { class: 'grow' }),
         c.kind === 'video' && shownStories().length > 1 && h('button', { class: 'btn', title: 'Play the next story', onclick: playNext }, icon('next'), 'Next'),
+        c.kind === 'video' && tamkeen.installed && h('button', { class: 'btn', title: 'Open it in Tamkeen\'s player', onclick: () => openInTamkeen(c) }, 'Tamkeen'),
         h('button', { class: 'btn', title: 'Open it on YouTube', onclick: () => onyx.open(watchUrl(c)) }, icon('link'), 'YouTube')));
   }
 

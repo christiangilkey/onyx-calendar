@@ -242,6 +242,25 @@
       return pair(parseLink(text));
     },
     syncDesktops: () => call('desktops:sync'),
+    // Tamkeen on this phone (not on the PC): checked and opened through the app's own plugin.
+    tamkeen: {
+      info: async () => {
+        try {
+          return { installed: !!(await Widget?.tamkeenInstalled?.())?.installed };
+        } catch {
+          return { installed: false }; // an app build from before Tamkeen support
+        }
+      },
+      watch: async (id) => {
+        if (!Widget?.openTamkeen) throw new Error('Opening Tamkeen works in the Android app.');
+        try {
+          await Widget.openTamkeen({ id });
+        } catch (err) {
+          throw new Error(err?.message || 'Could not open Tamkeen.');
+        }
+        return true;
+      },
+    },
     unpair: () => {
       conn = null;
       localStorage.removeItem(CONN);

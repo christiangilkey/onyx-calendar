@@ -1,5 +1,6 @@
 const { app, BrowserWindow, Menu, Tray, clipboard, dialog, ipcMain, nativeImage, session, shell } = require('electron');
 const fs = require('fs');
+const { spawn } = require('child_process');
 const path = require('path');
 
 // Lets a test run use a throwaway settings folder instead of the real one.
@@ -165,6 +166,22 @@ async function loadGoogleCredentials() {
 
 const { afterAccountChange } = api;
 
+// Tamkeen, the Arabic study app: news videos can be opened in its player. It takes a
+// tamkeen://watch?v=<id> link as its argument, and hands it to a copy already open.
+const TAMKEEN_EXE = path.join(process.env.LOCALAPPDATA || '', 'Programs', 'ArabicPodcastStudio', 'ArabicPodcastStudio.exe');
+const tamkeenInstalled = () => process.platform === 'win32' && !!process.env.LOCALAPPDATA && fs.existsSync(TAMKEEN_EXE);
+
+function watchInTamkeen(id, seconds) {
+  if (!/^[\w-]{11}$/.test(String(id || ''))) throw new Error('That is not a YouTube video.');
+  if (!tamkeenInstalled()) throw new Error('Tamkeen is not installed on this PC.');
+  const t = Number(seconds) > 0 ? `&t=${Math.floor(Number(seconds))}` : '';
+  return new Promise((resolve, reject) => {
+    const child = spawn(TAMKEEN_EXE, [`tamkeen://watch?v=${id}${t}&from=onyx`], { detached: true, stdio: 'ignore', cwd: path.dirname(TAMKEEN_EXE), windowsHide: false });
+    child.once('error', (err) => reject(new Error(`Could not start Tamkeen: ${err.message}`)));
+    child.once('spawn', () => { child.unref(); resolve(true); });
+  });
+}
+
 // The shared commands (api.js), plus the ones only the desktop can do.
 const HANDLERS = {
   ...api.handlers,
@@ -195,6 +212,9 @@ const HANDLERS = {
   },
   'files:add': (paths, tags) => library.addLocalPins(paths, tags),
   'files:open': (id, reveal) => library.openLocal(id, !!reveal),
+  // Tamkeen on this PC (not offered to the phone, which opens its own Tamkeen).
+  'tamkeen:info': () => ({ installed: tamkeenInstalled() }),
+  'tamkeen:watch': (id, seconds) => watchInTamkeen(id, seconds),
 };
 
 function registerIpc() {

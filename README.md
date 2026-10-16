@@ -175,6 +175,17 @@ Tap an entry to open that day in the app, tap ✓ on a task to tick it off (in G
 
 The APK and the Windows installer are built by GitHub Actions ([`.github/workflows/android.yml`](.github/workflows/android.yml)) whenever a version tag is pushed, and attached to the release, whose notes are the tag's message. A release can also be made from the Actions tab (**Release → Run workflow**, with the version and its notes). The APK is signed with a key kept in the repository's Actions secrets, so each new version installs over the last one.
 
+## Several desktops
+
+Onyx can run on more than one PC and keep them all the same. On the PC that is set up, open **Settings → Desktops → Show a link code**. On the other PC, install Onyx, open **Settings → Desktops → Join a linked desktop**, and type in the first PC's address and the code (it works once, for 10 minutes).
+
+- **What is shared:** the Google credentials file and the Google and Outlook sign-ins (so the new PC needs no setting up), Notion, calendar links, tags and their colours, notes, goals, repeats, pomodoro splits, memos, Notion/Drive/web pins on the globe, the local time-block calendars, hidden calendars, the Pi settings and the News channels. Load a credentials file on one PC and every linked PC has it within seconds.
+- **What stays on each PC:** files and folders pinned from its own disk, the window layout, the server's port, start-up options.
+- **Changes** reach the other desktops within seconds while they are on, and when they next come on otherwise. If the same thing is changed on two PCs, the later change wins. When a PC joins, the group's copy wins wherever both have the same setting; anything only the new PC had is added for everyone.
+- **The phone** uses whichever desktop is on: linked desktops share one token, and the phone learns their addresses by itself. A phone paired with only the joining PC needs pairing again (from any of them).
+- **How:** desktops talk over the same port as the phone (on the same wifi, or anywhere with Tailscale), so **Reachable from your network** must be on. Everything between desktops is encrypted with a key that only linked desktops hold; the link code lets the two agree on it without it ever crossing the network. **Unlink this desktop** stops sharing; the PC keeps what it has.
+- Jobs that must happen once, such as adding the next copy of a repeating task done in Google Tasks, are done by one desktop at a time.
+
 ## MCP server
 
 While the app is running it serves the calendar on port `4747`. Every request needs the token shown in **Settings → MCP server**.
@@ -221,6 +232,7 @@ curl -H "Authorization: Bearer <token>" "http://<this PC's address>:4747/api/age
 - Passwords are typed into Google's or Microsoft's own page in your browser, never into this app.
 - The app talks only to Google, Microsoft and the calendar links you add. There is no telemetry.
 - The MCP server refuses requests without the token. Turn off **Reachable from your network** to limit it to this PC.
+- Linked desktops copy your sign-ins and keys to each other, encrypted with a key only they hold, and each stores them encrypted with its own Windows account.
 
 ## Development
 

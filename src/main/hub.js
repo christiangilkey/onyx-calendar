@@ -10,6 +10,7 @@ const ics = require('./providers/ics');
 const { parseName, mirrorName, callTime } = require('./taskname');
 const repeat = require('./repeat');
 const series = require('./series');
+const sync = require('./sync');
 
 const PROVIDERS = { google, microsoft };
 const LOCAL = { id: 'local', provider: 'local', label: 'On this PC' };
@@ -394,7 +395,8 @@ async function getTasks({ force = false } = {}) {
     }
   }));
   const tasks = lists.flat();
-  if (Object.keys(store.data.repeats).length) {
+  // With linked desktops, one of them does this, or each would add the next task.
+  if (Object.keys(store.data.repeats).length && sync.leads()) {
     const open = new Set(tasks.map((t) => t.id));
     tasks.push(...await repeat.reconcile(module.exports, open, failed, new Set(all.map((c) => c.id))));
   }
@@ -696,6 +698,7 @@ async function setPiCall(event, on) {
  * (Google's site, Outlook, a phone) must move or drop its Pi call too.
  */
 function reconcileCalls(cal, items, start, end) {
+  if (!sync.leads()) return; // one linked desktop keeps the Pi tasks in step, not all of them
   const from = new Date(start), to = new Date(end);
   const byId = new Map(items.map((e) => [e.id, e]));
   for (const [eventId, link] of Object.entries(store.data.piLinks)) {

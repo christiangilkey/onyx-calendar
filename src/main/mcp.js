@@ -6,9 +6,10 @@
 //   GET  /api/tasks
 //   GET  /api/calendars
 //   POST /app/rpc      the Android app (same commands as the desktop window)
+//   POST /sync         other linked desktops (sync.js; encrypted with the desktops' own key)
 //   GET  /health       no token needed
 //
-// Everything except /health needs "Authorization: Bearer <token>".
+// Everything except /health and /sync needs "Authorization: Bearer <token>".
 
 const crypto = require('crypto');
 const http = require('http');
@@ -380,6 +381,9 @@ async function handle(req, res) {
   const route = url.pathname.replace(/\/+$/, '') || '/';
   if (req.method === 'OPTIONS') return send(res, 204);
   if (route === '/health') return send(res, 200, { ok: true, name: 'onyx-calendar', version });
+  // Other desktops linked to this one. These carry their own key instead of the token (sync.js).
+  if (route === '/sync' && req.method === 'POST') return require('./sync').handleSync(req, res);
+  if (route === '/sync/join' && req.method === 'POST') return require('./sync').handleJoin(req, res);
   // The page the phone's camera opens from the pairing QR code. It holds no secrets: the
   // pairing link rides after the #, which the browser keeps to itself.
   if (route === '/pair' && req.method === 'GET') {

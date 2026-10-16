@@ -12,6 +12,7 @@ const notion = require('./providers/notion');
 const drive = require('./providers/drive');
 const news = require('./news');
 const goals = require('./goals');
+const sync = require('./sync');
 const { version } = require('../../package.json');
 
 let afterSettings = async () => {};
@@ -26,7 +27,9 @@ function state() {
     tags: hub.allTags(),
     google: { ready: !!d.google.clientId },
     microsoft: { clientId: d.microsoft.clientId },
-    mcp: mcp.info(),
+    // `peers`: the other linked desktops, which the phone can use when this one is off.
+    mcp: { ...mcp.info(), peers: sync.peerAddresses() },
+    desktops: { ...sync.info(), invite: null }, // a link code only ever comes from 'desktops', on the PC itself
     notion: notion.info(),
   };
 }
@@ -132,12 +135,20 @@ const handlers = {
   'google:credentials': withState((text) => setGoogleClient(text)),
   'microsoft:client': withState((id) => { store.data.microsoft.clientId = String(id || '').trim(); store.save(); }),
   'feed:add': (feed) => { accounts.addFeed(feed.name, feed.url); return afterAccountChange(); },
+  // Other PCs running Onyx, sharing everything it keeps (sync.js).
+  desktops: () => sync.info(),
+  'desktops:invite': () => sync.newInvite(),
+  'desktops:cancel': () => sync.cancelInvite(),
+  'desktops:join': async (address, code) => { await sync.join(address, code); return afterAccountChange(); },
+  'desktops:leave': () => sync.leave(),
+  'desktops:forget': (id) => sync.forget(id),
+  'desktops:sync': () => sync.syncNow(),
 };
 
 // What the phone may run. Signing in to accounts, and the settings that could
 // cut the phone off (the server itself, start-up behaviour), stay on the PC.
 const PHONE_SETTINGS = ['hidden', 'hour12', 'weekStart', 'defaultCalendar', 'pi'];
-const PC_ONLY = new Set(['pairing']);
+const PC_ONLY = new Set(['pairing', 'desktops', 'desktops:invite', 'desktops:cancel', 'desktops:join', 'desktops:leave', 'desktops:forget']);
 const remote = Object.fromEntries(Object.entries(handlers).filter(([name]) => !PC_ONLY.has(name)));
 remote.settings = (patch) => changeSettings(Object.fromEntries(Object.entries(patch || {}).filter(([k]) => PHONE_SETTINGS.includes(k))));
 

@@ -135,7 +135,12 @@
     google: { ready: true },
     microsoft: { clientId: '' },
     notion: { connected: true, name: 'Onyx', workspace: 'My workspace' },
-    mcp: { enabled: true, port: 4747, lan: true, running: true, error: '', token: 'preview-token', addresses: ['192.168.1.20'] },
+    mcp: { enabled: true, port: 4747, lan: true, running: true, error: '', token: 'preview-token', addresses: ['192.168.1.20'], peers: ['192.168.1.31:4747'] },
+    desktops: { linked: true, device: 'a1', name: 'DESKTOP-MAIN', invite: null, desktops: [
+      { id: 'a1', self: true, name: 'DESKTOP-MAIN', version: 'preview', addresses: ['192.168.1.20:4747', '100.101.12.7:4747'], online: true, seen: Date.now(), error: '' },
+      { id: 'b2', self: false, name: 'LAPTOP', version: 'preview', addresses: ['192.168.1.31:4747'], online: true, seen: Date.now() - 12000, error: '' },
+      { id: 'c3', self: false, name: 'OFFICE-PC', version: 'preview', addresses: ['10.0.0.8:4747'], online: false, seen: Date.now() - 3 * 86400000, error: 'Not reachable.' },
+    ] },
   };
   const snapshot = () => structuredClone({ ...state, tags: allTags() });
   const merge = (target, patch) => {
@@ -449,6 +454,17 @@
     disconnectNotion: async () => snapshot(),
     pairing: async () => ({ link: 'onyx://pair?a=192.168.1.20%3A4747&t=preview-token', page: 'http://192.168.1.20:4747/pair#a=192.168.1.20%3A4747&t=preview-token', qr: '', addresses: ['192.168.1.20:4747'], token: 'preview-token', running: true, lan: true }),
     settings: async (patch) => { merge(state.settings, patch); return snapshot(); },
+    // Linked desktops (sync.js on the PC).
+    desktops: async () => structuredClone(state.desktops),
+    inviteDesktop: async () => { state.desktops.invite = { code: 'K7QM-4XPA', expires: Date.now() + 600000, addresses: ['192.168.1.20:4747', '100.101.12.7:4747'] }; return structuredClone(state.desktops); },
+    cancelInvite: async () => { state.desktops.invite = null; return structuredClone(state.desktops); },
+    joinDesktop: async (address, code) => {
+      if (String(code).replace(/[^a-z0-9]/gi, '').length !== 8) throw new Error('The code is 8 letters and numbers, like ABCD-2345.');
+      return snapshot();
+    },
+    leaveDesktops: async () => { state.desktops = { linked: false, device: 'a1', name: 'DESKTOP-MAIN', invite: null, desktops: [] }; return structuredClone(state.desktops); },
+    forgetDesktop: async (id) => { state.desktops.desktops = state.desktops.desktops.filter((x) => x.id !== id); return structuredClone(state.desktops); },
+    syncDesktops: async () => structuredClone({ ...state.desktops, invite: null }),
     loadGoogleCredentials: async () => snapshot(),
     connectGoogle: async () => snapshot(),
     connectMicrosoft: async () => snapshot(),

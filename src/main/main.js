@@ -12,6 +12,7 @@ const mcp = require('./mcp');
 const api = require('./api');
 const library = require('./library');
 const updater = require('./updater');
+const sync = require('./sync');
 
 const { state } = api;
 
@@ -135,6 +136,12 @@ async function boot() {
   createWindow();
   if (!SMOKE_SHOT) createTray();
   await mcp.start(() => win?.webContents.send('changed'));
+  // Another linked desktop changed something: show it. New sign-ins need their calendars read.
+  sync.start((touched) => {
+    if ([...touched].some((s) => s !== 'desktops')) hub.invalidate();
+    if (touched.has('accounts') || touched.has('secrets.tokens')) hub.refreshCalendars().catch(() => {}).then(() => win?.webContents.send('changed'));
+    win?.webContents.send('changed');
+  });
   hub.refreshCalendars().then(() => win?.webContents.send('changed')).catch(() => {});
   updater.start((s) => win?.webContents.send('update', s));
 }

@@ -60,10 +60,13 @@
   // The PC sends its current addresses with its state, so a phone paired before Tailscale
   // was set up (or before the PC's wifi address changed) picks up the new ones by itself.
   // The address that just answered and any typed-in ones are kept; stale wifi ones are dropped.
+  // `peers` are the other desktops linked to that PC: they share its token, so whichever
+  // of them is on answers the phone.
   function learnAddresses(value, answered) {
     const m = value?.mcp;
     if (!Array.isArray(m?.addresses) || !m.addresses.length || !m.port) return;
-    const next = [...new Set([answered, ...m.addresses.map((a) => `${a}:${m.port}`), ...conn.addresses.filter((a) => !isLocal(a))])];
+    const peers = Array.isArray(m.peers) ? m.peers.filter((a) => typeof a === 'string' && /:\d+$/.test(a)) : [];
+    const next = [...new Set([answered, ...m.addresses.map((a) => `${a}:${m.port}`), ...peers, ...conn.addresses.filter((a) => !isLocal(a))])];
     if (next.join() === conn.addresses.join()) return;
     conn.addresses = next;
     write(CONN, conn);
@@ -238,6 +241,7 @@
       if (!/^(onyx:\/\/|https?:\/\/[^/]+\/pair#)/.test(text)) throw new Error('That QR code is not an Onyx pairing code. Use the one in Settings → Phone on the PC.');
       return pair(parseLink(text));
     },
+    syncDesktops: () => call('desktops:sync'),
     unpair: () => {
       conn = null;
       localStorage.removeItem(CONN);

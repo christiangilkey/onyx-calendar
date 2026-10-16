@@ -1933,7 +1933,7 @@
             h('button', { class: 'btn', onclick: () => act(() => onyx.addFeed({ name: feedName.value, url: feedUrl.value }), 'Calendar added') }, 'Add'))),
         h('div', { class: 'card' },
           h('h4', null, 'On this PC'),
-          h('p', null, 'Local calendars for time blocks. They stay on this computer.'),
+          h('p', null, S.desktops?.desktops?.length > 1 ? 'Local calendars for time blocks. They are kept in Onyx, on your linked desktops, not in Google or Outlook.' : 'Local calendars for time blocks. They stay on this computer.'),
           S.calendars.filter((c) => c.account === 'local').map((c) => h('div', { class: 'acct' },
             h('span', { class: 'swatches' }, h('button', { css: { '--c': c.color }, disabled: true })), h('span', { class: 'who' }, c.name),
             h('button', { class: 'btn danger', onclick: () => act(() => onyx.removeLocalCalendar(c.id)) }, 'Remove'))),
@@ -2051,6 +2051,76 @@
       ];
     },
 
+    // Desktop: other PCs running Onyx, kept in step with this one.
+    desktops() {
+      const box = h('div', null, h('div', { class: 'card' }, h('p', null, 'Loading…')));
+      const run = async (fn, done) => {
+        try {
+          const next = await fn();
+          if (next?.settings) applyState(next); else openSettings('desktops');
+          if (done) toast(done);
+        } catch (err) {
+          toast(err.message, 'error');
+        }
+      };
+      const ago = (t) => {
+        const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+        return s < 60 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : new Date(t).toLocaleDateString();
+      };
+      const short = (a) => a.replace(/:4747$/, '');
+      onyx.desktops().then((d) => {
+        const m = S.mcp;
+        const off = !m.running || !m.lan;
+        const others = d.desktops.filter((x) => !x.self);
+        const linked = d.linked && others.length > 0;
+        const address = h('input', { type: 'text', placeholder: 'Its address, e.g. 192.168.1.20', spellcheck: false });
+        const code = h('input', { type: 'text', class: 'code-input', placeholder: 'ABCD-2345', spellcheck: false, autocomplete: 'off', maxlength: 9 });
+        const join = () => run(() => onyx.joinDesktop(address.value, code.value), 'Linked. Everything is now shared with the other desktop.');
+        code.addEventListener('keydown', (e) => { if (e.key === 'Enter') join(); });
+        box.replaceChildren(...[
+          off && h('div', { class: 'card' },
+            h('h4', null, 'Turn on the server first'),
+            h('p', null, 'Desktops reach each other through the MCP server, like the phone does. In the MCP server tab, switch the server on and turn on "Reachable from your network".'),
+            h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => openSettings('mcp') }, 'Open MCP server settings'))),
+          linked && h('div', { class: 'card' },
+            h('h4', null, 'Linked desktops', h('span', { class: 'badge ok' }, `${others.length + 1} PCs`)),
+            d.desktops.map((x) => h('div', { class: 'acct desk' },
+              h('span', { class: `badge ${x.self ? '' : x.online ? 'ok' : 'bad'}` }, x.self ? 'This PC' : x.online ? 'Online' : 'Offline'),
+              h('span', { class: 'who' }, x.name,
+                h('small', null, x.self
+                  ? (x.addresses.length ? x.addresses.map(short).join('  ·  ') : 'Not reachable: the server is off')
+                  : x.online ? `Synced ${ago(x.seen)}` : [x.seen ? `Last synced ${ago(x.seen)}` : 'Not synced yet', x.error].filter(Boolean).join(' · '))),
+              !x.self && !x.online && h('button', { class: 'btn', title: 'Take it off the list (a desktop that is still linked comes back when it next syncs)', onclick: () => run(() => onyx.forgetDesktop(x.id)) }, 'Remove'))),
+            h('p', { class: 'hint' }, 'Changes reach the others within seconds while they are on, and as soon as they come back otherwise. Your phone uses whichever desktop is on.'),
+            h('div', { class: 'row' },
+              h('button', { class: 'btn', onclick: () => run(() => onyx.syncDesktops(), 'Synced') }, icon('update'), 'Sync now'),
+              h('button', { class: 'btn danger', onclick: () => {
+                if (confirm('Unlink this desktop? It keeps what it has now, but stops sharing changes with the others.')) run(() => onyx.leaveDesktops(), 'Unlinked');
+              } }, 'Unlink this desktop'))),
+          h('div', { class: 'card' },
+            h('h4', null, 'Link another desktop'),
+            d.invite
+              ? [h('p', null, 'On the other PC, install Onyx and open Settings → Desktops. Under "Join a linked desktop", enter this PC\'s address and the code. The code works once, for 10 minutes.'),
+                h('div', { class: 'link-code' }, d.invite.code),
+                h('pre', { class: 'code' }, `This PC's address:  ${d.invite.addresses.map(short).join('   or   ') || '(turn on the server first)'}`),
+                h('div', { class: 'row' }, copyBtn(d.invite.code, 'Copy code'), h('button', { class: 'btn', onclick: () => run(() => onyx.cancelInvite()) }, 'Cancel'))]
+              : [h('p', null, 'Shows a one-time code to type into Onyx on the other PC. After that, both share your Google credentials and sign-ins, tags, notes, goals, repeats, memos, pins and settings.'),
+                h('div', { class: 'row' }, h('button', { class: 'btn primary', disabled: off, onclick: () => run(() => onyx.inviteDesktop()) }, 'Show a link code'))]),
+          !linked && h('div', { class: 'card' },
+            h('h4', null, 'Join a linked desktop'),
+            h('p', null, 'Use this on the new PC, with the address and code shown on the PC that is already set up. This PC gets everything from that one, nothing needs setting up again. Where both have the same setting, the other PC\'s wins.'),
+            h('div', { class: 'row' }, address, code, h('button', { class: 'btn primary', disabled: off, onclick: join }, 'Join')),
+            h('p', { class: 'hint' }, 'A phone paired with only this PC needs pairing again afterwards (from either PC).')),
+        ].filter(Boolean));
+        if (d.invite) setTimeout(() => { if (settingsTab === 'desktops' && !$('#modal').hidden) openSettings('desktops'); }, Math.max(1000, d.invite.expires - Date.now() + 500));
+      }).catch((err) => box.replaceChildren(h('div', { class: 'card' }, h('p', null, err.message))));
+      return [
+        h('h3', null, 'Desktops'),
+        h('p', { class: 'lead' }, 'Run Onyx on more than one PC and keep them the same. Load your Google credentials file on one, and every linked desktop has it.'),
+        box,
+      ];
+    },
+
     // Desktop: Notion and Google Drive, for pinning documents to the globe.
     connections() {
       const n = S.notion || {};
@@ -2140,6 +2210,17 @@
               if (confirm('Disconnect this phone from your PC?')) { onyx.unpair(); location.reload(); }
             } }, 'Disconnect'))),
         !c?.anywhere?.length && tailscaleSteps('phone'),
+        // Linked desktops share one calendar and one token: whichever is on answers this phone.
+        S.desktops?.desktops?.length > 1 && h('div', { class: 'card' },
+          h('h4', null, 'Your desktops'),
+          h('p', null, 'These PCs keep the same calendar. The phone uses whichever one is on.'),
+          S.desktops.desktops.map((x) => {
+            const here = (c?.last && x.addresses.includes(c.last));
+            return h('div', { class: 'acct desk' },
+              h('span', { class: `badge ${here ? 'ok' : x.online ? 'ok' : ''}` }, here ? 'In use' : x.online ? 'Online' : 'Off'),
+              h('span', { class: 'who' }, x.name, h('small', null, x.addresses.map((a) => a.replace(/:4747$/, '')).join('  ·  '))));
+          }),
+          h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => act(() => onyx.syncDesktops(), 'Synced') }, icon('update'), 'Sync them now'))),
         S.accounts.length > 0 && h('div', { class: 'card' }, h('h4', null, 'Accounts on the PC'),
           S.accounts.map((a) => h('div', { class: 'acct' }, h('span', { class: 'badge' }, PROVIDER[a.provider]), h('span', { class: 'who' }, a.label)))),
       ];
@@ -2150,7 +2231,7 @@
   function openSettings(tab = settingsTab) {
     const tabs = onyx.isPhone
       ? [['connection', 'Connection'], ['keys', 'Keys & accounts'], ['pi', 'Pi calls'], ['general', 'General']]
-      : [['calendars', 'Calendars'], ['connections', 'Notion & Drive'], ['phone', 'Phone'], ['pi', 'Pi calls'], ['mcp', 'MCP server'], ['general', 'General']];
+      : [['calendars', 'Calendars'], ['connections', 'Notion & Drive'], ['phone', 'Phone'], ['desktops', 'Desktops'], ['pi', 'Pi calls'], ['mcp', 'MCP server'], ['general', 'General']];
     if (!tabs.some(([id]) => id === tab)) tab = tabs[0][0];
     settingsTab = tab;
     closePopover();

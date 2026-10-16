@@ -42,12 +42,16 @@ const DEFAULTS = {
   pomodoro: {},          // event or task id -> { work, rest, minutes? }: split into work and rest chunks (hub.js)
   madeHere: {},          // event or task id -> date it was added from Onyx (so a window can say where it came from)     // completed task id -> the task added after it, so Undo can take that back
   news: null,          // { channels: [{ id, name, on, live?, custom? }] } for the News panel (news.js)
-  secrets: { googleClientSecret: '', tokens: {}, mcpToken: '', notionToken: '' },
+  desktops: {},          // linked desktops: device id -> { name, addresses, version } (sync.js)
+  sync: null,            // this PC's sync bookkeeping: its id, when each shared piece changed, what each desktop has seen (sync.js)
+  // group: the id and key shared by linked desktops (sync.js)
+  secrets: { googleClientSecret: '', tokens: {}, mcpToken: '', notionToken: '', group: null },
 };
 
 let file = '';
 let data = structuredClone(DEFAULTS);
 let timer = null;
+const writeHooks = []; // run just before each write (sync.js notes what changed)
 
 function merge(base, saved) {
   if (Array.isArray(base) || typeof base !== 'object' || base === null) return saved === undefined ? base : saved;
@@ -84,6 +88,9 @@ function load() {
 
 function writeNow() {
   timer = null;
+  for (const fn of writeHooks) {
+    try { fn(); } catch (err) { console.error('onyx:', err.message); }
+  }
   const out = { ...data };
   if (safeStorage.isEncryptionAvailable()) {
     out.secretsEnc = safeStorage.encryptString(JSON.stringify(data.secrets)).toString('base64');
@@ -103,4 +110,4 @@ function flush() {
   if (timer) { clearTimeout(timer); writeNow(); }
 }
 
-module.exports = { load, save, flush, get data() { return data; } };
+module.exports = { load, save, flush, onWrite: (fn) => writeHooks.push(fn), get data() { return data; } };

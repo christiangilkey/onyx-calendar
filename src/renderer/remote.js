@@ -107,16 +107,50 @@
     widgetTimer = setTimeout(() => Widget.refresh()?.catch?.(() => {}), 1500);
   }
 
-  async function call(name, ...args) {
+  // Which of the PC's addresses answers: all are asked at once (GET /health, which is
+  // quick and needs no token) and the first to answer is used. Asked when the app starts
+  // and whenever the one in use stops answering, so an address that is out of reach (home
+  // wifi, away from home) costs one short wait instead of a long one per address.
+  const PROBE_MS = 3000;
+  let finding = null;
+  function findPC() {
+    finding ||= (async () => {
+      const probe = (address) => new Promise((resolve, reject) => {
+        const ctl = new AbortController();
+        const timer = setTimeout(() => ctl.abort(), PROBE_MS);
+        fetch(`http://${address}/health`, { signal: ctl.signal })
+          .then((res) => (res.ok ? resolve(address) : reject(new Error(String(res.status)))), reject)
+          .finally(() => clearTimeout(timer));
+      });
+      try {
+        const address = await Promise.any(conn.addresses.map(probe));
+        if (conn.last !== address) { conn.last = address; write(CONN, conn); }
+        return address;
+      } catch {
+        return null;
+      } finally {
+        finding = null;
+      }
+    })();
+    return finding;
+  }
+  let started = null; // the first look for the PC since the app opened
+
+  /** Runs a command on the PC; when it can't be reached, the last copy of a kept answer. */
+  async function fromPC(name, args) {
     if (!conn) throw new Error('This phone is not connected to Onyx on your PC yet.');
-    const order = [conn.last, ...conn.addresses.filter((a) => a !== conn.last)].filter(Boolean);
-    for (const address of order) {
+    started ||= findPC();
+    let address = (await started) || conn.last;
+    const tried = new Set();
+    while (address && !tried.has(address)) {
+      tried.add(address);
       let body;
       try {
         body = await post(address, name, args);
       } catch (err) {
         if (err.final) throw err;
-        continue; // that address is not answering: try the next one
+        address = await findPC(); // that address stopped answering: which one does?
+        continue;
       }
       setOnline(true);
       if (conn.last !== address) { conn.last = address; write(CONN, conn); }
@@ -129,7 +163,7 @@
         throw new Error(body.error);
       }
       learnAddresses(body.value, address);
-      if (CACHED.has(name)) write(cacheKey(name, args), body.value);
+      if (CACHED.has(name)) { write(cacheKey(name, args), body.value); fetched.set(cacheKey(name, args), Date.now()); }
       if (name === 'events') rememberEvents(body.value.events);
       nudgeWidget(name);
       return body.value;
@@ -140,6 +174,32 @@
     throw new Error(conn.addresses.some(isTailscale)
       ? 'Can\'t reach Onyx on your PC. Check that it is running, and that Tailscale is on, on both the PC and this phone.'
       : 'Can\'t reach Onyx on your PC. Check that it is running and that the phone is on the same wifi. To use Onyx away from home, set up Tailscale: Settings → Connection.');
+  }
+
+  // Start-up shows the last copy at once (the calendar, tasks, settings) and fetches the
+  // fresh one behind it; the app redraws when it arrives and differs. A copy fetched in the
+  // last few seconds is used as it is, so that redraw doesn't fetch everything twice.
+  const fetched = new Map(); // cache key -> when it last came from the PC
+  const changeFns = new Set();
+  let changeTimer = null;
+  const changed = () => { clearTimeout(changeTimer); changeTimer = setTimeout(() => { for (const fn of changeFns) fn(); }, 150); };
+
+  async function call(name, ...args) {
+    if (!conn) throw new Error('This phone is not connected to Onyx on your PC yet.');
+    if (CACHED.has(name)) {
+      const key = cacheKey(name, args);
+      const kept = read(key, null);
+      if (kept && Date.now() - (fetched.get(key) || 0) < 8000) return kept;
+      if (!fetched.has(key)) {
+        const shown = kept || (name === 'events' ? fromCache(name, args) : null);
+        if (shown) {
+          fetched.set(key, 0);
+          fromPC(name, args).then((fresh) => { if (JSON.stringify(fresh) !== JSON.stringify(shown)) changed(); }).catch(() => {});
+          return shown;
+        }
+      }
+    }
+    return fromPC(name, args);
   }
 
   const withLocal = (state) => (state ? { ...state, settings: { ...state.settings, ...local } } : state);
@@ -161,8 +221,9 @@
     if (!clean.length || !token.trim()) throw new Error('Enter the PC\'s address and the token.');
     const previous = conn;
     conn = { addresses: clean, token: token.trim(), last: '' };
+    started = null;
     try {
-      const state = await call('state');
+      const state = await fromPC('state', []);
       if (!online) throw new Error('Could not reach the PC at that address.');
       write(CONN, conn);
       syncWidget();
@@ -329,6 +390,7 @@
     copy: async (text) => navigator.clipboard?.writeText(String(text)),
     // There is no push from the PC: check again every minute and whenever the app comes back.
     onChanged: (fn) => {
+      changeFns.add(fn); // a fresh copy came in behind the one shown at start-up
       setInterval(() => { if (document.visibilityState === 'visible') fn(); }, 60000);
       document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') fn(); });
     },

@@ -371,7 +371,7 @@
       document.body.classList.toggle('has-next', show);
       requestAnimationFrame(() => calendar?.updateSize()); // the calendar gets shorter or taller
     }
-    if (!show) { bar.hidden = true; return; }
+    if (!show) { placeStatus(false); bar.hidden = true; return; }
     const now = Date.now();
     const timed = nextRun.items.map((e) => ({ e, s: new Date(e.start).getTime(), f: new Date(e.end).getTime() }));
     // Now: what has started and not ended (the one that started last); next: the soonest start to come.
@@ -401,6 +401,7 @@
         live: h('span', { class: 'next-live', 'aria-hidden': 'true' }),
         count: h('span', { class: 'next-count' }),
         gauge: h('span', { class: 'next-gauge', 'aria-hidden': 'true' }, h('i')),
+        tools: h('div', { class: 'next-tools' }),
         sound: h('button', { class: 'next-sound', onclick: () => {
           try { localStorage.setItem('onyx.next-sound', nextSoundOn() ? '0' : '1'); } catch { /* this visit only */ }
           toast(nextSoundOn() ? 'Chimes on: 5 minutes before, and as it starts' : 'Chimes off');
@@ -414,9 +415,10 @@
       bar.replaceChildren(h('div', { class: 'next-row' },
         h('div', { class: 'next-side' }, parts.label),
         parts.pill,
-        h('div', { class: 'next-side end' }, parts.sound)));
+        h('div', { class: 'next-side end' }, parts.tools, parts.sound)));
       nextRun.parts = parts;
     }
+    placeStatus(!MOBILE);
     // Now on the left (what you are in, or free time); in the middle, as the thing to look at,
     // what comes next and the time left before it, ticking by the second.
     const p = nextRun.parts;
@@ -458,6 +460,21 @@
     bar.className = tone;
     p.pill.style.setProperty('--left', `${(gauge * 100).toFixed(2)}%`);
     bar.hidden = false;
+  }
+
+  // Two tiers: the title bar keeps navigation (dates, views, globe, tasks, settings); the bar
+  // under it holds the status and the contextual actions (the pomodoro timer, undo, updates,
+  // refresh). With the bar off, or on the phone, they stay in the title bar.
+  const STATUS_TOOLS = ['pomo-timer', 'undo-btn', 'update-btn', 'refresh'];
+  function placeStatus(inBar) {
+    const tools = nextRun.parts?.tools;
+    const header = $('#titlebar');
+    if (inBar && tools) {
+      for (const id of STATUS_TOOLS) { const el = document.getElementById(id); if (el && el.parentElement !== tools) tools.append(el); }
+    } else if ($('#pomo-timer').parentElement !== header) {
+      header.insertBefore($('#pomo-timer'), $('#views'));
+      for (const id of STATUS_TOOLS.slice(1)) header.insertBefore(document.getElementById(id), $('#toggle-tasks'));
+    }
   }
 
   /** The countdown in the pill: "09h 22m 14s", "22m 14s", or "2d 03h" for days ahead. */
@@ -810,8 +827,42 @@
       src.kind === 'event' && !src.writable && icon('lock'),
       src.tags?.length > 0 && h('span', { class: 'tagdots', title: src.tags.map((t) => `#${t}`).join(' ') },
         src.tags.slice(0, 4).map((t) => h('i', { css: { '--t': tagColor(t) } }))));
-    // Hovering an entry shows its notes.
-    return { domNodes: [h('div', { class: 'ev', title: notes ? `${arg.event.title}\n\n${notes}` : null }, title, arg.timeText && h('div', { class: 'ev-time' }, arg.timeText))] };
+    // On the PC, hovering shows a preview card (showPeek); the phone keeps the plain tooltip.
+    return { domNodes: [h('div', { class: 'ev', title: notes && MOBILE ? `${arg.event.title}\n\n${notes}` : null }, title, arg.timeText && h('div', { class: 'ev-time' }, arg.timeText))] };
+  }
+
+  // A preview card for the block under the pointer: its whole name, times, calendar, notes and
+  // tags, which a short or narrow block cuts off. Shown after a short pause, never while dragging.
+  const peek = { el: null, timer: 0 };
+  document.addEventListener('scroll', () => hidePeek(), true); // the block moved away from under the card
+  function showPeek(info) {
+    hidePeek();
+    const src = info.event.extendedProps.src;
+    if (MOBILE || !src || src.kind === 'goal' || document.body.classList.contains('dragging-entry')) return;
+    peek.timer = setTimeout(() => {
+      if (!info.el.isConnected || document.body.classList.contains('dragging-entry')) return;
+      const e = info.event;
+      const notes = notesOf(src);
+      const when = e.allDay ? `${fmtDay(e.start)} · all day` : `${fmtDay(e.start)} · ${fmtTime(e.start)}${e.end ? ` – ${fmtTime(e.end)}` : ''}`;
+      const card = h('div', { class: 'ev-peek', css: { '--c': src.color || '#8b7cff' } },
+        h('div', { class: 'peek-title' }, e.title),
+        h('div', { class: 'peek-when' }, when),
+        h('div', { class: 'peek-cal' }, [src.kind === 'task' ? (src.done ? 'Task · done' : 'Task') : null, src.calendarName].filter(Boolean).join(' · ')),
+        notes && h('div', { class: 'peek-notes' }, notes.length > 240 ? `${notes.slice(0, 240)}…` : notes),
+        src.tags?.length > 0 && h('div', { class: 'peek-tags' }, src.tags.map((t) => h('span', { css: { '--t': tagColor(t) } }, `#${t}`))));
+      document.body.append(card);
+      peek.el = card;
+      const r = info.el.getBoundingClientRect();
+      let x = r.right + 8;
+      if (x + card.offsetWidth > innerWidth - 8) x = r.left - card.offsetWidth - 8;
+      card.style.left = `${Math.max(8, x)}px`;
+      card.style.top = `${Math.max(8, Math.min(r.top, innerHeight - card.offsetHeight - 8))}px`;
+    }, 350);
+  }
+  function hidePeek() {
+    clearTimeout(peek.timer);
+    peek.el?.remove();
+    peek.el = null;
   }
 
   /**
@@ -892,6 +943,10 @@
       dayMaxEvents: true,
       eventDisplay: 'block',
       eventColor: '#8b7cff',
+      eventMinHeight: 22, // a 15-minute entry still shows a full line of its name
+      // Hovering a block shows a preview card with what it cuts off.
+      eventMouseEnter: showPeek,
+      eventMouseLeave: hidePeek,
       ...timeFormats(),
       // Drag across the grid to block out time; the highlight stays until the editor closes.
       selectable: true,
@@ -915,6 +970,7 @@
       },
       eventClick: (info) => {
         info.jsEvent.preventDefault();
+        hidePeek();
         const src = info.event.extendedProps.src;
         const anchor = info.el.getBoundingClientRect();
         if (src.kind === 'task' && info.jsEvent.target.closest?.('.dot')) {
@@ -947,7 +1003,7 @@
       // previous) week, so an entry can be carried there and dropped.
       // While it is carried, the entry itself follows the pointer freely; where it will land
       // (snapped to the grid) shows as an outline, and it snaps there when dropped.
-      eventDragStart: (info) => { edgeNavStart(); floatStart(info); },
+      eventDragStart: (info) => { hidePeek(); edgeNavStart(); floatStart(info); },
       eventDragStop: () => { edgeNavStop(); floatStop(); },
       datesSet: (info) => {
         if (!graph.on) $('#range').textContent = MOBILE ? shortTitle(info.view.currentStart, info.view.currentEnd, info.view.type) : info.view.title;
@@ -1683,7 +1739,7 @@
         : `Nothing was completed ${label}. Tasks you tick off land here, sorted by the day you did them.`));
       return;
     }
-    box.replaceChildren(h('div', { class: 'task-section' }, `Completed ${label}`), ...shown.map(archivedRow));
+    box.replaceChildren(h('div', { class: 'task-section static' }, `Completed ${label}`), ...shown.map(archivedRow));
   }
 
   for (const b of $('#task-tabs').children) b.addEventListener('click', () => setTaskTab(b.dataset.tab));
@@ -1727,15 +1783,35 @@
       ['Upcoming', shown.filter((t) => t.date && t.date > today)],
       ['No date', shown.filter((t) => !t.date)],
     ];
-    const head = (name, cls) => (cls !== 'earlier' ? h('div', { class: 'task-section' }, name)
-      : h('div', { class: 'task-section earlier', title: 'Plans change. Carry these to a new day whenever you are ready.' },
-        h('span', null, name), h('span', { class: 'grow' }),
-        h('button', { class: 'carry', title: 'Move all of these to today', onclick: () => carryOver(earlier, 0) }, '→ Today'),
-        h('button', { class: 'carry', title: 'Move all of these to tomorrow', onclick: () => carryOver(earlier, 1) }, '→ Tomorrow')));
-    box.replaceChildren(...groups.filter(([, items]) => items.length).flatMap(([name, items, cls]) => [
-      head(name, cls),
-      ...items.sort((a, b) => sortKey(a).localeCompare(sortKey(b))).map(taskRow),
-    ]));
+    // Each group folds away under its header (remembered on this device); its tasks are cards.
+    const shut = shutTaskGroups();
+    const group = ([name, items, cls]) => {
+      const key = cls || name.toLowerCase().replace(/\s+/g, '-');
+      const closed = shut.has(key);
+      const toggle = () => {
+        if (closed) shut.delete(key); else shut.add(key);
+        try { localStorage.setItem('onyx.task-groups-shut', JSON.stringify([...shut])); } catch { /* this visit only */ }
+        renderTasks();
+      };
+      const head = h('div', {
+        class: `task-section${cls ? ` ${cls}` : ''}${closed ? ' shut' : ''}`, role: 'button', tabindex: '0', 'aria-expanded': String(!closed),
+        title: cls === 'earlier' ? 'Plans change. Carry these to a new day whenever you are ready.' : closed ? `Show ${name.toLowerCase()}` : `Fold ${name.toLowerCase()} away`,
+        onclick: (e) => { if (!e.target.closest('.carry')) toggle(); },
+        onkeydown: (e) => { if ((e.key === 'Enter' || e.key === ' ') && !e.target.closest('.carry')) { e.preventDefault(); toggle(); } },
+      },
+        h('span', null, name), h('span', { class: 'sec-count' }, items.length), h('span', { class: 'grow' }),
+        cls === 'earlier' && h('span', { class: 'carry-set' },
+          h('button', { class: 'carry', title: 'Move all of these to today', onclick: () => carryOver(earlier, 0) }, '→ Today'),
+          h('button', { class: 'carry', title: 'Move all of these to tomorrow', onclick: () => carryOver(earlier, 1) }, '→ Tomorrow')));
+      return h('section', { class: 'task-group' }, head,
+        !closed && h('div', { class: 'task-cards' }, items.sort((a, b) => sortKey(a).localeCompare(sortKey(b))).map(taskRow)));
+    };
+    box.replaceChildren(...groups.filter(([, items]) => items.length).map(group));
+  }
+
+  /** Which task groups are folded away (From earlier, Today, Upcoming, No date). */
+  function shutTaskGroups() {
+    try { return new Set(JSON.parse(localStorage.getItem('onyx.task-groups-shut') || '[]')); } catch { return new Set(); }
   }
 
   function openTask(t, anchor) {

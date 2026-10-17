@@ -8,8 +8,8 @@
   --line-2: #26262b;
   --text: #f1f1f4;
   --soft: #b9b9c2;
-  --muted: #7f7f89;
-  --faint: #4b4b53;
+  --muted: #9d9da8;
+  --faint: #7c7c87;
   --accent: #8b7cff;
   --danger: #ff5c6c;
   --ok: #4fd18b;
@@ -231,7 +231,7 @@ body.mobile #calendar, body.mobile #calendar .fc-scroller { touch-action: pan-y;
    kept only in the edge, like a page already turned. */
 .fc .fc-timegrid-event, .fc .fc-daygrid-block-event {
   background: color-mix(in srgb, var(--c, var(--accent)) 68%, #0b0b0e) !important;
-  border: 0 !important; border-left: 3px solid var(--c, var(--accent)) !important;
+  border: 0 !important; border-left: 4px solid var(--c, var(--accent)) !important;
   border-radius: 6px; box-shadow: 0 0 0 1px #000; overflow: hidden; cursor: pointer;
   transition: filter .12s, background-color .45s .28s;
 }
@@ -284,11 +284,21 @@ body.mobile #calendar, body.mobile #calendar .fc-scroller { touch-action: pan-y;
 @keyframes burst-ring { to { transform: scale(3); opacity: 0; } }
 @keyframes burst-spark { 0% { transform: rotate(var(--a)) translateX(4px) scale(1); opacity: 1; } 100% { transform: rotate(var(--a)) translateX(var(--d)) scale(.2); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .is-task.done-anim .ev-title .dot, .is-task.done-anim .ev-title .dot .check path { animation: none; stroke-dashoffset: 0; } .fc .is-task.done-anim::after { display: none; } }
-/* Stripes only behind the now line: an open task whose time has passed. Anything ahead of
-   it, including a task just moved there, is fully coloured. */
+/* An open task whose time has passed: a calm solid fill, its colour kept in the 4px left edge
+   (no stripes, no alarm). Anything ahead of the now line is fully coloured. */
 .fc .is-task.fc-event-past:not(.is-done).fc-timegrid-event, .fc .is-task.fc-event-past:not(.is-done).fc-daygrid-block-event {
-  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--c) 20%, #09090b) 0 8px, color-mix(in srgb, var(--c) 13%, #09090b) 8px 16px) !important;
+  background: color-mix(in srgb, var(--c) 32%, #0b0b0e) !important;
 }
+.fc .is-task.fc-event-past:not(.is-done) .ev-title { color: color-mix(in srgb, var(--c) 25%, #fff); text-shadow: none; }
+
+/* Hovering a block: a card with everything a short or narrow block cuts off. */
+.ev-peek { position: fixed; z-index: 450; width: 264px; pointer-events: none; background: #111115; border: 1px solid var(--line-2); border-left: 4px solid var(--c); border-radius: 10px; padding: 10px 12px; box-shadow: 0 18px 50px rgba(0,0,0,.8); display: flex; flex-direction: column; gap: 3px; animation: pop .12s ease-out; }
+.ev-peek .peek-title { font-weight: 650; font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; color: var(--text); }
+.ev-peek .peek-when { font-size: 11.5px; color: var(--soft); font-variant-numeric: tabular-nums; }
+.ev-peek .peek-cal { font-size: 11px; color: var(--muted); }
+.ev-peek .peek-notes { font-size: 11.5px; line-height: 1.45; color: var(--soft); white-space: pre-wrap; overflow-wrap: anywhere; border-top: 1px solid var(--line-2); padding-top: 6px; margin-top: 4px; max-height: 120px; overflow: hidden; }
+.ev-peek .peek-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 3px; }
+.ev-peek .peek-tags span { font-size: 10.5px; color: var(--t); }
 
 /* month */
 .fc .fc-daygrid-day-number { color: var(--muted); padding: 6px 8px; font-size: 12px; text-decoration: none; }
@@ -354,15 +364,30 @@ body.resizing iframe { pointer-events: none; }
 #undo-btn:disabled { opacity: .35; cursor: default; }
 #undo-btn:not(:disabled) { color: var(--text); }
 #task-items { flex: 1; overflow-y: auto; padding: 0 8px 16px; }
-.task-section { padding: 12px 8px 5px; font-size: 11px; letter-spacing: .5px; text-transform: uppercase; color: var(--faint); }
+.task-group + .task-group { margin-top: 2px; }
+.task-section { display: flex; align-items: center; gap: 6px; padding: 12px 6px 7px; font-size: 11px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); cursor: pointer; border-radius: 6px; user-select: none; }
+.task-section:hover { color: var(--soft); }
+.task-section:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.task-section::before { content: ''; flex: none; width: 5px; height: 5px; margin: -3px 3px 0 3px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); transition: transform .15s; }
+.task-section.shut::before { transform: rotate(-45deg); margin-top: 0; }
+.task-section.static { cursor: default; }
+.task-section.static:hover { color: var(--muted); }
+.task-section.static::before { display: none; }
+.task-section > span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.task-section .carry { white-space: nowrap; flex: none; }
+.task-section .sec-count { font-size: 10px; font-weight: 600; letter-spacing: 0; padding: 1px 7px; border-radius: 9px; background: var(--raise-2); color: var(--soft); }
+.task-cards { display: flex; flex-direction: column; gap: 6px; }
 /* Tasks from earlier days: a calm colour, and a way to carry them on (no red, no "overdue"). */
-.task-section.earlier { color: #d9b26b; display: flex; align-items: center; gap: 6px; padding-right: 4px; }
+.task-section.earlier { color: #e3c387; padding-right: 4px; flex-wrap: wrap; row-gap: 6px; }
+.task-section.earlier > span:first-child { flex: none; }
+/* The carry buttons move to their own line when the panel is too narrow for them beside the name. */
+.task-section .carry-set { display: flex; gap: 6px; margin-left: auto; }
 .task-section .carry { border: 1px solid color-mix(in srgb, #d9b26b 40%, transparent); background: transparent; color: #e3c387; font: 600 10.5px/1 inherit; font-family: inherit; letter-spacing: 0; text-transform: none; padding: 4px 8px; border-radius: 999px; cursor: pointer; }
 .task-section .carry:hover { background: color-mix(in srgb, #d9b26b 16%, transparent); }
 .carry-chip { border: 1px solid var(--line); background: transparent; color: var(--muted); font: inherit; font-size: 11px; line-height: 16px; padding: 1px 8px; border-radius: 999px; cursor: pointer; }
 .carry-chip:hover { color: var(--text); background: rgba(255,255,255,0.08); }
-.task { display: flex; gap: 10px; padding: 7px 8px; border-radius: 8px; align-items: flex-start; }
-.task:hover { background: var(--raise); }
+.task { display: flex; gap: 10px; padding: 9px 10px; border-radius: 10px; align-items: flex-start; background: var(--raise); border: 1px solid var(--line); border-left: 3px solid var(--c, var(--line-2)); }
+.task:hover { background: var(--raise-2); border-color: var(--line-2); border-left-color: var(--c, var(--line-2)); }
 .task .tick {
   width: 16px; height: 16px; margin-top: 1px; border-radius: 50%; border: 1.5px solid var(--c, var(--muted)); background: transparent; flex: none;
   cursor: pointer; display: grid; place-items: center; padding: 0; color: transparent; transition: background .12s, color .12s;
@@ -617,6 +642,9 @@ pre.code {
 @keyframes next-urgent { 50% { box-shadow: 0 0 22px color-mix(in srgb, var(--c) 55%, transparent); background: color-mix(in srgb, var(--c) 18%, #1a1a21); } }
 @media (prefers-reduced-motion: reduce) { #next-bar .next-live, #next-bar.urgent .next-pill { animation: none; } }
 
+#next-bar .next-tools { display: flex; align-items: center; gap: 2px; min-width: 0; margin-right: 4px; padding-right: 6px; border-right: 1px solid var(--line); }
+#next-bar .next-tools:empty { display: none; }
+#next-bar .next-tools #pomo-timer { margin-right: 4px; max-width: 280px; }
 #next-bar .next-sound { border: 0; background: transparent; color: var(--muted); width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; cursor: pointer; flex: none; }
 #next-bar .next-sound:hover { color: var(--text); background: rgba(255,255,255,.07); }
 #next-bar .next-sound .ico { width: 15px; height: 15px; }

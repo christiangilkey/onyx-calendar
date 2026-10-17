@@ -836,10 +836,18 @@
 
   /** `action` ({ label, run }) adds a button to the toast, like Undo. */
   function toast(message, kind = '', action) {
+    const ms = action ? 8000 : kind ? 7000 : 3200;
+    // The same message again (a button tapped twice) keeps the one already showing up for longer.
+    const same = !action && [...$('#toasts').children].find((t) => !t.classList.contains('has-action') && t.textContent === String(message));
+    if (same) {
+      clearTimeout(same._timer);
+      same._timer = setTimeout(() => same.remove(), ms);
+      return;
+    }
     const el = h('div', { class: `toast ${kind}${action ? ' has-action' : ''}` }, h('span', null, message),
       action && h('button', { class: 'toast-action', onclick: () => { el.remove(); action.run(); } }, action.label));
     $('#toasts').append(el);
-    setTimeout(() => el.remove(), action ? 8000 : kind ? 7000 : 3200);
+    el._timer = setTimeout(() => el.remove(), ms);
   }
 
   // The phone talking to an older Onyx on the PC: say so once, not on every reload.

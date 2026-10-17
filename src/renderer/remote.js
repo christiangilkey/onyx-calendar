@@ -194,22 +194,48 @@
   // Capacitor hands links to other sites to the phone's browser instead of opening them inside the app.
   const openOutside = (url) => { if (/^https:\/\//i.test(url)) location.assign(url); };
 
+  // Requests through the phone's own network stack (no CORS, follows GitHub's download
+  // redirects); plain fetch where that isn't there.
+  const nativeHttp = () => window.Capacitor?.Plugins?.CapacitorHttp;
+  async function get(url, { method = 'GET', headers = {} } = {}) {
+    const http = nativeHttp();
+    if (http) {
+      const res = await http.request({ url, method, headers, responseType: 'text', connectTimeout: 15000, readTimeout: 15000 });
+      return { status: res.status, text: typeof res.data === 'string' ? res.data : JSON.stringify(res.data ?? '') };
+    }
+    const res = await fetch(url, { method, headers });
+    return { status: res.status, text: method === 'HEAD' ? '' : await res.text() };
+  }
+
   async function checkUpdate() {
     const current = await appVersion();
     setUpdate({ status: 'checking', current, error: '' });
+    // The newest version from latest.yml, the file the desktop updater reads too: a plain
+    // download, which GitHub doesn't count against its 60-checks-an-hour API limit (a home
+    // connection's PCs and phones all share that, and it runs out).
+    let version = '';
     try {
-      const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { headers: { Accept: 'application/vnd.github+json' } });
-      if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
-      const rel = await res.json();
-      const version = String(rel.tag_name || '').replace(/^v/, '');
-      const apk = (rel.assets || []).find((a) => a.name.endsWith('.apk'));
-      if (current && apk && isNewer(version, current)) {
-        return setUpdate({ status: 'available', version, notes: rel.body || '', url: apk.browser_download_url });
-      }
-      return setUpdate({ status: 'current', version: current || version });
+      const res = await get(`https://github.com/${REPO}/releases/latest/download/latest.yml`);
+      if (res.status !== 200) throw new Error(`GitHub answered ${res.status}`);
+      version = (res.text.match(/^version:\s*['"]?v?([\d.]+)/m) || [])[1] || '';
+      if (!version) throw new Error('latest.yml has no version');
     } catch {
       return setUpdate({ status: 'error', error: 'Could not reach GitHub to check for updates.' });
     }
+    if (!current || !isNewer(version, current)) return setUpdate({ status: 'current', version: current || version });
+    const url = `https://github.com/${REPO}/releases/download/v${version}/Onyx-Calendar-${version}.apk`;
+    // The PC's installer can land a few minutes before the APK: offer it once the APK is up.
+    try {
+      const apk = await get(url, { method: 'HEAD' });
+      if (apk.status !== 200) return setUpdate({ status: 'current', version: current });
+    } catch { /* offer it anyway; the browser says so if it isn't there yet */ }
+    // The release notes come from the API, which may be out of checks: the update is offered without them then.
+    let notes = '';
+    try {
+      const res = await get(`https://api.github.com/repos/${REPO}/releases/tags/v${version}`, { headers: { Accept: 'application/vnd.github+json' } });
+      if (res.status === 200) notes = JSON.parse(res.text).body || '';
+    } catch { /* no notes */ }
+    return setUpdate({ status: 'available', version, notes, url });
   }
 
   window.ONYX_PHONE = true;

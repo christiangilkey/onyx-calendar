@@ -529,13 +529,13 @@ input[type=date]::-webkit-calendar-picker-indicator { opacity: .5; cursor: point
 .badge { font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 10px; background: var(--raise-2); color: var(--muted); }
 .badge.ok { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
 .badge.bad { background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--danger); }
-.field { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+.field { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); }
 .field:last-child { border-bottom: 0; }
-.field .txt { flex: 1; min-width: 0; }
+.field .txt { flex: 1 1 180px; min-width: 0; } /* a wide control goes under the words instead of squeezing them */
 .field .txt b { font-weight: 600; display: block; }
 .field .txt small { color: var(--muted); display: block; margin-top: 2px; line-height: 1.5; }
 .field input[type=number] { width: 86px; }
-.field select { min-width: 150px; }
+.field select { min-width: 150px; max-width: 100%; }
 .acct { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .acct:last-child { border-bottom: 0; }
 .acct .who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1105,7 +1105,9 @@ body.mobile .sheet nav h2, body.mobile .sheet nav .ver { display: none; }
 body.mobile .sheet nav button { white-space: nowrap; height: 36px; }
 body.mobile .pane { padding: 18px 16px 40px; }
 body.mobile .pane > .icon-btn.close { position: fixed; top: calc(8px + env(safe-area-inset-top, 0px)); right: 8px; z-index: 2; }
-body.mobile .sheet nav { padding-right: 52px; }
+/* the tabs stop short of the close button instead of scrolling under it */
+body.mobile .sheet nav { margin-right: 48px; border-bottom: 0; }
+body.mobile .sheet .pane { border-top: 1px solid var(--line); }
 
 body.mobile #graph-bar { top: 8px; left: 8px; right: 8px; gap: 6px; padding: 6px; }
 body.mobile #graph-bar .bar-label:not(#graph-stats) { display: none; }

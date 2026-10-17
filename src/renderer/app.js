@@ -1102,9 +1102,58 @@
           t.goal && h('span', { class: 'goal-chip', css: { '--g': t.goal.color }, title: `A step toward: ${t.goal.title}` }, icon('flag'), t.goal.title),
           h('span', null, t.listName),
           (t.tags || []).map((tag) => h('span', { class: 'mini-tag', css: { '--t': tagColor(tag) } }, `#${tag}`)),
-          dateBubble(t)),
+          dateBubble(t), carryChips(t)),
         notePreview(notesOf(t))));
     return row;
+  }
+
+  /** Moves a task to another day, keeping its time of day. */
+  function moveToDay(t, day) {
+    return onyx.moveTask(t.id, t.time ? { start: at(day, t.time).toISOString() } : { date: day });
+  }
+
+  const dayWord = (days) => (days === 0 ? 'today' : days === 1 ? 'tomorrow' : fmtDay(addDays(new Date(), days)));
+
+  /** One tap to carry a task from an earlier day to today or tomorrow (the date chip picks any other day). */
+  function carryChips(t) {
+    if (!t.date || t.date >= ymd(new Date()) || t.mirror || !t.provider) return null;
+    const go = (days) => async (e) => {
+      e.stopPropagation();
+      try {
+        await moveToDay(t, ymd(addDays(new Date(), days)));
+        toast(`"${t.label}" moved to ${dayWord(days)}`);
+        await loadTasks(true);
+        refetch(true);
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    };
+    return [
+      h('button', { class: 'carry-chip', title: 'Move it to today', onclick: go(0) }, 'Today'),
+      h('button', { class: 'carry-chip', title: 'Move it to tomorrow', onclick: go(1) }, 'Tomorrow'),
+    ];
+  }
+
+  /** Carries every task from earlier days to today or tomorrow in one go. */
+  async function carryOver(list, days) {
+    const day = ymd(addDays(new Date(), days));
+    // Copies of a repeat set up in Google Tasks are left alone: the next copy is already coming.
+    const movable = list.filter((t) => !t.mirror && t.provider && !(t.series && !t.series.managed));
+    const skipped = list.length - movable.length;
+    let moved = 0;
+    const failed = [];
+    for (const t of movable) {
+      try { await moveToDay(t, day); moved++; } catch (err) { failed.push(err.message); }
+    }
+    const note = skipped ? ` (${skipped} repeating ${skipped === 1 ? 'copy' : 'copies'} left as they are)` : '';
+    if (!movable.length) {
+      toast('These are copies of a task that repeats in Google Tasks, so the next one comes by itself. Open one and use "Clear missed" to let the old ones go.');
+      return;
+    }
+    if (failed.length) toast(`Moved ${moved}, but ${failed.length} could not be moved: ${failed[0]}`, 'warn');
+    else toast(`${moved} ${moved === 1 ? 'task' : 'tasks'} moved to ${dayWord(days)}. A fresh start.${note}`);
+    await loadTasks(true);
+    refetch(true);
   }
 
   /**
@@ -1138,7 +1187,7 @@
       try { input.showPicker(); } catch { input.focus(); input.click(); }
     };
     return h('button', {
-      class: `date-bubble${t.date && t.date < today ? ' late' : ''}${t.date ? '' : ' none'}`,
+      class: `date-bubble${t.date && t.date < today ? ' earlier' : ''}${t.date ? '' : ' none'}`,
       title: t.date ? `Due ${fmtDay(fromYmd(t.date))}. Click to pick another day` : 'Pick a day for it',
       onclick: open,
     }, icon('calendar'), label, input);
@@ -1304,14 +1353,21 @@
     }
     const today = ymd(new Date());
     const sortKey = (t) => t.start || (t.date ? `${t.date}T99` : '9999');
+    // Tasks from earlier days are not "overdue": they are carried on, one at a time or all at once.
+    const earlier = shown.filter((t) => t.date && t.date < today);
     const groups = [
-      ['Overdue', shown.filter((t) => t.date && (t.start ? new Date(t.start) < new Date() && t.date < today : t.date < today)), 'late'],
+      ['From earlier', earlier, 'earlier'],
       ['Today', shown.filter((t) => t.date === today)],
       ['Upcoming', shown.filter((t) => t.date && t.date > today)],
       ['No date', shown.filter((t) => !t.date)],
     ];
+    const head = (name, cls) => (cls !== 'earlier' ? h('div', { class: 'task-section' }, name)
+      : h('div', { class: 'task-section earlier', title: 'Plans change. Carry these to a new day whenever you are ready.' },
+        h('span', null, name), h('span', { class: 'grow' }),
+        h('button', { class: 'carry', title: 'Move all of these to today', onclick: () => carryOver(earlier, 0) }, '→ Today'),
+        h('button', { class: 'carry', title: 'Move all of these to tomorrow', onclick: () => carryOver(earlier, 1) }, '→ Tomorrow')));
     box.replaceChildren(...groups.filter(([, items]) => items.length).flatMap(([name, items, cls]) => [
-      h('div', { class: `task-section ${cls || ''}` }, name),
+      head(name, cls),
       ...items.sort((a, b) => sortKey(a).localeCompare(sortKey(b))).map(taskRow),
     ]));
   }
@@ -1442,7 +1498,7 @@
     const clear = async () => {
       try {
         const res = await onyx.clearSeries(s.key);
-        toast(`Marked ${res.done} overdue ${res.done === 1 ? 'copy' : 'copies'} done`);
+        toast(`Cleared ${res.done} missed ${res.done === 1 ? 'copy' : 'copies'}`);
         closePopover();
         await loadTasks();
         refetch();
@@ -1463,7 +1519,7 @@
         t.date ? fmtDay(fromYmd(t.date)) : 'No date'))),
       h('div', { class: 'pop-actions' },
         s.overdue > 0 && !s.managed && h('button', { class: 'btn', title: 'Missed days pile up in Google Tasks; this ticks them off (the newest stays)', onclick: clear },
-          icon('check'), `Clear ${s.overdue} overdue`),
+          icon('check'), `Clear ${s.overdue} missed`),
         h('div', { class: 'grow' }),
         h('button', { class: 'btn ghost', onclick: () => closePopover() }, 'Cancel'),
         h('button', { class: 'btn primary', onclick: save }, 'Save')),
@@ -2682,7 +2738,7 @@
   function dueGroup(date) {
     const today = ymd(new Date());
     if (!date) return ['due:none', 'No date', '#8a8a94'];
-    if (date < today) return ['due:overdue', 'Overdue', '#ff6b6b'];
+    if (date < today) return ['due:overdue', 'From earlier', '#d9b26b'];
     if (date === today) return [`due:${date}`, 'Today', '#f1f1f4'];
     if (date === ymd(addDays(new Date(), 1))) return [`due:${date}`, 'Tomorrow', '#c9c9d2'];
     return [`due:${date}`, fromYmd(date).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }), '#a8b0c8'];

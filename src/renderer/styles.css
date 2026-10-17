@@ -233,7 +233,9 @@ body.mobile #calendar, body.mobile #calendar .fc-scroller { touch-action: pan-y;
 .is-task .ev-title .dot:hover { background: color-mix(in srgb, currentColor 45%, transparent); }
 .is-task.is-done .ev-title .dot { background: currentColor; }
 .is-task.is-done .ev-title .t { text-decoration: line-through; opacity: .6; }
-.fc .is-task.fc-timegrid-event, .fc .is-task.fc-daygrid-block-event {
+/* Stripes only behind the now line: an open task whose time has passed. Anything ahead of
+   it, including a task just moved there, is fully coloured. */
+.fc .is-task.fc-event-past.fc-timegrid-event, .fc .is-task.fc-event-past.fc-daygrid-block-event {
   background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--c) 20%, #09090b) 0 8px, color-mix(in srgb, var(--c) 13%, #09090b) 8px 16px) !important;
 }
 
@@ -302,7 +304,12 @@ body.resizing iframe { pointer-events: none; }
 #undo-btn:not(:disabled) { color: var(--text); }
 #task-items { flex: 1; overflow-y: auto; padding: 0 8px 16px; }
 .task-section { padding: 12px 8px 5px; font-size: 11px; letter-spacing: .5px; text-transform: uppercase; color: var(--faint); }
-.task-section.late { color: var(--danger); }
+/* Tasks from earlier days: a calm colour, and a way to carry them on (no red, no "overdue"). */
+.task-section.earlier { color: #d9b26b; display: flex; align-items: center; gap: 6px; padding-right: 4px; }
+.task-section .carry { border: 1px solid color-mix(in srgb, #d9b26b 40%, transparent); background: transparent; color: #e3c387; font: 600 10.5px/1 inherit; font-family: inherit; letter-spacing: 0; text-transform: none; padding: 4px 8px; border-radius: 999px; cursor: pointer; }
+.task-section .carry:hover { background: color-mix(in srgb, #d9b26b 16%, transparent); }
+.carry-chip { border: 1px solid var(--line); background: transparent; color: var(--muted); font: inherit; font-size: 11px; line-height: 16px; padding: 1px 8px; border-radius: 999px; cursor: pointer; }
+.carry-chip:hover { color: var(--text); background: rgba(255,255,255,0.08); }
 .task { display: flex; gap: 10px; padding: 7px 8px; border-radius: 8px; align-items: flex-start; }
 .task:hover { background: var(--raise); }
 .task .tick {
@@ -324,7 +331,7 @@ body.resizing iframe { pointer-events: none; }
 .date-bubble { position: relative; display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px 1px 6px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255,255,255,0.04); color: var(--text); font: inherit; font-size: 11px; line-height: 16px; cursor: pointer; }
 .date-bubble:hover { background: rgba(255,255,255,0.09); border-color: color-mix(in srgb, var(--line) 50%, #fff); }
 .date-bubble.none { color: var(--muted); border-style: dashed; }
-.date-bubble.late { color: #ff8a8a; border-color: rgba(255,107,107,0.35); }
+.date-bubble.earlier { color: #e3c387; border-color: color-mix(in srgb, #d9b26b 35%, transparent); }
 .date-bubble input { position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; border: 0; padding: 0; pointer-events: none; }
 .empty { padding: 28px 16px; text-align: center; color: var(--faint); line-height: 1.6; }
 

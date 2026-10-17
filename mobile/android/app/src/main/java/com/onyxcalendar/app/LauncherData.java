@@ -69,6 +69,17 @@ final class LauncherData {
         OnyxLiveService.sync(ctx);
     }
 
+    /** The alarm as each thing starts (on the lock screen only): on unless turned off. */
+    static boolean alarmOn(Context ctx) {
+        return onLock(ctx) && prefs(ctx).getBoolean("alarm", true);
+    }
+
+    static void setAlarm(Context ctx, boolean on) {
+        prefs(ctx).edit().putBoolean("alarm", on).apply();
+        if (!on) AlarmActivity.cancel(ctx);
+        OnyxLiveService.poke(ctx);
+    }
+
     static String showLabel(String show) {
         switch (show) {
             case SHOW_LOCK: return "Lock screen";
@@ -116,6 +127,7 @@ final class LauncherData {
             o.put("notifications", notificationsAllowed(ctx));
             o.put("overlay", overlayAllowed(ctx));
             o.put("fullScreen", fullScreenAllowed(ctx));
+            o.put("alarm", prefs(ctx).getBoolean("alarm", true));
         } catch (Exception ignored) {
             // a JSON key can't fail here
         }

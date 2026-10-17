@@ -68,7 +68,8 @@ public class OnyxWidgetPlugin extends Plugin {
 
     @PluginMethod
     public void setLauncher(PluginCall call) {
-        LauncherData.setShow(getContext(), call.getString("show", LauncherData.SHOW_HOME));
+        if (call.hasOption("show")) LauncherData.setShow(getContext(), call.getString("show", LauncherData.SHOW_HOME));
+        if (call.hasOption("alarm")) LauncherData.setAlarm(getContext(), Boolean.TRUE.equals(call.getBoolean("alarm", true)));
         call.resolve(launcherState());
     }
 

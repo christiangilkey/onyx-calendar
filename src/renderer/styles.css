@@ -1264,3 +1264,6 @@ body.mobile #next-bar .next-pill.sub { display: none; }
 .series-stop-row { gap: 10px; }
 .series-stop-row .btn { flex: none; }
 .series-stop-row small { flex: 1; min-width: 0; }
+/* The window's buttons wrap on a narrow screen rather than running off its edge. */
+.pop-actions { flex-wrap: wrap; row-gap: 8px; }
+.pi-row input.call-when { color-scheme: dark; margin-top: 6px; }

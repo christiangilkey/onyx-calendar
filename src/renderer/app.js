@@ -1597,9 +1597,15 @@
     leaveSel.addEventListener('change', () => { leaveBy = Number(leaveSel.value) || null; sync(); });
     const callHint = h('small');
     // When the Pi phones: its usual lead time, or a half-hour picked here (kept as minutes before the start).
-    let callBefore = src?.callBefore ?? null;
-    const callWhen = h('select', { class: 'call-when', title: 'When the Pi phones you' });
-    callWhen.addEventListener('change', () => { callBefore = callWhen.value === '' ? null : Number(callWhen.value); sync(); });
+    // When the Pi phones: any time picked here, at the entry's own start unless changed.
+    let callBefore = src?.callBefore ?? 0;
+    const callWhen = h('input', { type: 'time', class: 'call-when', step: 60, title: 'When the Pi phones you (it looks every few minutes, so it rings at its first look from then)' });
+    callWhen.addEventListener('change', () => {
+      if (!callWhen.value) return;
+      const r = range();
+      callBefore = Math.round((r.at - at(ymd(r.at), callWhen.value)) / 60000);
+      sync();
+    });
     const untilRow = h('div', { class: 'row' }, h('span', { class: 'ico' }), h('span', { class: 'dash' }, 'until'), endDate);
     const dash = h('span', { class: 'dash' }, '–');
     const tags = tagField(src ? src.tags : [...tagFilter].map((t) => tagInfo(t)?.name || t));
@@ -1641,17 +1647,8 @@
       ladder.classList.toggle('disabled', !st.allowed && mode === 'off');
       // With a leave-by time, that is when it reaches out; otherwise a time can be picked.
       callWhen.hidden = mode === 'off' || !st.allowed || !!leaveBy;
-      if (!callWhen.hidden) {
-        const day = (d) => (sameDay(d, r.at) ? '' : `, ${sameDay(d, addDays(r.at, -1)) ? 'day before' : fmtDay(d)}`);
-        const usual = piCallTime(r.at);
-        const options = callSlots(r.at).map((s) => ({ before: Math.round((r.at - s) / 60000), at: s }));
-        if (callBefore != null && !options.some((o) => o.before === callBefore)) options.push({ before: callBefore, at: piCallTime(r.at, callBefore).at });
-        callWhen.replaceChildren(
-          h('option', { value: '' }, `Usual time: ${fmtTime(usual.at)}${day(usual.at)}`),
-          ...options.sort((a, b) => a.at - b.at).map((o) => h('option', { value: o.before, selected: o.before === callBefore },
-            `Call at ${fmtTime(o.at)}${day(o.at)}${piCallTime(r.at, o.before).quiet ? ' · quiet hours' : ''}`)));
-        callWhen.value = callBefore == null ? '' : String(callBefore);
-      }
+      // Any time of day, kept as minutes before the start (after it, too); not while it's being typed.
+      if (!callWhen.hidden && document.activeElement !== callWhen) callWhen.value = hm(new Date(r.at.getTime() - (callBefore ?? 0) * 60000));
     };
     for (const el of [date, startTime, endTime, endDate, allDay]) el.addEventListener('input', sync);
     call.addEventListener('change', sync);
@@ -3440,6 +3437,8 @@
             h('div', { class: 'row' },
               h('button', { class: 'btn', onclick: () => onyx.launcher.open('launcher') }, 'Preview'),
               h('button', { class: info.isHome ? 'btn' : 'btn primary', onclick: () => onyx.launcher.open('home') }, info.isHome ? 'Change home app' : 'Make it my home app'))),
+          lock && field('Alarm as things start', 'Wakes the phone and fills the screen, ringing your alarm sound until you press Stop, Snooze or Leaving now. Uses Android\'s alarm clock, so it comes on time.',
+            toggle(info.alarm !== false, (v) => onyx.launcher.setAlarm(v).then(draw).catch((err) => toast(err.message, 'error')))),
           lock && field('Notifications', 'The lock screen shows what is on now, its progress bar and a countdown to the next thing as a live notification.', allow(info.notifications, 'notifications')),
           lock && field('Over the lock screen', 'Brings the full Onyx panel up over the lock screen each time the screen turns on ("Display over other apps").', allow(info.overlay, 'overlay')),
           lock && field('Full-screen calls', 'A call from the Pi fills the locked screen as it rings.', allow(info.fullScreen, 'fullscreen')),

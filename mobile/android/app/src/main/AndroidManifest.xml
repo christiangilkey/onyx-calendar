@@ -97,6 +97,18 @@
             android:theme="@style/OnyxLock"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|screenLayout|density" />
 
+        <!-- The alarm as something starts: wakes the phone, over the lock screen, ringing until a button is pressed. -->
+        <activity
+            android:name=".AlarmActivity"
+            android:exported="false"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:launchMode="singleTop"
+            android:excludeFromRecents="true"
+            android:taskAffinity="com.onyxcalendar.app.alarm"
+            android:theme="@style/OnyxLock"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|screenLayout|density" />
+
         <!-- Onyx on the lock screen: the live notification, call alerts and the panel. -->
         <service
             android:name=".OnyxLiveService"
@@ -154,4 +166,9 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
+    <!-- The alarm as something starts, at the exact minute (Android's alarm clock) -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 </manifest>

@@ -905,7 +905,7 @@ const callBeforeOf = (id) => store.data.piLinks[id]?.before ?? null;
 function cleanBefore(before) {
   if (before == null || before === '') return null;
   const n = Math.round(Number(before));
-  if (!Number.isFinite(n) || n < 1 || n > 24 * 60) throw new Error('Pick a call time within a day before it starts.');
+  if (!Number.isFinite(n) || n < -12 * 60 || n > 24 * 60) throw new Error('Pick a call time from a day before it starts to 12 hours after.');
   return n;
 }
 

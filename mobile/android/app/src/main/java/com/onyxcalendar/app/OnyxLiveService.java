@@ -58,6 +58,7 @@ public class OnyxLiveService extends Service {
                 // Android doesn't let it start from the background just now; the next open of Onyx starts it
             }
         } else {
+            AlarmActivity.cancel(ctx);
             ctx.stopService(intent);
             NotificationManager nm = ctx.getSystemService(NotificationManager.class);
             if (nm != null) nm.cancel(ID_CALL);
@@ -271,6 +272,7 @@ public class OnyxLiveService extends Service {
         if (nm == null) return;
         nm.notify(ID_LIVE, live());
         long t = System.currentTimeMillis();
+        setNextAlarm(t);
         LauncherData.Item calling = LauncherData.calling(LauncherData.items(this), t);
         if (calling == null) {
             nm.cancel(ID_CALL);
@@ -307,6 +309,25 @@ public class OnyxLiveService extends Service {
         }
         return b.build();
     }
+
+    /** Android's alarm clock, set for the next timed thing to start (it wakes the phone and rings: AlarmActivity). */
+    private void setNextAlarm(long t) {
+        if (!LauncherData.alarmOn(this)) {
+            AlarmActivity.cancel(this);
+            return;
+        }
+        LauncherData.Item next = LauncherData.next(LauncherData.items(this), t);
+        if (next == null) {
+            AlarmActivity.cancel(this);
+            return;
+        }
+        String key = next.id + "@" + next.start;
+        if (key.equals(alarmSet)) return;
+        AlarmActivity.schedule(this, next.id, next.title, next.start, next.kind, next.start, false);
+        alarmSet = key;
+    }
+
+    private String alarmSet = "";
 
     /** The full Onyx panel over the lock screen, when the phone is locked and Android allows it. */
     private void showLockPanel() {

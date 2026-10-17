@@ -3196,6 +3196,41 @@
       ];
     },
 
+    // Onyx Home (the phone's launcher) and Onyx on the lock screen: the Android app only.
+    launcher() {
+      const box = h('div', { class: 'card' }, h('p', null, 'Checking…'));
+      const allow = (on, what, label) => (on
+        ? h('span', { class: 'badge ok' }, 'On')
+        : h('button', { class: 'btn', onclick: () => onyx.launcher.open(what) }, label || 'Allow'));
+      const draw = (info) => {
+        const lock = info.show === 'lock' || info.show === 'both';
+        box.replaceChildren(...[
+          field('Show Onyx on', 'Your progress bars, the time until your next task, and the Pi\'s calls as they ring.',
+            h('select', { onchange: (e) => onyx.launcher.set(e.target.value).then(draw).catch((err) => toast(err.message, 'error')) },
+              [['home', 'Home screen'], ['lock', 'Lock screen'], ['both', 'Home and lock screen'], ['off', 'Neither']]
+                .map(([v, n]) => h('option', { value: v, selected: v === info.show }, n)))),
+          field('Onyx Home', info.isHome
+            ? 'Onyx Home is your home screen: your apps (swipe up), a dock, widgets and search. Hold an empty spot for its options.'
+            : 'A plain home screen with Onyx on it: your apps (swipe up), a dock, widgets and search. Make it your home app to use it.',
+            h('div', { class: 'row' },
+              h('button', { class: 'btn', onclick: () => onyx.launcher.open('launcher') }, 'Preview'),
+              h('button', { class: info.isHome ? 'btn' : 'btn primary', onclick: () => onyx.launcher.open('home') }, info.isHome ? 'Change home app' : 'Make it my home app'))),
+          lock && field('Notifications', 'The lock screen shows what is on now, its progress bar and a countdown to the next thing as a live notification.', allow(info.notifications, 'notifications')),
+          lock && field('Over the lock screen', 'Brings the full Onyx panel up over the lock screen each time the screen turns on ("Display over other apps").', allow(info.overlay, 'overlay')),
+          lock && field('Full-screen calls', 'A call from the Pi fills the locked screen as it rings.', allow(info.fullScreen, 'fullscreen')),
+        ].filter(Boolean));
+      };
+      const load = () => onyx.launcher.info().then(draw).catch(() => box.replaceChildren(h('p', null, 'Update the Onyx app to use this.')));
+      load();
+      // Back from Android's settings: show what changed.
+      const back = () => { if (!box.isConnected) document.removeEventListener('visibilitychange', back); else if (!document.hidden) load(); };
+      document.addEventListener('visibilitychange', back);
+      return [
+        h('h3', null, 'Home & lock screen'),
+        h('p', { class: 'lead' }, 'Onyx on the screen you see most: your home screen, your lock screen, or both.'),
+        box,
+      ];
+    },
     general() {
       const s = S.settings;
       const writable = S.calendars.filter((c) => c.kind === 'calendar' && c.writable);
@@ -3440,7 +3475,7 @@
   let settingsTab = onyx.isPhone ? 'connection' : 'calendars';
   function openSettings(tab = settingsTab) {
     const tabs = onyx.isPhone
-      ? [['connection', 'Connection'], ['keys', 'Keys & accounts'], ['pi', 'Pi calls'], ['general', 'General']]
+      ? [['connection', 'Connection'], ['keys', 'Keys & accounts'], ['pi', 'Pi calls'], ...(onyx.launcher ? [['launcher', 'Home & lock screen']] : []), ['general', 'General']]
       : [['calendars', 'Calendars'], ['connections', 'Notion, Drive & AI'], ['phone', 'Phone'], ['desktops', 'Desktops'], ['pi', 'Pi calls'], ['mcp', 'MCP server'], ['general', 'General']];
     if (!tabs.some(([id]) => id === tab)) tab = tabs[0][0];
     settingsTab = tab;

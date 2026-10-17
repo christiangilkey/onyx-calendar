@@ -174,7 +174,7 @@ function taskAsEvent(t) {
   const base = {
     id: t.id, calendarId: t.listId, calendarName: t.listName, color: t.color, kind: 'task',
     title: t.label, location: '', notes: t.notes, link: '', writable: false,
-    piCall: !!(t.call && !t.call.quiet && !t.call.past), done: t.done, goal: t.goal, repeat: t.repeat, madeHere: t.madeHere,
+    piCall: !!(t.call && !t.call.quiet && !t.call.past), ...(t.call && !t.call.quiet && !t.call.past ? { callAt: t.call.at } : {}), done: t.done, goal: t.goal, repeat: t.repeat, madeHere: t.madeHere,
     provider: t.provider, mirror: t.mirror,
     movable: !t.mirror && !t.done, // dragged to another day in the calendar (see moveTask)
   };

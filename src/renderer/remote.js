@@ -270,6 +270,12 @@
     syncDesktops: () => call('desktops:sync'),
     breakdown: (title, opts) => call('ai:breakdown', title, opts),
     setAiKey: (key) => call('ai:key', key),
+    // Onyx Home (the launcher) and Onyx on the lock screen, chosen in Settings.
+    launcher: Widget ? {
+      info: () => Widget.launcherInfo(),
+      set: (show) => Widget.setLauncher({ show }),
+      open: (what) => Widget.launcherOpen({ what }),
+    } : null,
     // Tamkeen on this phone (not on the PC): checked and opened through the app's own plugin.
     tamkeen: {
       info: async () => {

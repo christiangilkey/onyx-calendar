@@ -39,12 +39,47 @@ public class OnyxWidgetPlugin extends Plugin {
         }
         WidgetData.saveConnection(getContext(), addresses, call.getString("last", ""), call.getString("token", ""));
         OnyxWidget.refreshAll(getContext());
+        OnyxLiveService.poke(getContext()); // also starts it, with the app open, if it should be on the lock screen
         call.resolve();
     }
 
     @PluginMethod
     public void refresh(PluginCall call) {
         OnyxWidget.refreshAll(getContext());
+        OnyxLiveService.poke(getContext());
+        call.resolve();
+    }
+
+    // ------------------------------------------------------------ Onyx Home and the lock screen
+
+    private JSObject launcherState() {
+        try {
+            return JSObject.fromJSONObject(LauncherData.info(getContext()));
+        } catch (Exception e) {
+            return new JSObject();
+        }
+    }
+
+    /** Where Onyx shows (home, lock, both, off), whether Onyx Home is the home app, and Android's switches for it. */
+    @PluginMethod
+    public void launcherInfo(PluginCall call) {
+        call.resolve(launcherState());
+    }
+
+    @PluginMethod
+    public void setLauncher(PluginCall call) {
+        LauncherData.setShow(getContext(), call.getString("show", LauncherData.SHOW_HOME));
+        call.resolve(launcherState());
+    }
+
+    /** Opens where one of them is turned on: home, notifications, overlay, fullscreen, or Onyx Home itself. */
+    @PluginMethod
+    public void launcherOpen(PluginCall call) {
+        if (getActivity() == null) {
+            call.reject("Onyx isn't open.");
+            return;
+        }
+        LauncherData.open(getActivity(), call.getString("what", ""));
         call.resolve();
     }
 

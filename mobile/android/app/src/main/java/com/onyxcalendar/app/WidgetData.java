@@ -141,10 +141,15 @@ final class WidgetData {
 
     /** Marks a task done on the PC (in Google Tasks / To Do), like ticking it in the app. */
     static void completeTask(Context ctx, String id) throws Exception {
-        JSONObject patch = new JSONObject().put("done", true);
-        JSONObject body = new JSONObject().put("name", "task:update").put("args", new JSONArray().put(id).put(patch));
+        rpc(ctx, "task:update", new JSONArray().put(id).put(new JSONObject().put("done", true)));
+    }
+
+    /** Runs one of the app's commands on the PC (the same ones the app uses) and returns its value. */
+    static Object rpc(Context ctx, String name, JSONArray args) throws Exception {
+        JSONObject body = new JSONObject().put("name", name).put("args", args == null ? new JSONArray() : args);
         JSONObject res = new JSONObject(call(ctx, "POST", "/app/rpc", body.toString()));
-        if (!res.optBoolean("ok", false)) throw new Exception(res.optString("error", "The PC could not mark it done."));
+        if (!res.optBoolean("ok", false)) throw new Exception(res.optString("error", "The PC could not do that."));
+        return res.opt("value");
     }
 
     /** The phone's first day of the week (Monday or Sunday, by its language and region). */

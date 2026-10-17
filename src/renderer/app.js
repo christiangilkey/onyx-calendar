@@ -915,6 +915,12 @@
       },
       eventDrop: onMove,
       eventResize: onMove,
+      // Held at the right (or left) edge while dragging, the calendar turns to the next (or
+      // previous) week, so an entry can be carried there and dropped.
+      // While it is carried, the entry itself follows the pointer freely; where it will land
+      // (snapped to the grid) shows as an outline, and it snaps there when dropped.
+      eventDragStart: (info) => { edgeNavStart(); floatStart(info); },
+      eventDragStop: () => { edgeNavStop(); floatStop(); },
       datesSet: (info) => {
         if (!graph.on) $('#range').textContent = MOBILE ? shortTitle(info.view.currentStart, info.view.currentEnd, info.view.type) : info.view.title;
         for (const b of document.querySelectorAll('[data-view]')) b.classList.toggle('on', !graph.on && b.dataset.view === info.view.type);
@@ -925,6 +931,98 @@
     });
     calendar.render();
     swipeToChangeDates($('#calendar'));
+  }
+
+  // ---- dragging to the edge turns the page
+  const EDGE_ZONE = 44;      // px from the edge (or anywhere past it) that count
+  const EDGE_WAIT = 600;     // ms held there before the first turn
+  const EDGE_REPEAT = 1100;  // ms between turns while it stays there
+  const edgeNav = { dir: 0, timer: 0, marks: null };
+
+  function edgeMarks() {
+    if (edgeNav.marks) return edgeNav.marks;
+    const mark = (dir) => h('div', { class: `edge-nav ${dir > 0 ? 'next' : 'prev'}` },
+      h('span', { class: 'edge-arrow' }, dir > 0 ? '›' : '‹'), h('span', { class: 'edge-label' }, dir > 0 ? 'Next' : 'Back'));
+    edgeNav.marks = { next: mark(1), prev: mark(-1) };
+    $('#calendar').parentElement.append(edgeNav.marks.prev, edgeNav.marks.next);
+    return edgeNav.marks;
+  }
+
+  function edgeMove(e) {
+    const p = e.touches?.[0] || e;
+    if (p.clientX == null) return;
+    floatMove(p.clientX, p.clientY);
+    const r = $('#calendar').getBoundingClientRect();
+    // The left side counts only over the time column, so the first day stays a place to drop.
+    const axis = Math.max(28, $('#calendar .fc-timegrid-axis')?.getBoundingClientRect().width || 0);
+    setEdge(p.clientX >= r.right - EDGE_ZONE ? 1 : p.clientX <= r.left + axis ? -1 : 0);
+  }
+
+  function setEdge(dir) {
+    if (dir === edgeNav.dir) return;
+    edgeNav.dir = dir;
+    clearTimeout(edgeNav.timer);
+    const m = edgeMarks();
+    m.next.classList.toggle('armed', dir > 0);
+    m.prev.classList.toggle('armed', dir < 0);
+    if (dir) edgeNav.timer = setTimeout(edgeTurn, EDGE_WAIT);
+  }
+
+  function edgeTurn() {
+    const dir = edgeNav.dir;
+    if (!dir) return;
+    if (dir > 0) calendar.next(); else calendar.prev();
+    const m = edgeMarks()[dir > 0 ? 'next' : 'prev'];
+    m.classList.remove('turned');
+    void m.offsetWidth; // restart the flash
+    m.classList.add('turned');
+    edgeNav.timer = setTimeout(edgeTurn, EDGE_REPEAT);
+  }
+
+  function edgeNavStart() {
+    edgeMarks();
+    document.body.classList.add('dragging-entry');
+    for (const type of ['pointermove', 'mousemove', 'touchmove']) document.addEventListener(type, edgeMove, true);
+  }
+
+  function edgeNavStop() {
+    document.body.classList.remove('dragging-entry');
+    for (const type of ['pointermove', 'mousemove', 'touchmove']) document.removeEventListener(type, edgeMove, true);
+    setEdge(0);
+  }
+
+  // ---- the carried entry: a copy that follows the pointer exactly
+  const float = { box: null, dx: 0, dy: 0 };
+
+  function floatStart(info) {
+    floatStop();
+    const el = info.el;
+    const r = el.getBoundingClientRect();
+    const p = info.jsEvent?.touches?.[0] || info.jsEvent || {};
+    float.dx = (p.clientX ?? r.left + 12) - r.left;
+    float.dy = (p.clientY ?? r.top + 8) - r.top;
+    const copy = el.cloneNode(true);
+    copy.classList.remove('fc-event-dragging', 'fc-event-selected');
+    copy.style.width = `${r.width}px`;
+    copy.style.height = `${r.height}px`;
+    // Inside an element with the "fc" class, so it keeps the calendar's look.
+    float.box = h('div', { class: 'fc drag-float' }, copy);
+    float.box.style.transform = `translate(${r.left}px, ${r.top}px)`;
+    document.body.append(float.box);
+    document.body.classList.add('carrying');
+  }
+
+  function floatMove(x, y) {
+    if (float.box) float.box.style.transform = `translate(${x - float.dx}px, ${y - float.dy}px)`;
+  }
+
+  function floatStop() {
+    document.body.classList.remove('carrying');
+    const box = float.box;
+    float.box = null;
+    if (!box) return;
+    box.classList.add('dropping'); // it fades as the entry appears in its snapped place
+    setTimeout(() => box.remove(), 160);
   }
 
   // Swiping left or right on the calendar goes to the next or previous days, the same as

@@ -124,6 +124,28 @@ body.has-next { --next-h: 34px; }
 #sidebar { border-right: 1px solid var(--line); padding: 14px 12px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; background: var(--panel); }
 #stage { min-width: 0; min-height: 0; position: relative; }
 #calendar { position: absolute; inset: 0; }
+/* Carrying an entry: a copy follows the pointer freely (lifted, with a shadow); the snapped
+   place it will land in shows as a dashed outline. */
+.drag-float { position: fixed; left: 0; top: 0; z-index: 500; pointer-events: none; will-change: transform; background: transparent; }
+.drag-float > .fc-event { position: relative !important; inset: auto !important; margin: 0 !important; transform: rotate(-1.2deg) scale(1.03); box-shadow: 0 18px 40px rgba(0,0,0,.65), 0 0 0 1px rgba(255,255,255,.18) !important; opacity: .97; }
+.drag-float.dropping { opacity: 0; transition: opacity .14s; }
+body.carrying .fc .fc-event-mirror { opacity: .5 !important; box-shadow: none !important; outline: 1.5px dashed color-mix(in srgb, var(--c, var(--accent)) 80%, #fff); outline-offset: -1.5px; filter: none !important; }
+body.carrying .fc .fc-event-mirror .fc-event-main { visibility: hidden; }
+body.carrying, body.carrying * { cursor: grabbing !important; }
+/* Dragging an entry: the calendar's edges turn to the next or previous week when held there. */
+.edge-nav { position: absolute; top: 0; bottom: 0; width: 52px; z-index: 30; pointer-events: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; opacity: 0; transition: opacity .15s; color: #fff; }
+.edge-nav.next { right: 0; background: linear-gradient(to left, color-mix(in srgb, var(--accent) 40%, transparent), transparent); }
+.edge-nav.prev { left: 0; background: linear-gradient(to right, color-mix(in srgb, var(--accent) 40%, transparent), transparent); }
+.edge-nav .edge-arrow { font-size: 30px; line-height: 1; font-weight: 300; }
+.edge-nav .edge-label { font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+body.dragging-entry .edge-nav { opacity: .28; }
+body.dragging-entry .edge-nav.armed { opacity: 1; }
+.edge-nav::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: color-mix(in srgb, var(--accent) 35%, transparent); }
+.edge-nav.armed::after { animation: edge-fill .6s linear forwards; }
+@keyframes edge-fill { to { height: 100%; } }
+.edge-nav.turned .edge-arrow { animation: edge-turn .35s ease-out; }
+@keyframes edge-turn { 40% { transform: translateX(var(--x, 8px)) scale(1.3); } }
+.edge-nav.prev.turned .edge-arrow { --x: -8px; }
 /* Sideways swipes on the calendar change the dates (swipeToChangeDates), so the browser keeps only up-and-down scrolling. */
 body.mobile #calendar, body.mobile #calendar .fc-scroller { touch-action: pan-y; }
 

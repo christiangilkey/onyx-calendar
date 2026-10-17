@@ -279,3 +279,18 @@ test('a picked call time reaches the Pi as a "Call at" line, and moves with the 
   assert.equal(at(mirrors()[0]), undefined);
   assert.equal(mirrors().length, 1);
 });
+
+test('a task ticked off stays on the calendar, marked done', async () => {
+  reset();
+  google.completedTasks = async (req, list) => [...fake.tasks.values()].filter((t) => t.list === list && t.done);
+  const t = await hub.createTask({ title: 'Call the bank 3pm', due: ymd(day(1)) });
+  await hub.updateTask(t.id, { done: true });
+  const { events } = await hub.getEvents(...week());
+  const shown = events.filter((e) => e.id === t.id);
+  assert.equal(shown.length, 1, 'once, not as both open and done');
+  assert.equal(shown[0].done, true);
+  assert.equal(shown[0].movable, false);
+  const { tasks } = await hub.getTasks({ force: true });
+  assert.equal(tasks.some((x) => x.id === t.id), false, 'not in the open list');
+  delete google.completedTasks;
+});

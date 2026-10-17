@@ -256,7 +256,7 @@
     state: async () => snapshot(),
     refresh: async () => snapshot(),
     events: async (start, end) => ({
-      events: [...events, ...tasks.filter((t) => t.date && !t.done).map(taskEvent),
+      events: [...events, ...tasks.filter((t) => t.date && !t.mirror).map((t) => ({ ...taskEvent(t), done: !!t.done })),
         ...goals.map(goalOut).map((g) => ({
           id: g.id, calendarId: g.id, calendarName: 'Goals', color: g.color, kind: 'goal', title: g.title, allDay: true,
           start: g.start, end: ymd(new Date(new Date(`${g.end}T00:00`).getTime() + 86400000)), notes: g.notes, writable: false, progress: g.progress,

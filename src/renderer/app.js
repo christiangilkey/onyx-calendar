@@ -582,7 +582,7 @@
       // Tasks can be dragged to another day or time, but keep their length.
       editable: e.kind === 'task' ? !!e.movable : e.writable && e.kind === 'event',
       durationEditable: e.kind === 'event' && e.writable,
-      classNames: [e.kind === 'task' ? 'is-task' : e.kind === 'goal' ? 'is-goal' : 'is-event', matchesFilter(e.tags) ? '' : 'is-dim'],
+      classNames: [e.kind === 'task' ? 'is-task' : e.kind === 'goal' ? 'is-goal' : 'is-event', e.done ? 'is-done' : '', matchesFilter(e.tags) ? '' : 'is-dim'],
       extendedProps: { src: e },
     };
   }
@@ -622,7 +622,7 @@
     }
     const title = h('div', { class: 'ev-title' },
       // A task's circle: clicking it ticks the task off (eventClick); the rest opens it.
-      src.kind === 'task' && h('span', { class: 'dot', title: 'Mark done' }),
+      src.kind === 'task' && h('span', { class: 'dot', title: src.done ? 'Done. Tap to bring it back' : 'Mark done' }, src.done && checkMark()),
       h('span', { class: 't' }, arg.event.title),
       src.goal && h('span', { class: 'ev-goal', title: `A step toward: ${src.goal.title}` }, icon('flag')),
       src.repeat && h('span', { title: REPEAT[src.repeat] }, icon('repeat')),
@@ -740,11 +740,23 @@
         const src = info.event.extendedProps.src;
         const anchor = info.el.getBoundingClientRect();
         if (src.kind === 'task' && info.jsEvent.target.closest?.('.dot')) {
-          // The circle fills in straight away; the task is archived (with Undo), as from the Tasks panel.
-          if (info.el.classList.contains('is-done')) return;
-          info.el.classList.add('is-done');
+          const dot = info.el.querySelector('.dot');
+          if (info.el.classList.contains('done-anim')) return; // already on its way
+          if (src.done) {
+            // A ticked task: the white circle empties again and the task comes back.
+            info.el.classList.remove('is-done');
+            dot.replaceChildren();
+            restoreTask(src.id, src.title);
+            return;
+          }
+          // The circle pops and fills white, a check draws in, a little burst and a click.
+          celebrate(info.el, dot, src.color);
           const t = tasks.find((x) => x.id === src.id) || { id: src.id, label: src.title };
-          completeTask(t, null).then(() => { if (!tasks.some((x) => x.id === src.id)) return; info.el.classList.remove('is-done'); });
+          completeTask(t, null, 650).then((ok) => {
+            if (ok) return;
+            info.el.classList.remove('is-done', 'done-anim');
+            dot.replaceChildren();
+          });
           return;
         }
         if (src.kind === 'task') openTask(tasks.find((t) => t.id === src.id) || { id: src.id, title: src.title, label: src.title, listName: src.calendarName }, anchor);
@@ -1202,20 +1214,96 @@
     $('#undo-btn').title = last ? `Undo: bring back "${last.label}" (Ctrl+Z)` : 'Nothing to undo';
   }
 
-  async function completeTask(t, row) {
+  // ---- ticking off: a pop, a check, a small burst and a soft click
+
+  const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function checkMark() {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 12 12');
+    svg.setAttribute('class', 'check');
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    line.setAttribute('d', 'M2.6 6.3 5 8.6 9.5 3.6');
+    svg.append(line);
+    return svg;
+  }
+
+  /** The click: a tiny tick of noise, a bright pop rising in pitch, and a soft bell above it. */
+  function doneSound() {
+    try {
+      const ctx = chime.ctx || (chime.ctx = new AudioContext());
+      ctx.resume?.();
+      const t0 = ctx.currentTime;
+      const noise = ctx.createBuffer(1, Math.round(ctx.sampleRate * 0.03), ctx.sampleRate);
+      const data = noise.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length) ** 3;
+      const tick = ctx.createBufferSource();
+      tick.buffer = noise;
+      const band = ctx.createBiquadFilter();
+      band.type = 'bandpass';
+      band.frequency.value = 2600;
+      const tg = ctx.createGain();
+      tg.gain.value = 0.5;
+      tick.connect(band).connect(tg).connect(ctx.destination);
+      tick.start(t0);
+      const tone = (type, f0, f1, at, len, vol) => {
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = type;
+        o.frequency.setValueAtTime(f0, t0 + at);
+        o.frequency.exponentialRampToValueAtTime(f1, t0 + at + len * 0.4);
+        g.gain.setValueAtTime(0.0001, t0 + at);
+        g.gain.exponentialRampToValueAtTime(vol, t0 + at + 0.008);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + at + len);
+        o.connect(g).connect(ctx.destination);
+        o.start(t0 + at);
+        o.stop(t0 + at + len + 0.02);
+      };
+      tone('triangle', 620, 1240, 0.005, 0.12, 0.18); // the pop
+      tone('sine', 1760, 1760, 0.07, 0.45, 0.07);     // the bell
+      tone('sine', 2637, 2637, 0.09, 0.3, 0.03);
+    } catch { /* no sound: the circle still fills */ }
+    try { navigator.vibrate?.(14); } catch { /* no buzz on this device */ }
+  }
+
+  /** A ring and sparks from a point on the screen, in the entry's colour. */
+  function burstAt(el, color) {
+    if (reducedMotion()) return;
+    const r = el.getBoundingClientRect();
+    const burst = h('div', { class: 'done-burst', css: { left: `${r.left + r.width / 2}px`, top: `${r.top + r.height / 2}px`, '--c': color || 'var(--accent)' } },
+      h('span', { class: 'ring' }),
+      ...Array.from({ length: 8 }, (_, i) => h('i', { css: { '--a': `${i * 45 + 22}deg`, '--d': `${16 + (i % 2) * 7}px` } })));
+    document.body.append(burst);
+    setTimeout(() => burst.remove(), 800);
+  }
+
+  function celebrate(entry, dot, color) {
+    entry.classList.add('is-done', 'done-anim');
+    dot.replaceChildren(checkMark());
+    burstAt(dot, color);
+    doneSound();
+  }
+
+  /** Marks a task done. `hold`: keep it in view this long first, so its animation can play. Returns true when done. */
+  async function completeTask(t, row, hold = 0) {
+    const t0 = Date.now();
     row?.classList.add('done');
+    if (row) { doneSound(); burstAt(row.querySelector('.tick') || row, t.color); }
     try {
       const res = await onyx.updateTask(t.id, { done: true });
+      const wait = hold - (Date.now() - t0);
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
       undoStack.push({ id: t.id, label: t.label });
       if (undoStack.length > 30) undoStack.shift();
       syncUndo();
       const next = res?.next?.date ? `. Next one: ${fmtDay(fromYmd(res.next.date))}` : '';
-      toast(`Done: "${t.label}" (moved to Archived)${next}`, '', { label: 'Undo', run: () => restoreTask(t.id, t.label) });
+      toast(`Done: "${t.label}"${next}`, '', { label: 'Undo', run: () => restoreTask(t.id, t.label) });
       await loadTasks();
       refetch();
+      return true;
     } catch (err) {
       row?.classList.remove('done');
       toast(err.message, 'error');
+      return false;
     }
   }
 

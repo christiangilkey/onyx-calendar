@@ -231,11 +231,29 @@ body.mobile #calendar, body.mobile #calendar .fc-scroller { touch-action: pan-y;
 /* A bigger target than the circle itself, so it is easy to hit. */
 .is-task .ev-title .dot::before { content: ''; position: absolute; inset: -5px; }
 .is-task .ev-title .dot:hover { background: color-mix(in srgb, currentColor 45%, transparent); }
-.is-task.is-done .ev-title .dot { background: currentColor; }
-.is-task.is-done .ev-title .t { text-decoration: line-through; opacity: .6; }
+/* Done: the circle is filled white with a dark check, and the name is struck through. */
+.is-task.is-done .ev-title .dot { background: #fff; border-color: #fff; }
+.is-task .ev-title .dot .check { position: absolute; inset: -1.5px; width: calc(100% + 3px); height: calc(100% + 3px); }
+.is-task .ev-title .dot .check path { fill: none; stroke: #0b0b0e; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.is-task .ev-title .t { background: linear-gradient(currentColor, currentColor) no-repeat 0 55% / 0% 1.5px; }
+.is-task.is-done .ev-title .t { background-size: 100% 1.5px; opacity: .6; }
+.fc .is-task.is-done { filter: saturate(.55); }
+/* The moment it is ticked: the circle pops, the check draws itself, the strike runs across. */
+.is-task.done-anim .ev-title .dot { animation: dot-pop .5s cubic-bezier(.25, 1.7, .45, 1); }
+.is-task.done-anim .ev-title .dot .check path { stroke-dasharray: 11; stroke-dashoffset: 11; animation: check-draw .28s .1s ease-out forwards; }
+.is-task.done-anim .ev-title .t { transition: background-size .35s .12s ease-out, opacity .35s .3s; }
+@keyframes dot-pop { 0% { transform: scale(1); } 35% { transform: scale(1.7); } 65% { transform: scale(.9); } 100% { transform: scale(1); } }
+@keyframes check-draw { to { stroke-dashoffset: 0; } }
+.done-burst { position: fixed; width: 0; height: 0; pointer-events: none; z-index: 300; }
+.done-burst .ring { position: absolute; left: -7px; top: -7px; width: 14px; height: 14px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 10px color-mix(in srgb, var(--c) 70%, transparent); animation: burst-ring .55s ease-out forwards; }
+.done-burst i { position: absolute; left: -2.5px; top: -2.5px; width: 5px; height: 5px; border-radius: 50%; background: var(--c); box-shadow: 0 0 6px var(--c); animation: burst-spark .6s cubic-bezier(.2, .7, .3, 1) forwards; }
+.done-burst i:nth-child(odd) { background: #fff; }
+@keyframes burst-ring { to { transform: scale(3); opacity: 0; } }
+@keyframes burst-spark { 0% { transform: rotate(var(--a)) translateX(4px) scale(1); opacity: 1; } 100% { transform: rotate(var(--a)) translateX(var(--d)) scale(.2); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .is-task.done-anim .ev-title .dot, .is-task.done-anim .ev-title .dot .check path { animation: none; stroke-dashoffset: 0; } }
 /* Stripes only behind the now line: an open task whose time has passed. Anything ahead of
    it, including a task just moved there, is fully coloured. */
-.fc .is-task.fc-event-past.fc-timegrid-event, .fc .is-task.fc-event-past.fc-daygrid-block-event {
+.fc .is-task.fc-event-past:not(.is-done).fc-timegrid-event, .fc .is-task.fc-event-past:not(.is-done).fc-daygrid-block-event {
   background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--c) 20%, #09090b) 0 8px, color-mix(in srgb, var(--c) 13%, #09090b) 8px 16px) !important;
 }
 

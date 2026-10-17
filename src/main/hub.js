@@ -28,6 +28,7 @@ const toDate = (v) => (v.length === 10 ? new Date(+v.slice(0, 4), +v.slice(5, 7)
 
 const eventCache = new Map(); // `${calendar id}|${start}|${end}` -> { at, items }
 const taskCache = new Map();  // list id -> { at, items }
+const doneCache = new Map();  // `${list id}|${start}|${end}` -> { at, items }: tasks done, for the calendar
 
 const req = (acct) => (url, opts) => accounts.request(acct, url, opts);
 const findAccount = (id) => (id === 'local' ? LOCAL : store.data.accounts.find((a) => a.id === id));
@@ -92,6 +93,7 @@ async function refreshCalendars() {
 function invalidate(calendarId) {
   for (const key of eventCache.keys()) if (!calendarId || key.startsWith(calendarId + '|')) eventCache.delete(key);
   if (calendarId) taskCache.delete(calendarId); else taskCache.clear();
+  for (const key of doneCache.keys()) if (!calendarId || key.startsWith(calendarId + '|')) doneCache.delete(key);
 }
 
 // ---------------------------------------------------------------- events
@@ -189,6 +191,25 @@ function taskAsEvent(t) {
  * Every event and dated task between `start` and `end` (ISO timestamps), across
  * all calendars that are switched on. Returns { events, errors }.
  */
+/**
+ * Tasks of one list that were done, for the calendar to show them where they were (ticked,
+ * with a filled circle). Asked for by when they were done: from two months before the
+ * range to now, so one finished late still shows on its own day.
+ */
+async function doneTasks(cal, start, end, force) {
+  const key = `${cal.id}|${start}|${end}`;
+  const hit = doneCache.get(key);
+  if (hit && !force && Date.now() - hit.at < TASK_CACHE_MS) return hit.items;
+  const { acct, rawCal } = parseId(cal.id);
+  const from = new Date(new Date(start).getTime() - 60 * 86400000).toISOString();
+  const to = new Date(Math.max(Date.now(), new Date(end).getTime()) + 86400000).toISOString();
+  const raw = await PROVIDERS[acct.provider].completedTasks(req(acct), rawCal, from, to);
+  const mirrors = new Set(Object.values(store.data.piLinks).map((l) => l.task));
+  const items = raw.map((t) => unifyTask(cal, t, mirrors)).filter((t) => !t.mirror);
+  doneCache.set(key, { at: Date.now(), items });
+  return items;
+}
+
 async function getEvents(start, end, { includeHidden = false, force = false } = {}) {
   const hidden = store.data.settings.hidden;
   const shown = calendars().filter((c) => includeHidden || !hidden[c.id]);
@@ -197,8 +218,10 @@ async function getEvents(start, end, { includeHidden = false, force = false } = 
   const lists = await Promise.all(shown.map(async (cal) => {
     try {
       if (cal.kind === 'calendar') return await calendarEvents(cal, start, end, force);
-      return (await listTasks(cal, force))
-        .filter((t) => !t.mirror && !t.done)
+      const open = (await listTasks(cal, force)).filter((t) => !t.mirror && !t.done);
+      // Done ones too, so the calendar shows what was ticked off where it was planned.
+      const done = await doneTasks(cal, start, end, force).catch(() => []);
+      return [...open, ...done.map((t) => ({ ...t, done: true }))]
         .map(taskAsEvent)
         .filter((e) => e && toDate(e.end) > from && toDate(e.start) < to);
     } catch (err) {

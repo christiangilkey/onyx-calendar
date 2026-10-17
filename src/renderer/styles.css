@@ -101,11 +101,13 @@ select { padding-right: 4px; }
 }
 #titlebar button, #titlebar .segmented { -webkit-app-region: no-drag; }
 .brand { display: flex; align-items: center; gap: 9px; font-weight: 650; letter-spacing: .2px; width: 222px; flex: none; }
+/* The Orbit mark, as on the app icon: a gradient ring with a small moon. */
 .mark {
-  width: 16px; height: 16px; border-radius: 5px; background: #fff; position: relative;
-  box-shadow: 0 0 18px rgba(255,255,255,.25);
+  width: 16px; height: 16px; border-radius: 50%; position: relative; flex: none; border: 3px solid transparent;
+  background: linear-gradient(var(--bg), var(--bg)) padding-box, linear-gradient(135deg, #b9a8ff, #7c6cff 50%, #3fd0ff) border-box;
+  box-shadow: 0 0 12px rgba(124,108,255,.45);
 }
-.mark::after { content: ""; position: absolute; inset: 4px; border-radius: 2px; background: #000; }
+.mark::after { content: ""; position: absolute; width: 5px; height: 5px; right: -5px; top: -4px; border-radius: 50%; background: #fff; box-shadow: 0 0 5px rgba(255,255,255,.8); }
 .nav { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .nav h1 { font-size: 15px; font-weight: 600; margin-left: 10px; letter-spacing: .1px; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .grow { flex: 1; }
@@ -868,6 +870,34 @@ body.dragging-task #graph { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(-
 .cluster-row:has(input:not(:checked)) .name { color: var(--faint); text-decoration: line-through; }
 .cluster-row .n { font-size: 10.5px; color: var(--faint); }
 body.mobile #graph-clusters { bottom: calc(86px + env(safe-area-inset-bottom, 0px)); left: 8px; }
+/* The Inbox: bottom right, above the footer, opening upward like the Clusters tab. Waiting items
+   give its count a soft amber pulse, a nudge to clear it; empty, it says so in green. */
+#graph-inbox {
+  position: absolute; right: 12px; bottom: 46px; z-index: 2; display: flex; flex-direction: column-reverse;
+  max-height: calc(100% - 140px); width: 280px; border-radius: 12px; background: rgba(12,12,15,.86);
+  border: 1px solid var(--line-2); backdrop-filter: blur(10px); overflow: hidden;
+}
+#graph-inbox:not(.open) { width: auto; }
+.inbox-tab { display: flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px; border: 0; background: transparent; color: var(--soft); cursor: pointer; font-size: 12.5px; font-weight: 600; flex: none; }
+.inbox-tab:hover { color: var(--text); }
+.inbox-tab .ico { width: 14px; height: 14px; }
+.inbox-tab.has .ico { color: #f5b83d; }
+.inbox-tab.clear .ico { color: var(--ok); }
+.inbox-tab .count { margin-left: auto; padding: 1px 8px; border-radius: 9px; font-size: 11px; font-weight: 700; }
+.inbox-tab.has .count { color: #1a1206; background: #f5b83d; box-shadow: 0 0 0 0 rgba(245,184,61,.5); animation: inbox-pulse 2.6s ease-out infinite; }
+.inbox-tab.clear .count { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+@keyframes inbox-pulse { 0% { box-shadow: 0 0 0 0 rgba(245,184,61,.45); } 70%, 100% { box-shadow: 0 0 0 7px rgba(245,184,61,0); } }
+#graph-inbox.open .inbox-tab { border-top: 1px solid var(--line-2); }
+.inbox-body { overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+.inbox-tip { color: var(--muted); font-size: 11.5px; padding: 2px 6px 4px; line-height: 1.4; }
+.inbox-row { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 8px; background: var(--raise); border: 1px solid var(--line); border-left: 3px solid var(--c); cursor: grab; font-size: 12.5px; }
+.inbox-row:hover { background: var(--raise-2); }
+.inbox-row .ico { width: 13px; height: 13px; color: var(--muted); flex: none; }
+.inbox-row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.inbox-row .when { font-size: 11px; color: var(--muted); white-space: nowrap; flex: none; }
+body.mobile #graph-inbox { right: 8px; bottom: calc(126px + env(safe-area-inset-bottom, 0px)); width: calc(100vw - 16px); }
+body.mobile #graph-inbox:not(.open) { width: auto; }
+@media (prefers-reduced-motion: reduce) { .inbox-tab.has .count { animation: none; } }
 #graph-hint { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); color: var(--faint); font-size: 11px; pointer-events: none; white-space: nowrap; }
 #graph-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); pointer-events: none; text-align: center; padding: 20px; }
 #views button .ico, #views-mobile button .ico { width: 13px; height: 13px; margin-right: 5px; vertical-align: -2px; }
@@ -888,8 +918,8 @@ body.mobile #graph-clusters { bottom: calc(86px + env(safe-area-inset-bottom, 0p
 #connect { position: fixed; inset: 0; z-index: 80; background: #000; display: grid; place-items: center; padding: 24px; overflow-y: auto; }
 .connect-card { width: min(420px, 100%); display: flex; flex-direction: column; gap: 12px; }
 .connect-card .brand.big { font-size: 22px; width: auto; margin-bottom: 18px; }
-.connect-card .brand.big .mark { width: 22px; height: 22px; border-radius: 7px; }
-.connect-card .brand.big .mark::after { inset: 6px; }
+.connect-card .brand.big .mark { width: 22px; height: 22px; border-width: 4px; }
+.connect-card .brand.big .mark::after { width: 7px; height: 7px; right: -6px; top: -5px; }
 .connect-card h2 { font-size: 20px; }
 .connect-card ol { margin: 0; padding-left: 20px; color: var(--soft); line-height: 1.7; }
 .connect-card .or { color: var(--muted); font-size: 12px; margin-top: 8px; }
@@ -1045,7 +1075,22 @@ body.mobile #graph-foot { bottom: calc(86px + env(safe-area-inset-bottom, 0px));
   height: 26px; padding: 0 10px; border-radius: 13px; border: 1px solid var(--line-2); background: transparent; color: var(--faint); cursor: pointer; font-size: 12px;
 }
 #graph-bar .chip-toggle.on { color: var(--text); background: var(--raise-2); border-color: #3a3a42; }
-#graph-bar .add-btn { height: 28px; padding: 0 10px; }
+#graph-bar .add-btn { height: 28px; padding: 0 12px; }
+/* The toolbar's zones: the period on the left, slicing and filtering in the middle (each its own
+   group), adding on the right. They wrap as whole groups when the window is narrow. */
+#graph-bar .bar-zone { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+#graph-bar .bar-zone.slice { padding-left: 10px; border-left: 1px solid var(--line-2); }
+#graph-bar .bar-zone.create { margin-left: auto; }
+#graph-bar .chip-group { display: flex; flex-wrap: wrap; gap: 4px; }
+body.mobile #graph-bar .bar-zone.slice { padding-left: 0; border-left: 0; }
+body.mobile #graph-bar .bar-zone.lens { flex: 1 1 100%; }
+/* The New menu on the globe. */
+.new-menu { display: flex; flex-direction: column; gap: 2px; min-width: 230px; }
+.new-menu .menu-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text); cursor: pointer; text-align: left; font: inherit; }
+.new-menu .menu-item:hover { background: var(--raise-2); }
+.new-menu .menu-item .ico { width: 15px; height: 15px; color: var(--accent); flex: none; }
+.new-menu .menu-item b { display: block; font-weight: 600; font-size: 13px; }
+.new-menu .menu-item small { display: block; color: var(--muted); font-size: 11.5px; }
 #graph-bar .add-btn .ico { width: 13px; height: 13px; }
 body.mobile #graph-bar .chip-toggle { height: 30px; }
 body.mobile #graph-bar .grow { display: none; }

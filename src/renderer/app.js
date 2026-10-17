@@ -3086,6 +3086,8 @@
     events: [],          // the last range's entries, so the clusters can be redrawn without fetching
     hidden: readHidden(), // tag clusters switched off in the Clusters tab ('' stands for untagged)
     clustersOpen: false,
+    inbox: [],           // what has no tag and no date to place it: kept off the globe, in the Inbox drawer
+    inboxOpen: false,
   };
 
   // Which tag clusters are switched off is a per-screen preference, kept in this browser.
@@ -3286,7 +3288,15 @@
   function drawGraph() {
     if (!graph.on || !graph.view) return;
     renderClusters();
-    const items = graphItems(graph.events);
+    const all = graphItems(graph.events);
+    // Clustered by tag, the unorganised (no tag, and no date or source to stand in for one)
+    // wait in the Inbox drawer instead of piling up as an Untagged / No date cluster.
+    const unsorted = (it) => graph.groupBy === 'tags' && !(it.tags || []).length && (!it.home || it.home[0] === 'due:none');
+    // Something already done needs no sorting: done and untagged, it is left out altogether.
+    const finished = (it) => unsorted(it) && (it.src?.done || it.task?.done);
+    graph.inbox = all.filter((it) => unsorted(it) && !finished(it));
+    const items = all.filter((it) => !unsorted(it));
+    renderInbox();
     const data = OnyxGraph.build(items, {
       groupBy: graph.groupBy, tagColor,
       dayLabel: (key) => fromYmd(key).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }),
@@ -3294,7 +3304,37 @@
     graph.view.setData(data);
     const clusters = data.nodes.filter((n) => n.hub).length;
     $('#graph-stats').textContent = items.length ? `${items.length} ${items.length === 1 ? 'item' : 'items'}  ·  ${clusters} ${clusters === 1 ? 'cluster' : 'clusters'}` : '';
-    $('#graph-empty').hidden = items.length > 0;
+    $('#graph-empty').hidden = items.length > 0 || graph.inbox.length > 0;
+  }
+
+  // ---- the Inbox drawer: what is not organised yet, off the globe
+
+  let draggedInbox = null; // an Inbox item being dragged onto a cluster
+
+  function renderInbox() {
+    const box = $('#graph-inbox');
+    const items = graph.inbox;
+    box.hidden = graph.groupBy !== 'tags';
+    if (box.hidden) return;
+    const n = items.length;
+    const head = h('button', {
+      class: `inbox-tab${n ? ' has' : ' clear'}`, 'aria-expanded': String(graph.inboxOpen),
+      title: n ? 'Things with no tag and no date. Drag one onto a cluster to tag it, or click it to open it' : 'Nothing waiting: everything has a place',
+      onclick: () => { graph.inboxOpen = !graph.inboxOpen; renderInbox(); },
+    }, icon(n ? 'note' : 'check'), 'Inbox', h('span', { class: 'count' }, n ? String(n) : 'clear'));
+    box.classList.toggle('open', graph.inboxOpen && n > 0);
+    if (!graph.inboxOpen || !n) { box.replaceChildren(head); return; }
+    const kindIcon = (it) => icon(it.kind === 'task' ? 'check' : it.kind === 'note' ? 'note' : 'calendar');
+    const when = (it) => (it.start ? (it.allDay || it.start.length === 10 ? fmtDay(fromYmd(it.start.slice(0, 10))) : `${fmtDay(new Date(it.start))}, ${fmtTime(new Date(it.start))}`) : 'No date');
+    const row = (it) => h('div', {
+      class: 'inbox-row', css: { '--c': it.color || '#8a8a94' }, draggable: !MOBILE, title: 'Drag onto a cluster to tag it, or click to open',
+      onclick: (e) => pickFromGraph(it, e.currentTarget.getBoundingClientRect()),
+      ondragstart: (e) => { draggedInbox = it; e.dataTransfer.setData('text/plain', it.title); e.dataTransfer.effectAllowed = 'move'; },
+      ondragend: () => { draggedInbox = null; graph.view?.dragOver(); },
+    }, kindIcon(it), h('span', { class: 'name' }, it.title), h('span', { class: 'when' }, when(it)));
+    box.replaceChildren(head, h('div', { class: 'inbox-body' },
+      h('p', { class: 'inbox-tip' }, 'No tag and no date yet. Drag each onto a cluster to give it that tag.'),
+      items.map(row)));
   }
 
   // ---- the Clusters tab: which tag clusters the globe shows
@@ -3362,7 +3402,8 @@
   function watchGlobeDrops() {
     const box = $('#graph');
     // Files and folders dragged in from File Explorer or the desktop (only on the PC).
-    const filesDragged = (e) => !draggedTask && !!onyx.addFiles && [...(e.dataTransfer?.types || [])].includes('Files');
+    const filesDragged = (e) => !draggedTask && !draggedInbox && !!onyx.addFiles && [...(e.dataTransfer?.types || [])].includes('Files');
+    const draggedLabel = () => (draggedTask ? draggedTask.label : draggedInbox?.title);
     box.addEventListener('dragover', (e) => {
       if (filesDragged(e) && graph.view) {
         e.preventDefault();
@@ -3370,9 +3411,9 @@
         e.dataTransfer.dropEffect = 'copy';
         return hit;
       }
-      if (!draggedTask || !graph.view) return;
+      if ((!draggedTask && !draggedInbox) || !graph.view) return;
       e.preventDefault();
-      const hit = graph.view.dragOver(e.clientX, e.clientY, draggedTask.label);
+      const hit = graph.view.dragOver(e.clientX, e.clientY, draggedLabel());
       e.dataTransfer.dropEffect = hit ? 'move' : 'none';
     });
     box.addEventListener('dragleave', (e) => { if (!box.contains(e.relatedTarget)) graph.view?.dragOver(); });
@@ -3392,13 +3433,15 @@
         }
         return;
       }
-      if (!draggedTask || !graph.view) return;
+      if ((!draggedTask && !draggedInbox) || !graph.view) return;
       e.preventDefault();
       const t = draggedTask;
-      const hit = graph.view.dragOver(e.clientX, e.clientY, t.label);
+      const item = t ? globeItemFor(t) : draggedInbox;
+      const hit = graph.view.dragOver(e.clientX, e.clientY, draggedLabel());
       taskDragEnd();
+      draggedInbox = null;
       if (!hit) return toast('Drop it on a cluster.');
-      await moveOnGlobe(globeItemFor(t), hit.key, null, hit.label);
+      await moveOnGlobe(item, hit.key, null, hit.label);
     });
   }
 
@@ -3758,7 +3801,17 @@
       class: `chip-toggle ${graph.show[key] ? 'on' : ''}`, title,
       onclick: () => { graph.show[key] = !graph.show[key]; renderGraphBar(); loadGraph(); },
     }, label);
-    const addBtn = (label, fn) => h('button', { class: 'btn add-btn', onclick: (e) => fn(e.currentTarget.getBoundingClientRect()) }, icon('plus'), label);
+    const newMenu = (e) => {
+      const anchor = e.currentTarget.getBoundingClientRect();
+      const item = (ico, label, sub, fn) => h('button', { class: 'menu-item', onclick: () => { closePopover(); fn(anchor); } },
+        icon(ico), h('span', null, h('b', null, label), h('small', null, sub)));
+      showPopover(anchor, [h('div', { class: 'new-menu' },
+        item('note', 'Note', 'Written here in Onyx', (r) => openNote(null, r)),
+        item('link', 'Notion page', 'Pin a page from Notion', (r) => openPicker('notion', r)),
+        item('link', 'Drive file', 'Pin a file from Google Drive', (r) => openPicker('drive', r)),
+        item('link', 'Link', 'Any web address', (r) => openAddLink(r)),
+        onyx.pickFiles && item('pin', 'File or folder', 'From this PC', (r) => openAddFile(r)))]);
+    };
     graph.barOpen ??= readBarOpen();
     const open = graph.barOpen;
     const toggle = h('button', {
@@ -3767,38 +3820,40 @@
     }, icon('down'));
     $('#graph-bar').classList.toggle('folded', !open);
     $('#graph-bar').replaceChildren(h('div', { class: 'bar-row' },
-      seg([['day', 'Day'], ['week', 'Week'], ['month', 'Month'], ['range', 'Range']], graph.kind, (k) => {
-        if (k === 'range' && graph.kind !== 'range') {
-          const [s, e] = graphRange();
-          graph.from = ymd(s);
-          graph.to = ymd(addDays(e, -1));
-        } else if (k !== 'range' && graph.kind === 'range') {
-          graph.anchor = fromYmd(graph.from);
-        }
-        graph.kind = k;
-        renderGraphBar();
-        loadGraph();
-      }),
-      graph.kind === 'range' && h('span', { class: 'range-pick' }, from, h('span', { class: 'dash' }, 'to'), to),
-      // The arrow sits by the period picker; on the phone, at the end of that line.
-      MOBILE && h('div', { class: 'bar-spacer' }), toggle, MOBILE && open && h('div', { class: 'bar-break' }),
-      open && [
+      // Left: the period (the lens on time).
+      h('div', { class: 'bar-zone lens' },
+        seg([['day', 'Day'], ['week', 'Week'], ['month', 'Month'], ['range', 'Range']], graph.kind, (k) => {
+          if (k === 'range' && graph.kind !== 'range') {
+            const [s, e] = graphRange();
+            graph.from = ymd(s);
+            graph.to = ymd(addDays(e, -1));
+          } else if (k !== 'range' && graph.kind === 'range') {
+            graph.anchor = fromYmd(graph.from);
+          }
+          graph.kind = k;
+          renderGraphBar();
+          loadGraph();
+        }),
+        graph.kind === 'range' && h('span', { class: 'range-pick' }, from, h('span', { class: 'dash' }, 'to'), to),
+        // The arrow sits by the period picker; on the phone, at the end of that line.
+        MOBILE && h('div', { class: 'bar-spacer' }), toggle),
+      // Middle: how it is sliced (cluster by) and what joins in (show).
+      open && h('div', { class: 'bar-zone slice' },
         h('span', { class: 'bar-label' }, 'Cluster by'),
-        seg([['tags', 'Tags'], ['calendars', 'Sources'], ['days', 'Days']], graph.groupBy, (g) => { graph.groupBy = g; renderGraphBar(); loadGraph(); }),
+        seg([['tags', 'Tags'], ['calendars', 'Sources'], ['days', 'Days']], graph.groupBy, (g) => { graph.groupBy = g; renderGraphBar(); loadGraph(); })),
+      open && h('div', { class: 'bar-zone slice' },
         h('span', { class: 'bar-label' }, 'Show'),
-        chip('tasks', 'Tasks', 'Tasks that have no date'),
-        chip('goals', 'Goals', 'Long-term goals: one node each, standing for all of its steps'),
-        chip('notes', 'Notes', 'Notes written in Onyx'),
-        chip('notion', 'Notion', 'Notion pages pinned to the globe'),
-        chip('drive', 'Drive', 'Google Drive files pinned to the globe'),
-        chip('web', 'Links', 'Web links pinned to the globe'),
-        chip('local', 'Files', 'Files and folders from this PC pinned to the globe'),
-        h('div', { class: 'grow' }),
-        addBtn('Note', (r) => openNote(null, r)),
-        addBtn('Notion', (r) => openPicker('notion', r)),
-        addBtn('Drive', (r) => openPicker('drive', r)),
-        addBtn('Link', (r) => openAddLink(r)),
-        onyx.pickFiles && addBtn('File', (r) => openAddFile(r))]));
+        h('div', { class: 'chip-group' },
+          chip('tasks', 'Tasks', 'Tasks that have no date'),
+          chip('goals', 'Goals', 'Long-term goals: one node each, standing for all of its steps'),
+          chip('notes', 'Notes', 'Notes written in Onyx'),
+          chip('notion', 'Notion', 'Notion pages pinned to the globe'),
+          chip('drive', 'Drive', 'Google Drive files pinned to the globe'),
+          chip('web', 'Links', 'Web links pinned to the globe'),
+          chip('local', 'Files', 'Files and folders from this PC pinned to the globe'))),
+      // Right: one menu for everything that adds an item.
+      open && h('div', { class: 'bar-zone create' },
+        h('button', { class: 'btn primary add-btn', title: 'Add a note, a Notion page, a Drive file, a link or a file', onclick: newMenu }, icon('plus'), 'New'))));
   }
 
   function openGraph() {

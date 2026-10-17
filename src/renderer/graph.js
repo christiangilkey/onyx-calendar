@@ -73,6 +73,10 @@
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   }
 
+  /** A hub's radius before perspective: its area is proportional to how many items it holds. */
+  const hubRadius = (count) => Math.min(30, 4.6 * Math.sqrt(Math.max(1, count)));
+  const nodeRadius = (n) => (n.hub ? hubRadius(n.count) : 3.2);
+
   const rgba = (hex, a) => {
     const n = parseInt(hex.slice(1), 16);
     return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
@@ -259,7 +263,10 @@
 
       for (const n of nodes) n.p = project(n);
       // Near side bright, far side dim: what makes it read as a ball rather than a flat web.
-      const fade = (p) => Math.max(0.2, Math.min(1, 1 - 0.75 * ((p.depth - (center.depth - globe)) / (2 * globe))));
+      const fade = (p) => {
+        const t = (p.depth - center.depth) / Math.max(globe, 1); // -1 nearest, 0 the rim, +1 the far side
+        return t <= -0.05 ? 1 : Math.max(0.18, 1 - 0.82 * Math.min(1, (t + 0.05) / 0.7));
+      };
 
       ctx.lineCap = 'round';
       for (const l of links) {
@@ -268,7 +275,7 @@
         const on = lit(l.a) && lit(l.b);
         const hot = hover && (l.a === hover || l.b === hover);
         const color = l.b.hub ? l.b.color : l.a.color;
-        ctx.strokeStyle = rgba(color, (hot ? 0.75 : l.spine ? 0.35 : on ? 0.2 : 0.04) * fade(pa));
+        ctx.strokeStyle = rgba(color, (hot ? 0.75 : l.spine ? 0.35 : on ? 0.2 : 0.04) * Math.min(fade(pa), fade(pb)));
         ctx.lineWidth = (l.spine ? 1.6 : hot ? 1.4 : 0.9) * Math.min(pa.s, 1.6);
         ctx.beginPath();
         ctx.moveTo(pa.x, pa.y);
@@ -277,18 +284,20 @@
       }
 
       const order = nodes.filter((n) => n.p.depth > 10).sort((x, y) => y.p.depth - x.p.depth);
+      const labels = [];
       for (const n of order) {
         const { p } = n;
         const on = lit(n);
         const a = fade(p) * (on ? 1 : 0.16);
-        const r = (n.hub ? 6 + Math.sqrt(n.count) * 2.2 : 3.2) * p.s;
+        const r = nodeRadius(n) * p.s;
         if (n.hub || n === hover) {
-          const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * 3.2);
+          const gr = r * 2.2 + 6 * p.s;
+          const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, gr);
           g.addColorStop(0, rgba(n.color, 0.42 * a));
           g.addColorStop(1, rgba(n.color, 0));
           ctx.fillStyle = g;
           ctx.beginPath();
-          ctx.arc(p.x, p.y, r * 3.2, 0, Math.PI * 2);
+          ctx.arc(p.x, p.y, gr, 0, Math.PI * 2);
           ctx.fill();
         }
         ctx.fillStyle = rgba(n.color, a);
@@ -331,27 +340,55 @@
         }
 
         // Only clusters are named; an entry's name shows once its cluster is opened (tapped).
+        // The far side's names are left out: they would only crowd the near side's.
         const labelled = n.hub || (focus && neighbours.get(focus.id)?.has(n.id));
-        if (labelled && a > 0.2) {
-          const size = n.hub ? Math.min(15, 10.5 + p.s * 2.5) : Math.min(13, 9.5 + p.s * 2);
-          ctx.font = `${n.hub ? 600 : 500} ${size}px "Segoe UI Variable Text","Segoe UI",Inter,Roboto,system-ui,sans-serif`;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'top';
-          const text = n.label.length > 34 ? `${n.label.slice(0, 33)}…` : n.label;
-          const y = p.y + r + 5;
-          ctx.fillStyle = `rgba(0,0,0,${0.7 * a})`;
-          ctx.fillText(text, p.x + 1, y + 1);
-          ctx.fillStyle = n.hub ? `rgba(242,242,246,${a})` : `rgba(200,200,210,${a})`;
-          ctx.fillText(text, p.x, y);
-          if (n.hub) {
-            ctx.font = `500 ${size - 2}px "Segoe UI",Inter,Roboto,system-ui,sans-serif`;
-            ctx.fillStyle = `rgba(140,140,150,${a})`;
-            ctx.fillText(String(n.count), p.x, y + size + 2);
-          }
-        }
+        if (labelled && a > 0.34) labels.push({ n, p, r, a });
       }
       drawGlobe(center, true);
+      drawLabels(labels);
       drawHeld();
+    }
+
+    /**
+     * Names under their nodes, placed so none overlap: the hovered and opened ones first, then
+     * clusters by size, then the nearest. A name with no room below its node tries above it,
+     * then beside it, and is left out if every spot is taken (hovering still shows it).
+     */
+    function drawLabels(labels) {
+      const FONT = '"Segoe UI Variable Text","Segoe UI",Inter,Roboto,system-ui,sans-serif';
+      const pad = 4;
+      const placed = [];
+      const free = (b) => b.x0 >= 0 && b.x1 <= width && placed.every((o) => b.x1 + pad < o.x0 || b.x0 - pad > o.x1 || b.y1 + pad < o.y0 || b.y0 - pad > o.y1);
+      const rank = (l) => (l.n === hover || l.n === focus ? 0 : l.n.hub ? 1 : 2);
+      labels.sort((x, y) => rank(x) - rank(y) || (y.n.hub ? y.n.count : 0) - (x.n.hub ? x.n.count : 0) || x.p.depth - y.p.depth);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      for (const { n, p, r, a } of labels) {
+        const size = n.hub ? Math.min(15, 10.5 + p.s * 2.5) : Math.min(13, 9.5 + p.s * 2);
+        const font = `${n.hub ? 600 : 500} ${size}px ${FONT}`;
+        ctx.font = font;
+        const text = n.label.length > 34 ? `${n.label.slice(0, 33)}…` : n.label;
+        const w = ctx.measureText(text).width;
+        const h = n.hub ? size * 2 + 2 : size + 2; // a cluster's name has its count under it
+        const spots = [
+          { cx: p.x, y: p.y + r + 5 },                 // below
+          { cx: p.x, y: p.y - r - 5 - h },             // above
+          { cx: p.x + r + 6 + w / 2, y: p.y - h / 2 }, // right
+          { cx: p.x - r - 6 - w / 2, y: p.y - h / 2 }, // left
+        ];
+        const spot = spots.find((o) => free({ x0: o.cx - w / 2, x1: o.cx + w / 2, y0: o.y, y1: o.y + h }));
+        if (!spot) continue;
+        placed.push({ x0: spot.cx - w / 2, x1: spot.cx + w / 2, y0: spot.y, y1: spot.y + h });
+        ctx.fillStyle = `rgba(0,0,0,${0.7 * a})`;
+        ctx.fillText(text, spot.cx + 1, spot.y + 1);
+        ctx.fillStyle = n.hub ? `rgba(242,242,246,${a})` : `rgba(200,200,210,${a})`;
+        ctx.fillText(text, spot.cx, spot.y);
+        if (n.hub) {
+          ctx.font = `500 ${size - 2}px ${FONT}`;
+          ctx.fillStyle = `rgba(160,160,170,${a})`;
+          ctx.fillText(String(n.count), spot.cx, spot.y + size + 2);
+        }
+      }
     }
 
     // While an item is being dragged: a dashed line to the cluster it would join, and its name.
@@ -364,7 +401,7 @@
       const name = outside ? incoming.label : held.node.label;
       ctx.save();
       if (t?.p) {
-        const r = (6 + Math.sqrt(t.count) * 2.2) * t.p.s;
+        const r = hubRadius(t.count) * t.p.s;
         ctx.setLineDash([5, 5]);
         ctx.strokeStyle = 'rgba(255,255,255,0.8)';
         ctx.lineWidth = 1.5;
@@ -415,22 +452,30 @@
         const lon = (k * Math.PI) / 6;
         rings.push((t) => ({ x: R * Math.cos(t) * Math.cos(lon), y: R * Math.sin(t), z: R * Math.cos(t) * Math.sin(lon) }));
       }
-      ctx.beginPath();
+      // Segments go into a few brightness bands by depth: strongest facing you, faint behind.
+      const BANDS = 5;
+      const paths = Array.from({ length: BANDS }, () => new Path2D());
       for (const ring of rings) {
         let prev = project(ring(0));
         for (let i = 1; i <= SEG; i++) {
           const p = project(ring((i / SEG) * Math.PI * 2));
-          const near = (prev.depth + p.depth) / 2 < center.depth;
+          const mid = (prev.depth + p.depth) / 2;
+          const near = mid < center.depth;
           if (near === front && p.depth > 10 && prev.depth > 10) {
-            ctx.moveTo(prev.x, prev.y);
-            ctx.lineTo(p.x, p.y);
+            const t = Math.min(1, Math.abs(mid - center.depth) / Math.max(R, 1)); // 0 at the rim, 1 straight ahead or behind
+            const band = Math.min(BANDS - 1, Math.floor(t * BANDS));
+            paths[band].moveTo(prev.x, prev.y);
+            paths[band].lineTo(p.x, p.y);
           }
           prev = p;
         }
       }
-      ctx.strokeStyle = front ? 'rgba(170,160,255,0.085)' : 'rgba(139,124,255,0.04)';
-      ctx.lineWidth = front ? 1 : 0.8;
-      ctx.stroke();
+      ctx.lineWidth = front ? 1.1 : 0.8;
+      paths.forEach((path, band) => {
+        const t = (band + 0.5) / BANDS;
+        ctx.strokeStyle = front ? `rgba(175,165,255,${0.07 + 0.16 * t})` : `rgba(139,124,255,${0.045 - 0.03 * t})`;
+        ctx.stroke(path);
+      });
     }
 
     function frame() {
@@ -474,7 +519,7 @@
       let best = null, bestD = Infinity;
       for (const n of nodes) {
         if (!n.p || n.p.depth < 10) continue;
-        const r = (n.hub ? 6 + Math.sqrt(n.count) * 2.2 : 3.2) * n.p.s + 7;
+        const r = nodeRadius(n) * n.p.s + 7;
         const d = Math.hypot(n.p.x - x, n.p.y - y);
         if (d < r && d - r < bestD) { best = n; bestD = d - r; }
       }
@@ -501,7 +546,7 @@
       let best = null, bestD = Infinity;
       for (const n of nodes) {
         if (!n.hub || n === except || !n.p || n.p.depth < 10) continue;
-        const r = (6 + Math.sqrt(n.count) * 2.2) * n.p.s + 22;
+        const r = hubRadius(n.count) * n.p.s + 22;
         const d = Math.hypot(n.p.x - x, n.p.y - y);
         if (d < r && d < bestD) { best = n; bestD = d; }
       }

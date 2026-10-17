@@ -835,12 +835,13 @@
   // tags, which a short or narrow block cuts off. Shown after a short pause, never while dragging.
   const peek = { el: null, timer: 0 };
   document.addEventListener('scroll', () => hidePeek(), true); // the block moved away from under the card
+  const dragging = () => document.body.classList.contains('dragging-entry') || document.body.classList.contains('carrying');
   function showPeek(info) {
     hidePeek();
     const src = info.event.extendedProps.src;
-    if (MOBILE || !src || src.kind === 'goal' || document.body.classList.contains('dragging-entry')) return;
+    if (MOBILE || !src || src.kind === 'goal' || dragging()) return;
     peek.timer = setTimeout(() => {
-      if (!info.el.isConnected || document.body.classList.contains('dragging-entry')) return;
+      if (!info.el.isConnected || dragging()) return;
       const e = info.event;
       const notes = notesOf(src);
       const when = e.allDay ? `${fmtDay(e.start)} · all day` : `${fmtDay(e.start)} · ${fmtTime(e.start)}${e.end ? ` – ${fmtTime(e.end)}` : ''}`;

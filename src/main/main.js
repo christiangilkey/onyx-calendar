@@ -86,6 +86,12 @@ function createWindow() {
   });
   win.on('closed', () => { win = null; });
 
+  // With background throttling off (so chimes keep time in the tray), the page cannot tell it
+  // is hidden by itself: it is told, so the globe stops drawing while nobody can see it.
+  const visibility = () => win?.webContents.send('window-visibility', !win.isVisible() || win.isMinimized());
+  for (const name of ['hide', 'minimize', 'show', 'restore']) win.on(name, visibility);
+  win.webContents.on('did-finish-load', visibility);
+
   if (SMOKE_SHOT) {
     win.webContents.once('did-finish-load', () => setTimeout(async () => {
       // Test runs can drive the window first, e.g. open a view, then wait for it to settle.

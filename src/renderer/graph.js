@@ -455,8 +455,16 @@
       const mid = targetMidY();
       midY = midY == null || Math.abs(mid - midY) < 0.5 ? mid : midY + (mid - midY) * 0.15;
       draw();
-      raf = requestAnimationFrame(frame);
+      raf = paused ? 0 : requestAnimationFrame(frame);
     }
+
+    // Nothing is drawn while the window is hidden in the tray (the page is told: app.js).
+    let paused = !!window.onyxHidden;
+    const onVisibility = (e) => {
+      paused = !!e.detail?.hidden;
+      if (paused) { cancelAnimationFrame(raf); raf = 0; } else if (!raf) raf = requestAnimationFrame(frame);
+    };
+    window.addEventListener('onyx-visibility', onVisibility);
 
     const clampPitch = (v) => Math.max(-1.45, Math.min(1.45, v));
 
@@ -643,7 +651,7 @@
     canvas.style.cursor = 'grab';
     canvas.style.touchAction = 'none';
     resize();
-    raf = requestAnimationFrame(frame);
+    raf = paused ? 0 : requestAnimationFrame(frame);
 
     return {
       setData,
@@ -671,6 +679,7 @@
       },
       destroy() {
         cancelAnimationFrame(raf);
+        window.removeEventListener('onyx-visibility', onVisibility);
         observer.disconnect();
         canvas.replaceWith(canvas.cloneNode(false));
       },

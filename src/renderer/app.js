@@ -476,6 +476,12 @@
   }
   onyx.onAlertAction?.(popupAction);
 
+  // The window hidden in the tray or minimised: things that only draw (the globe) pause.
+  onyx.onWindowVisibility?.((hidden) => {
+    window.onyxHidden = hidden;
+    window.dispatchEvent(new CustomEvent('onyx-visibility', { detail: { hidden } }));
+  });
+
   /** Fires the call popups (at the time the Pi phones) and the snoozed ones; start popups come from tickNext. */
   function tickPopups() {
     if (!popupsOn() || !nextRun.loaded) return;

@@ -82,6 +82,8 @@ contextBridge.exposeInMainWorld('onyx', {
   open: (url) => call('open', url),
   copy: (text) => call('copy', text),
   onChanged: (fn) => ipcRenderer.on('changed', () => fn()),
+  // true when the window is hidden in the tray or minimised.
+  onWindowVisibility: (fn) => ipcRenderer.on('window-visibility', (_event, hidden) => fn(!!hidden)),
   // Updates from GitHub releases.
   checkUpdate: () => call('update:check'),
   installUpdate: () => call('update:install'),

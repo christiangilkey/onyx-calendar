@@ -326,6 +326,11 @@
       }
       return { changed: copies.length, warnings: [] };
     },
+    stopSeries: async (key) => {
+      const copies = withSeries(tasks.filter((t) => !t.done).map(taskOut)).filter((t) => t.series?.key === key);
+      tasks = tasks.filter((t) => !copies.some((c) => c.id === t.id));
+      return { deleted: copies.length, warnings: [] };
+    },
     clearSeries: async (key) => {
       const copies = withSeries(tasks.filter((t) => !t.done).map(taskOut)).filter((t) => t.series?.key === key);
       const late = copies.filter((t) => t.date < ymd(new Date()));
@@ -354,6 +359,7 @@
       return { tasks: done.sort((a, b) => b.completed.localeCompare(a.completed)).map(withTags), errors: [] };
     },
     createTask: async (d) => taskOut(addTask(d)),
+    setEventDone: async (id, done) => { const e = events.find((x) => x.id === id); if (e) e.done = !!done; return !!done; },
     setBackburner: async (id, on) => { const t = tasks.find((x) => x.id === id); if (t) t.backburner = !!on; return !!on; },
     updateTask: async (id, patch) => {
       const t = tasks.find((x) => x.id === id);

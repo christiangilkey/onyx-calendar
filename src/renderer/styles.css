@@ -250,7 +250,7 @@ body.mobile #calendar, body.mobile #calendar .fc-scroller { touch-action: pan-y;
 }
 .fc .fc-timegrid-event .ev-title, .fc .fc-daygrid-block-event .ev-title { color: #fff; text-shadow: 0 1px 1px rgba(0,0,0,.35); }
 .fc .fc-timegrid-event .ev-time, .fc .fc-daygrid-block-event .ev-time { color: rgba(255,255,255,.82); }
-.fc .is-task.is-done.fc-timegrid-event, .fc .is-task.is-done.fc-daygrid-block-event,
+.fc .is-done.fc-timegrid-event, .fc .is-done.fc-daygrid-block-event,
 .fc .fc-event-past:not(.is-task).fc-timegrid-event, .fc .fc-event-past:not(.is-task).fc-daygrid-block-event {
   background: color-mix(in srgb, var(--c, var(--accent)) 22%, #09090b) !important;
 }
@@ -271,23 +271,23 @@ body.mobile #calendar, body.mobile #calendar .fc-scroller { touch-action: pan-y;
 /* A half-hour block has room for one line: the title wins over the times. */
 .fc-timegrid-event-short .ev-time { display: none; }
 .fc .fc-timegrid-event-short .fc-event-main { padding: 1px 7px; }
-.is-task .ev-title .dot { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid currentColor; flex: none; cursor: pointer; position: relative; transition: background .12s; }
+.can-tick .ev-title .dot { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid currentColor; flex: none; cursor: pointer; position: relative; transition: background .12s; }
 /* A bigger target than the circle itself, so it is easy to hit. */
-.is-task .ev-title .dot::before { content: ''; position: absolute; inset: -5px; }
-.is-task .ev-title .dot:hover { background: color-mix(in srgb, currentColor 45%, transparent); }
+.can-tick .ev-title .dot::before { content: ''; position: absolute; inset: -5px; }
+.can-tick .ev-title .dot:hover { background: color-mix(in srgb, currentColor 45%, transparent); }
 /* Done: the circle is filled white with a dark check, and the name is struck through. */
-.is-task.is-done .ev-title .dot { background: #fff; border-color: #fff; }
-.is-task .ev-title .dot .check { position: absolute; inset: -1.5px; width: calc(100% + 3px); height: calc(100% + 3px); }
-.is-task .ev-title .dot .check path { fill: none; stroke: #0b0b0e; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
-.is-task .ev-title .t { background: linear-gradient(currentColor, currentColor) no-repeat 0 55% / 0% 1.5px; }
-.is-task.is-done .ev-title .t { background-size: 100% 1.5px; opacity: .85; }
+.can-tick.is-done .ev-title .dot { background: #fff; border-color: #fff; }
+.can-tick .ev-title .dot .check { position: absolute; inset: -1.5px; width: calc(100% + 3px); height: calc(100% + 3px); }
+.can-tick .ev-title .dot .check path { fill: none; stroke: #0b0b0e; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.can-tick .ev-title .t { background: linear-gradient(currentColor, currentColor) no-repeat 0 55% / 0% 1.5px; }
+.can-tick.is-done .ev-title .t { background-size: 100% 1.5px; opacity: .85; }
 /* Ticked: a bright sweep runs across the whole bar, and the bar settles into its done colour behind it. */
-.fc .is-task.done-anim::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(90deg, color-mix(in srgb, var(--c) 40%, transparent) 0%, rgba(255,255,255,.55) 78%, rgba(255,255,255,.9) 100%); animation: done-sweep .9s cubic-bezier(.35, .6, .2, 1) forwards; }
+.fc .can-tick.done-anim::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(90deg, color-mix(in srgb, var(--c) 40%, transparent) 0%, rgba(255,255,255,.55) 78%, rgba(255,255,255,.9) 100%); animation: done-sweep .9s cubic-bezier(.35, .6, .2, 1) forwards; }
 @keyframes done-sweep { 0% { clip-path: inset(0 100% 0 0); opacity: 1; } 62% { clip-path: inset(0 0 0 0); opacity: .95; } 100% { clip-path: inset(0 0 0 0); opacity: 0; } }
 /* The moment it is ticked: the circle pops, the check draws itself, the strike runs across. */
-.is-task.done-anim .ev-title .dot { animation: dot-pop .5s cubic-bezier(.25, 1.7, .45, 1); }
-.is-task.done-anim .ev-title .dot .check path { stroke-dasharray: 11; stroke-dashoffset: 11; animation: check-draw .28s .1s ease-out forwards; }
-.is-task.done-anim .ev-title .t { transition: background-size .35s .12s ease-out, opacity .35s .3s; }
+.can-tick.done-anim .ev-title .dot { animation: dot-pop .5s cubic-bezier(.25, 1.7, .45, 1); }
+.can-tick.done-anim .ev-title .dot .check path { stroke-dasharray: 11; stroke-dashoffset: 11; animation: check-draw .28s .1s ease-out forwards; }
+.can-tick.done-anim .ev-title .t { transition: background-size .35s .12s ease-out, opacity .35s .3s; }
 @keyframes dot-pop { 0% { transform: scale(1); } 35% { transform: scale(1.7); } 65% { transform: scale(.9); } 100% { transform: scale(1); } }
 @keyframes check-draw { to { stroke-dashoffset: 0; } }
 .done-burst { position: fixed; width: 0; height: 0; pointer-events: none; z-index: 300; }
@@ -296,7 +296,7 @@ body.mobile #calendar, body.mobile #calendar .fc-scroller { touch-action: pan-y;
 .done-burst i:nth-child(odd) { background: #fff; }
 @keyframes burst-ring { to { transform: scale(3); opacity: 0; } }
 @keyframes burst-spark { 0% { transform: rotate(var(--a)) translateX(4px) scale(1); opacity: 1; } 100% { transform: rotate(var(--a)) translateX(var(--d)) scale(.2); opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .is-task.done-anim .ev-title .dot, .is-task.done-anim .ev-title .dot .check path { animation: none; stroke-dashoffset: 0; } .fc .is-task.done-anim::after { display: none; } }
+@media (prefers-reduced-motion: reduce) { .can-tick.done-anim .ev-title .dot, .can-tick.done-anim .ev-title .dot .check path { animation: none; stroke-dashoffset: 0; } .fc .can-tick.done-anim::after { display: none; } }
 /* An open task whose time has passed: a calm solid fill, its colour kept in the 4px left edge
    (no stripes, no alarm). Anything ahead of the now line is fully coloured. */
 .fc .is-task.fc-event-past:not(.is-done).fc-timegrid-event, .fc .is-task.fc-event-past:not(.is-done).fc-daygrid-block-event {
@@ -719,9 +719,9 @@ pre.code {
 #next-bar .next-gauge { position: absolute; left: 12px; right: 12px; bottom: 3px; height: 2px; border-radius: 2px; background: color-mix(in srgb, var(--c) 16%, transparent); }
 #next-bar .next-gauge i { position: absolute; left: 0; top: 0; bottom: 0; width: var(--left, 0%); border-radius: inherit; background: var(--c); box-shadow: 0 0 6px var(--c); transition: width 1s linear, background .4s; }
 #next-bar .next-pill.empty .next-gauge { display: none; }
-#next-bar.urgent .next-pill { animation: next-urgent 1s ease-in-out infinite; }
+#next-bar .next-pill[data-tone=urgent] { animation: next-urgent 1s ease-in-out infinite; }
 @keyframes next-urgent { 50% { box-shadow: 0 0 22px color-mix(in srgb, var(--c) 55%, transparent); background: color-mix(in srgb, var(--c) 14%, #1A1D24); } }
-@media (prefers-reduced-motion: reduce) { #next-bar .next-live, #next-bar.urgent .next-pill { animation: none; } }
+@media (prefers-reduced-motion: reduce) { #next-bar .next-live, #next-bar .next-pill[data-tone=urgent] { animation: none; } }
 
 #next-bar .next-tools { display: flex; align-items: center; gap: 2px; min-width: 0; margin-right: 4px; padding-right: 6px; border-right: 1px solid var(--line); }
 #next-bar .next-tools:empty { display: none; }
@@ -1236,3 +1236,31 @@ body.mobile #update-btn { display: none; }.card .row input[type=password] { flex
 .burner .task-cards { padding: 0 8px 4px; }
 .burner-hint { color: var(--muted); font-size: 11px; padding: 2px 12px 10px; }
 #task-add .task-add-row:has(.burner-toggle) { flex-wrap: wrap; row-gap: 6px; }
+
+/* The bar's two pills: what is on now, a little bigger, and what comes next beside it, clearly smaller.
+   Each takes its own colour from how urgent it is. */
+#next-bar .next-center { display: flex; align-items: center; gap: 8px; min-width: 0; }
+#next-bar .next-pill[data-tone=calm] { --c: #5fd38d; }
+#next-bar .next-pill[data-tone=near] { --c: #f5b83d; }
+#next-bar .next-pill[data-tone=urgent] { --c: #ff5b5b; }
+#next-bar .next-pill.main { height: 34px; font-size: 13.5px; padding: 0 16px 0 11px; gap: 9px; max-width: min(520px, 44vw); }
+#next-bar .next-pill.main .next-kind { width: 22px; height: 22px; }
+#next-bar .next-pill.main .next-kind .ico { width: 13px; height: 13px; }
+#next-bar .next-pill.main .next-kind-label { font-size: 10.5px; }
+#next-bar .next-pill.main .next-count { font-size: 17px; }
+#next-bar .next-pill.sub { height: 24px; font-size: 11.5px; padding: 0 10px 0 6px; gap: 6px; max-width: min(260px, 22vw); box-shadow: none; opacity: .92; }
+#next-bar .next-pill.sub .next-kind { width: 16px; height: 16px; }
+#next-bar .next-pill.sub .next-kind .ico { width: 10px; height: 10px; }
+#next-bar .next-pill.sub .next-kind-label { font-size: 9px; letter-spacing: .1em; }
+#next-bar .next-pill.sub .next-count { font-size: 12px; text-shadow: none; }
+#next-bar .next-pill.sub .next-leave { font-size: 11px; }
+#next-bar .next-pill.sub .next-live { display: none; }
+#next-bar .next-pill.sub .next-sep { margin: 5px 1px; }
+#next-bar .next-pill.sub .next-gauge { left: 8px; right: 8px; bottom: 2px; height: 1.5px; }
+#next-bar .next-pill[hidden] { display: none; }
+#next-bar .next-label[hidden] { display: none; }
+body.mobile #next-bar .next-pill.main { max-width: 64vw; height: 32px; }
+body.mobile #next-bar .next-pill.sub { display: none; }
+.series-stop-row { gap: 10px; }
+.series-stop-row .btn { flex: none; }
+.series-stop-row small { flex: 1; min-width: 0; }

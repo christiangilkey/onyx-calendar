@@ -228,7 +228,7 @@
       const { events } = await onyx.events(from.toISOString(), addDays(from, 3).toISOString());
       pomoRun.blocks = events.filter((e) => e.pomodoro && !e.allDay && e.end && visible(e.calendarId));
       // The next-thing bar uses the same read: every timed entry and task still to come.
-      nextRun.items = events.filter((e) => !e.allDay && e.end && (e.kind === 'event' || (e.kind === 'task' && !e.done && !e.mirror)) && visible(e.calendarId));
+      nextRun.items = events.filter((e) => !e.allDay && e.end && !e.done && (e.kind === 'event' || (e.kind === 'task' && !e.mirror)) && visible(e.calendarId));
       nextRun.loaded = true;
     } catch { /* keep the last list */ }
     pomoRun.loading = false;
@@ -394,17 +394,28 @@
     }
 
     if (!nextRun.parts) {
+      // A pill: [icon] NOW: name | ● 09m 22s, with a gauge that runs down.
+      const pillParts = (cls) => {
+        const q = {
+          el: h('button', { class: `next-pill ${cls}` }),
+          kindIcon: h('span', { class: 'next-kind' }),
+          kind: h('b', { class: 'next-kind-label' }),
+          what: h('span', { class: 'what' }),
+          leave: h('span', { class: 'next-leave' }),
+          live: h('span', { class: 'next-live', 'aria-hidden': 'true' }),
+          count: h('span', { class: 'next-count' }),
+          gauge: h('span', { class: 'next-gauge', 'aria-hidden': 'true' }, h('i')),
+        };
+        q.el.append(q.kindIcon, q.kind, q.what, q.leave, h('span', { class: 'next-sep', 'aria-hidden': 'true' }), q.live, q.count, q.gauge);
+        q.el.addEventListener('click', (ev) => q.item && openNextItem(q.item, ev.currentTarget.getBoundingClientRect()));
+        return q;
+      };
       const parts = {
         label: h('button', { class: 'next-label' }),
-        // The focal point: [icon] NEXT TASK: name | ● 09h 22m 14s, with a gauge that runs down.
-        pill: h('button', { class: 'next-pill' }),
-        kindIcon: h('span', { class: 'next-kind' }),
-        kind: h('b', { class: 'next-kind-label' }),
-        what: h('span', { class: 'what' }),
-        leave: h('span', { class: 'next-leave' }),
-        live: h('span', { class: 'next-live', 'aria-hidden': 'true' }),
-        count: h('span', { class: 'next-count' }),
-        gauge: h('span', { class: 'next-gauge', 'aria-hidden': 'true' }, h('i')),
+        // The focal point: what is on now (or, when nothing is, what comes next), and beside
+        // it, smaller, what comes after.
+        main: pillParts('main'),
+        sub: pillParts('sub'),
         tools: h('div', { class: 'next-tools' }),
         sound: h('button', { class: 'next-sound', onclick: () => {
           try { localStorage.setItem('onyx.next-sound', nextSoundOn() ? '0' : '1'); } catch { /* this visit only */ }
@@ -413,64 +424,87 @@
           tickNext();
         } }),
       };
-      parts.pill.append(parts.kindIcon, parts.kind, parts.what, parts.leave, h('span', { class: 'next-sep', 'aria-hidden': 'true' }), parts.live, parts.count, parts.gauge);
-      parts.label.addEventListener('click', (ev) => parts.labelItem && openNextItem(parts.labelItem, ev.currentTarget.getBoundingClientRect()));
-      parts.pill.addEventListener('click', (ev) => parts.thenItem && openNextItem(parts.thenItem, ev.currentTarget.getBoundingClientRect()));
       bar.replaceChildren(h('div', { class: 'next-row' },
         h('div', { class: 'next-side' }, parts.label),
-        parts.pill,
+        h('div', { class: 'next-center' }, parts.main.el, parts.sub.el),
         h('div', { class: 'next-side end' }, parts.tools, parts.sound)));
       nextRun.parts = parts;
     }
     placeStatus(!MOBILE);
-    // Now on the left (what you are in, or free time); in the middle, as the thing to look at,
-    // what comes next and the time left before it, ticking by the second.
     const p = nextRun.parts;
-    p.labelItem = current?.e || null;
-    p.label.replaceChildren(h('b', null, 'Now'), h('span', { class: 'what' }, current ? current.e.title : 'Free time'), ...(current ? [h('small', null, `${untilText(current.f - now)} left`)] : []));
-    p.label.title = current ? `Open ${current.e.title}` : '';
-    p.label.disabled = !current;
-    p.thenItem = next?.e || null;
     let tone = 'calm';
-    let gauge = 0;
-    if (next) {
+
+    // What comes next: its countdown, leave-by, and how urgent it is. The state: calm (green)
+    // over 30 minutes, amber 10 to 30, escalate (red) under 10, counted to the leave-by time
+    // when there is one (that is the real deadline). Its gauge runs down from when the wait
+    // began (the last thing ending, or the current one starting); with nothing earlier, over the last hour.
+    const showNext = (q, big) => {
       const left = next.s - now;
       const day = !sameDay(new Date(next.s), new Date()) ? ' tomorrow' : '';
-      // The state dot: calm (green) over 30 minutes, amber 10 to 30, escalate (red) under 10,
-      // counted to the leave-by time when there is one (that is the real deadline).
       const leaveAt = next.e.leaveBy ? next.s - next.e.leaveBy * 60000 : null;
       const toGo = (leaveAt ?? next.s) - now;
       tone = toGo <= 10 * 60000 ? 'urgent' : toGo <= 30 * 60000 ? 'near' : 'calm';
-      // The gauge runs down from when the wait began (the last thing ending, or the current one
-      // starting) to the next start; with nothing earlier, over the last hour.
       const since = Math.max(0, ...timed.filter((x) => x.f <= now).map((x) => x.f), current ? current.s : 0);
       const span = since ? next.s - since : NEXT_HORIZON_MIN * 60000;
-      gauge = Math.max(0, Math.min(1, left / span));
-      p.kindIcon.replaceChildren(icon(next.e.kind === 'task' ? 'check' : 'calendar'));
-      p.kind.textContent = next.e.kind === 'task' ? 'Next task' : 'Next';
-      p.what.textContent = next.e.title;
-      p.leave.textContent = leaveAt ? (leaveAt > now ? `Leave by ${fmtTime(new Date(leaveAt))}` : 'Time to leave') : '';
-      p.leave.hidden = !leaveAt;
-      p.count.textContent = countdown(left);
-      p.pill.title = `${untilText(left)} until ${next.e.title} at ${fmtTime(new Date(next.s))}${day}${leaveAt ? `. Leave by ${fmtTime(new Date(leaveAt))}` : ''}. Click to open it`;
-      p.pill.disabled = false;
-      p.pill.classList.remove('empty');
+      q.item = next.e;
+      q.el.dataset.tone = tone;
+      q.kindIcon.replaceChildren(icon(next.e.kind === 'task' ? 'check' : 'calendar'));
+      q.kind.textContent = big && next.e.kind === 'task' ? 'Next task' : 'Next';
+      q.what.textContent = next.e.title;
+      q.leave.textContent = leaveAt ? (leaveAt > now ? `Leave by ${fmtTime(new Date(leaveAt))}` : 'Time to leave') : '';
+      q.leave.hidden = !leaveAt;
+      q.count.textContent = big ? countdown(left) : untilText(left, true);
+      q.el.title = `${untilText(left)} until ${next.e.title} at ${fmtTime(new Date(next.s))}${day}${leaveAt ? `. Leave by ${fmtTime(new Date(leaveAt))}` : ''}. Click to open it`;
+      q.el.style.setProperty('--left', `${(Math.max(0, Math.min(1, left / span)) * 100).toFixed(2)}%`);
+      q.el.disabled = false;
+      q.el.hidden = false;
+      q.el.classList.remove('empty');
+    };
+
+    if (current) {
+      // On now: the big pill, counting down what is left of it (amber in its last 5 minutes);
+      // what comes next beside it, smaller.
+      const left = current.f - now;
+      const m = p.main;
+      m.item = current.e;
+      m.el.dataset.tone = left <= 5 * 60000 ? 'near' : 'calm';
+      m.kindIcon.replaceChildren(icon(current.e.kind === 'task' ? 'check' : 'calendar'));
+      m.kind.textContent = 'Now';
+      m.what.textContent = current.e.title;
+      m.leave.hidden = true;
+      m.count.textContent = countdown(left);
+      m.el.title = `${untilText(left)} left of ${current.e.title}, until ${fmtTime(new Date(current.f))}. Click to open it`;
+      m.el.style.setProperty('--left', `${(Math.max(0, Math.min(1, left / (current.f - current.s))) * 100).toFixed(2)}%`);
+      m.el.disabled = false;
+      m.el.classList.remove('empty');
+      if (next) showNext(p.sub, false); else p.sub.el.hidden = true;
+      p.label.hidden = true;
     } else {
-      p.kindIcon.replaceChildren(icon('calendar'));
-      p.kind.textContent = 'Next';
-      p.what.textContent = 'Nothing else timed';
-      p.leave.hidden = true;
-      p.count.textContent = '';
-      p.pill.title = '';
-      p.pill.disabled = true;
-      p.pill.classList.add('empty');
+      // Nothing on: free time on the left, and what comes next as the big pill.
+      p.label.hidden = false;
+      p.label.replaceChildren(h('b', null, 'Now'), h('span', { class: 'what' }, 'Free time'));
+      p.label.disabled = true;
+      p.sub.el.hidden = true;
+      if (next) showNext(p.main, true);
+      else {
+        const m = p.main;
+        m.item = null;
+        m.el.dataset.tone = 'calm';
+        m.kindIcon.replaceChildren(icon('calendar'));
+        m.kind.textContent = 'Next';
+        m.what.textContent = 'Nothing else timed';
+        m.leave.hidden = true;
+        m.count.textContent = '';
+        m.el.title = '';
+        m.el.disabled = true;
+        m.el.classList.add('empty');
+      }
     }
     drainTimers(timed.filter((x) => x.s <= now && x.f > now), now);
     const sound = nextSoundOn();
     p.sound.replaceChildren(icon(sound ? 'bell' : 'bell-off'));
     p.sound.title = sound ? 'Chimes on: 5 minutes before, and as it starts. Click to mute' : 'Chimes off. Click to turn them on';
     bar.className = tone;
-    p.pill.style.setProperty('--left', `${(gauge * 100).toFixed(2)}%`);
     bar.hidden = false;
   }
 
@@ -804,6 +838,7 @@
     else if (provider === 'ics') how = 'From a subscribed calendar link (read-only)';
     else how = `Synced from ${badge}`;
     if (x.repeat || series?.managed) how += ', repeated by Onyx';
+    else if (x.recur || x.seriesId) how += `, repeats (${recurText(x.recur).replace(/^./, (c) => c.toLowerCase())})`;
     return h('div', { class: 'origin', css: { '--o': color }, title: `${badge}${where ? ` · ${where}` : ''}\n${how}` },
       h('span', { class: 'origin-badge' }, badge),
       h('span', { class: 'origin-text' }, [where, how].filter(Boolean).join('  ·  ')));
@@ -939,7 +974,7 @@
       // Tasks can be dragged to another day or time, but keep their length.
       editable: e.kind === 'task' ? !!e.movable : e.writable && e.kind === 'event',
       durationEditable: e.kind === 'event' && e.writable,
-      classNames: [e.kind === 'task' ? 'is-task' : e.kind === 'goal' ? 'is-goal' : 'is-event', e.done ? 'is-done' : '', matchesFilter(e.tags) ? '' : 'is-dim'],
+      classNames: [e.kind === 'task' ? 'is-task' : e.kind === 'goal' ? 'is-goal' : 'is-event', e.kind === 'goal' ? '' : 'can-tick', e.done ? 'is-done' : '', matchesFilter(e.tags) ? '' : 'is-dim'],
       extendedProps: { src: e },
     };
   }
@@ -1008,7 +1043,7 @@
     }
     const title = h('div', { class: 'ev-title' },
       // A task's circle: clicking it ticks the task off (eventClick); the rest opens it.
-      src.kind === 'task' && h('span', { class: 'dot', title: src.done ? 'Done. Tap to bring it back' : 'Mark done' }, src.done && checkMark()),
+      (src.kind === 'task' || src.kind === 'event') && h('span', { class: 'dot', title: src.done ? 'Done. Tap to bring it back' : 'Mark done' }, src.done && checkMark()),
       h('span', { class: 't' }, arg.event.title),
       src.goal && h('span', { class: 'ev-goal', title: `A step toward: ${src.goal.title}` }, icon('flag')),
       src.repeat && h('span', { title: REPEAT[src.repeat] }, icon('repeat')),
@@ -1172,20 +1207,20 @@
         hidePeek();
         const src = info.event.extendedProps.src;
         const anchor = info.el.getBoundingClientRect();
-        if (src.kind === 'task' && info.jsEvent.target.closest?.('.dot')) {
+        if ((src.kind === 'task' || src.kind === 'event') && info.jsEvent.target.closest?.('.dot')) {
           const dot = info.el.querySelector('.dot');
           if (info.el.classList.contains('done-anim')) return; // already on its way
           if (src.done) {
-            // A ticked task: the white circle empties again and the task comes back.
+            // Ticked: the white circle empties again and it comes back.
             info.el.classList.remove('is-done');
             dot.replaceChildren();
-            restoreTask(src.id, src.title);
+            if (src.kind === 'task') restoreTask(src.id, src.title); else restoreEvent(src);
             return;
           }
           // The circle pops and fills white, a check draws in, a little burst and a click.
           celebrate(info.el, dot, src.color);
           const t = tasks.find((x) => x.id === src.id) || { id: src.id, label: src.title };
-          completeTask(t, null, 900).then((ok) => {
+          (src.kind === 'task' ? completeTask(t, null, 900) : completeEvent(src, 900)).then((ok) => {
             if (ok) return;
             info.el.classList.remove('is-done', 'done-anim');
             dot.replaceChildren();
@@ -1691,6 +1726,11 @@
       readOnly && src.notes && h('div', { class: 'row top pop-meta' }, icon('note'), h('div', { class: 'note-text' }, src.notes)),
       memo && h('div', { class: 'row top' }, icon('note'), memo),
       h('div', { class: 'row' }, icon('tag'), tags.el),
+      // The hammer, as on a task: its steps go into the notes (yours, on a read-only calendar) or become tasks that day.
+      (notes || memo) && breakdownField({
+        get title() { return title.value.trim() || src?.title || 'this'; }, label: '', listId: undefined,
+        get date() { return date.value || ymd(model.start); }, get tags() { return tags.get(); },
+      }, notes || memo),
       pomoRow,
       src?.location && h('div', { class: 'row pop-meta' }, icon('pin'), src.location),
       h('div', { class: 'row leave-row' }, icon('leave'), h('span', { class: 'dash' }, 'Leave'), leaveSel, leaveHint),
@@ -1699,6 +1739,8 @@
       readOnly && h('div', { class: 'pop-meta' }, 'This calendar is read-only here. ',
         src.link && h('a', { href: '#', onclick: (e) => { e.preventDefault(); onyx.open(src.link); } }, 'Open it in the browser')),
       h('div', { class: 'pop-actions' },
+        src && h('button', { class: 'btn complete', title: src.done ? 'Bring it back' : 'Mark it done (Undo brings it back)', onclick: () => { closePopover(); if (src.done) restoreEvent(src); else completeEvent(src); } },
+          icon('check'), src.done ? 'Not done' : 'Complete'),
         src && !readOnly && h('button', { class: 'btn danger', title: src.seriesId ? 'Delete every repeat' : null, onclick: () => remove('all') }, icon('trash'), src.seriesId ? 'Delete all' : 'Delete'),
         src?.seriesId && !readOnly && h('button', { class: 'btn', title: 'Take just this day off; the others stay', onclick: () => remove('one') }, 'Skip this day'),
         h('div', { class: 'grow' }),
@@ -1963,6 +2005,32 @@
       row?.classList.remove('done');
       toast(err.message, 'error');
       return false;
+    }
+  }
+
+  /** Ticks a calendar entry or time block off, as a task is (kept in Onyx: calendars have no "done"). */
+  async function completeEvent(src, hold = 0) {
+    const t0 = Date.now();
+    try {
+      await onyx.setEventDone(src.id, true);
+      const wait = hold - (Date.now() - t0);
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      toast(`Done: "${src.title}"`, '', { label: 'Undo', run: () => restoreEvent(src) });
+      refetch();
+      return true;
+    } catch (err) {
+      toast(err.message, 'error');
+      return false;
+    }
+  }
+
+  async function restoreEvent(src) {
+    try {
+      await onyx.setEventDone(src.id, false);
+      toast(`Restored "${src.title}"`);
+      refetch();
+    } catch (err) {
+      toast(err.message, 'error');
     }
   }
 
@@ -2299,16 +2367,19 @@
         icon('flag'), h('span', null, 'A step toward ', h('b', null, t.goal.title))),
       date && h('div', { class: 'row' }, icon('calendar'), date),
       repeatPick && h('div', { class: 'row' }, icon('repeat'), repeatPick),
-      pomo && h('div', { class: 'row top' }, icon('clock'), pomo.el),
       t.series && !t.series.managed && h('button', { class: 'row goal-link series-link', css: { '--g': '#a9b4ff' }, title: 'Edit every copy of this repeating task', onclick: (e) => openSeries(t.series, e.currentTarget.getBoundingClientRect()) },
         icon('repeat'), h('span', null, h('b', null, seriesText(t.series)), ` · set in Google Tasks · ${t.series.count} open copies. Edit all`)),
+      t.series && !t.series.managed && h('div', { class: 'row series-stop-row' },
+        h('button', { class: 'btn danger', title: 'End this repeat: every open copy deleted, and the ones Google Tasks still adds', onclick: () => stopSeries(t.series) }, icon('x'), 'Stop all')),
       h('div', { class: 'row top' }, icon('note'), notes),
       h('div', { class: 'row' }, icon('tag'), tags.el),
       !t.mirror && breakdownField(t, notes),
+      pomo && h('div', { class: 'row top' }, icon('clock'), pomo.el),
       S.settings.pi.enabled && t.provider === 'google' && h('div', { class: 'row pi-row' }, icon('phone'),
         h('div', { class: 'txt' }, h('b', null, 'Phone reminder'), h('small', { class: st.tone }, st.text))),
       h('div', { class: 'pop-actions' },
         h('button', { class: 'btn complete', title: 'Mark it done: it moves to the Archived tab (Undo brings it back)', onclick: () => { closePopover(); completeTask(t); } }, icon('check'), 'Complete'),
+        !t.mirror && h('button', { class: 'btn danger', title: 'Delete it from your tasks', onclick: () => { if (confirm(`Delete "${t.label || t.title}"?`)) run(() => onyx.deleteTask(t.id)); } }, icon('trash'), 'Delete'),
         h('div', { class: 'grow' }),
         h('button', { class: 'btn primary', onclick: save }, 'Save')),
     ]);
@@ -2374,6 +2445,25 @@
    * Google Tasks. How often it repeats can be changed here only for repeats Onyx keeps;
    * Google's API has no way to change the repeat of a task set up in Google Tasks.
    */
+  /**
+   * Stop all: a repeat ended for good. Google Tasks lets no other app end its repeats, so its
+   * open copies are deleted and the ones it still adds (for two months) are deleted as they come.
+   */
+  async function stopSeries(s) {
+    const what = s.managed ? 'ends the repeat and deletes its open copies' : `deletes every open copy (${s.count}), and the copies Google Tasks adds over the next two months`;
+    if (!confirm(`Stop "${s.label}"?\n\nThis ${what}.`)) return;
+    try {
+      const res = await onyx.stopSeries(s.key);
+      if (res.warnings?.length) toast(`Stopped, but: ${res.warnings.join('  ·  ')}`, 'warn');
+      else toast(`Stopped "${s.label}": ${res.deleted} ${res.deleted === 1 ? 'copy' : 'copies'} deleted`);
+      closePopover();
+      await loadTasks(true);
+      refetch(true);
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
   function openSeries(s, anchor) {
     const copies = tasks.filter((t) => t.series?.key === s.key);
     const first = copies[0] || {};
@@ -2416,6 +2506,8 @@
       name,
       originRow(first),
       h('div', { class: 'pop-meta' }, `${seriesText(s)}  ·  ${first.listName || ''}  ·  ${s.count} open ${s.count === 1 ? 'copy' : 'copies'}`),
+      h('div', { class: 'row series-stop-row' }, h('button', { class: 'btn danger', onclick: () => stopSeries(s) }, icon('x'), 'Stop all'),
+        h('small', { class: 'pop-meta' }, s.managed ? 'Ends this repeat and deletes its open copies.' : 'Deletes every open copy, and the ones Google Tasks adds over the next two months.')),
       h('div', { class: 'row' }, icon('repeat'), rule, h('span', { class: 'dash' }, 'at'), time),
       h('p', { class: 'pop-meta' }, s.managed
         ? 'Onyx keeps this repeat: when it is done, the next one is added to Google Tasks.'

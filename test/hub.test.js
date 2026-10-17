@@ -394,3 +394,41 @@ test('a task on the backburner has no date until it is scheduled by hand', async
   assert.equal(open.backburner, false);
   assert.equal(store.data.backburner[t.id], undefined);
 });
+
+test('Stop all: a repeat set up in Google Tasks is deleted, and the copies it still adds go too', async () => {
+  reset();
+  store.data.stoppedSeries = {};
+  store.data.madeHere = {};
+  // Google's copies of a daily task (made in Google, not in Onyx).
+  for (const n of [-2, -1, 0]) fake.tasks.set(`d${n}`, { rawId: `d${n}`, list: 'tasks', title: 'Water the plants', notes: '', due: ymd(day(n)), done: false });
+  let { tasks } = await hub.getTasks({ force: true });
+  const s = tasks.find((t) => t.label === 'Water the plants').series;
+  assert.equal(s.count, 3);
+  const res = await require('../src/main/series').stopAll(hub, s.key);
+  assert.equal(res.deleted, 3);
+  assert.equal(fake.tasks.size, 0);
+  // Google adds tomorrow's copy anyway: it never shows, and is deleted.
+  fake.tasks.set('d1', { rawId: 'd1', list: 'tasks', title: 'Water the plants', notes: '', due: ymd(day(1)), done: false });
+  hub.invalidate();
+  ({ tasks } = await hub.getTasks({ force: true }));
+  assert.equal(tasks.some((t) => t.label === 'Water the plants'), false);
+  await settle();
+  assert.equal(fake.tasks.has('d1'), false);
+  // One added through Onyx after the stop stays.
+  const mine = await hub.createTask({ title: 'Water the plants', due: ymd(day(2)) });
+  hub.invalidate();
+  ({ tasks } = await hub.getTasks({ force: true }));
+  assert.ok(tasks.some((t) => t.id === mine.id));
+});
+
+test('a calendar entry or block can be ticked off like a task, and brought back', async () => {
+  reset();
+  store.data.doneEvents = {};
+  const block = await hub.createEvent({ title: 'Deep work', start: day(0, 9, 0), end: day(0, 10, 0), allDay: false, calendarId: 'local/blocks' });
+  const find = async () => (await hub.getEvents(day(0).toISOString(), day(1).toISOString())).events.find((e) => e.id === block.id);
+  assert.equal((await find()).done, false);
+  hub.setEventDone(block.id, true);
+  assert.equal((await find()).done, true);
+  hub.setEventDone(block.id, false);
+  assert.equal((await find()).done, false);
+});

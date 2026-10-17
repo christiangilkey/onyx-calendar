@@ -259,7 +259,11 @@ async function getEvents(start, end, { includeHidden = false, force = false } = 
     }
   }));
   const events = lists.flat()
-    .map((e) => ({ ...e, tags: tagsOf(keyOf(e)), memo: memoOf(keyOf(e)), pomodoro: pomodoroOf(keyOf(e)) }))
+    .map((e) => ({
+      ...e, tags: tagsOf(keyOf(e)), memo: memoOf(keyOf(e)), pomodoro: pomodoroOf(keyOf(e)),
+      // A calendar entry or block ticked off, like a task (kept in Onyx: each day of a repeat on its own).
+      ...(e.kind === 'event' ? { done: !!store.data.doneEvents?.[e.id] } : {}),
+    }))
     .concat(require('./goals').spans(start, end, includeHidden)) // goals.js needs this module: loaded late
     .sort((a, b) => toDate(a.start) - toDate(b.start));
   return { events, errors: [...errors] };
@@ -592,7 +596,14 @@ async function getTasks({ force = false } = {}) {
       return [];
     }
   }));
-  const tasks = lists.flat();
+  let tasks = lists.flat();
+  // Copies Google keeps adding of a repeat that was stopped (Stop all): out of sight, and deleted.
+  const stopped = series.stoppedCopies(tasks);
+  if (stopped.length) {
+    if (sync.leads()) for (const t of stopped) deleteTask(t.id).catch((err) => console.error('onyx: could not delete a stopped repeat:', err.message));
+    const gone = new Set(stopped);
+    tasks = tasks.filter((t) => !gone.has(t));
+  }
   // With linked desktops, one of them does this, or each would add the next task.
   if (Object.keys(store.data.repeats).length && sync.leads()) {
     const open = new Set(tasks.map((t) => t.id));
@@ -696,6 +707,17 @@ async function createTask(data) {
   if (data.tags) setTags(`${cal.id}/${enc(raw.rawId)}`, data.tags);
   if (data.backburner && !named.date) setBackburner(`${cal.id}/${enc(raw.rawId)}`, true);
   return unifyTask(cal, raw, new Set());
+}
+
+/** Ticks a calendar entry or time block off (or brings it back). Kept in Onyx, never sent to the calendar. */
+function setEventDone(id, done) {
+  if (!store.data.doneEvents) store.data.doneEvents = {};
+  if (done) store.data.doneEvents[id] = localDate(new Date()); else delete store.data.doneEvents[id];
+  // Ticks older than a year are let go of, so the list doesn't grow for ever.
+  const cut = localDate(new Date(Date.now() - 366 * 86400000));
+  for (const [k, v] of Object.entries(store.data.doneEvents)) if (v < cut) delete store.data.doneEvents[k];
+  store.save();
+  return !!done;
 }
 
 /** Puts a task on the backburner (no date, kept for later) or takes it off. */
@@ -1066,7 +1088,7 @@ function removeLocalCalendar(id) {
 }
 
 module.exports = {
-  calendars, refreshCalendars, invalidate, getEvents, setBackburner, createEvent, updateEvent, deleteEvent, setLeaveBy, ackPiCall, piAlerts,
+  calendars, refreshCalendars, invalidate, getEvents, setBackburner, setEventDone, createEvent, updateEvent, deleteEvent, setLeaveBy, ackPiCall, piAlerts,
   getTasks, archivedTasks, fetchTask, createTask, updateTask, moveTask, deleteTask, setRepeat, setPomodoro, setPiCall, freeTime, addLocalCalendar, removeLocalCalendar,
   setTags, allTags, setTagColor, renameTag, deleteTag, setMemo, MAX_NOTE,
 };

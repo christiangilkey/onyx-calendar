@@ -135,4 +135,52 @@ async function clearOverdue(hub, key) {
   return { done };
 }
 
-module.exports = { keyOf, cadence, annotate, rename, update, clearOverdue };
+// Stop all. Google Tasks lets no other app end a repeat it keeps, and goes on adding a copy
+// for each day it falls on. So every open copy is deleted, and for the next STOP_DAYS the copies
+// Google still adds are deleted as they turn up (hub.getTasks). A task of that name added
+// through Onyx after the stop is left alone.
+const STOP_DAYS = 60;
+
+async function stopAll(hub, key) {
+  const { tasks } = await hub.getTasks({ force: true });
+  annotate(tasks);
+  const copies = tasks.filter((t) => t.series?.key === key || (!t.mirror && !t.done && keyOf(t) === key));
+  if (!copies.length) throw Object.assign(new Error('That repeating task is no longer open.'), { status: 404 });
+  const managed = copies.find((t) => store.data.repeats[t.id]);
+  if (managed) require('./repeat').setRule(managed.id, null);
+  const today = new Date();
+  if (!store.data.stoppedSeries) store.data.stoppedSeries = {};
+  store.data.stoppedSeries[key] = {
+    at: ymd(today), until: ymd(new Date(today.getFullYear(), today.getMonth(), today.getDate() + STOP_DAYS)),
+    label: copies[0].label || copies[0].title,
+  };
+  store.save();
+  let deleted = 0;
+  const warnings = [];
+  for (const t of copies) {
+    try {
+      await hub.deleteTask(t.id);
+      deleted++;
+    } catch (err) {
+      warnings.push(err.message);
+    }
+  }
+  return { deleted, warnings, until: store.data.stoppedSeries[key].until };
+}
+
+/** The open tasks that are copies Google made of a stopped repeat (the watch ends after STOP_DAYS). */
+function stoppedCopies(tasks) {
+  const stopped = store.data.stoppedSeries || {};
+  const keys = Object.keys(stopped);
+  if (!keys.length) return [];
+  const today = ymd(new Date());
+  let changed = false;
+  for (const k of keys) if (stopped[k].until < today) { delete stopped[k]; changed = true; }
+  if (changed) store.save();
+  return tasks.filter((t) => {
+    const s = !t.mirror && !t.done && stopped[keyOf(t)];
+    return s && !(t.madeHere && t.madeHere >= s.at);
+  });
+}
+
+module.exports = { keyOf, cadence, annotate, rename, update, clearOverdue, stopAll, stoppedCopies, STOP_DAYS };

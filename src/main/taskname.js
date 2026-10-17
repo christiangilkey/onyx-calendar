@@ -191,8 +191,8 @@ function inQuietHours(when, quietStart, quietEnd) {
 function callTime(start, pi, before = null) {
   const LEAD_SLACK_MINUTES = 2; // same slack as task_caller.py
   const earliest = start.getTime() - ((before ?? pi.leadMinutes) + LEAD_SLACK_MINUTES) * 60000;
-  const half = 30 * 60000;
-  const at = new Date(Math.ceil(earliest / half) * half);
+  const grid = Math.max(1, Number(pi.checkEvery) || 30) * 60000; // how often the Pi looks (settings.pi.checkEvery)
+  const at = new Date(Math.ceil(earliest / grid) * grid);
   return { at, quiet: inQuietHours(at, pi.quietStart, pi.quietEnd) };
 }
 

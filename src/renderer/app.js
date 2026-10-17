@@ -873,8 +873,8 @@
 
   function piCallTime(start, before = null) {
     const pi = S.settings.pi;
-    const half = 30 * 60000;
-    const callAt = new Date(Math.ceil((start.getTime() - ((before ?? pi.leadMinutes) + 2) * 60000) / half) * half);
+    const grid = Math.max(1, Number(pi.checkEvery) || 30) * 60000; // how often the Pi looks
+    const callAt = new Date(Math.ceil((start.getTime() - ((before ?? pi.leadMinutes) + 2) * 60000) / grid) * grid);
     const mins = (v) => { const [a, b] = v.split(':').map(Number); return a * 60 + b; };
     const t = callAt.getHours() * 60 + callAt.getMinutes();
     const qs = mins(pi.quietStart), qe = mins(pi.quietEnd);
@@ -901,9 +901,9 @@
     return `The Pi phones you at ${t[0]}.`;
   }
 
-  /** The half-hour checks the Pi could phone at for something starting at `start`: from the day before up to the start. */
+  /** The Pi's looks it could phone at for something starting at `start` (at least 15 minutes apart): from the day before up to the start. */
   function callSlots(start) {
-    const half = 30 * 60000;
+    const half = Math.max(15, Number(S.settings.pi?.checkEvery) || 30) * 60000;
     const out = [];
     for (let t = Math.floor((start.getTime() - 60000) / half) * half; t > start.getTime() - 24 * 3600000 && t > Date.now(); t -= half) out.push(new Date(t));
     return out;

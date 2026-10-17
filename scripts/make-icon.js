@@ -1,4 +1,6 @@
 // Draws the app icon to src/assets/icon.png:  npm run icon
+// It is the same "Orbit" mark as the Android app (scripts/make-android-icon.js): the ring, its
+// orbit and the moon on the dark violet background, as a rounded square like the phone's.
 const { app, BrowserWindow } = require('electron');
 const fs = require('fs');
 const path = require('path');
@@ -7,14 +9,24 @@ const SIZE = 512;
 const SVG = `
 <svg xmlns="http://www.w3.org/2000/svg" width="${SIZE}" height="${SIZE}" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#1b1b20"/><stop offset="1" stop-color="#000"/>
+    <radialGradient id="bg" gradientUnits="userSpaceOnUse" cx="150" cy="120" r="560">
+      <stop offset="0" stop-color="#2a2350"/><stop offset="0.55" stop-color="#0d0b1a"/><stop offset="1" stop-color="#050508"/>
+    </radialGradient>
+    <linearGradient id="ring" gradientUnits="userSpaceOnUse" x1="152" y1="152" x2="360" y2="360">
+      <stop offset="0" stop-color="#b9a8ff"/><stop offset="0.5" stop-color="#7c6cff"/><stop offset="1" stop-color="#3fd0ff"/>
     </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="14"/></filter>
+    <clipPath id="tile"><rect x="16" y="16" width="480" height="480" rx="106"/></clipPath>
   </defs>
-  <rect x="24" y="24" width="464" height="464" rx="112" fill="url(#g)" stroke="#2c2c33" stroke-width="6"/>
-  <rect x="136" y="150" width="240" height="226" rx="44" fill="none" stroke="#f1f1f4" stroke-width="30"/>
-  <path d="M196 118v64M316 118v64" stroke="#f1f1f4" stroke-width="30" stroke-linecap="round"/>
-  <rect x="196" y="238" width="120" height="78" rx="18" fill="#8b7cff"/>
+  <g clip-path="url(#tile)">
+    <rect x="0" y="0" width="512" height="512" fill="url(#bg)"/>
+    <circle cx="256" cy="256" r="104" fill="none" stroke="url(#ring)" stroke-width="44" opacity=".55" filter="url(#glow)"/>
+    <circle cx="256" cy="256" r="104" fill="none" stroke="url(#ring)" stroke-width="40"/>
+    <ellipse cx="256" cy="256" rx="168" ry="62" fill="none" stroke="#fff" stroke-opacity=".22" stroke-width="5" transform="rotate(-28 256 256)"/>
+    <circle cx="389" cy="186" r="34" fill="#fff" opacity=".18"/>
+    <circle cx="389" cy="186" r="20" fill="#fff"/>
+  </g>
+  <rect x="16" y="16" width="480" height="480" rx="106" fill="none" stroke="#ffffff" stroke-opacity=".08" stroke-width="3"/>
 </svg>`;
 
 app.disableHardwareAcceleration();

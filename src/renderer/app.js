@@ -25,6 +25,8 @@
     next: '<path d="M6 5.5v13l9-6.5z"/><path d="M18 5.5v13"/>',
     archive: '<rect x="3.5" y="4.5" width="17" height="4.5" rx="1.5"/><path d="M5.5 9v9.5a1.5 1.5 0 0 0 1.5 1.5h10a1.5 1.5 0 0 0 1.5-1.5V9M10 13h4"/>',
     clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+    bell: '<path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 1.5h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
+    'bell-off': '<path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 1.5h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0M4 4l16 16"/>',
     calendar: '<rect x="4" y="5" width="16" height="15" rx="3"/><path d="M4 10h16M8.5 3v4M15.5 3v4"/>',
     note: '<path d="M5 6h14M5 11h14M5 16h9"/>',
     lock: '<rect x="5.5" y="10.5" width="13" height="9.5" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/>',
@@ -222,9 +224,13 @@
     try {
       const { events } = await onyx.events(from.toISOString(), addDays(from, 3).toISOString());
       pomoRun.blocks = events.filter((e) => e.pomodoro && !e.allDay && e.end && visible(e.calendarId));
+      // The next-thing bar uses the same read: every timed entry and task still to come.
+      nextRun.items = events.filter((e) => !e.allDay && e.end && (e.kind === 'event' || (e.kind === 'task' && !e.done && !e.mirror)) && visible(e.calendarId));
+      nextRun.loaded = true;
     } catch { /* keep the last list */ }
     pomoRun.loading = false;
     tickPomodoro();
+    tickNext();
   }
 
   /** Where `now` falls in a pomodoro block: the chunk it is in, time left, and which round. */
@@ -305,6 +311,130 @@
     box.style.setProperty('--done', `${Math.min(100, 100 - (p.left / (p.length * 60000)) * 100)}%`);
     box.title = `${e.title}: ${p.kind === 'work' ? 'working' : 'resting'}, round ${p.round} of ${p.rounds}. Ends ${fmtTime(new Date(e.end))}.`;
     box.hidden = false;
+  }
+
+  // ---- the next-thing bar: time made visible and audible at the point of action
+  // A strip under the top bar counts down to the next timed thing (or shows how long the
+  // current one has left), shrinking and changing colour as it gets close, and chimes 5
+  // minutes before and when it starts.
+
+  const nextRun = { items: [], loaded: false, fired: new Set(), parts: null, key: '' };
+  const NEXT_WARN_MIN = 5;
+  const NEXT_HORIZON_MIN = 60; // the bar shrinks over the last hour before the next thing
+  const nextSoundOn = () => { try { return localStorage.getItem('onyx.next-sound') !== '0'; } catch { return true; } };
+  const nextBarOn = () => S?.settings?.nextBar !== false;
+
+  /** "42 min", "1 h 05 min", or "4:32" in the last ten minutes. */
+  function untilText(ms, seconds) {
+    const total = Math.max(0, Math.round(ms / 1000));
+    if (seconds && total < 600) return `${Math.floor(total / 60)}:${pad(total % 60)}`;
+    const mins = Math.ceil(total / 60);
+    if (mins < 60) return `${mins} min`;
+    return `${Math.floor(mins / 60)} h${mins % 60 ? ` ${pad(mins % 60)} min` : ''}`;
+  }
+
+  /** A single soft note: the "five minutes to go" cue. */
+  function warnTone() {
+    try {
+      const ctx = chime.ctx || (chime.ctx = new AudioContext());
+      ctx.resume?.();
+      const o = ctx.createOscillator(), g = ctx.createGain(), t0 = ctx.currentTime;
+      o.type = 'sine';
+      o.frequency.value = 660;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.2, t0 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.7);
+      o.connect(g).connect(ctx.destination);
+      o.start(t0);
+      o.stop(t0 + 0.75);
+    } catch { /* the bar still shows it */ }
+  }
+
+  function cue(e, starting) {
+    const title = starting ? `Starting now: ${e.title}` : `In ${NEXT_WARN_MIN} minutes: ${e.title}`;
+    if (nextSoundOn()) (starting ? chime('work') : warnTone());
+    toast(title);
+    try {
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') new Notification(title, { body: `${fmtTime(new Date(e.start))} · ${e.calendarName || ''}`.replace(/ · $/, ''), silent: true });
+    } catch { /* the toast is enough */ }
+  }
+
+  function openNextItem(e, anchor) {
+    if (e.kind === 'task') openTask(tasks.find((t) => t.id === e.id) || { id: e.id, title: e.title, label: e.title, listName: e.calendarName }, anchor);
+    else openEditor({ src: e, start: toDate(e.start), end: toDate(e.end), allDay: false }, anchor);
+  }
+
+  function tickNext() {
+    const bar = $('#next-bar');
+    const show = nextBarOn() && nextRun.loaded;
+    if (document.body.classList.contains('has-next') !== show) {
+      document.body.classList.toggle('has-next', show);
+      requestAnimationFrame(() => calendar?.updateSize()); // the calendar gets shorter or taller
+    }
+    if (!show) { bar.hidden = true; return; }
+    const now = Date.now();
+    const timed = nextRun.items.map((e) => ({ e, s: new Date(e.start).getTime(), f: new Date(e.end).getTime() }));
+    // Now: what has started and not ended (the one that started last); next: the soonest start to come.
+    const current = timed.filter((x) => x.s <= now && x.f > now).sort((a, b) => b.s - a.s)[0] || null;
+    const next = timed.filter((x) => x.s > now).sort((a, b) => a.s - b.s)[0] || null;
+
+    // Cues: five minutes before, and as it starts (within the last minute, so a late tick still counts).
+    for (const x of timed) {
+      const left = x.s - now;
+      const key = `${x.e.id}|${x.e.start}`;
+      if (left <= NEXT_WARN_MIN * 60000 && left > (NEXT_WARN_MIN - 1) * 60000 && !nextRun.fired.has(`${key}|warn`)) { nextRun.fired.add(`${key}|warn`); cue(x.e, false); }
+      if (left <= 0 && left > -60000 && !nextRun.fired.has(`${key}|start`)) { nextRun.fired.add(`${key}|start`); nextRun.fired.add(`${key}|warn`); cue(x.e, true); }
+    }
+
+    if (!nextRun.parts) {
+      const parts = {
+        fill: h('div', { class: 'next-fill' }),
+        label: h('button', { class: 'next-label' }),
+        then: h('button', { class: 'next-then' }),
+        when: h('span', { class: 'next-when' }),
+        sound: h('button', { class: 'next-sound', onclick: () => {
+          try { localStorage.setItem('onyx.next-sound', nextSoundOn() ? '0' : '1'); } catch { /* this visit only */ }
+          toast(nextSoundOn() ? 'Chimes on: 5 minutes before, and as it starts' : 'Chimes off');
+          if (nextSoundOn()) warnTone();
+          tickNext();
+        } }),
+      };
+      parts.label.addEventListener('click', (ev) => parts.labelItem && openNextItem(parts.labelItem, ev.currentTarget.getBoundingClientRect()));
+      parts.then.addEventListener('click', (ev) => parts.thenItem && openNextItem(parts.thenItem, ev.currentTarget.getBoundingClientRect()));
+      bar.replaceChildren(parts.fill, h('div', { class: 'next-row' }, parts.label, parts.then, h('span', { class: 'grow' }), parts.when, parts.sound));
+      nextRun.parts = parts;
+    }
+    // Now / Next: what you are in (or free time), what comes next, and, biggest, how much
+    // time is left before that next obligation. The bar is that time, shrinking over the last hour.
+    const p = nextRun.parts;
+    const setPart = (el, kind, text, sub, item) => {
+      el.replaceChildren(h('b', null, kind), h('span', { class: 'what' }, text), sub && h('small', null, sub));
+      el.title = item ? `Open ${item.title}` : '';
+      el.disabled = !item;
+    };
+    p.labelItem = current?.e || null;
+    setPart(p.label, 'Now', current ? current.e.title : 'Free time', current ? `${untilText(current.f - now)} left` : '', p.labelItem);
+    p.thenItem = next?.e || null;
+    const day = next && !sameDay(new Date(next.s), new Date()) ? ' tomorrow' : '';
+    setPart(p.then, 'Next', next ? next.e.title : 'Nothing else timed', next ? `${fmtTime(new Date(next.s))}${day}` : '', p.thenItem);
+    let tone = 'calm';
+    let fill = 0;
+    if (next) {
+      const left = next.s - now;
+      fill = Math.min(1, left / (NEXT_HORIZON_MIN * 60000));
+      tone = left <= 60000 ? 'urgent' : left <= NEXT_WARN_MIN * 60000 ? 'soon' : left <= 15 * 60000 ? 'near' : 'calm';
+      p.when.replaceChildren(h('b', null, untilText(left, true)), h('span', { class: 'until' }, ' until next'));
+      p.when.title = `${untilText(left)} until ${next.e.title} at ${fmtTime(new Date(next.s))}${day}`;
+    } else {
+      p.when.replaceChildren();
+      p.when.title = '';
+    }
+    const sound = nextSoundOn();
+    p.sound.replaceChildren(icon(sound ? 'bell' : 'bell-off'));
+    p.sound.title = sound ? 'Chimes on: 5 minutes before, and as it starts. Click to mute' : 'Chimes off. Click to turn them on';
+    bar.className = tone;
+    bar.style.setProperty('--left', `${(fill * 100).toFixed(2)}%`);
+    bar.hidden = false;
   }
 
   // ------------------------------------------------------------ where an entry came from
@@ -2199,6 +2329,8 @@
               writable.map((c) => h('option', { value: c.id, selected: c.id === s.defaultCalendar }, c.account === 'local' ? c.name : `${c.name}  ·  ${c.accountLabel}`)))),
           onyx.checkUpdate && field('Updates', `You have Onyx ${onyx.isPhone ? 'for Android' : S.version}. New versions are checked for automatically, and a popup offers them.`,
             h('button', { class: 'btn', onclick: () => checkForUpdate(true) }, icon('update'), 'Check now')),
+          field('Now / Next bar', 'A strip under the top bar: what you are doing now, what is next, and how much time is left before it. It chimes 5 minutes before and as it starts (the bell on the bar mutes it).',
+            toggle(s.nextBar !== false, (v) => saveSettings({ nextBar: v }).then(tickNext))),
           field('24-hour time', null, toggle(!s.hour12, (v) => saveSettings({ hour12: !v }))),
           field('Week starts on', null,
             h('select', { onchange: (e) => saveSettings({ weekStart: Number(e.target.value) }) },
@@ -3482,7 +3614,7 @@
     buildCalendar();
     buildNews();
     refreshPomodoros();
-    setInterval(tickPomodoro, 1000);
+    setInterval(() => { tickPomodoro(); tickNext(); }, 1000);
     setInterval(refreshPomodoros, 60000);
 
     // A tap on a home-screen widget (phone): open the globe, or the calendar on that day.

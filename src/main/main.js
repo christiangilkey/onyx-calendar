@@ -54,6 +54,8 @@ function createWindow() {
       contextIsolation: true, nodeIntegration: false, sandbox: true,
       // The pomodoro timer chimes by itself when a block starts, without a click first.
       autoplayPolicy: 'no-user-gesture-required',
+      // The Now / Next bar and the pomodoro timer chime on time while the window is hidden in the tray.
+      backgroundThrottling: false,
     },
   });
   if (saved.maximized) win.maximize();

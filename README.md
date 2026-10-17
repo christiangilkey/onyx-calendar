@@ -3,6 +3,7 @@
 A black, fast calendar for Windows and Android that puts everything in one place:
 
 - **One master calendar.** Google Calendar, Outlook, subscribed calendar links and local time blocks, merged. A sidebar switches each calendar on or off.
+- **Now / Next.** A bar under the top bar shows what you are doing now, what comes next, and, in large type, how much time is left before it. The bar shrinks over the last hour and turns amber at 15 minutes, orange at 5 and red in the last minute. A chime and an alert come 5 minutes before and as it starts; the bell on the bar mutes them. Click either side to open that entry. Settings → General turns it off.
 - **Time blocks.** Drag across the grid, type what the time is for, press Enter.
 - **Tasks.** Google Tasks and Microsoft To Do in a side panel, and on the grid at the time written in their name. Pick a due date as you add one, drag it to another day, and tick it off: done tasks go to the **Archived** tab (pick a day to see what you finished), and **Undo** at the top (or Ctrl+Z) brings the last one back.
 - **Notes on everything.** Every task, event, time block and pinned Notion page or Drive file has a notes box. Task and event notes are saved to Google or Outlook (so they show there too). Notes on read-only calendars and pinned documents are kept in Onyx. Entries with notes show a note icon, and hovering one shows its notes.

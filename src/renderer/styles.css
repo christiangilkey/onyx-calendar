@@ -114,7 +114,9 @@ select { padding-right: 4px; }
 /* ------------------------------------------------------------ layout */
 
 /* --side-w, --tasks-w and --news-open-w are set by dragging the panels' edges (app.js). */
-#layout { --side-w: 248px; --tasks-w: 300px; --news-open-w: 380px; --news-w: 34px; position: relative; display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr) var(--tasks-w) var(--news-w); height: calc(100% - var(--bar)); }
+/* --next-h: the Now / Next bar under the title bar, when it is shown. */
+body.has-next { --next-h: 34px; }
+#layout { --side-w: 248px; --tasks-w: 300px; --news-open-w: 380px; --news-w: 34px; position: relative; display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr) var(--tasks-w) var(--news-w); height: calc(100% - var(--bar) - var(--next-h, 0px)); }
 #layout.no-tasks { grid-template-columns: var(--side-w) minmax(0, 1fr) var(--news-w); }
 #layout.news-open { --news-w: var(--news-open-w); }
 #layout.no-tasks #tasks { display: none; }
@@ -490,6 +492,34 @@ pre.code {
   background: color-mix(in srgb, var(--pc) 16%, #0d0d10); border: 1px solid color-mix(in srgb, var(--pc) 50%, transparent); color: var(--text);
 }
 #pomo-timer[hidden] { display: none; }
+
+/* ------------------------------------------------------------ Now / Next bar */
+/* The fill is the time left before the next obligation: full an hour or more ahead, empty as it starts. */
+#next-bar { --c: var(--accent); position: relative; height: var(--next-h, 34px); border-bottom: 1px solid var(--line); background: var(--panel); overflow: hidden; }
+#next-bar[hidden] { display: none; }
+#next-bar.near { --c: #f5b83d; }
+#next-bar.soon { --c: #ff8a4a; }
+#next-bar.urgent { --c: #ff5b5b; }
+#next-bar .next-fill { position: absolute; left: 0; top: 0; bottom: 0; width: var(--left, 0%); background: color-mix(in srgb, var(--c) 20%, transparent); border-right: 2px solid color-mix(in srgb, var(--c) 75%, transparent); transition: width 1s linear, background .4s; }
+#next-bar.urgent .next-fill { animation: next-pulse 1s ease-in-out infinite; }
+@keyframes next-pulse { 50% { background: color-mix(in srgb, var(--c) 38%, transparent); } }
+#next-bar .next-row { position: relative; height: 100%; display: flex; align-items: center; gap: 6px; padding: 0 10px 0 14px; font-size: 12.5px; min-width: 0; }
+#next-bar .next-label, #next-bar .next-then { display: inline-flex; align-items: baseline; gap: 7px; min-width: 0; max-width: 42%; border: 0; background: transparent; color: var(--text); font: inherit; padding: 4px 8px; border-radius: 8px; cursor: pointer; white-space: nowrap; }
+#next-bar .next-label:hover:not(:disabled), #next-bar .next-then:hover:not(:disabled) { background: rgba(255,255,255,.07); }
+#next-bar button:disabled { cursor: default; color: var(--muted); }
+#next-bar .next-label b, #next-bar .next-then b { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); font-weight: 700; flex: none; }
+#next-bar .what { overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+#next-bar small { color: var(--muted); font-size: 11.5px; flex: none; }
+#next-bar .next-then { border-left: 1px solid var(--line); border-radius: 0 8px 8px 0; }
+#next-bar .next-when { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+#next-bar .next-when b { font-size: 16px; font-weight: 700; color: var(--c); font-variant-numeric: tabular-nums; margin-right: 2px; }
+#next-bar .next-sound { border: 0; background: transparent; color: var(--muted); width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; cursor: pointer; flex: none; }
+#next-bar .next-sound:hover { color: var(--text); background: rgba(255,255,255,.07); }
+#next-bar .next-sound .ico { width: 15px; height: 15px; }
+body.mobile #next-bar .next-row { padding: 0 4px 0 6px; gap: 2px; font-size: 12px; }
+body.mobile #next-bar .next-label, body.mobile #next-bar .next-then { padding: 4px 6px; max-width: 40%; }
+body.mobile #next-bar small, body.mobile #next-bar .until { display: none; }
+body.mobile #next-bar .next-when b { font-size: 15px; }
 #pomo-timer.work { --pc: #ff6b5b; }
 #pomo-timer.rest { --pc: #5fd38d; }
 #pomo-timer::before { content: ''; position: absolute; left: 0; bottom: 0; height: 2px; width: var(--done, 0%); background: var(--pc); transition: width 1s linear; }

@@ -330,3 +330,67 @@ test('the escalation ladder: leave-by, push only, critical, and Leaving now', as
   assert.deepEqual(at(mirrors()[0]), []);
   store.data.settings.pi.checkEvery = 30;
 });
+
+test('a repeating block: every day of it, one change moves all, skip a day, stop, delete', async () => {
+  reset();
+  const first = day(1, 9, 0);
+  const other = (first.getDay() + 2) % 7;
+  const made = await hub.createEvent({
+    title: 'Gym', start: first, end: day(1, 10, 0), allDay: false, calendarId: 'local/blocks',
+    recur: { freq: 'weekly', days: [first.getDay(), other] }, tags: ['health'],
+  });
+  const range = [day(0).toISOString(), day(15).toISOString()];
+  const gym = async () => (await hub.getEvents(...range)).events.filter((e) => e.title === 'Gym');
+  const when = (list) => list.map((e) => `${ymd(new Date(e.start))} ${new Date(e.start).getHours()}`);
+
+  let days = await gym();
+  assert.deepEqual(when(days), [1, 3, 8, 10].map((n) => `${ymd(day(n))} 9`));
+  assert.ok(days.every((e) => e.seriesId === made.id && e.recur.freq === 'weekly'));
+  assert.deepEqual(days[2].tags, ['health'], 'the series\' tags are on every day of it');
+
+  // The second one dragged a day on and an hour later: all of them follow.
+  const second = days[1];
+  await hub.updateEvent(second.id, { start: day(4, 10, 0).toISOString(), end: day(4, 11, 0).toISOString(), allDay: false, seriesId: second.seriesId, from: second.start });
+  days = await gym();
+  assert.deepEqual(when(days), [2, 4, 9, 11].map((n) => `${ymd(day(n))} 10`));
+
+  // Skip one day; the rest stay.
+  await hub.deleteEvent(days[1].id, { scope: 'one', seriesId: days[1].seriesId });
+  days = await gym();
+  assert.deepEqual(when(days), [2, 9, 11].map((n) => `${ymd(day(n))} 10`));
+
+  // Turned off on the second one shown: that is its last day.
+  await hub.updateEvent(days[1].id, { title: 'Gym', recur: null, seriesId: days[1].seriesId, from: days[1].start });
+  days = await gym();
+  assert.deepEqual(when(days), [2, 9].map((n) => `${ymd(day(n))} 10`));
+
+  // Delete all.
+  await hub.deleteEvent(days[0].id, { scope: 'all', seriesId: days[0].seriesId });
+  assert.equal((await gym()).length, 0);
+  assert.equal(store.data.local.events.length, 0);
+});
+
+test('a new repeat starts on the first day its rule falls on', async () => {
+  reset();
+  const start = day(1, 8, 0);
+  const notThatDay = (start.getDay() + 1) % 7;
+  await hub.createEvent({ title: 'Swim', start, end: day(1, 9, 0), allDay: false, calendarId: 'local/blocks', recur: { freq: 'weekly', days: [notThatDay] } });
+  const { events } = await hub.getEvents(day(0).toISOString(), day(9).toISOString());
+  assert.deepEqual(events.filter((e) => e.title === 'Swim').map((e) => ymd(new Date(e.start))), [ymd(day(2)), ymd(day(9))].filter((s) => s < ymd(day(9))));
+});
+
+test('a task on the backburner has no date until it is scheduled by hand', async () => {
+  reset();
+  store.data.backburner = {};
+  // Even a time in its name doesn't give it a day.
+  const t = await hub.createTask({ title: 'Repaint the hallway 3pm', backburner: true });
+  assert.equal(t.date, null);
+  assert.equal(t.backburner, true);
+  let open = (await hub.getTasks({ force: true })).tasks.find((x) => x.id === t.id);
+  assert.equal(open.backburner, true);
+  // Scheduled: off the backburner, for good.
+  await hub.updateTask(t.id, { due: ymd(day(3)) });
+  open = (await hub.getTasks({ force: true })).tasks.find((x) => x.id === t.id);
+  assert.equal(open.backburner, false);
+  assert.equal(store.data.backburner[t.id], undefined);
+});

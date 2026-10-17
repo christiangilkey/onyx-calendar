@@ -10,6 +10,7 @@ const ics = require('./providers/ics');
 const { parseName, mirrorName, callTime } = require('./taskname');
 const repeat = require('./repeat');
 const series = require('./series');
+const recur = require('./recur');
 const sync = require('./sync');
 
 const PROVIDERS = { google, microsoft };
@@ -139,19 +140,47 @@ function setPomodoro(id, cfg) {
 
 function unify(cal, e) {
   const id = `${cal.id}/${enc(e.rawId)}`;
+  // A day of a repeat belongs to its series: tags, notes kept in Onyx and the like are the series'.
+  const seriesId = e.seriesRawId ? `${cal.id}/${enc(e.seriesRawId)}` : null;
   return {
     id, calendarId: cal.id, calendarName: cal.name, color: cal.color, kind: 'event',
     title: e.title, start: e.start, end: e.end, allDay: !!e.allDay,
     location: e.location || '', notes: e.notes || '', link: e.link || '',
-    writable: cal.writable, ...callInfo(id, e.start), madeHere: store.data.madeHere[id] || null,
+    writable: cal.writable, ...callInfo(id, e.start), madeHere: store.data.madeHere[id] || (seriesId && store.data.madeHere[seriesId]) || null,
+    recur: e.recur || null, seriesId,
   };
 }
 
+/** Where Onyx keeps its own things about an entry (tags, memo, pomodoro): a repeat's series, or the entry. */
+const keyOf = (e) => e.seriesId || e.id;
+
+// A time block in an Onyx calendar that repeats is kept once, with its rule, and laid out
+// into its days here: "<id>~YYYY-MM-DD" for each, the days in `skip` left out.
 function localEvents(rawCal, start, end) {
   const from = new Date(start), to = new Date(end);
-  return store.data.local.events
-    .filter((e) => e.calendar === rawCal && toDate(e.end) > from && toDate(e.start) < to)
-    .map((e) => ({ rawId: e.id, ...e }));
+  const out = [];
+  for (const e of store.data.local.events) {
+    if (e.calendar !== rawCal) continue;
+    if (!e.recur) {
+      if (toDate(e.end) > from && toDate(e.start) < to) out.push({ rawId: e.id, ...e });
+      continue;
+    }
+    const first = toDate(e.start);
+    const length = toDate(e.end) - first;
+    // From a day before, so one that runs past midnight into the range is kept.
+    for (const day of recur.days(e.recur, first, new Date(from.getTime() - Math.max(length, 86400000)), to, e.skip || [])) {
+      const s = new Date(day.getFullYear(), day.getMonth(), day.getDate(), first.getHours(), first.getMinutes());
+      const t = new Date(s.getTime() + length);
+      if (t <= from || s >= to) continue;
+      const key = localDate(day);
+      out.push({
+        ...e, rawId: `${e.id}~${key}`, seriesRawId: e.id,
+        start: e.allDay ? key : s.toISOString(),
+        end: e.allDay ? localDate(new Date(day.getFullYear(), day.getMonth(), day.getDate() + Math.round(length / 86400000))) : t.toISOString(),
+      });
+    }
+  }
+  return out;
 }
 
 async function calendarEvents(cal, start, end, force) {
@@ -230,7 +259,7 @@ async function getEvents(start, end, { includeHidden = false, force = false } = 
     }
   }));
   const events = lists.flat()
-    .map((e) => ({ ...e, tags: tagsOf(e.id), memo: memoOf(e.id), pomodoro: pomodoroOf(e.id) }))
+    .map((e) => ({ ...e, tags: tagsOf(keyOf(e)), memo: memoOf(keyOf(e)), pomodoro: pomodoroOf(keyOf(e)) }))
     .concat(require('./goals').spans(start, end, includeHidden)) // goals.js needs this module: loaded late
     .sort((a, b) => toDate(a.start) - toDate(b.start));
   return { events, errors: [...errors] };
@@ -260,10 +289,14 @@ async function createEvent(data) {
   const fields = eventFields(data);
   if (!fields.start) throw new Error('A start and end time are needed.');
   if (!fields.title) fields.title = 'Time block';
+  if (data.recur) {
+    fields.recur = recur.normalize(data.recur, dayOfFields(fields));
+    Object.assign(fields, alignToRule(fields, fields.recur));
+  }
   const { acct, rawCal } = parseId(cal.id);
   let raw;
   if (acct.provider === 'local') {
-    raw = { id: accounts.newId('e'), calendar: rawCal, notes: '', location: '', ...fields };
+    raw = { id: accounts.newId('e'), calendar: rawCal, notes: '', location: '', ...fields, ...(fields.recur ? { skip: [] } : {}) };
     store.data.local.events.push(raw);
     store.save();
     raw = { rawId: raw.id, ...raw };
@@ -289,10 +322,118 @@ async function withCall(event, want, had, before, mode) {
       warning = `Saved, but the Pi phone reminder was not updated. ${err.message}`;
     }
   }
-  return { ...event, ...callInfo(event.id, event.start), tags: tagsOf(event.id), memo: memoOf(event.id), warning };
+  return { ...event, ...callInfo(event.id, event.start), tags: tagsOf(keyOf(event)), memo: memoOf(keyOf(event)), warning };
+}
+
+// ---------------------------------------------------------------- repeating blocks
+
+/** The local day a block starts on (local midnight). */
+const dayOfFields = (f) => toDate(f.allDay ? String(f.start).slice(0, 10) : localDate(new Date(f.start)));
+const dayOfStamp = (v) => toDate(String(v).length === 10 ? String(v) : localDate(new Date(v)));
+
+/** A start and end moved onto `day`, keeping the time of day and the length. */
+function onDay(f, day) {
+  if (f.allDay) {
+    const span = Math.round((toDate(f.end) - toDate(f.start)) / 86400000);
+    return { start: localDate(day), end: localDate(new Date(day.getFullYear(), day.getMonth(), day.getDate() + span)) };
+  }
+  const s = new Date(f.start);
+  const t = new Date(day.getFullYear(), day.getMonth(), day.getDate(), s.getHours(), s.getMinutes(), s.getSeconds());
+  return { start: t.toISOString(), end: new Date(t.getTime() + (new Date(f.end) - s)).toISOString() };
+}
+
+/** A repeat begins on a day its rule falls on: the block's own day, or the next one that fits. */
+function alignToRule(f, rule) {
+  const day = dayOfFields(f);
+  const first = recur.firstOnOrAfter(rule, day);
+  if (!first) throw new Error('That repeat never falls on a day. Pick other days or dates.');
+  return first.getTime() === day.getTime() ? {} : onDay(f, first);
+}
+
+const ruleKey = (r) => (r ? JSON.stringify([r.freq, r.days || [], r.dates || [], r.months || [], r.until || '']) : '');
+
+/** A repeat's series as it is now: its first day, length and rule. */
+async function seriesOf(acct, rawCal, rawSeries) {
+  if (acct.provider === 'local') {
+    const ev = store.data.local.events.find((e) => e.id === rawSeries);
+    if (!ev) throw new Error('That repeating block no longer exists.');
+    return { rawId: ev.id, ...ev };
+  }
+  return PROVIDERS[acct.provider].getEvent(req(acct), rawCal, rawSeries);
+}
+
+/**
+ * A change to one day of a repeat, made to every day of it. Moving that day moves them all
+ * by as much (Mon/Wed dragged a day later becomes Tue/Thu); a new time or length goes to
+ * all; turning the repeat off ends it on that day (the ones before stay).
+ */
+async function updateSeries(id, patch) {
+  const seriesId = patch.seriesId;
+  const { acct, calendarId, rawCal, rawItem: rawSeries } = parseId(seriesId);
+  const cal = findCalendar(calendarId);
+  if (patch.calendarId && patch.calendarId !== calendarId) {
+    throw new Error('A repeating block stays in its calendar. Turn the repeat off, or make a new one in the other calendar.');
+  }
+  if ('tags' in patch) setTags(seriesId, patch.tags);
+  if (!cal.writable) throw new Error(`"${cal.name}" is read-only.`);
+  if ('leaveBy' in patch) setLeaveBy(id, patch.leaveBy);
+  const hadCall = !!store.data.piLinks[id];
+  const wantCall = 'piCall' in patch ? !!patch.piCall : hadCall;
+
+  const master = await seriesOf(acct, rawCal, rawSeries);
+  const fields = eventFields(patch);
+  const masterDay = dayOfStamp(master.start);
+  const thisDay = patch.from ? dayOfStamp(patch.from) : null;
+  const dayShift = fields.start && thisDay ? Math.round((dayOfFields(fields) - thisDay) / 86400000) : 0;
+
+  let rule = master.recur || null;
+  let ruleChanged = false;
+  if ('recur' in patch && !patch.recur) {
+    // Off: this day is its last.
+    if (!rule || rule.custom) throw new Error('This repeat was set up in Google Calendar or Outlook. Stop it there.');
+    rule = { ...rule, until: localDate(thisDay || new Date()) };
+    ruleChanged = true;
+  } else if (patch.recur && ruleKey(recur.normalize(patch.recur, masterDay)) !== ruleKey(rule)) {
+    rule = recur.normalize(patch.recur, masterDay);
+    ruleChanged = true;
+  } else if (dayShift && rule) {
+    if (rule.custom) throw new Error('This repeat was set up in Google Calendar or Outlook, so move its days there.');
+    rule = recur.shift(rule, dayShift);
+    ruleChanged = true;
+  }
+
+  // The series' first day moves with the change (its time and length are the ones given now).
+  const base = { allDay: master.allDay, start: master.start, end: master.end };
+  let times = fields.start
+    ? { allDay: fields.allDay, ...onDay(fields, new Date(masterDay.getFullYear(), masterDay.getMonth(), masterDay.getDate() + dayShift)) }
+    : null;
+  if (ruleChanged && !rule.until) times = { ...(times || base), ...alignToRule(times || base, rule) };
+  if (ruleChanged && !times) times = base;
+
+  const payload = {};
+  for (const k of ['title', 'notes', 'location']) if (k in fields) payload[k] = fields[k];
+  if (times) Object.assign(payload, times);
+  // The rule goes along when it changed, or with a new first day (Outlook keeps the two together);
+  // one set up elsewhere that Onyx can't write back as it is stays untouched.
+  if (ruleChanged || (times && rule && !rule.custom)) payload.recur = rule;
+
+  let raw;
+  if (acct.provider === 'local') {
+    const ev = store.data.local.events.find((e) => e.id === rawSeries);
+    Object.assign(ev, payload);
+    store.save();
+    raw = { rawId: ev.id, ...ev };
+  } else {
+    raw = await PROVIDERS[acct.provider].updateEvent(req(acct), rawCal, rawSeries, payload);
+  }
+  invalidate(cal.id);
+  const ev = unify(cal, raw);
+  const day = { ...ev, id, seriesId, start: fields.start || patch.from || ev.start, end: fields.end || ev.end };
+  return withCall(day, wantCall, hadCall, 'callBefore' in patch ? patch.callBefore : undefined, patch.callMode);
 }
 
 async function updateEvent(id, patch) {
+  if (patch.seriesId) return updateSeries(id, patch);
   const { acct, calendarId, rawCal, rawItem } = parseId(id);
   const cal = findCalendar(calendarId);
   const hadCall = !!store.data.piLinks[id];
@@ -313,10 +454,16 @@ async function updateEvent(id, patch) {
   if (!cal.writable) throw new Error(`"${cal.name}" is read-only.`);
   if ('leaveBy' in patch) setLeaveBy(id, patch.leaveBy);
   const fields = eventFields(patch);
+  // A one-off block made to repeat: it becomes the series' first day (or moves to the first that fits).
+  if (patch.recur && fields.start) {
+    fields.recur = recur.normalize(patch.recur, dayOfFields(fields));
+    Object.assign(fields, alignToRule(fields, fields.recur));
+  }
   let raw;
   if (acct.provider === 'local') {
     const ev = store.data.local.events.find((e) => e.id === rawItem);
     if (!ev) throw new Error('That time block no longer exists.');
+    if (fields.recur && !ev.skip) ev.skip = [];
     Object.assign(ev, fields);
     store.save();
     raw = { rawId: ev.id, ...ev };
@@ -327,10 +474,29 @@ async function updateEvent(id, patch) {
   return withCall(unify(cal, raw), wantCall, hadCall, 'callBefore' in patch ? patch.callBefore : undefined, patch.callMode);
 }
 
-async function deleteEvent(id) {
+/**
+ * Deletes an entry. A day of a repeat: `scope` 'all' deletes the whole series, 'one' just
+ * that day (the rest go on).
+ */
+async function deleteEvent(id, { scope = 'all', seriesId = null } = {}) {
+  if (seriesId && scope === 'all') return deleteEvent(seriesId);
   const { acct, calendarId, rawCal, rawItem } = parseId(id);
   const cal = findCalendar(calendarId);
   if (!cal.writable) throw new Error(`"${cal.name}" is read-only.`);
+  if (seriesId) {
+    if (acct.provider === 'local') {
+      const [masterId, day] = rawItem.split('~');
+      const master = store.data.local.events.find((e) => e.id === masterId);
+      if (!master) throw new Error('That repeating block no longer exists.');
+      master.skip = [...new Set([...(master.skip || []), day])];
+      store.save();
+    } else {
+      await PROVIDERS[acct.provider].deleteEvent(req(acct), rawCal, rawItem); // Google and Outlook skip that day
+    }
+    invalidate(cal.id);
+    await setPiCall({ id }, false).catch((err) => console.error('onyx: could not remove the Pi reminder:', err.message));
+    return;
+  }
   if (acct.provider === 'local') {
     if (!store.data.local.events.some((e) => e.id === rawItem)) throw new Error('That time block no longer exists.');
     store.data.local.events = store.data.local.events.filter((e) => e.id !== rawItem);
@@ -380,6 +546,8 @@ function unifyTask(cal, t, mirrors) {
     title: t.title, label: p.date || p.time ? p.spoken : t.title, notes: t.notes,
     due: t.due, done: t.done, completed: t.completed || null, date, dateInName: !!p.date, time: p.time ? `${pad(p.time[0])}:${pad(p.time[1])}` : null,
     start: start ? start.toISOString() : null, mirror: mirrors.has(id), call: null, tags: tagsOf(id),
+    // On the backburner: no date, kept for later. A date (however it came) takes it off.
+    backburner: !date && !!store.data.backburner?.[id],
     goal: goalOfTask(id), repeat: store.data.repeats[id]?.rule || null, madeHere: store.data.madeHere[id] || null,
     pomodoro: pomodoroOf(id),
   };
@@ -514,7 +682,9 @@ async function createTask(data) {
     const [y, m, d] = fields.due.split('-').map(Number);
     fields.title = named.time ? mirrorName(named.spoken, new Date(y, m - 1, d, named.time[0], named.time[1])) : named.spoken;
   }
-  if (named.time && !named.date && !fields.due) {
+  // A task for the backburner has no date: none is picked for it, even with a time in its name.
+  if (data.backburner) delete fields.due;
+  if (named.time && !named.date && !fields.due && !data.backburner) {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), named.time[0], named.time[1]);
     fields.due = localDate(today > now ? today : new Date(today.getTime() + 86400000));
@@ -524,7 +694,16 @@ async function createTask(data) {
   invalidate(cal.id);
   markMadeHere(`${cal.id}/${enc(raw.rawId)}`);
   if (data.tags) setTags(`${cal.id}/${enc(raw.rawId)}`, data.tags);
+  if (data.backburner && !named.date) setBackburner(`${cal.id}/${enc(raw.rawId)}`, true);
   return unifyTask(cal, raw, new Set());
+}
+
+/** Puts a task on the backburner (no date, kept for later) or takes it off. */
+function setBackburner(id, on) {
+  if (!store.data.backburner) store.data.backburner = {};
+  if (on) store.data.backburner[id] = true; else delete store.data.backburner[id];
+  store.save();
+  return !!on;
 }
 
 async function updateTask(id, patch) {
@@ -532,6 +711,7 @@ async function updateTask(id, patch) {
   const cal = findCalendar(calendarId);
   if ('tags' in patch) setTags(id, patch.tags);
   const fields = taskFields(patch);
+  if (fields.due && store.data.backburner?.[id]) setBackburner(id, false); // scheduled: off the backburner
   let raw;
   if (Object.keys(fields).length) {
     raw = await PROVIDERS[acct.provider].updateTask(req(acct), rawCal, rawItem, fields);
@@ -886,7 +1066,7 @@ function removeLocalCalendar(id) {
 }
 
 module.exports = {
-  calendars, refreshCalendars, invalidate, getEvents, createEvent, updateEvent, deleteEvent, setLeaveBy, ackPiCall, piAlerts,
+  calendars, refreshCalendars, invalidate, getEvents, setBackburner, createEvent, updateEvent, deleteEvent, setLeaveBy, ackPiCall, piAlerts,
   getTasks, archivedTasks, fetchTask, createTask, updateTask, moveTask, deleteTask, setRepeat, setPomodoro, setPiCall, freeTime, addLocalCalendar, removeLocalCalendar,
   setTags, allTags, setTagColor, renameTag, deleteTag, setMemo, MAX_NOTE,
 };

@@ -19,6 +19,7 @@
     check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
     undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
     flag: '<path d="M5.5 21V4"/><path d="M5.5 4.5h11.5l-2.4 3.8 2.4 3.8H5.5"/>',
+    stove: '<rect x="3.5" y="9" width="17" height="11.5" rx="2"/><circle cx="8.5" cy="14.5" r="2.2"/><circle cx="15.5" cy="14.5" r="2.2"/><path d="M8 3.5c-.8 1 .8 1.8 0 3M12 3c-.8 1 .8 1.8 0 3M16 3.5c-.8 1 .8 1.8 0 3"/>',
     repeat: '<path d="M4.5 10.5a6.5 6.5 0 0 1 11.3-3.8L18 9"/><path d="M18 4.5V9h-4.5"/><path d="M19.5 13.5a6.5 6.5 0 0 1-11.3 3.8L6 15"/><path d="M6 19.5V15h4.5"/>',
     news: '<rect x="3.5" y="4.5" width="17" height="12.5" rx="2.5"/><path d="M8.5 20.5h7M12 17v3.5"/><path d="M10.2 8.3l4.3 2.45-4.3 2.45z"/>',
     play: '<path d="M7 4.8v14.4L19 12z"/>',
@@ -1011,6 +1012,8 @@
       h('span', { class: 't' }, arg.event.title),
       src.goal && h('span', { class: 'ev-goal', title: `A step toward: ${src.goal.title}` }, icon('flag')),
       src.repeat && h('span', { title: REPEAT[src.repeat] }, icon('repeat')),
+      // A repeating block wears its repeat as a tag.
+      src.kind === 'event' && (src.recur || src.seriesId) && h('span', { class: 'ev-recur', title: recurText(src.recur) }, icon('repeat')),
       src.pomodoro && h('span', { class: 'ev-pomo', title: `Pomodoro: ${src.pomodoro.work} min work, ${src.pomodoro.rest} min rest` }, icon('clock')),
       src.piCall && icon('phone'),
       notes && icon('note'),
@@ -1039,6 +1042,7 @@
         h('div', { class: 'peek-title' }, e.title),
         h('div', { class: 'peek-when' }, when),
         h('div', { class: 'peek-cal' }, [src.kind === 'task' ? (src.done ? 'Task · done' : 'Task') : null, src.calendarName].filter(Boolean).join(' · ')),
+        src.kind === 'event' && (src.recur || src.seriesId) && h('div', { class: 'peek-recur' }, icon('repeat'), recurText(src.recur)),
         notes && h('div', { class: 'peek-notes' }, notes.length > 240 ? `${notes.slice(0, 240)}…` : notes),
         src.tags?.length > 0 && h('div', { class: 'peek-tags' }, src.tags.map((t) => h('span', { css: { '--t': tagColor(t) } }, `#${t}`))));
       document.body.append(card);
@@ -1078,10 +1082,13 @@
     if (src.kind === 'task') return moveTaskTo(info);
     const end = e.end || (e.allDay ? addDays(e.start, 1) : new Date(e.start.getTime() + 3600000));
     try {
-      const saved = await onyx.updateEvent(src.id, e.allDay
+      const times = e.allDay
         ? { start: ymd(e.start), end: ymd(end), allDay: true }
-        : { start: e.start.toISOString(), end: end.toISOString(), allDay: false });
+        : { start: e.start.toISOString(), end: end.toISOString(), allDay: false };
+      // A day of a repeat moves them all (by as much, and to the same new time).
+      const saved = await onyx.updateEvent(src.id, src.seriesId ? { ...times, seriesId: src.seriesId, from: src.start } : times);
       if (saved.warning) toast(saved.warning, 'warn');
+      else if (src.seriesId) toast(`Moved every repeat of "${src.title}"`);
       refetch();
     } catch (err) {
       info.revert();
@@ -1428,6 +1435,85 @@
 
   // ------------------------------------------------------------ block editor
 
+  // ---- repeating blocks: the rule in words, and the Repeat field in a block's window
+
+  function recurNames() {
+    // 2 January 2000 was a Sunday.
+    const day = (i, weekday) => new Date(2000, 0, 2 + i).toLocaleDateString([], { weekday });
+    return {
+      dayShort: [0, 1, 2, 3, 4, 5, 6].map((i) => day(i, 'short')),
+      dayLong: [0, 1, 2, 3, 4, 5, 6].map((i) => day(i, 'long')),
+      month: [...Array(12)].map((_, i) => new Date(2000, i, 1).toLocaleDateString([], { month: 'short' })),
+    };
+  }
+  function nth(n) { return `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th')}`; }
+  function andList(xs) { return xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`; }
+
+  /** "Every Monday and Wednesday", "Monthly on the 1st and 15th", "Yearly on the 1st of Mar and Sep". */
+  function recurText(r) {
+    if (!r) return 'Repeats';
+    if (r.custom && r.freq !== 'daily' && !(r.days?.length || r.dates?.length)) return 'Repeats (set up in the calendar app)';
+    const n = recurNames();
+    const days = r.days || [];
+    let s;
+    if (r.freq === 'daily' || (r.freq === 'weekly' && days.length === 7)) s = 'Every day';
+    else if (r.freq === 'weekly') s = days.length === 5 && [1, 2, 3, 4, 5].every((d) => days.includes(d)) ? 'Every weekday' : `Every ${andList(days.map((d) => n.dayLong[d]))}`;
+    else if (r.freq === 'monthly') s = `Monthly on the ${andList((r.dates || []).map(nth))}`;
+    else s = `Yearly on the ${andList((r.dates || []).map(nth))} of ${andList((r.months || []).map((m) => n.month[m - 1]))}`;
+    return `${s}${r.custom ? ' (set up in the calendar app)' : ''}${r.until ? `, until ${fmtDay(fromYmd(r.until))}` : ''}`;
+  }
+
+  /**
+   * Repeat: a checkbox, then how often (daily, weekly on which days, monthly on which dates,
+   * yearly on which months and dates). `firstDay()` is the block's day, for the defaults.
+   */
+  function recurField(initial, firstDay, isSeries) {
+    const n = recurNames();
+    let on = !!initial;
+    let touched = false;
+    let r = initial ? { freq: initial.freq, days: [...(initial.days || [])], dates: [...(initial.dates || [])], months: [...(initial.months || [])] } : null;
+    const defaults = (freq = 'weekly') => { const d = firstDay(); return { freq, days: [d.getDay()], dates: [d.getDate()], months: [d.getMonth() + 1] }; };
+    const box = h('input', { type: 'checkbox', checked: on });
+    const panel = h('div', { class: 'recur-panel' });
+    const flip = (list, v) => (list.includes(v) ? (list.length > 1 ? list.filter((x) => x !== v) : list) : [...list, v].sort((a, b) => a - b));
+    const chip = (label, active, title, onclick) => h('button', { type: 'button', class: `rchip${active ? ' on' : ''}`, title, 'aria-pressed': String(active), onclick: () => { touched = true; onclick(); draw(); } }, label);
+    const draw = () => {
+      panel.hidden = !on;
+      if (!on) return panel.replaceChildren();
+      const order = [0, 1, 2, 3, 4, 5, 6].map((i) => (i + (S.settings.weekStart || 0)) % 7);
+      panel.replaceChildren(...[
+        h('div', { class: 'segmented recur-freq' }, [['daily', 'Daily'], ['weekly', 'Weekly'], ['monthly', 'Monthly'], ['yearly', 'Yearly']]
+          .map(([v, label]) => h('button', { type: 'button', class: r.freq === v ? 'on' : '', onclick: () => { touched = true; r.freq = v; draw(); } }, label))),
+        r.freq === 'weekly' && h('div', { class: 'recur-days' }, order.map((i) => chip(n.dayShort[i], r.days.includes(i), n.dayLong[i], () => { r.days = flip(r.days, i); }))),
+        r.freq === 'yearly' && h('div', { class: 'recur-months' }, n.month.map((m, i) => chip(m, r.months.includes(i + 1), m, () => { r.months = flip(r.months, i + 1); }))),
+        (r.freq === 'monthly' || r.freq === 'yearly') && h('div', { class: 'recur-dates' },
+          [...Array(31)].map((_, i) => chip(String(i + 1), r.dates.includes(i + 1), `The ${nth(i + 1)}`, () => { r.dates = flip(r.dates, i + 1); }))),
+        h('small', { class: 'recur-text' }, icon('repeat'), `${recurText(touched ? r : initial && !touched ? initial : r)}${isSeries ? '. Changes go to every repeat.' : ''}`),
+      ].filter(Boolean));
+    };
+    box.addEventListener('change', () => {
+      on = box.checked;
+      touched = true;
+      if (on && !r) r = defaults();
+      draw();
+    });
+    draw();
+    return {
+      el: h('div', { class: 'recur' }, h('label', { class: 'check recur-check' }, box, 'Repeat'), panel),
+      /** The rule as picked, null for "does not repeat", or undefined when left as it was. */
+      get: () => {
+        if (initial && !touched) return undefined; // as it was (a rule set up elsewhere stays as it is)
+        if (!on) return null;
+        return {
+          freq: r.freq, ...(r.freq === 'weekly' ? { days: r.days } : {}),
+          ...(r.freq === 'monthly' || r.freq === 'yearly' ? { dates: r.dates } : {}), ...(r.freq === 'yearly' ? { months: r.months } : {}),
+        };
+      },
+      /** The block's day changed: an untouched new repeat follows it. */
+      follow: () => { if (on && !initial && !touched) { r = defaults(r.freq); draw(); } },
+    };
+  }
+
   function openEditor(model, anchor) {
     const src = model.src;
     const readOnly = !!src && !src.writable;
@@ -1446,6 +1532,9 @@
       (readOnly ? [S.calendars.find((c) => c.id === src.calendarId) || { id: src.calendarId, name: src.calendarName, accountLabel: '' }] : writable)
         .map((c) => h('option', { value: c.id }, c.account === 'local' || !c.accountLabel ? c.name : `${c.name}  ·  ${c.accountLabel}`)));
     calendarPick.value = src ? src.calendarId : (writable.some((c) => c.id === S.settings.defaultCalendar) ? S.settings.defaultCalendar : writable[0]?.id);
+    // Repeat (under the calendar): every day of it is the same block, so a change to one goes to all.
+    const repeatField = !readOnly && recurField(src?.recur || (src?.seriesId ? { freq: 'weekly', custom: true } : null), () => fromYmd(date.value || ymd(model.start)), !!src?.seriesId);
+    if (repeatField) date.addEventListener('input', () => repeatField.follow());
     // Notes are saved with the entry; on a read-only calendar yours are kept in Onyx instead.
     const notes = !readOnly && notesField(src ? src.notes : '');
     const memo = readOnly && notesField(src.memo, 'Your notes: kept in Onyx, since this calendar is read-only');
@@ -1547,6 +1636,9 @@
       if (data.piCall) data.callMode = mode;
       const callChanged = data.piCall && (callBefore !== (src?.callBefore ?? null) || modeChanged || leaveChanged);
       if (callChanged) data.callBefore = callBefore;
+      const rule = repeatField ? repeatField.get() : undefined;
+      if (rule !== undefined && (rule || src?.recur || src?.seriesId)) data.recur = rule; // null turns a repeat off (this day becomes its last)
+      if (src?.seriesId) Object.assign(data, { seriesId: src.seriesId, from: src.start });
       try {
         let saved = null;
         if (!src) {
@@ -1556,15 +1648,15 @@
           // A read-only calendar can still carry tags and a phone reminder: both live in Onyx.
           if (leaveChanged) await onyx.setLeaveBy(src.id, leaveBy);
           if (data.piCall !== !!src.piCall || callChanged) await onyx.setCall({ id: src.id, title: src.title, start: src.start, allDay: src.allDay }, data.piCall, data.piCall ? callBefore : null, data.piCall ? mode : undefined);
-          if (!sameTags(data.tags, src.tags)) await onyx.setTags(src.id, data.tags);
-          if (cleanNote(memo.value) !== (src.memo || '')) await onyx.setMemo(src.id, memo.value);
+          if (!sameTags(data.tags, src.tags)) await onyx.setTags(src.seriesId || src.id, data.tags);
+          if (cleanNote(memo.value) !== (src.memo || '')) await onyx.setMemo(src.seriesId || src.id, memo.value);
         } else {
           saved = await onyx.updateEvent(src.id, data);
         }
         if (saved?.warning) toast(saved.warning, 'warn');
         // The split is kept in Onyx, by the entry's id (a new id when it moved calendar).
         const split = r.allDay ? null : pomo.get();
-        const id = saved?.id || src?.id;
+        const id = src?.seriesId || saved?.seriesId || saved?.id || src?.id; // a repeat's split is the series'
         if (id && !samePomodoro(split, saved?.pomodoro ?? src?.pomodoro)) await savePomodoro(id, split);
         closePopover();
         refetch();
@@ -1576,9 +1668,11 @@
       }
     };
 
-    const remove = async () => {
+    // A repeat: "Delete" takes every day of it (after asking), "Skip this day" just this one.
+    const remove = async (scope = 'all') => {
+      if (src.seriesId && scope === 'all' && !confirm(`Delete every repeat of "${src.title}"?`)) return;
       try {
-        await onyx.deleteEvent(src.id);
+        await onyx.deleteEvent(src.id, src.seriesId ? { scope, seriesId: src.seriesId } : undefined);
         closePopover();
         refetch();
       } catch (err) {
@@ -1592,6 +1686,7 @@
       h('div', { class: 'row' }, icon('clock'), date, startTime, dash, endTime),
       untilRow,
       h('div', { class: 'row' }, icon('calendar'), calendarPick, h('label', { class: 'check' }, allDay, 'All day')),
+      repeatField && h('div', { class: 'row top recur-row' }, icon('repeat'), repeatField.el),
       notes && h('div', { class: 'row top' }, icon('note'), notes),
       readOnly && src.notes && h('div', { class: 'row top pop-meta' }, icon('note'), h('div', { class: 'note-text' }, src.notes)),
       memo && h('div', { class: 'row top' }, icon('note'), memo),
@@ -1604,7 +1699,8 @@
       readOnly && h('div', { class: 'pop-meta' }, 'This calendar is read-only here. ',
         src.link && h('a', { href: '#', onclick: (e) => { e.preventDefault(); onyx.open(src.link); } }, 'Open it in the browser')),
       h('div', { class: 'pop-actions' },
-        src && !readOnly && h('button', { class: 'btn danger', onclick: remove }, icon('trash'), 'Delete'),
+        src && !readOnly && h('button', { class: 'btn danger', title: src.seriesId ? 'Delete every repeat' : null, onclick: () => remove('all') }, icon('trash'), src.seriesId ? 'Delete all' : 'Delete'),
+        src?.seriesId && !readOnly && h('button', { class: 'btn', title: 'Take just this day off; the others stay', onclick: () => remove('one') }, 'Skip this day'),
         h('div', { class: 'grow' }),
         h('button', { class: 'btn ghost', onclick: () => closePopover() }, 'Cancel'),
         h('button', { class: 'btn primary', onclick: save }, src ? 'Save' : 'Add block')),
@@ -2012,7 +2108,7 @@
     const groups = [
       ['Today', shown.filter((t) => t.date === today)],
       ['Upcoming', shown.filter((t) => t.date && t.date > today)],
-      ['No date', shown.filter((t) => !t.date)],
+      ['No date', shown.filter((t) => !t.date && !t.backburner)],
     ];
     // Each group folds away under its header (remembered on this device); its tasks are cards.
     const shut = shutTaskGroups();
@@ -2037,7 +2133,30 @@
       return h('section', { class: 'task-group' }, head,
         !closed && h('div', { class: 'task-cards' }, items.sort((a, b) => sortKey(a).localeCompare(sortKey(b))).map(taskRow)));
     };
-    box.replaceChildren(...[rolloverTray(earlier, someday), ...groups.filter(([, items]) => items.length).map(group)].filter(Boolean));
+    box.replaceChildren(...[rolloverTray(earlier, someday), ...groups.filter(([, items]) => items.length).map(group),
+      burnerBar(shown.filter((t) => !t.date && t.backburner))].filter(Boolean));
+  }
+
+  // ---- the Backburner: tasks kept for later, with no date, folded up at the foot of the list
+  const burnerOpen = () => { try { return localStorage.getItem('onyx.burner-open') === '1'; } catch { return false; } };
+
+  function burnerBar(items) {
+    if (!items.length) return null;
+    const open = burnerOpen();
+    const toggle = () => {
+      try { localStorage.setItem('onyx.burner-open', open ? '0' : '1'); } catch { /* this visit only */ }
+      renderTasks();
+    };
+    return h('section', { class: `burner${open ? ' open' : ''}` },
+      h('div', {
+        class: 'burner-head', role: 'button', tabindex: '0', 'aria-expanded': String(open),
+        title: open ? 'Fold the backburner away' : 'Tasks kept for later: open to schedule one',
+        onclick: toggle,
+        onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } },
+      }, icon('stove'), h('span', null, 'Backburner'), h('span', { class: 'sec-count' }, items.length), h('span', { class: 'grow' }),
+        h('span', { class: 'burner-chev' }, open ? '▾' : '▸')),
+      open && h('div', { class: 'task-cards' }, items.sort((a, b) => a.label.localeCompare(b.label)).map(taskRow)),
+      open && h('div', { class: 'burner-hint' }, 'Pick a day on one to schedule it; it leaves the backburner.'));
   }
 
   // ---- the Rollover tray: tasks carried over from earlier days, folded up at the top
@@ -2329,19 +2448,33 @@
   }
   $('#task-date').addEventListener('input', syncQuickDates);
 
+  // Backburner: the little purple switch with the stove. On, the new task gets no date and
+  // goes to the Backburner bar at the foot of the list, to be scheduled by hand later.
+  const burner = h('input', { type: 'checkbox', 'aria-label': 'Put it on the backburner' });
+  const syncBurner = () => {
+    $('#task-add').classList.toggle('burner-on', burner.checked);
+    for (const el of [$('#task-date'), ...document.querySelectorAll('.quick-date')]) el.disabled = burner.checked;
+  };
+  burner.addEventListener('change', syncBurner);
+  $('#task-date').parentElement.append(h('label', { class: 'burner-toggle', title: 'Backburner: no date, kept in the Backburner bar until you schedule it' },
+    icon('stove'), h('span', { class: 'burner-word' }, 'Backburner'), h('span', { class: 'switch purple' }, burner, h('span'))));
+
   $('#task-add').addEventListener('submit', async (e) => {
     e.preventDefault();
     const input = $('#task-title');
     const title = input.value.trim();
     if (!title) { input.focus(); return; }
-    const due = $('#task-date').value;
+    const later = burner.checked;
+    const due = later ? '' : $('#task-date').value;
     input.value = '';
     try {
-      const t = await onyx.createTask({ title, listId: $('#task-list').value || undefined, ...(due ? { due } : {}) });
+      const t = await onyx.createTask({ title, listId: $('#task-list').value || undefined, ...(later ? { backburner: true } : due ? { due } : {}) });
       $('#task-date').value = '';
+      burner.checked = false;
+      syncBurner();
       syncQuickDates();
       const when = t.start ? `${fmtDay(new Date(t.start))}, ${fmtTime(new Date(t.start))}` : t.date ? fmtDay(fromYmd(t.date)) : '';
-      toast(when ? `Added for ${when}` : 'Added');
+      toast(later && !t.date ? 'On the backburner' : when ? `Added for ${when}` : 'Added');
       await loadTasks();
       refetch();
     } catch (err) {

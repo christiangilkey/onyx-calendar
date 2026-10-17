@@ -1,6 +1,8 @@
 // Outlook calendars and Microsoft To Do, through Microsoft Graph.
 // Every function takes `req`, an authorised request bound to one account.
 
+const recurRule = require('../recur');
+
 const GRAPH = 'https://graph.microsoft.com/v1.0';
 const UTC = { Prefer: 'outlook.timezone="UTC"' };
 const enc = encodeURIComponent;
@@ -40,38 +42,68 @@ async function calendars(req) {
 // Graph sends "2026-10-14T15:00:00.0000000" in the zone asked for (UTC here).
 const fromGraph = (t) => `${t.dateTime.slice(0, 19)}Z`;
 
-function toEvent(e) {
+function toEvent(e, rule = null) {
   const allDay = !!e.isAllDay;
+  const start = allDay ? e.start.dateTime.slice(0, 10) : fromGraph(e.start);
   return {
     rawId: e.id, title: e.subject || '(No title)', allDay,
-    start: allDay ? e.start.dateTime.slice(0, 10) : fromGraph(e.start),
-    end: allDay ? e.end.dateTime.slice(0, 10) : fromGraph(e.end),
+    start, end: allDay ? e.end.dateTime.slice(0, 10) : fromGraph(e.end),
     location: e.location?.displayName || '', notes: e.bodyPreview || '', link: e.webLink || '',
+    // One day of a repeat: its series, and the rule it repeats by.
+    ...(e.seriesMasterId ? { seriesRawId: e.seriesMasterId } : {}),
+    recur: rule || (e.recurrence ? recurRule.fromGraph(e.recurrence, start) : null),
   };
 }
 
+const SELECT = 'id,subject,start,end,isAllDay,location,bodyPreview,webLink,isCancelled,seriesMasterId,type';
+
 async function events(req, calId, start, end) {
-  const q = new URLSearchParams({
-    startDateTime: start, endDateTime: end, $top: '250',
-    $select: 'id,subject,start,end,isAllDay,location,bodyPreview,webLink,isCancelled',
-  });
-  const items = await all(req, `${GRAPH}/me/calendars/${enc(calId)}/calendarView?${q}`, UTC);
-  return items.filter((e) => !e.isCancelled).map(toEvent);
+  const q = new URLSearchParams({ startDateTime: start, endDateTime: end, $top: '250', $select: SELECT });
+  const items = (await all(req, `${GRAPH}/me/calendars/${enc(calId)}/calendarView?${q}`, UTC)).filter((e) => !e.isCancelled);
+  // Each repeat's rule, from its series.
+  const rules = new Map();
+  const ids = [...new Set(items.map((e) => e.seriesMasterId).filter(Boolean))].slice(0, 30);
+  await Promise.all(ids.map(async (id) => {
+    try {
+      const m = await req(`${GRAPH}/me/events/${enc(id)}?$select=start,isAllDay,recurrence`, { headers: UTC });
+      rules.set(id, recurRule.fromGraph(m.recurrence, m.isAllDay ? m.start.dateTime.slice(0, 10) : fromGraph(m.start)));
+    } catch {
+      // shown without its rule
+    }
+  }));
+  return items.map((e) => toEvent(e, rules.get(e.seriesMasterId) || null));
 }
+
+/** A series (or any one event) as it is: its first day, length and rule. */
+async function getEvent(req, calId, id) {
+  return toEvent(await req(`${GRAPH}/me/events/${enc(id)}?$select=${SELECT},recurrence`, { headers: UTC }));
+}
+
+const ZONE = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+const pad2 = (n) => String(n).padStart(2, '0');
+const localStamp = (v) => {
+  const t = new Date(v);
+  return `${t.getFullYear()}-${pad2(t.getMonth() + 1)}-${pad2(t.getDate())}T${pad2(t.getHours())}:${pad2(t.getMinutes())}:00`;
+};
 
 function body(d) {
   const b = {};
   if ('title' in d) b.subject = d.title;
   if ('notes' in d) b.body = { contentType: 'text', content: d.notes };
   if ('location' in d) b.location = { displayName: d.location };
+  // A repeat keeps local time (and so the same hour across daylight saving); one-offs go in UTC.
+  const local = !!d.recur;
   if (d.start && d.end) {
-    const side = (v) => ({
-      dateTime: d.allDay ? `${v.slice(0, 10)}T00:00:00` : new Date(v).toISOString().slice(0, 19),
-      timeZone: 'UTC',
-    });
+    const side = (v) => (d.allDay
+      ? { dateTime: `${v.slice(0, 10)}T00:00:00`, timeZone: local ? ZONE() : 'UTC' }
+      : local ? { dateTime: localStamp(v), timeZone: ZONE() } : { dateTime: new Date(v).toISOString().slice(0, 19), timeZone: 'UTC' });
     b.isAllDay = !!d.allDay;
     b.start = side(d.start);
     b.end = side(d.end);
+  }
+  if ('recur' in d) {
+    const first = d.start ? (d.allDay ? d.start.slice(0, 10) : localStamp(d.start).slice(0, 10)) : null;
+    b.recurrence = d.recur && first ? recurRule.toGraph(d.recur, first, ZONE()) : null;
   }
   return b;
 }
@@ -145,4 +177,4 @@ async function getTask(req, listId, id) {
   }
 }
 
-module.exports = { calendars, events, createEvent, updateEvent, deleteEvent, tasks, completedTasks, getTask, createTask, updateTask, deleteTask };
+module.exports = { calendars, events, getEvent, createEvent, updateEvent, deleteEvent, tasks, completedTasks, getTask, createTask, updateTask, deleteTask };

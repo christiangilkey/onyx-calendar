@@ -33,6 +33,7 @@ const DEFAULTS = {
   piLinks: {},           // event id -> id of the Google Task the Pi phones about
   leaveBy: {},           // event id -> minutes before its start to set off (hub.js)
   tags: {},              // event or task id -> ['tag', ...]. Kept only in Onyx, never sent to Google or Microsoft.
+  backburner: {},        // task id -> true: an unscheduled task kept for later (hub.js), until it gets a date
   tagColors: {},         // tag -> colour
   memos: {},             // event id -> your own notes on an entry Onyx cannot write to (read-only calendars). Kept only in Onyx.
   notes: [],             // { id, title, body, created, updated } written in Onyx, shown on the globe

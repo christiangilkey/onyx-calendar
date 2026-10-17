@@ -222,7 +222,7 @@
     return ymd(d);
   };
   const addTask = (d) => {
-    const t = { id: `g1/tl~main/${seq++}`, listId: 'g1/tl~main', listName: 'My Tasks', color: '#f5b83d', provider: 'google', title: d.title, label: d.title, notes: d.notes || '', due: d.due || null, date: d.due || null, time: null, start: null, done: false, mirror: false, call: null };
+    const t = { id: `g1/tl~main/${seq++}`, listId: 'g1/tl~main', listName: 'My Tasks', color: '#f5b83d', provider: 'google', title: d.title, label: d.title, notes: d.notes || '', due: d.due || null, date: d.due || null, time: null, start: null, done: false, mirror: false, call: null, backburner: !!d.backburner && !d.due };
     tasks.push(t);
     if (d.tags) setTags(t.id, d.tags);
     return t;
@@ -299,13 +299,14 @@
       const c = cal(d.calendarId);
       const e = { id: `${c.id}/${seq++}`, calendarId: c.id, calendarName: c.name, color: c.color, kind: 'event', location: '', link: '', writable: true, ...d, title: d.title || 'Time block' };
       delete e.tags;
+      if (d.recur) e.seriesId = e.id; // shown as one block: enough to see the repeat in the window
       events.push(e);
       setTags(e.id, d.tags);
       return withTags(e);
     },
     updateEvent: async (id, patch) => {
       const e = events.find((x) => x.id === id);
-      const { tags: newTags, ...rest } = patch;
+      const { tags: newTags, seriesId, from, ...rest } = patch;
       Object.assign(e, rest);
       if (newTags) setTags(id, newTags);
       if (patch.calendarId) Object.assign(e, { calendarName: cal(patch.calendarId).name, color: cal(patch.calendarId).color });
@@ -353,6 +354,7 @@
       return { tasks: done.sort((a, b) => b.completed.localeCompare(a.completed)).map(withTags), errors: [] };
     },
     createTask: async (d) => taskOut(addTask(d)),
+    setBackburner: async (id, on) => { const t = tasks.find((x) => x.id === id); if (t) t.backburner = !!on; return !!on; },
     updateTask: async (id, patch) => {
       const t = tasks.find((x) => x.id === id);
       const { tags: newTags, ...rest } = patch;

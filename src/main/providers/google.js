@@ -1,6 +1,8 @@
 // Google Calendar and Google Tasks.
 // Every function takes `req`, an authorised request bound to one account.
 
+const recurRule = require('../recur');
+
 const CAL = 'https://www.googleapis.com/calendar/v3';
 const TASKS = 'https://tasks.googleapis.com/tasks/v1';
 const enc = encodeURIComponent;
@@ -26,31 +28,59 @@ async function calendars(req) {
   return out;
 }
 
-function toEvent(e) {
+// A repeat's rule, from a series (its first event and its RRULE).
+const ruleOf = (master) => (master?.recurrence ? recurRule.fromRRule(master.recurrence, master.start?.date || master.start?.dateTime) : null);
+
+function toEvent(e, rule = null) {
   const allDay = !!e.start?.date;
   return {
     rawId: e.id, title: e.summary || '(No title)', allDay,
     start: allDay ? e.start.date : e.start.dateTime,
     end: allDay ? e.end.date : e.end.dateTime,
     location: e.location || '', notes: e.description || '', link: e.htmlLink || '',
+    // One day of a repeat: its series, and the rule it repeats by.
+    ...(e.recurringEventId ? { seriesRawId: e.recurringEventId } : {}),
+    recur: rule || ruleOf(e),
   };
 }
 
-async function events(req, calId, start, end) {
+async function list(req, calId, params) {
   const out = [];
   let page = '';
   do {
-    const q = new URLSearchParams({ timeMin: start, timeMax: end, singleEvents: 'true', orderBy: 'startTime', maxResults: '2500' });
+    const q = new URLSearchParams({ ...params, maxResults: '2500' });
     if (page) q.set('pageToken', page);
     const res = await req(`${CAL}/calendars/${enc(calId)}/events?${q}`);
-    for (const e of res.items || []) if (e.status !== 'cancelled' && e.start) out.push(toEvent(e));
+    out.push(...(res.items || []));
     page = res.nextPageToken || '';
   } while (page);
   return out;
 }
 
+async function events(req, calId, start, end) {
+  // The days themselves, and the series they come from (for each repeat's rule).
+  const [items, series] = await Promise.all([
+    list(req, calId, { timeMin: start, timeMax: end, singleEvents: 'true', orderBy: 'startTime' }),
+    list(req, calId, { timeMin: start, timeMax: end, singleEvents: 'false' }).catch(() => []),
+  ]);
+  const masters = new Map(series.filter((m) => m.recurrence).map((m) => [m.id, m]));
+  const missing = [...new Set(items.map((e) => e.recurringEventId).filter((id) => id && !masters.has(id)))].slice(0, 30);
+  await Promise.all(missing.map(async (id) => {
+    try { masters.set(id, await req(`${CAL}/calendars/${enc(calId)}/events/${enc(id)}`)); } catch { /* shown without its rule */ }
+  }));
+  return items.filter((e) => e.status !== 'cancelled' && e.start).map((e) => toEvent(e, ruleOf(masters.get(e.recurringEventId))));
+}
+
+/** A series (or any one event) as it is: its first day, length and rule. */
+async function getEvent(req, calId, id) {
+  return toEvent(await req(`${CAL}/calendars/${enc(calId)}/events/${enc(id)}`));
+}
+
 // On an update, the unused half of start/end is cleared so an event can switch
 // between all-day and timed.
+// A timed repeat needs its time zone, so it stays at the same local time across daylight saving.
+const ZONE = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+
 function body(d, patch) {
   const b = {};
   if ('title' in d) b.summary = d.title;
@@ -59,13 +89,15 @@ function body(d, patch) {
   if (d.start && d.end) {
     const side = (v) => (d.allDay
       ? { date: v.slice(0, 10), ...(patch ? { dateTime: null, timeZone: null } : {}) }
-      : { dateTime: new Date(v).toISOString(), ...(patch ? { date: null } : {}) });
+      : { dateTime: new Date(v).toISOString(), timeZone: ZONE(), ...(patch ? { date: null } : {}) });
     b.start = side(d.start);
     b.end = side(d.end);
   }
+  if ('recur' in d) b.recurrence = d.recur ? [recurRule.toRRule(d.recur, !!d.allDay)] : [];
   return b;
 }
 
+/** Creates an event; with `d.recur`, a repeating one (the series). */
 const createEvent = async (req, calId, d) =>
   toEvent(await req(`${CAL}/calendars/${enc(calId)}/events`, { method: 'POST', body: body(d, false) }));
 
@@ -140,4 +172,4 @@ async function getTask(req, listId, id) {
   }
 }
 
-module.exports = { calendars, events, createEvent, updateEvent, deleteEvent, tasks, completedTasks, getTask, createTask, updateTask, deleteTask };
+module.exports = { calendars, events, getEvent, createEvent, updateEvent, deleteEvent, tasks, completedTasks, getTask, createTask, updateTask, deleteTask };

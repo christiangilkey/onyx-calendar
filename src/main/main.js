@@ -114,10 +114,11 @@ function createWindow() {
 const ALERT_W = 384, ALERT_H = 156, ALERT_GAP = 10;
 const alerts = [];
 
+const FULL_KINDS = ['call', 'push', 'leave']; // the full-screen action card; a start is a small card
+
 function placeAlerts() {
   const area = screen.getPrimaryDisplay().workArea;
-  alerts.forEach((w, i) => {
-    if (w.isDestroyed()) return;
+  alerts.filter((w) => !w.isDestroyed() && !FULL_KINDS.includes(w.alertData.kind)).forEach((w, i) => {
     w.setBounds({ x: area.x + area.width - ALERT_W - 16, y: area.y + area.height - (ALERT_H + ALERT_GAP) * (i + 1) - 6, width: ALERT_W, height: ALERT_H });
   });
 }
@@ -125,16 +126,22 @@ function placeAlerts() {
 function showAlert(a) {
   if (!a || typeof a !== 'object') throw new Error('Nothing to show.');
   const data = {
-    key: String(a.key || ''), kind: a.kind === 'call' ? 'call' : 'start', id: String(a.id || ''),
+    key: String(a.key || ''), kind: FULL_KINDS.includes(a.kind) ? a.kind : 'start', id: String(a.id || ''),
+    leaveAt: Number.isNaN(Date.parse(a.leaveAt || '')) ? '' : String(a.leaveAt),
+    steps: Array.isArray(a.steps) ? a.steps.slice(0, 8).map((s) => String(s).slice(0, 90)).filter(Boolean) : [],
     title: String(a.title || '').slice(0, 200), start: String(a.start || ''), end: String(a.end || ''),
     color: /^#[0-9a-f]{3,8}$/i.test(a.color || '') ? a.color : '', calendar: String(a.calendar || '').slice(0, 80),
     sound: a.sound !== false, hour12: a.hour12 !== false, snoozed: !!a.snoozed,
   };
   const open = alerts.find((w) => !w.isDestroyed() && w.alertData.key === data.key);
   if (open) { open.showInactive(); return true; } // the same one is already up
+  // The action card covers the whole screen (dimmed, see-through) at the point of performance.
+  const full = FULL_KINDS.includes(data.kind);
+  const bounds = full ? screen.getPrimaryDisplay().bounds : { width: ALERT_W, height: ALERT_H };
   const w = new BrowserWindow({
-    width: ALERT_W, height: ALERT_H, frame: false, resizable: false, maximizable: false, minimizable: false, fullscreenable: false,
-    alwaysOnTop: true, skipTaskbar: true, show: false, backgroundColor: '#0b0b0e', icon: ICON, title: 'Onyx',
+    ...bounds, frame: false, resizable: false, maximizable: false, minimizable: false, fullscreenable: false,
+    alwaysOnTop: true, skipTaskbar: !full, show: false, icon: ICON, title: 'Onyx',
+    ...(full ? { transparent: true, backgroundColor: '#00000000', hasShadow: false } : { backgroundColor: '#0b0b0e' }),
     webPreferences: {
       preload: path.join(__dirname, '../alert-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true,
       autoplayPolicy: 'no-user-gesture-required', backgroundThrottling: false,
@@ -145,7 +152,9 @@ function showAlert(a) {
   w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   w.webContents.on('will-navigate', (e) => e.preventDefault());
   w.loadFile(path.join(__dirname, '../renderer/alert.html'), { query: { d: JSON.stringify(data) } });
-  w.once('ready-to-show', () => w.showInactive()); // over everything, without taking the keyboard from what you are typing in
+  // The small card shows without taking the keyboard from what you are typing in; the action
+  // card takes it, so Enter (Leaving now) and Esc work straight away.
+  w.once('ready-to-show', () => { if (full) { w.show(); w.focus(); } else w.showInactive(); });
   w.on('closed', () => { alerts.splice(alerts.indexOf(w), 1); placeAlerts(); });
   alerts.push(w);
   placeAlerts();
@@ -157,7 +166,7 @@ ipcMain.on('alert:act', (e, action) => {
   if (!w || !alerts.includes(w)) return;
   const a = w.alertData;
   if (action === 'open') { showWindow(); win?.webContents.send('alert-action', { action: 'open', alert: a }); }
-  if (action === 'snooze') win?.webContents.send('alert-action', { action: 'snooze', alert: a });
+  if (action === 'snooze' || action === 'leaving') win?.webContents.send('alert-action', { action, alert: a });
   w.close();
 });
 

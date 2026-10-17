@@ -13,6 +13,7 @@ const drive = require('./providers/drive');
 const news = require('./news');
 const goals = require('./goals');
 const sync = require('./sync');
+const ai = require('./ai');
 const { version } = require('../../package.json');
 
 let afterSettings = async () => {};
@@ -31,6 +32,7 @@ function state() {
     mcp: { ...mcp.info(), peers: sync.peerAddresses() },
     desktops: { ...sync.info(), invite: null }, // a link code only ever comes from 'desktops', on the PC itself
     notion: notion.info(),
+    ai: ai.info(),
   };
 }
 
@@ -88,7 +90,9 @@ const handlers = {
   'event:create': (data) => hub.createEvent(data),
   'event:update': (id, patch) => hub.updateEvent(id, patch),
   'event:delete': (id) => hub.deleteEvent(id),
-  'event:call': async (event, on, before) => ({ piCall: await hub.setPiCall(event, !!on, before), callBefore: store.data.piLinks[event.id]?.before ?? null }),
+  'event:call': async (event, on, before, mode) => ({ piCall: await hub.setPiCall(event, !!on, before, mode), callBefore: store.data.piLinks[event.id]?.before ?? null }),
+  'event:leaveby': (id, minutes) => hub.setLeaveBy(id, minutes),
+  'event:ack': (id) => hub.ackPiCall(id),
   tasks: (force) => hub.getTasks({ force: !!force }),
   'task:create': (data) => hub.createTask(data),
   'task:update': (id, patch) => hub.updateTask(id, patch),
@@ -144,6 +148,9 @@ const handlers = {
   'desktops:leave': () => sync.leave(),
   'desktops:forget': (id) => sync.forget(id),
   'desktops:sync': () => sync.syncNow(),
+  // Breakdown (the hammer): a task split into steps, 1 (broad) to 5 (micro-steps).
+  'ai:breakdown': (title, opts) => ai.breakdown(title, opts),
+  'ai:key': withState((key) => ai.setKey(key)),
 };
 
 // What the phone may run. Signing in to accounts, and the settings that could

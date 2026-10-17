@@ -311,6 +311,8 @@
       if (patch.calendarId) Object.assign(e, { calendarName: cal(patch.calendarId).name, color: cal(patch.calendarId).color });
       return withTags(e);
     },
+    setLeaveBy: async (id, minutes) => { const e = events.find((x) => x.id === id); if (e) e.leaveBy = minutes || null; return e?.leaveBy ?? null; },
+    ackCall: async (id) => { const e = events.find((x) => x.id === id); if (e) e.callAck = true; return true; },
     deleteEvent: async (id) => { events = events.filter((x) => x.id !== id); delete tags[id]; },
     setCall: async (event, on, before) => { const e = events.find((x) => x.id === event.id); e.piCall = on; e.callBefore = on ? before ?? null : null; return { piCall: on, callBefore: e.callBefore }; },
     tasks: async () => ({ tasks: withSeries(tasks.filter((t) => !t.done).map(taskOut)), errors: [] }),
@@ -465,6 +467,11 @@
     leaveDesktops: async () => { state.desktops = { linked: false, device: 'a1', name: 'DESKTOP-MAIN', invite: null, desktops: [] }; return structuredClone(state.desktops); },
     forgetDesktop: async (id) => { state.desktops.desktops = state.desktops.desktops.filter((x) => x.id !== id); return structuredClone(state.desktops); },
     tamkeen: { info: async () => ({ installed: true }), watch: async (id) => { window.lastTamkeen = id; return true; } },
+    breakdown: async (title, opts = {}) => {
+      const all = ['Clear a space to work', 'Gather what you need', `Open what "${title}" needs`, 'Do the first small part', 'Take a short look at it', 'Do the next part', 'Check it over', 'Tidy up', 'Tick it off', 'Take a breath', 'Tell someone it is done', 'Plan what comes next'];
+      return all.slice(0, [3, 4, 6, 9, 12][(opts.level || 3) - 1]);
+    },
+    setAiKey: async () => snapshot(),
     syncDesktops: async () => structuredClone({ ...state.desktops, invite: null }),
     loadGoogleCredentials: async () => snapshot(),
     connectGoogle: async () => snapshot(),

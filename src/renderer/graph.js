@@ -25,7 +25,8 @@
     const hubs = new Map();
     const hubFor = (key, label, color, order = 0) => {
       if (!hubs.has(key)) {
-        const hub = { id: `hub:${key}`, key, hub: true, label, color, count: 0, order };
+        // Someday (tasks carried over for two weeks and more) keeps to an outer orbit.
+        const hub = { id: `hub:${key}`, key, hub: true, label, color, count: 0, order, ...(/due:someday$/.test(key) ? { outer: true } : {}) };
         hubs.set(key, hub);
         nodes.push(hub);
       }
@@ -146,7 +147,8 @@
           const y = 1 - (2 * (i + 0.5)) / ordered.length, r = Math.sqrt(1 - y * y), a = i * 2.39996323;
           dir = { x: Math.cos(a) * r, y, z: Math.sin(a) * r };
         }
-        Object.assign(h, { x: dir.x * sphere, y: dir.y * sphere, z: dir.z * sphere });
+        const r = sphere * (h.outer ? 1.55 : 1);
+        Object.assign(h, { x: dir.x * r, y: dir.y * r, z: dir.z * r });
       });
       const firstHub = new Map();
       for (const l of links) if (!l.a.hub && l.b.hub && !firstHub.has(l.a.id)) firstHub.set(l.a.id, l.b);
@@ -209,7 +211,8 @@
         if (p.hub) {
           // Held to the sphere's surface (or to the middle, when there is only one hub).
           const d = Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z) || 1;
-          const f = sphere ? ((sphere - d) / d) * 0.08 * alpha : -0.05 * alpha;
+          const target = sphere * (p.outer ? 1.55 : 1);
+          const f = sphere ? ((target - d) / d) * 0.08 * alpha : -0.05 * alpha;
           p.vx += p.x * f; p.vy += p.y * f; p.vz += p.z * f;
         } else {
           const g = 0.0008 * alpha;

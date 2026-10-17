@@ -18,7 +18,8 @@ const DEFAULTS = {
     closeToTray: true,
     launchAtLogin: false,
     defaultCalendar: '', // where new time blocks are saved
-    pi: { enabled: true, taskList: '', leadMinutes: 60, quietStart: '22:00', quietEnd: '07:00' },
+    // checkEvery: how often the Pi looks (its cron), so a call asked for at 2:15 comes at the last look before
+    pi: { enabled: true, taskList: '', leadMinutes: 60, quietStart: '22:00', quietEnd: '07:00', checkEvery: 30 },
     mcp: { enabled: true, port: 4747, lan: true },
   },
   accounts: [],          // { id, provider: 'google' | 'microsoft' | 'ics', label, url? }
@@ -30,6 +31,7 @@ const DEFAULTS = {
     events: [],          // { id, calendar, title, start, end, allDay, notes, location }
   },
   piLinks: {},           // event id -> id of the Google Task the Pi phones about
+  leaveBy: {},           // event id -> minutes before its start to set off (hub.js)
   tags: {},              // event or task id -> ['tag', ...]. Kept only in Onyx, never sent to Google or Microsoft.
   tagColors: {},         // tag -> colour
   memos: {},             // event id -> your own notes on an entry Onyx cannot write to (read-only calendars). Kept only in Onyx.
@@ -45,7 +47,7 @@ const DEFAULTS = {
   desktops: {},          // linked desktops: device id -> { name, addresses, version } (sync.js)
   sync: null,            // this PC's sync bookkeeping: its id, when each shared piece changed, what each desktop has seen (sync.js)
   // group: the id and key shared by linked desktops (sync.js)
-  secrets: { googleClientSecret: '', tokens: {}, mcpToken: '', notionToken: '', group: null },
+  secrets: { googleClientSecret: '', tokens: {}, mcpToken: '', notionToken: '', anthropicKey: '', group: null },
 };
 
 let file = '';

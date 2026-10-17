@@ -294,3 +294,39 @@ test('a task ticked off stays on the calendar, marked done', async () => {
   assert.equal(tasks.some((x) => x.id === t.id), false, 'not in the open list');
   delete google.completedTasks;
 });
+
+test('the escalation ladder: leave-by, push only, critical, and Leaving now', async () => {
+  reset();
+  store.data.settings.pi.checkEvery = 5;
+  const at = (t) => [...t.notes.matchAll(/^Call at: (.+)$/gm)].map((m) => m[1]);
+  // A call at the leave-by time (40 minutes before a 15:00 start: 14:20).
+  const ev = await hub.createEvent({ calendarId: 'g1/primary', title: 'Dentist', start: day(2, 15, 0), end: day(2, 16, 0), allDay: false, piCall: true, leaveBy: 40 });
+  assert.equal(ev.leaveBy, 40);
+  assert.equal(ev.callMode, 'call');
+  assert.deepEqual(at(mirrors()[0]), [`${ymd(day(2))} 14:20`]);
+  assert.deepEqual(ev.piAlerts.map((a) => a.kind), ['call']);
+
+  // Critical: a second call 10 minutes later.
+  let up = await hub.updateEvent(ev.id, { callMode: 'critical' });
+  assert.deepEqual(at(mirrors()[0]), [`${ymd(day(2))} 14:20`, `${ymd(day(2))} 14:30`]);
+  assert.match(mirrors()[0].notes, /^Escalation: critical$/m);
+  assert.equal(up.piAlerts.length, 2);
+
+  // Push only: an alert, no call.
+  up = await hub.updateEvent(ev.id, { callMode: 'push' });
+  assert.match(mirrors()[0].notes, /^Alert: push only$/m);
+  assert.deepEqual(up.piAlerts.map((a) => a.kind), ['push']);
+
+  // Leaving now: nothing more about it, until it is moved.
+  await hub.updateEvent(ev.id, { callMode: 'critical' });
+  assert.equal(await hub.ackPiCall(ev.id), true);
+  assert.match(mirrors()[0].notes, /^Acknowledged: yes$/m);
+  assert.deepEqual(at(mirrors()[0]), []);
+  await hub.updateEvent(ev.id, { start: day(2, 16, 0), end: day(2, 17, 0), allDay: false });
+  assert.deepEqual(at(mirrors()[0]), [`${ymd(day(2))} 15:20`, `${ymd(day(2))} 15:30`], 'moved: it rings again');
+
+  // Leave-by off: back to the Pi's usual time.
+  await hub.updateEvent(ev.id, { leaveBy: null, callMode: 'call' });
+  assert.deepEqual(at(mirrors()[0]), []);
+  store.data.settings.pi.checkEvery = 30;
+});

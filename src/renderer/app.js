@@ -26,6 +26,8 @@
     archive: '<rect x="3.5" y="4.5" width="17" height="4.5" rx="1.5"/><path d="M5.5 9v9.5a1.5 1.5 0 0 0 1.5 1.5h10a1.5 1.5 0 0 0 1.5-1.5V9M10 13h4"/>',
     clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
     bell: '<path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 1.5h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
+    hammer: '<path d="M13.6 3.6l6.8 6.8-2.6 2.6-6.8-6.8z"/><path d="M12.3 8.8 4.1 17a1.8 1.8 0 0 0 2.6 2.6l8.2-8.2"/>',
+    leave: '<path d="M10 4h8v16h-8"/><path d="M4 12h9M10 9l3 3-3 3"/>',
     'bell-off': '<path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 1.5h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0M4 4l16 16"/>',
     calendar: '<rect x="4" y="5" width="16" height="15" rx="3"/><path d="M4 10h16M8.5 3v4M15.5 3v4"/>',
     note: '<path d="M5 6h14M5 11h14M5 16h9"/>',
@@ -398,6 +400,7 @@
         kindIcon: h('span', { class: 'next-kind' }),
         kind: h('b', { class: 'next-kind-label' }),
         what: h('span', { class: 'what' }),
+        leave: h('span', { class: 'next-leave' }),
         live: h('span', { class: 'next-live', 'aria-hidden': 'true' }),
         count: h('span', { class: 'next-count' }),
         gauge: h('span', { class: 'next-gauge', 'aria-hidden': 'true' }, h('i')),
@@ -409,7 +412,7 @@
           tickNext();
         } }),
       };
-      parts.pill.append(parts.kindIcon, parts.kind, parts.what, h('span', { class: 'next-sep', 'aria-hidden': 'true' }), parts.live, parts.count, parts.gauge);
+      parts.pill.append(parts.kindIcon, parts.kind, parts.what, parts.leave, h('span', { class: 'next-sep', 'aria-hidden': 'true' }), parts.live, parts.count, parts.gauge);
       parts.label.addEventListener('click', (ev) => parts.labelItem && openNextItem(parts.labelItem, ev.currentTarget.getBoundingClientRect()));
       parts.pill.addEventListener('click', (ev) => parts.thenItem && openNextItem(parts.thenItem, ev.currentTarget.getBoundingClientRect()));
       bar.replaceChildren(h('div', { class: 'next-row' },
@@ -432,7 +435,11 @@
     if (next) {
       const left = next.s - now;
       const day = !sameDay(new Date(next.s), new Date()) ? ' tomorrow' : '';
-      tone = left <= 60000 ? 'urgent' : left <= NEXT_WARN_MIN * 60000 ? 'soon' : left <= 15 * 60000 ? 'near' : 'calm';
+      // The state dot: calm (green) over 30 minutes, amber 10 to 30, escalate (red) under 10,
+      // counted to the leave-by time when there is one (that is the real deadline).
+      const leaveAt = next.e.leaveBy ? next.s - next.e.leaveBy * 60000 : null;
+      const toGo = (leaveAt ?? next.s) - now;
+      tone = toGo <= 10 * 60000 ? 'urgent' : toGo <= 30 * 60000 ? 'near' : 'calm';
       // The gauge runs down from when the wait began (the last thing ending, or the current one
       // starting) to the next start; with nothing earlier, over the last hour.
       const since = Math.max(0, ...timed.filter((x) => x.f <= now).map((x) => x.f), current ? current.s : 0);
@@ -441,19 +448,23 @@
       p.kindIcon.replaceChildren(icon(next.e.kind === 'task' ? 'check' : 'calendar'));
       p.kind.textContent = next.e.kind === 'task' ? 'Next task' : 'Next';
       p.what.textContent = next.e.title;
+      p.leave.textContent = leaveAt ? (leaveAt > now ? `Leave by ${fmtTime(new Date(leaveAt))}` : 'Time to leave') : '';
+      p.leave.hidden = !leaveAt;
       p.count.textContent = countdown(left);
-      p.pill.title = `${untilText(left)} until ${next.e.title} at ${fmtTime(new Date(next.s))}${day}. Click to open it`;
+      p.pill.title = `${untilText(left)} until ${next.e.title} at ${fmtTime(new Date(next.s))}${day}${leaveAt ? `. Leave by ${fmtTime(new Date(leaveAt))}` : ''}. Click to open it`;
       p.pill.disabled = false;
       p.pill.classList.remove('empty');
     } else {
       p.kindIcon.replaceChildren(icon('calendar'));
       p.kind.textContent = 'Next';
       p.what.textContent = 'Nothing else timed';
+      p.leave.hidden = true;
       p.count.textContent = '';
       p.pill.title = '';
       p.pill.disabled = true;
       p.pill.classList.add('empty');
     }
+    drainTimers(timed.filter((x) => x.s <= now && x.f > now), now);
     const sound = nextSoundOn();
     p.sound.replaceChildren(icon(sound ? 'bell' : 'bell-off'));
     p.sound.title = sound ? 'Chimes on: 5 minutes before, and as it starts. Click to mute' : 'Chimes off. Click to turn them on';
@@ -477,6 +488,22 @@
     }
   }
 
+  /**
+   * A Time Timer on whatever is on now: a disc in the corner of its block that drains as the
+   * time runs out, smoothly (no ticking or flashing).
+   */
+  function drainTimers(current, now) {
+    const on = new Map(current.map((x) => [x.e.id, x]));
+    for (const el of document.querySelectorAll('#calendar .fc-event[data-eid]')) {
+      const x = on.get(el.dataset.eid);
+      let pie = el.querySelector('.ev-timer');
+      if (!x || el.classList.contains('fc-event-mirror') || !el.classList.contains('fc-timegrid-event')) { pie?.remove(); continue; }
+      if (!pie) { pie = h('span', { class: 'ev-timer', 'aria-hidden': 'true' }); el.append(pie); }
+      pie.style.setProperty('--timer-p', Math.max(0, Math.min(1, (x.f - now) / (x.f - x.s))).toFixed(4));
+      el.title = `${untilText(x.f - now)} left`;
+    }
+  }
+
   /** The countdown in the pill: "09h 22m 14s", "22m 14s", or "2d 03h" for days ahead. */
   function countdown(ms) {
     const total = Math.max(0, Math.floor(ms / 1000));
@@ -497,8 +524,20 @@
   function popupFor(e, kind, extra = {}) {
     return {
       key: `${kind}|${e.id}|${e.start}`, kind, id: e.id, title: e.title, start: e.start, end: e.end, color: e.color,
-      calendar: e.calendarName || '', sound: nextSoundOn(), hour12: S.settings.hour12, ...extra,
+      calendar: e.calendarName || '', sound: nextSoundOn(), hour12: S.settings.hour12,
+      leaveAt: e.leaveBy ? new Date(new Date(e.start).getTime() - e.leaveBy * 60000).toISOString() : '',
+      steps: breakdownSteps(e), ...extra,
     };
+  }
+
+  /**
+   * The 2-minute breakdown of getting going: the steps written in the entry's notes (a list),
+   * or a short routine for leaving.
+   */
+  function breakdownSteps(e) {
+    const listed = String(e.notes || '').split(/\r?\n/).map((l) => (l.match(/^\s*(?:[-*•]|\d+[.)])\s+(?:\[[ xX]?\]\s+)?(.+)$/) || [])[1]).filter(Boolean);
+    if (listed.length >= 2) return listed.slice(0, 7);
+    return ['Save what you are doing', 'Stand up and take a breath', 'Phone, keys, wallet', 'Shoes and jacket on', e.location ? `Head to ${e.location}` : 'Out the door'];
   }
 
   function showPopup(a) {
@@ -509,7 +548,13 @@
   function popupAction(m) {
     const a = m?.alert;
     if (!a) return;
-    if (m.action === 'snooze') {
+    if (m.action === 'leaving') {
+      // The Pi makes no more calls about it (a critical one would have rung again).
+      const e = nextRun.items.find((x) => x.id === a.id);
+      if (e?.piCall) onyx.ackCall?.(a.id).then(() => refreshPomodoros()).catch(() => {});
+      for (const s of [...popups.snoozed]) if (s.alert.id === a.id) popups.snoozed.splice(popups.snoozed.indexOf(s), 1);
+      toast(`Off you go to "${a.title}". No more reminders about it.`);
+    } else if (m.action === 'snooze') {
       popups.snoozed.push({ at: Date.now() + SNOOZE_MIN * 60000, alert: { ...a, key: `${a.key}|snooze|${Date.now()}`, snoozed: true } });
       toast(`Snoozed: "${a.title}" again in ${SNOOZE_MIN} minutes`);
     } else if (m.action === 'open') {
@@ -537,13 +582,22 @@
       showPopup(make());
     };
     if (S.settings.pi?.enabled) {
-      // Blocks and events with a phone reminder: the Pi calls at the time worked out for them.
+      // Blocks and events with a reminder on the ladder: the full-screen action card comes up as
+      // the Pi reaches out (a call rings; a push chimes), at leave-by or the picked time.
       for (const e of nextRun.items) {
-        if (e.kind !== 'event' || !e.piCall) continue;
+        if (e.kind !== 'event' || !e.piCall || e.callAck) continue;
         const start = new Date(e.start);
+        if (e.piAlerts?.length) {
+          for (const al of e.piAlerts) {
+            const at = Date.parse(al.at);
+            if (now >= at && now - at < 90000 && start.getTime() > now) fire(`${al.kind}|${e.id}|${e.start}|${al.at}`, () => popupFor(e, al.kind, { key: `${al.kind}|${e.id}|${al.at}` }));
+          }
+          continue;
+        }
         const c = piCallTime(start, e.callBefore ?? null);
         const at = c.at.getTime();
-        if (!c.quiet && now >= at && now - at < 90000 && start.getTime() > now) fire(`call|${e.id}|${e.start}`, () => popupFor(e, 'call', { callAt: c.at.toISOString() }));
+        const kind = e.callMode === 'push' ? 'push' : 'call';
+        if (!c.quiet && now >= at && now - at < 90000 && start.getTime() > now) fire(`${kind}|${e.id}|${e.start}`, () => popupFor(e, kind, { callAt: c.at.toISOString() }));
       }
       // Google tasks with a time in their name.
       for (const t of tasks) {
@@ -554,6 +608,13 @@
           fire(`call|${t.id}|${t.start}`, () => popupFor({ id: t.id, title: t.label, start: t.start, end: new Date(start + 30 * 60000).toISOString(), color: t.color, calendarName: t.listName }, 'call', { callAt: t.call.at }));
         }
       }
+    }
+    // A leave-by time with no reminder from the Pi: the action card still comes up when it is time to go.
+    for (const e of nextRun.items) {
+      if (e.kind !== 'event' || !e.leaveBy || (e.piCall && S.settings.pi?.enabled)) continue;
+      const start = new Date(e.start).getTime();
+      const at = start - e.leaveBy * 60000;
+      if (now >= at && now - at < 90000 && start > now) fire(`leave|${e.id}|${e.start}`, () => popupFor(e, 'leave'));
     }
     for (const s of [...popups.snoozed]) {
       if (now < s.at) continue;
@@ -587,7 +648,81 @@
     try { navigator.vibrate?.([400, 150, 400]); } catch { /* no buzz */ }
   }
 
+  /** The full-screen action card inside the app (the phone): Leaving now, Snooze, a 2-minute breakdown. */
+  function showActionCard(a) {
+    if (document.querySelector(`.action-card[data-key="${CSS.escape(a.key)}"]`)) return;
+    const start = new Date(a.start), leaveAt = a.leaveAt ? new Date(a.leaveAt) : null;
+    const when = h('div', { class: 'ac-when' });
+    const leave = h('div', { class: 'ac-leave' });
+    const draw = () => {
+      const now = Date.now();
+      when.textContent = `${start - now > 30000 ? `Starts in ${untilText(start - now)} · ` : ''}${fmtTime(start)}${a.calendar ? ` · ${a.calendar}` : ''}`;
+      if (leaveAt) {
+        const left = leaveAt - now;
+        leave.replaceChildren(h('b', null, left > 0 ? countdown(left) : 'Now'), h('span', null, left > 0 ? `until you leave, by ${fmtTime(leaveAt)}` : `you planned to leave at ${fmtTime(leaveAt)}`));
+      }
+    };
+    draw();
+    const timer = setInterval(draw, 1000);
+    let stepsTimer = null;
+    const close = (action) => {
+      clearInterval(timer);
+      clearInterval(stepsTimer);
+      if (overlayRing) { clearInterval(overlayRing); overlayRing = null; }
+      shade.classList.add('leaving');
+      setTimeout(() => shade.remove(), 220);
+      if (action !== 'dismiss') popupAction({ action, alert: a });
+    };
+    const actions = h('div', { class: 'ac-actions' },
+      h('button', { class: 'ac-btn go', onclick: () => close('leaving') }, h('span', { class: 'e' }, '🚀'), 'Leaving now'),
+      h('button', { class: 'ac-btn', onclick: () => close('snooze') }, h('span', { class: 'e' }, '⏱️'), `Snooze ${SNOOZE_MIN}m`),
+      h('button', { class: 'ac-btn', onclick: () => breakdown() }, h('span', { class: 'e' }, '🔀'), 'Need a 2-min breakdown'));
+    const stepsBox = h('div', { class: 'ac-steps', hidden: true });
+    const breakdown = () => {
+      if (overlayRing) { clearInterval(overlayRing); overlayRing = null; }
+      actions.hidden = true;
+      stepsBox.hidden = false;
+      const bar = h('i');
+      const label = h('div', { class: 'ac-timer-label' });
+      const list = h('ol', null, (a.steps?.length ? a.steps : breakdownSteps(a)).map((text) => {
+        const li = h('li', { onclick: () => { li.classList.toggle('done'); doneSound(); } }, h('span', { class: 'box' }), h('span', { class: 't' }, text));
+        return li;
+      }));
+      const endAt = Date.now() + 120000;
+      const tick = () => {
+        const left = endAt - Date.now();
+        bar.style.width = `${Math.max(0, left / 1200)}%`;
+        label.textContent = left > 0 ? countdown(left) : 'Time!';
+        if (left <= 0) clearInterval(stepsTimer);
+      };
+      stepsBox.replaceChildren(list, h('div', { class: 'ac-timer' }, bar), label,
+        h('button', { class: 'ac-btn go', onclick: () => close('leaving') }, h('span', { class: 'e' }, '🚀'), 'Leaving now'));
+      tick();
+      stepsTimer = setInterval(tick, 1000);
+    };
+    const KIND = { call: ['phone', 'Reminder call'], push: ['bell', 'Heads up'], leave: ['leave', 'Time to get going'] };
+    const [ico, label] = KIND[a.kind] || KIND.leave;
+    const card = h('div', { class: `action-card ${a.kind}`, 'data-key': a.key, css: { '--c': a.color || 'var(--accent)' } },
+      h('div', { class: 'alert-head' }, icon(ico), h('span', null, a.snoozed ? 'Reminder (snoozed)' : label), h('span', { class: 'grow' }),
+        h('button', { class: 'icon-btn', title: 'Close', onclick: () => close('dismiss') }, icon('x'))),
+      h('div', { class: 'ac-title' }, a.title), when, leaveAt && leave, actions, stepsBox);
+    const shade = h('div', { class: 'action-shade' }, card);
+    document.body.append(shade);
+    if (a.sound !== false) {
+      if (a.kind === 'call') {
+        clearInterval(overlayRing);
+        let rings = 0;
+        ringOnceHere();
+        overlayRing = setInterval(() => { if (++rings >= 7) { clearInterval(overlayRing); overlayRing = null; } else ringOnceHere(); }, 2600);
+      } else {
+        chime('work');
+      }
+    }
+    setTimeout(() => shade.isConnected && close('dismiss'), 30 * 60000);
+  }
+
   function showAlertOverlay(a) {
+    if (['call', 'push', 'leave'].includes(a.kind)) return showActionCard(a);
     let box = $('#alert-stack');
     if (!box) { box = h('div', { id: 'alert-stack' }); document.body.append(box); }
     if (box.querySelector(`[data-key="${CSS.escape(a.key)}"]`)) return;
@@ -748,6 +883,24 @@
 
   const hasGoogleTasks = () => S.calendars.some((c) => c.kind === 'tasklist' && c.provider === 'google');
 
+  /** When the Pi reaches out (mirrors piAlerts in hub.js): the last look before the leave-by or picked time. */
+  function ladderTimes(start, before, leaveBy, mode) {
+    const base = before != null ? start.getTime() - before * 60000 : leaveBy ? start.getTime() - leaveBy * 60000 : null;
+    if (base == null) return [];
+    const grid = Math.max(1, Number(S.settings.pi?.checkEvery) || 30) * 60000;
+    const first = Math.floor(base / grid) * grid;
+    const out = [new Date(first)];
+    if (mode === 'critical' && first + Math.max(grid, 600000) < start.getTime()) out.push(new Date(first + Math.max(grid, 600000)));
+    return out;
+  }
+
+  function ladderText(times, mode) {
+    const t = times.map((d) => fmtTime(d));
+    if (mode === 'push') return `The Pi sends a push alert at ${t[0]}.`;
+    if (mode === 'critical') return t.length > 1 ? `The Pi phones at ${t[0]}, and again at ${t[1]} unless you tap Leaving now.` : `The Pi phones at ${t[0]}.`;
+    return `The Pi phones you at ${t[0]}.`;
+  }
+
   /** The half-hour checks the Pi could phone at for something starting at `start`: from the day before up to the start. */
   function callSlots(start) {
     const half = 30 * 60000;
@@ -788,7 +941,7 @@
       forceNext = false;
       const { events, errors } = await onyx.events(info.start.toISOString(), info.end.toISOString(), force);
       showProblems(errors);
-      ok(events.filter((e) => visible(e.calendarId)).map(toFc));
+      ok(events.filter((e) => visible(e.calendarId) && !carriedOver(e)).map(toFc).concat(transitionBuffers(events)));
     } catch (err) {
       toast(err.message, 'error');
       ok([]);
@@ -804,7 +957,36 @@
   }
 
 
+  // ---- transition buffers: the only stripes on the calendar
+  // 15 minutes after a meeting that another meeting follows (within two hours, the same day),
+  // drawn behind the grid as a striped band: time to get from one to the next. When the next
+  // one starts sooner, the band runs into it and says so.
+  const BUFFER_MIN = 15;
+  function transitionBuffers(events) {
+    if (S.settings.buffers === false) return [];
+    const hard = events.filter((e) => e.kind === 'event' && !e.allDay && e.end && visible(e.calendarId))
+      .map((e) => ({ e, s: new Date(e.start).getTime(), f: new Date(e.end).getTime() })).sort((a, b) => a.s - b.s);
+    const out = [];
+    for (const a of hard) {
+      const b = hard.find((x) => x !== a && x.s >= a.f && x.s - a.f < 2 * 3600000 && sameDay(new Date(x.s), new Date(a.f)));
+      if (!b) continue;
+      const tight = b.s - a.f < BUFFER_MIN * 60000;
+      out.push({
+        id: `buffer|${a.e.id}|${a.e.start}`, start: new Date(a.f).toISOString(), end: new Date(a.f + BUFFER_MIN * 60000).toISOString(),
+        display: 'background', classNames: ['transition-buffer', tight ? 'tight' : ''], extendedProps: { buffer: true, tight, next: b.e.title },
+      });
+    }
+    return out;
+  }
+
+  /** An open task from an earlier day: it waits in the Rollover tray, not on the timeline. */
+  const carriedOver = (e) => e.kind === 'task' && !e.done && !!e.start && (e.allDay ? e.start : ymd(new Date(e.start))) < ymd(new Date());
+
   function eventContent(arg) {
+    if (arg.event.extendedProps.buffer) {
+      const p = arg.event.extendedProps;
+      return { domNodes: [h('span', { class: 'buffer-label', title: `Time to get to "${p.next}"` }, p.tight ? 'Transition · tight' : 'Transition')] };
+    }
     const src = arg.event.extendedProps.src;
     // The block being dragged out has no entry behind it yet: show just its times.
     if (!src) return { domNodes: [h('div', { class: 'ev' }, h('div', { class: 'ev-title' }, h('span', { class: 't' }, arg.timeText || 'New block')))] };
@@ -958,6 +1140,7 @@
       eventContent,
       eventDidMount: (arg) => {
         arg.el.style.setProperty('--c', arg.event.extendedProps.src?.color || '#8b7cff');
+        if (arg.event.extendedProps.src) arg.el.dataset.eid = arg.event.id; // for the timer pie (drainTimers)
         drawPomodoroStripes(arg);
       },
       // Month headers stand for a weekday, not a real date, so they use FullCalendar's own text.
@@ -1258,7 +1441,28 @@
     // Notes are saved with the entry; on a read-only calendar yours are kept in Onyx instead.
     const notes = !readOnly && notesField(src ? src.notes : '');
     const memo = readOnly && notesField(src.memo, 'Your notes: kept in Onyx, since this calendar is read-only');
-    const call = h('input', { type: 'checkbox', checked: !!src?.piCall });
+    // The escalation ladder: how the Pi reaches out (off, a push alert, a call, or calls that
+    // keep coming until "Leaving now"), at the leave-by time when there is one.
+    let mode = src?.piCall ? src.callMode || 'call' : 'off';
+    const call = h('input', { type: 'checkbox', checked: mode !== 'off', hidden: true });
+    const LADDER = [
+      ['off', 'Off', 'No reminder from the Pi'],
+      ['push', 'Push only', 'An alert on your phone (ntfy), no call'],
+      ['call', 'Voice call', 'The Pi phones you, at the leave-by time when there is one'],
+      ['critical', 'Critical', 'A call, then another 10 minutes later unless you tap Leaving now'],
+    ];
+    const ladder = h('div', { class: 'segmented ladder', role: 'radiogroup', 'aria-label': 'Escalation' },
+      LADDER.map(([value, label, hint]) => h('button', {
+        type: 'button', 'data-mode': value, title: hint, role: 'radio',
+        onclick: () => { mode = value; call.checked = value !== 'off'; sync(); },
+      }, label)));
+    // Leave by: how long before it starts you need to set off (travel, getting ready).
+    let leaveBy = src?.leaveBy ?? null;
+    const LEAVE = [0, 5, 10, 15, 20, 30, 45, 60, 90, 120];
+    const leaveSel = h('select', { class: 'leave-sel', title: 'How long before it starts you need to set off' },
+      LEAVE.map((m) => h('option', { value: m, selected: (leaveBy || 0) === m }, m ? `${m} min before` : 'No travel time')));
+    const leaveHint = h('small', { class: 'leave-hint' });
+    leaveSel.addEventListener('change', () => { leaveBy = Number(leaveSel.value) || null; sync(); });
     const callHint = h('small');
     // When the Pi phones: its usual lead time, or a half-hour picked here (kept as minutes before the start).
     let callBefore = src?.callBefore ?? null;
@@ -1290,11 +1494,21 @@
       untilRow.hidden = !r.allDay && !multiDay;
       pomoRow.hidden = r.allDay;
       pomo.sync();
+      leaveHint.textContent = leaveBy && !r.allDay ? `Leave by ${fmtTime(new Date(r.at.getTime() - leaveBy * 60000))}` : '';
+      for (const b of ladder.children) {
+        b.classList.toggle('on', b.dataset.mode === mode);
+        b.setAttribute('aria-checked', String(b.dataset.mode === mode));
+      }
       const st = piStatus(r.at, r.allDay, callBefore);
-      callHint.textContent = st.text;
-      callHint.className = st.tone;
-      call.disabled = !st.allowed && !call.checked;
-      callWhen.hidden = !call.checked || !st.allowed;
+      const times = mode === 'off' ? [] : ladderTimes(r.at, callBefore, leaveBy, mode);
+      callHint.textContent = mode === 'off' ? 'No reminder from the Pi.'
+        : !st.allowed ? st.text
+        : times.length ? ladderText(times, mode)
+        : st.text.replace('The Pi phones you', mode === 'push' ? 'The Pi sends a push alert' : 'The Pi phones you');
+      callHint.className = mode === 'off' ? '' : st.tone;
+      ladder.classList.toggle('disabled', !st.allowed && mode === 'off');
+      // With a leave-by time, that is when it reaches out; otherwise a time can be picked.
+      callWhen.hidden = mode === 'off' || !st.allowed || !!leaveBy;
       if (!callWhen.hidden) {
         const day = (d) => (sameDay(d, r.at) ? '' : `, ${sameDay(d, addDays(r.at, -1)) ? 'day before' : fmtDay(d)}`);
         const usual = piCallTime(r.at);
@@ -1318,7 +1532,12 @@
         title: title.value.trim(), start: r.start, end: r.end, allDay: r.allDay, calendarId: calendarPick.value,
         ...(notes ? { notes: cleanNote(notes.value) } : {}), piCall: call.checked && !r.allDay, tags: tags.get(),
       };
-      const callChanged = data.piCall && callBefore !== (src?.callBefore ?? null);
+      data.piCall = mode !== 'off' && !r.allDay;
+      const leaveChanged = (leaveBy || null) !== (src?.leaveBy ?? null);
+      if (leaveChanged) data.leaveBy = leaveBy;
+      const modeChanged = data.piCall && mode !== (src?.callMode || 'call');
+      if (data.piCall) data.callMode = mode;
+      const callChanged = data.piCall && (callBefore !== (src?.callBefore ?? null) || modeChanged || leaveChanged);
       if (callChanged) data.callBefore = callBefore;
       try {
         let saved = null;
@@ -1327,7 +1546,8 @@
           if (S.settings.defaultCalendar !== data.calendarId) saveSettings({ defaultCalendar: data.calendarId }, true);
         } else if (readOnly) {
           // A read-only calendar can still carry tags and a phone reminder: both live in Onyx.
-          if (data.piCall !== !!src.piCall || callChanged) await onyx.setCall({ id: src.id, title: src.title, start: src.start, allDay: src.allDay }, data.piCall, data.piCall ? callBefore : null);
+          if (leaveChanged) await onyx.setLeaveBy(src.id, leaveBy);
+          if (data.piCall !== !!src.piCall || callChanged) await onyx.setCall({ id: src.id, title: src.title, start: src.start, allDay: src.allDay }, data.piCall, data.piCall ? callBefore : null, data.piCall ? mode : undefined);
           if (!sameTags(data.tags, src.tags)) await onyx.setTags(src.id, data.tags);
           if (cleanNote(memo.value) !== (src.memo || '')) await onyx.setMemo(src.id, memo.value);
         } else {
@@ -1370,9 +1590,9 @@
       h('div', { class: 'row' }, icon('tag'), tags.el),
       pomoRow,
       src?.location && h('div', { class: 'row pop-meta' }, icon('pin'), src.location),
+      h('div', { class: 'row leave-row' }, icon('leave'), h('span', { class: 'dash' }, 'Leave'), leaveSel, leaveHint),
       S.settings.pi.enabled && h('div', { class: 'row pi-row' }, icon('phone'),
-        h('div', { class: 'txt' }, h('b', null, 'Phone reminder'), callHint, callWhen),
-        h('label', { class: 'switch' }, call, h('span'))),
+        h('div', { class: 'txt' }, h('b', null, 'Escalation'), ladder, callHint, callWhen, call)),
       readOnly && h('div', { class: 'pop-meta' }, 'This calendar is read-only here. ',
         src.link && h('a', { href: '#', onclick: (e) => { e.preventDefault(); onyx.open(src.link); } }, 'Open it in the browser')),
       h('div', { class: 'pop-actions' },
@@ -1492,7 +1712,7 @@
     }
     const note = skipped ? ` (${skipped} repeating ${skipped === 1 ? 'copy' : 'copies'} left as they are)` : '';
     if (!movable.length) {
-      toast('These are copies of a task that repeats in Google Tasks, so the next one comes by itself. Open one and use "Clear missed" to let the old ones go.');
+      toast('These are copies of a task that repeats in Google Tasks, so the next one comes by itself. Use "Let it go" on the old ones.');
       return;
     }
     if (failed.length) toast(`Moved ${moved}, but ${failed.length} could not be moved: ${failed[0]}`, 'warn');
@@ -1776,10 +1996,12 @@
     }
     const today = ymd(new Date());
     const sortKey = (t) => t.start || (t.date ? `${t.date}T99` : '9999');
-    // Tasks from earlier days are not "overdue": they are carried on, one at a time or all at once.
-    const earlier = shown.filter((t) => t.date && t.date < today);
+    // Tasks from earlier days are not "overdue": they are carried over. The last two weeks wait
+    // in the Rollover tray (folded up) with one-tap ways on; older ones rest in Someday, on
+    // the globe's outer orbit, so the day's list stays clean.
+    const earlier = shown.filter((t) => t.date && t.date < today && t.date >= somedayLine());
+    const someday = shown.filter((t) => t.date && t.date < somedayLine());
     const groups = [
-      ['From earlier', earlier, 'earlier'],
       ['Today', shown.filter((t) => t.date === today)],
       ['Upcoming', shown.filter((t) => t.date && t.date > today)],
       ['No date', shown.filter((t) => !t.date)],
@@ -1807,7 +2029,67 @@
       return h('section', { class: 'task-group' }, head,
         !closed && h('div', { class: 'task-cards' }, items.sort((a, b) => sortKey(a).localeCompare(sortKey(b))).map(taskRow)));
     };
-    box.replaceChildren(...groups.filter(([, items]) => items.length).map(group));
+    box.replaceChildren(...[rolloverTray(earlier, someday), ...groups.filter(([, items]) => items.length).map(group)].filter(Boolean));
+  }
+
+  // ---- the Rollover tray: tasks carried over from earlier days, folded up at the top
+  const ROLLOVER_DAYS = 14;
+  const somedayLine = () => ymd(addDays(new Date(), -ROLLOVER_DAYS));
+  const rolloverOpen = () => { try { return localStorage.getItem('onyx.rollover-open') === '1'; } catch { return false; } };
+
+  function rolloverTray(items, someday) {
+    if (!items.length && !someday.length) return null;
+    const open = rolloverOpen();
+    const toggle = () => {
+      try { localStorage.setItem('onyx.rollover-open', open ? '0' : '1'); } catch { /* this visit only */ }
+      renderTasks();
+    };
+    const head = h('div', {
+      class: `rollover-head${open ? '' : ' shut'}`, role: 'button', tabindex: '0', 'aria-expanded': String(open),
+      title: 'Plans change. These are carried over from earlier days: schedule them, move them later, or let them go.',
+      onclick: (e) => { if (!e.target.closest('.carry')) toggle(); },
+      onkeydown: (e) => { if ((e.key === 'Enter' || e.key === ' ') && !e.target.closest('.carry')) { e.preventDefault(); toggle(); } },
+    },
+      icon('archive'), h('span', null, 'Carried over'), h('span', { class: 'sec-count' }, items.length), h('span', { class: 'grow' }),
+      items.length > 1 && h('button', { class: 'carry', title: 'Schedule all of these for today', onclick: () => carryOver(items, 0) }, 'All to today'));
+    return h('section', { class: 'rollover' }, head,
+      open && h('div', { class: 'rollover-items' }, items.sort((a, b) => b.date.localeCompare(a.date)).map(rolloverRow)),
+      open && someday.length > 0 && h('button', {
+        class: 'rollover-someday', title: 'Untouched for two weeks: they rest in Someday, on the outer orbit of the globe',
+        onclick: () => { if (!graph.on) $('#globe-toggle').click(); },
+      }, `${someday.length} older ${someday.length === 1 ? 'one rests' : 'ones rest'} in Someday, on the globe`));
+  }
+
+  function rolloverRow(t) {
+    const go = (fn, done, undo = () => moveToDay(t, t.date)) => async (e) => {
+      e.stopPropagation();
+      try {
+        await fn();
+        toast(done, '', { label: 'Undo', run: async () => { await undo().catch((err) => toast(err.message, 'error')); await loadTasks(true); refetch(true); } });
+        await loadTasks(true);
+        refetch(true);
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    };
+    // Move to later: the date picker, as on the date chip.
+    const later = h('input', { type: 'date', class: 'rollover-date', min: ymd(addDays(new Date(), 1)), tabindex: -1, 'aria-hidden': 'true' });
+    later.addEventListener('click', (e) => e.stopPropagation());
+    later.addEventListener('change', () => later.value && go(() => moveToDay(t, later.value), `"${t.label}" moved to ${fmtDay(fromYmd(later.value))}`)(new Event('x')));
+    const series = t.series && !t.series.managed;
+    return h('div', { class: 'rollover-item', css: { '--c': t.color } },
+      h('div', { class: 'ri-body', onclick: (e) => openTask(t, e.currentTarget.getBoundingClientRect()) },
+        h('div', { class: 'ri-name' }, t.label),
+        h('div', { class: 'ri-from' }, `from ${fmtDay(fromYmd(t.date))}`, ...(t.tags || []).map((tag) => h('span', { class: 'mini-tag', css: { '--t': tagColor(tag) } }, ` #${tag}`)))),
+      h('div', { class: 'ri-actions' },
+        h('button', { class: 'ri-btn', title: 'Put it on today', onclick: go(() => moveToDay(t, ymd(new Date())), `"${t.label}" is on today`) }, 'Schedule today'),
+        h('button', { class: 'ri-btn', title: 'Pick a later day', onclick: (e) => { e.stopPropagation(); try { later.showPicker(); } catch { later.focus(); later.click(); } } }, 'Move to later', later),
+        h('button', {
+          class: 'ri-btn soft', title: series ? 'A copy of a repeat: the next one comes by itself, so this one is ticked off' : 'Take the date off: it rests in Someday until you want it',
+          onclick: series
+            ? go(() => onyx.updateTask(t.id, { done: true }), `Let go of "${t.label}"`, () => onyx.updateTask(t.id, { done: false }))
+            : go(() => onyx.updateTask(t.id, t.dateInName ? { title: t.label, due: null } : { due: null }), `Let go: "${t.label}" rests in Someday`),
+        }, 'Let it go')));
   }
 
   /** Which task groups are folded away (From earlier, Today, Upcoming, No date). */
@@ -1895,6 +2177,7 @@
         icon('repeat'), h('span', null, h('b', null, seriesText(t.series)), ` · set in Google Tasks · ${t.series.count} open copies. Edit all`)),
       h('div', { class: 'row top' }, icon('note'), notes),
       h('div', { class: 'row' }, icon('tag'), tags.el),
+      !t.mirror && breakdownField(t, notes),
       S.settings.pi.enabled && t.provider === 'google' && h('div', { class: 'row pi-row' }, icon('phone'),
         h('div', { class: 'txt' }, h('b', null, 'Phone reminder'), h('small', { class: st.tone }, st.text))),
       h('div', { class: 'pop-actions' },
@@ -1904,6 +2187,59 @@
     ]);
     name.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
     notes.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) save(); });
+  }
+
+  // ---- Breakdown (the hammer): a task split into steps, as finely as the hammers say
+
+  const breakdownLevel = () => { try { return Math.min(5, Math.max(1, Number(localStorage.getItem('onyx.breakdown-level')) || 3)); } catch { return 3; } };
+
+  /** The Breakdown row in a task's window: 1-5 hammers, Break it down, then keep the steps as a checklist or as tasks. */
+  function breakdownField(t, notes) {
+    let level = breakdownLevel();
+    let steps = [];
+    const hammers = h('div', { class: 'hammers', role: 'radiogroup', 'aria-label': 'How finely to break it down' });
+    const drawHammers = () => hammers.replaceChildren(...[1, 2, 3, 4, 5].map((n) => h('button', {
+      type: 'button', class: `hammer${n <= level ? ' on' : ''}`, role: 'radio', 'aria-checked': String(n === level),
+      title: ['A few broad steps', 'Simple steps', 'Clear steps', 'Detailed steps', 'Tiny micro-steps'][n - 1],
+      onclick: () => { level = n; try { localStorage.setItem('onyx.breakdown-level', String(n)); } catch { /* this visit */ } drawHammers(); },
+    }, icon('hammer'))));
+    drawHammers();
+    const out = h('div', { class: 'breakdown-out', hidden: true });
+    const go = h('button', { class: 'btn', onclick: async () => {
+      go.disabled = true;
+      go.replaceChildren(icon('hammer'), 'Breaking it down…');
+      try {
+        steps = await onyx.breakdown(t.label || t.title, { level, notes: cleanNote(notes.value) });
+        drawSteps();
+      } catch (err) {
+        toast(err.message, 'error');
+      } finally {
+        go.disabled = false;
+        go.replaceChildren(icon('hammer'), steps.length ? 'Again' : 'Break it down');
+      }
+    } }, icon('hammer'), 'Break it down');
+    const drawSteps = () => {
+      out.hidden = !steps.length;
+      out.replaceChildren(
+        h('ol', null, steps.map((s) => h('li', null, s))),
+        h('div', { class: 'row' },
+          h('button', { class: 'btn', title: 'Add them to the notes as a checklist (the 2-minute breakdown uses it too)', onclick: () => {
+            const list = steps.map((s) => `- [ ] ${s}`).join('\n');
+            notes.value = cleanNote(notes.value) ? `${cleanNote(notes.value)}\n\n${list}` : list;
+            notes.dispatchEvent(new Event('input'));
+            toast('Added to the notes. Save to keep them.');
+          } }, 'Add to notes'),
+          h('button', { class: 'btn', title: 'Make each step a task of its own, in the same list and on the same day', onclick: async () => {
+            try {
+              for (const s of steps) await onyx.createTask({ title: s, listId: t.listId, ...(t.date ? { due: t.date } : {}), tags: t.tags || [] });
+              toast(`${steps.length} steps added as tasks`);
+              await loadTasks(true);
+              refetch(true);
+            } catch (err) { toast(err.message, 'error'); }
+          } }, 'Make them tasks')));
+    };
+    return h('div', { class: 'row top breakdown-row' }, icon('hammer'),
+      h('div', { class: 'txt' }, h('div', { class: 'breakdown-head' }, h('b', null, 'Breakdown'), hammers, go), out));
   }
 
   /**
@@ -1941,7 +2277,7 @@
     const clear = async () => {
       try {
         const res = await onyx.clearSeries(s.key);
-        toast(`Cleared ${res.done} missed ${res.done === 1 ? 'copy' : 'copies'}`);
+        toast(`Let go of ${res.done} carried-over ${res.done === 1 ? 'copy' : 'copies'}`);
         closePopover();
         await loadTasks();
         refetch();
@@ -1961,8 +2297,8 @@
       copies.length > 1 && h('div', { class: 'series-copies' }, copies.map((t) => h('span', { class: t.date && t.date < today ? 'late' : '' },
         t.date ? fmtDay(fromYmd(t.date)) : 'No date'))),
       h('div', { class: 'pop-actions' },
-        s.overdue > 0 && !s.managed && h('button', { class: 'btn', title: 'Missed days pile up in Google Tasks; this ticks them off (the newest stays)', onclick: clear },
-          icon('check'), `Clear ${s.overdue} missed`),
+        s.overdue > 0 && !s.managed && h('button', { class: 'btn', title: 'Carried-over copies pile up in Google Tasks; this lets them go (the newest stays)', onclick: clear },
+          icon('check'), `Let go of ${s.overdue} carried over`),
         h('div', { class: 'grow' }),
         h('button', { class: 'btn ghost', onclick: () => closePopover() }, 'Cancel'),
         h('button', { class: 'btn primary', onclick: save }, 'Save')),
@@ -2741,6 +3077,19 @@
       icon('link'), on === 'phone' ? 'Get Tailscale for Android' : 'Download Tailscale')));
   const copyBtn = (text, label = 'Copy') => h('button', { class: 'btn', onclick: () => onyx.copy(text).then(() => toast('Copied')) }, label);
 
+  /** Settings: the Claude API key Breakdown uses (kept on the PC, shared with linked desktops). */
+  function aiCard() {
+    const ready = S.ai?.ready;
+    const key = h('input', { type: 'password', placeholder: 'Claude API key (sk-ant-…)', spellcheck: false, autocomplete: 'off' });
+    return h('div', { class: 'card' },
+      h('h4', null, 'AI for Breakdown', ready && h('span', { class: 'badge ok' }, 'Key saved')),
+      h('p', null, 'Breakdown (the hammer in a task\'s window) splits a task into steps with Claude, using your own API key. Get one at console.anthropic.com → API keys. Only the task\'s name and notes are sent.'),
+      h('div', { class: 'row' }, key,
+        h('button', { class: 'btn', onclick: () => onyx.open('https://console.anthropic.com/settings/keys') }, 'Get a key'),
+        h('button', { class: 'btn primary', onclick: () => act(() => onyx.setAiKey(key.value), 'Key saved') }, 'Save'),
+        ready && h('button', { class: 'btn danger', onclick: () => act(() => onyx.setAiKey(''), 'Key removed') }, 'Remove')));
+  }
+
   const PANES = {
     calendars() {
       const msId = h('input', { type: 'text', placeholder: 'Application (client) ID', value: S.microsoft.clientId, spellcheck: false });
@@ -2798,6 +3147,9 @@
               lists.map((c) => h('option', { value: c.id, selected: c.id === pi.taskList }, c.name)))),
           field('Call this long before', 'Minutes. Must match lead_minutes in the Pi\'s config.json.',
             h('input', { type: 'number', min: 5, max: 720, value: pi.leadMinutes, onchange: (e) => set({ leadMinutes: Number(e.target.value) }) })),
+          field('The Pi looks every', 'Minutes between its checks (its cron job). A call comes at the last check before the time asked, so every 5 minutes lands leave-by calls right on time.',
+            h('select', { onchange: (e) => set({ checkEvery: Number(e.target.value) }) },
+              [5, 10, 15, 30].map((m) => h('option', { value: m, selected: (pi.checkEvery || 30) === m }, `${m} minutes`)))),
           field('Quiet hours', 'The Pi skips calls in this window. Must match the Pi\'s config.json.',
             h('span', { class: 'row' },
               h('input', { type: 'time', value: pi.quietStart, onchange: (e) => set({ quietStart: e.target.value }) }), 'to',
@@ -2850,6 +3202,8 @@
             h('button', { class: 'btn', onclick: () => checkForUpdate(true) }, icon('update'), 'Check now')),
           field('Now / Next bar', 'A strip under the top bar: what you are doing now, what is next, and how much time is left before it. It chimes 5 minutes before and as it starts (the bell on the bar mutes it).',
             toggle(s.nextBar !== false, (v) => saveSettings({ nextBar: v }).then(tickNext))),
+          field('Transition buffers', 'A striped 15 minutes after a meeting that another one follows: time to get from one to the next. The only stripes on the calendar.',
+            toggle(s.buffers !== false, (v) => saveSettings({ buffers: v }).then(() => refetch()))),
           field('Popups', 'A popup over everything, ringing, when the Pi phones you about something, and another as it starts. Snooze brings it back in 5 minutes.',
             toggle(s.popups !== false, (v) => saveSettings({ popups: v }))),
           field('24-hour time', null, toggle(!s.hour12, (v) => saveSettings({ hour12: !v }))),
@@ -2973,7 +3327,8 @@
       const key = h('input', { type: 'text', placeholder: 'Internal integration secret (starts with ntn_ or secret_)', spellcheck: false, autocomplete: 'off' });
       const google = S.accounts.filter((a) => a.provider === 'google');
       return [
-        h('h3', null, 'Notion & Drive'),
+        h('h3', null, 'Notion, Drive & AI'),
+        aiCard(),
         h('p', { class: 'lead' }, 'Pin Notion pages and Google Drive files to the globe, then tag them into clusters next to your calendar and notes. Onyx only reads their titles and links.'),
         h('div', { class: 'card' },
           h('h4', null, 'Notion', n.connected && h('span', { class: 'badge ok' }, n.workspace ? `Connected · ${n.workspace}` : 'Connected')),
@@ -3012,6 +3367,7 @@
       } });
       return [
         h('h3', null, 'Keys & accounts'),
+        aiCard(),
         h('p', { class: 'lead' }, 'Anything you enter here is saved in Onyx on your PC, so the PC and this phone both use it, and keys entered on the PC show up here. Signing in to Google or Microsoft happens on the PC, in its browser.'),
         h('div', { class: 'card' },
           h('h4', null, 'Notion', n.connected && h('span', { class: 'badge ok' }, n.workspace ? `Connected · ${n.workspace}` : 'Connected')),
@@ -3077,7 +3433,7 @@
   function openSettings(tab = settingsTab) {
     const tabs = onyx.isPhone
       ? [['connection', 'Connection'], ['keys', 'Keys & accounts'], ['pi', 'Pi calls'], ['general', 'General']]
-      : [['calendars', 'Calendars'], ['connections', 'Notion & Drive'], ['phone', 'Phone'], ['desktops', 'Desktops'], ['pi', 'Pi calls'], ['mcp', 'MCP server'], ['general', 'General']];
+      : [['calendars', 'Calendars'], ['connections', 'Notion, Drive & AI'], ['phone', 'Phone'], ['desktops', 'Desktops'], ['pi', 'Pi calls'], ['mcp', 'MCP server'], ['general', 'General']];
     if (!tabs.some(([id]) => id === tab)) tab = tabs[0][0];
     settingsTab = tab;
     closePopover();
@@ -3199,13 +3555,15 @@
   };
 
   /**
-   * Where an untagged task starts out on the globe: Overdue, Today, Tomorrow, its day, or No date.
+   * Where an untagged task starts out on the globe: Carried over, Someday (two weeks and older,
+   * on the outer orbit), Today, Tomorrow, its day, or No date.
    * Only a starting place: dragging it onto a tag or another day moves it.
    */
   function dueGroup(date) {
     const today = ymd(new Date());
     if (!date) return ['due:none', 'No date', '#8a8a94'];
-    if (date < today) return ['due:overdue', 'From earlier', '#d9b26b'];
+    if (date < somedayLine()) return ['due:someday', 'Someday', '#6B7280'];
+    if (date < today) return ['due:overdue', 'Carried over', '#8b93c9'];
     if (date === today) return [`due:${date}`, 'Today', '#f1f1f4'];
     if (date === ymd(addDays(new Date(), 1))) return [`due:${date}`, 'Tomorrow', '#c9c9d2'];
     return [`due:${date}`, fromYmd(date).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }), '#a8b0c8'];
@@ -3248,7 +3606,7 @@
           id: `series:${s.key}`, title: `${s.label} (repeated)`, color: t.color, calendarId: t.listId, calendarName: t.listName, tags,
           start: next.start || next.date || null, allDay: !next.start, kind: 'series', series: s,
           home: ['repeat', 'Repeating', '#a9b4ff'],
-          notes: `${seriesText(s)}${s.managed ? '' : ' (set in Google Tasks)'}\n${s.count} open ${s.count === 1 ? 'copy' : 'copies'}${s.overdue ? `, ${s.overdue} overdue` : ''}`,
+          notes: `${seriesText(s)}${s.managed ? '' : ' (set in Google Tasks)'}\n${s.count} open ${s.count === 1 ? 'copy' : 'copies'}${s.overdue ? `, ${s.overdue} carried over` : ''}`,
         });
       }
     }
@@ -3508,7 +3866,7 @@
         const t = item.task;
         if (!t) throw new Error('Only tasks can be moved to a day here. Drag events in the calendar view.');
         const raw = toKey.replace(/^home:due:|^day:/, '');
-        if (raw === 'overdue') throw new Error('Drop it on Today, Tomorrow, another day or No date.');
+        if (raw === 'overdue' || raw === 'someday') throw new Error('Drop it on Today, Tomorrow, another day or No date.');
         if (t.dateInName) throw new Error('This task has its date written in its name. Change the name to move it.');
         const due = raw === 'none' ? null : raw;
         await onyx.updateTask(t.id, { due, ...(fromTag ? { tags: without } : {}) });

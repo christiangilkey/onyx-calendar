@@ -143,7 +143,7 @@ function unify(cal, e) {
     id, calendarId: cal.id, calendarName: cal.name, color: cal.color, kind: 'event',
     title: e.title, start: e.start, end: e.end, allDay: !!e.allDay,
     location: e.location || '', notes: e.notes || '', link: e.link || '',
-    writable: cal.writable, piCall: !!store.data.piLinks[id], callBefore: callBeforeOf(id), madeHere: store.data.madeHere[id] || null,
+    writable: cal.writable, ...callInfo(id, e.start), madeHere: store.data.madeHere[id] || null,
   };
 }
 
@@ -274,21 +274,22 @@ async function createEvent(data) {
   markMadeHere(`${cal.id}/${enc(raw.rawId)}`);
   const event = unify(cal, raw);
   if (data.tags) setTags(event.id, data.tags);
-  return withCall(event, !!data.piCall, false, data.callBefore);
+  if (data.leaveBy != null) setLeaveBy(event.id, data.leaveBy);
+  return withCall(event, !!data.piCall, false, data.callBefore, data.callMode);
 }
 
 // The entry itself is already saved at this point, so a failure to set up the
 // Pi call is reported as a warning beside it rather than as a failed save.
-async function withCall(event, want, had, before) {
+async function withCall(event, want, had, before, mode) {
   let warning = '';
   if (want || had) {
     try {
-      await setPiCall(event, want, before);
+      await setPiCall(event, want, before, mode);
     } catch (err) {
       warning = `Saved, but the Pi phone reminder was not updated. ${err.message}`;
     }
   }
-  return { ...event, piCall: !!store.data.piLinks[event.id], callBefore: callBeforeOf(event.id), tags: tagsOf(event.id), memo: memoOf(event.id), warning };
+  return { ...event, ...callInfo(event.id, event.start), tags: tagsOf(event.id), memo: memoOf(event.id), warning };
 }
 
 async function updateEvent(id, patch) {
@@ -299,13 +300,18 @@ async function updateEvent(id, patch) {
 
   // Saving to a different calendar is a copy followed by a delete.
   if (patch.calendarId && patch.calendarId !== calendarId) {
-    const created = await createEvent({ ...patch, piCall: wantCall, callBefore: 'callBefore' in patch ? patch.callBefore : callBeforeOf(id), tags: patch.tags || tagsOf(id) });
+    const created = await createEvent({
+      ...patch, piCall: wantCall, callBefore: 'callBefore' in patch ? patch.callBefore : callBeforeOf(id), tags: patch.tags || tagsOf(id),
+      leaveBy: 'leaveBy' in patch ? patch.leaveBy : leaveByOf(id), callMode: patch.callMode || modeOf(id),
+    });
+    setLeaveBy(id, null);
     if (pomodoroOf(id)) store.data.pomodoro[created.id] = pomodoroOf(id); // the split goes with it
     await deleteEvent(id);
     return { ...created, pomodoro: pomodoroOf(created.id) };
   }
   if ('tags' in patch) setTags(id, patch.tags);
   if (!cal.writable) throw new Error(`"${cal.name}" is read-only.`);
+  if ('leaveBy' in patch) setLeaveBy(id, patch.leaveBy);
   const fields = eventFields(patch);
   let raw;
   if (acct.provider === 'local') {
@@ -318,7 +324,7 @@ async function updateEvent(id, patch) {
     raw = await PROVIDERS[acct.provider].updateEvent(req(acct), rawCal, rawItem, fields);
   }
   invalidate(cal.id);
-  return withCall(unify(cal, raw), wantCall, hadCall, 'callBefore' in patch ? patch.callBefore : undefined);
+  return withCall(unify(cal, raw), wantCall, hadCall, 'callBefore' in patch ? patch.callBefore : undefined, patch.callMode);
 }
 
 async function deleteEvent(id) {
@@ -701,18 +707,92 @@ function cleanBefore(before) {
   return n;
 }
 
-function callNotes(start, before) {
-  if (before == null) return PI_NOTE;
-  const at = new Date(start.getTime() - before * 60000);
-  return `${PI_NOTE}
-Call at: ${localDate(at)} ${pad(at.getHours())}:${pad(at.getMinutes())}`;
+// ---- leave-by times and the escalation ladder
+// "Leave by": minutes before an entry's start that you need to set off (travel, getting
+// ready). Kept in Onyx, by entry. The ladder is how the Pi reaches out at that time:
+// 'push' (an ntfy alert, no call), 'call' (a phone call), or 'critical' (a call, then
+// another a little later unless you said you were leaving). "Leaving now" stops the rest.
+
+const MODES = ['push', 'call', 'critical'];
+const leaveByOf = (id) => store.data.leaveBy?.[id] ?? null;
+const modeOf = (id) => (store.data.piLinks[id] ? store.data.piLinks[id].mode || 'call' : 'off');
+
+function setLeaveBy(id, minutes) {
+  store.data.leaveBy ??= {};
+  if (minutes == null || minutes === '' || Number(minutes) === 0) {
+    delete store.data.leaveBy[id];
+  } else {
+    const n = Math.round(Number(minutes));
+    if (!Number.isFinite(n) || n < 1 || n > 6 * 60) throw new Error('Leave by can be up to 6 hours before it starts.');
+    store.data.leaveBy[id] = n;
+  }
+  store.save();
+  return leaveByOf(id);
 }
 
-/** Switches the Pi call for an entry on or off. `before`: minutes before the start to call (null: the usual lead; undefined: keep). */
-async function setPiCall(event, on, before) {
+/**
+ * When the Pi reaches out about an entry starting at `start`: [{ at, kind }]. Empty when it
+ * uses its own usual time (lead_minutes) or the call was acknowledged. The Pi looks every
+ * settings.pi.checkEvery minutes, so a call comes at the last look before the time asked.
+ */
+function piAlerts(start, { before = null, leaveBy = null, mode = 'call', ack = false } = {}) {
+  if (ack) return [];
+  const base = before != null ? start.getTime() - before * 60000 : leaveBy ? start.getTime() - leaveBy * 60000 : null;
+  if (base == null) return [];
+  const grid = Math.max(1, Number(store.data.settings.pi?.checkEvery) || 30) * 60000;
+  const first = new Date(Math.floor(base / grid) * grid);
+  const out = [{ at: first, kind: mode === 'push' ? 'push' : 'call' }];
+  if (mode === 'critical') {
+    const again = new Date(first.getTime() + Math.max(grid, 10 * 60000));
+    if (again < start) out.push({ at: again, kind: 'call' });
+  }
+  return out;
+}
+
+const stamp = (d) => `${localDate(d)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+function callNotes(start, opts) {
+  const lines = [PI_NOTE];
+  if (opts.ack) {
+    lines.push('Acknowledged: yes'); // "Leaving now" was pressed: no more calls about this one
+  } else {
+    if (opts.mode === 'push') lines.push('Alert: push only');
+    if (opts.mode === 'critical') lines.push('Escalation: critical');
+    for (const a of piAlerts(start, opts)) lines.push(`Call at: ${stamp(a.at)}`);
+  }
+  return lines.join('\n');
+}
+
+/** What an entry's reminder looks like, for the window: on, mode, call time, leave-by, alert times. */
+function callInfo(id, start) {
+  const link = store.data.piLinks[id];
+  const s = start ? new Date(start) : null;
+  const opts = link && s && !Number.isNaN(+s) ? { before: link.before ?? null, leaveBy: leaveByOf(id), mode: link.mode || 'call', ack: !!link.ack && link.start === s.toISOString() } : null;
+  return {
+    piCall: !!link, callBefore: callBeforeOf(id), callMode: modeOf(id), leaveBy: leaveByOf(id), callAck: !!opts?.ack,
+    piAlerts: opts ? piAlerts(s, opts).map((a) => ({ at: a.at.toISOString(), kind: a.kind })) : [],
+  };
+}
+
+/** "Leaving now": the Pi makes no more calls about this entry (until it is moved). */
+async function ackPiCall(id) {
+  const link = store.data.piLinks[id];
+  if (!link) return false;
+  link.ack = true;
+  store.save();
+  await updateTask(link.task, { notes: callNotes(new Date(link.start), { ack: true }) }).catch((err) => { if (err.status !== 404 && err.status !== 410) throw err; });
+  return true;
+}
+
+/**
+ * Switches the Pi call for an entry on or off. `before`: minutes before the start to call
+ * (null: at leave-by, or the usual lead; undefined: keep). `mode`: 'push' | 'call' | 'critical' (undefined: keep).
+ */
+async function setPiCall(event, on, before, mode) {
   const links = store.data.piLinks;
   const link = links[event.id];
   const keep = before === undefined ? link?.before ?? null : cleanBefore(before);
+  const keepMode = mode === undefined ? link?.mode || 'call' : MODES.includes(mode) ? mode : 'call';
   // The Pi needs a time of day, so an all-day entry can't have a call.
   if (!on || event.allDay) {
     if (link) {
@@ -723,8 +803,13 @@ async function setPiCall(event, on, before) {
     return false;
   }
   const start = new Date(event.start);
-  const fields = { title: mirrorName(event.title, start), due: localDate(start), notes: callNotes(start, keep) };
-  const saved = (task) => ({ task, start: start.toISOString(), title: event.title, ...(keep != null ? { before: keep } : {}) });
+  // An acknowledgement only holds for the same start: moved, it can ring again.
+  const ack = !!link?.ack && link.start === start.toISOString();
+  const fields = { title: mirrorName(event.title, start), due: localDate(start), notes: callNotes(start, { before: keep, leaveBy: leaveByOf(event.id), mode: keepMode, ack }) };
+  const saved = (task) => ({
+    task, start: start.toISOString(), title: event.title, ...(keep != null ? { before: keep } : {}),
+    ...(keepMode !== 'call' ? { mode: keepMode } : {}), ...(ack ? { ack: true } : {}),
+  });
   if (link) {
     try {
       await updateTask(link.task, fields);
@@ -801,7 +886,7 @@ function removeLocalCalendar(id) {
 }
 
 module.exports = {
-  calendars, refreshCalendars, invalidate, getEvents, createEvent, updateEvent, deleteEvent,
+  calendars, refreshCalendars, invalidate, getEvents, createEvent, updateEvent, deleteEvent, setLeaveBy, ackPiCall, piAlerts,
   getTasks, archivedTasks, fetchTask, createTask, updateTask, moveTask, deleteTask, setRepeat, setPomodoro, setPiCall, freeTime, addLocalCalendar, removeLocalCalendar,
   setTags, allTags, setTagColor, renameTag, deleteTag, setMemo, MAX_NOTE,
 };

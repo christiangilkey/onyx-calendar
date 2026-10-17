@@ -1,42 +1,93 @@
 <!doctype html>
-<!-- The on-screen popup (main.js, showAlert): what is coming when the Pi phones about it,
-     and what is starting. A small window of its own, so it shows over anything. -->
+<!-- The on-screen popup (main.js, showAlert). Two shapes:
+     - a small card in the corner when something starts;
+     - a full-screen action card at the point of performance (the Pi's call, a push, the
+       leave-by time): Leaving now, Snooze 5m, or a 2-minute breakdown of getting out. -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'">
   <title>Onyx</title>
   <style>
-    :root { --c: #8b7cff; --text: #f1f1f4; --muted: #9a9aa6; --line: #26262c; }
-    html, body { margin: 0; height: 100%; background: #0b0b0e; color: var(--text); font: 13px/1.4 'Segoe UI', system-ui, sans-serif; overflow: hidden; user-select: none; }
-    body { box-sizing: border-box; border: 1px solid #2c2c33; border-top: 3px solid var(--c); display: flex; flex-direction: column; padding: 12px 14px 12px 16px; -webkit-app-region: drag; }
-    .head { display: flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; font-weight: 700; color: var(--c); }
-    .head svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-    body.call .head svg { animation: shake .9s ease-in-out infinite; transform-origin: 50% 60%; }
-    @keyframes shake { 0%, 60%, 100% { transform: rotate(0); } 10%, 30%, 50% { transform: rotate(-14deg); } 20%, 40% { transform: rotate(14deg); } }
+    :root { --c: #8b7cff; --text: #f1f1f4; --muted: #9d9da8; --line: #2a2a31; }
+    html, body { margin: 0; height: 100%; color: var(--text); font: 13px/1.4 'Segoe UI', system-ui, sans-serif; overflow: hidden; user-select: none; }
+    body { background: #0b0b0e; }
+    button { font-family: inherit; }
     .grow { flex: 1; }
-    .close { -webkit-app-region: no-drag; border: 0; background: transparent; color: var(--muted); width: 24px; height: 24px; border-radius: 6px; cursor: pointer; font-size: 16px; line-height: 1; }
+    @keyframes shake { 0%, 60%, 100% { transform: rotate(0); } 10%, 30%, 50% { transform: rotate(-14deg); } 20%, 40% { transform: rotate(14deg); } }
+    @keyframes enter { from { opacity: 0; transform: translateY(14px) scale(.97); } }
+    svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* ---- the small card (a start) */
+    body.small { box-sizing: border-box; border: 1px solid #2c2c33; border-top: 3px solid var(--c); display: flex; flex-direction: column; padding: 12px 14px 12px 16px; -webkit-app-region: drag; animation: enter .28s cubic-bezier(.2, .9, .3, 1.2); }
+    body.small .card { display: flex; flex-direction: column; height: 100%; }
+    .head { display: flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; font-weight: 700; color: var(--c); }
+    .close { -webkit-app-region: no-drag; border: 0; background: transparent; color: var(--muted); width: 26px; height: 26px; border-radius: 6px; cursor: pointer; font-size: 17px; line-height: 1; }
     .close:hover { color: var(--text); background: rgba(255,255,255,.08); }
     .title { font-size: 18px; font-weight: 650; margin: 6px 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .when { color: var(--muted); font-size: 13px; }
     .when b { color: var(--text); font-weight: 650; font-variant-numeric: tabular-nums; }
     .row { display: flex; gap: 8px; margin-top: auto; padding-top: 10px; -webkit-app-region: no-drag; }
-    button.btn { flex: 1; height: 32px; border-radius: 9px; border: 1px solid var(--line); background: #17171b; color: var(--text); font: 600 12.5px/1 inherit; font-family: inherit; cursor: pointer; }
+    button.btn { flex: 1; height: 32px; border-radius: 9px; border: 1px solid var(--line); background: #17171b; color: var(--text); font-weight: 600; font-size: 12.5px; cursor: pointer; }
     button.btn:hover { background: #202026; }
     button.btn.primary { background: #fff; color: #000; border-color: #fff; }
     button.btn.primary:hover { background: #e4e4ea; }
-    body.enter { animation: enter .28s cubic-bezier(.2, .9, .3, 1.2); }
-    @keyframes enter { from { opacity: 0; transform: translateY(14px) scale(.97); } }
+
+    /* ---- the full-screen action card */
+    body.full { background: rgba(6, 7, 11, .78); display: grid; place-items: center; }
+    body.full .card { width: min(560px, calc(100vw - 40px)); box-sizing: border-box; background: #121318; border: 1px solid #2c2d35; border-top: 4px solid var(--c); border-radius: 20px; padding: 26px 28px 24px; box-shadow: 0 40px 120px rgba(0,0,0,.9), 0 0 60px color-mix(in srgb, var(--c) 25%, transparent); animation: enter .32s cubic-bezier(.2, .9, .3, 1.15); }
+    body.full .head { font-size: 12px; }
+    body.full .head svg.i { width: 20px; height: 20px; }
+    body.full.call .head svg.i { animation: shake .9s ease-in-out infinite; transform-origin: 50% 60%; }
+    body.full .title { font-size: 28px; font-weight: 700; margin: 12px 0 4px; white-space: normal; line-height: 1.2; }
+    body.full .when { font-size: 15px; }
+    body.full .leave { margin-top: 14px; display: flex; align-items: baseline; gap: 12px; }
+    body.full .leave b { font: 800 34px/1 "Cascadia Mono", "SF Mono", ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; color: color-mix(in srgb, var(--c) 70%, #fff); text-shadow: 0 0 16px color-mix(in srgb, var(--c) 50%, transparent); }
+    body.full .leave span { color: var(--muted); font-size: 14px; }
+    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 22px; }
+    .actions .big { grid-column: 1 / -1; }
+    button.act { min-height: 54px; border-radius: 14px; border: 1px solid var(--line); background: #1b1c22; color: var(--text); font-size: 15px; font-weight: 650; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; }
+    button.act:hover { background: #24252c; }
+    button.act .e { font-size: 20px; }
+    button.act.go { background: #fff; color: #000; border-color: #fff; font-size: 17px; min-height: 62px; }
+    button.act.go:hover { background: #e7e7ee; }
+    .steps { list-style: none; margin: 18px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .steps li { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; background: #1b1c22; border: 1px solid var(--line); font-size: 15px; cursor: pointer; }
+    .steps li .box { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--c); flex: none; display: grid; place-items: center; }
+    .steps li.done { opacity: .55; }
+    .steps li.done .t { text-decoration: line-through; }
+    .steps li.done .box { background: #fff; border-color: #fff; }
+    .steps li.done .box::after { content: ''; width: 9px; height: 5px; border: solid #000; border-width: 0 0 2px 2px; transform: rotate(-45deg) translate(1px, -1px); }
+    .timer { margin-top: 16px; height: 6px; border-radius: 6px; background: #22232a; overflow: hidden; }
+    .timer i { display: block; height: 100%; width: 100%; background: var(--c); border-radius: inherit; transition: width 1s linear; }
+    .timer-label { margin-top: 6px; color: var(--muted); font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+    [hidden] { display: none !important; }
   </style>
 </head>
-<body class="enter">
-  <div class="head"><span id="icon"></span><span id="kind"></span><span class="grow"></span><button class="close" id="x" title="Close (Esc)">×</button></div>
-  <div class="title" id="title"></div>
-  <div class="when" id="when"></div>
-  <div class="row">
-    <button class="btn primary" id="open">Open</button>
-    <button class="btn" id="snooze">Snooze 5 min</button>
-    <button class="btn" id="ok">Got it</button>
+<body>
+  <div class="card" id="card">
+    <div class="head"><span id="icon"></span><span id="kind"></span><span class="grow"></span><button class="close" id="x" title="Close (Esc)">×</button></div>
+    <div class="title" id="title"></div>
+    <div class="when" id="when"></div>
+    <div class="leave" id="leave" hidden><b id="leave-count"></b><span id="leave-text"></span></div>
+    <!-- the small card's buttons -->
+    <div class="row" id="small-row">
+      <button class="btn primary" id="open">Open</button>
+      <button class="btn" id="snooze">Snooze 5 min</button>
+      <button class="btn" id="ok">Got it</button>
+    </div>
+    <!-- the action card's -->
+    <div class="actions" id="actions" hidden>
+      <button class="act go big" id="leaving"><span class="e">🚀</span>Leaving now</button>
+      <button class="act" id="snooze2"><span class="e">⏱️</span>Snooze 5m</button>
+      <button class="act" id="breakdown"><span class="e">🔀</span>Need a 2-min breakdown</button>
+    </div>
+    <div id="steps-view" hidden>
+      <ol class="steps" id="steps"></ol>
+      <div class="timer"><i id="timer-bar"></i></div>
+      <div class="timer-label" id="timer-label">2:00</div>
+      <div class="actions"><button class="act go big" id="leaving2"><span class="e">🚀</span>Leaving now</button></div>
+    </div>
   </div>
   <script src="alert.js"></script>
 </body>

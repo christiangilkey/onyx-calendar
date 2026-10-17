@@ -126,7 +126,8 @@ const handlers = {
   'notion:disconnect': withState(() => notion.disconnect()),
   'drive:search': (query) => drive.search(query),
   // The News panel: YouTube news channels, shared by the PC and the phone.
-  news: (force) => news.list(!!force),
+  // mode 'tamkeen': news in the language Tamkeen on this PC teaches.
+  news: (force, mode) => news.list(!!force, { tamkeen: mode === 'tamkeen' }),
   'news:add': (input) => news.addChannel(input),
   'news:set': (id, on) => news.setChannel(id, on),
   'news:remove': (id) => news.removeChannel(id),

@@ -2042,9 +2042,18 @@
     $('#news-refresh').classList.add('spin');
     if (!news.stories.length) renderNews();
     try {
-      const res = await onyx.news(force);
+      // With the Tamkeen switch on: news in the language Tamkeen is teaching (read on the PC).
+      const mode = tamkeen.on && tamkeen.installed ? 'tamkeen' : '';
+      const res = await onyx.news(force, mode);
+      if (mode !== news.mode) { news.filter = 'all'; news.current = null; news.playing = false; }
+      news.mode = mode;
       news.stories = res.stories;
       news.channels = res.channels;
+      news.language = res.language || null;
+      if (mode && res.noLanguage && !news.warnedLanguage) {
+        news.warnedLanguage = true;
+        toast('Tamkeen\'s language could not be read on your PC, so this is the usual news. Open Tamkeen on the PC once and pick what you are learning.', 'warn');
+      }
       news.at = Date.now();
       const problems = res.errors.join('  ·  ');
       if (problems && problems !== news.problems) toast(`News: ${problems}`, 'warn');
@@ -2094,14 +2103,22 @@
       : 'Open news videos in Tamkeen\'s player, with clickable captions';
   }
 
-  $('#news-tamkeen').addEventListener('click', () => {
+  $('#news-tamkeen').addEventListener('click', async () => {
     tamkeen.on = !tamkeen.on;
     try { localStorage.setItem('onyx.news-tamkeen', tamkeen.on ? '1' : '0'); } catch { /* remembered for this visit only */ }
     renderTamkeen();
-    toast(tamkeen.on ? 'News videos now open in Tamkeen' : 'News videos play here again');
+    await loadNews(); // the news in the language Tamkeen teaches, or the usual channels again
+    toast(tamkeen.on
+      ? `${news.language ? `${news.language.name} news, ` : ''}opening in Tamkeen`
+      : 'The usual news, playing here again');
   });
 
-  onyx.tamkeen?.info().then((info) => { tamkeen.installed = !!info?.installed; renderTamkeen(); if (news.current) renderPlayer(); }).catch(() => {});
+  onyx.tamkeen?.info().then((info) => {
+    tamkeen.installed = !!info?.installed;
+    renderTamkeen();
+    if (tamkeen.installed && tamkeen.on && newsOpen()) loadNews(); // the language's news, not the usual
+    else if (news.current) renderPlayer();
+  }).catch(() => {});
 
   async function openInTamkeen(c) {
     if (news.playing) { news.playing = false; renderNews(); } // one player at a time
@@ -2170,7 +2187,7 @@
     const now = box.querySelector('.news-now');
     if (!c) { now.replaceChildren(); return; }
     now.replaceChildren(
-      h('div', { class: 'title' }, c.kind === 'live' ? h('span', { class: 'badge-live' }, 'LIVE') : null, c.kind === 'live' ? ` ${c.channel}` : c.title),
+      h('div', { class: 'title', dir: 'auto' }, c.kind === 'live' ? h('span', { class: 'badge-live' }, 'LIVE') : null, c.kind === 'live' ? ` ${c.channel}` : c.title),
       h('div', { class: 'meta' },
         h('span', null, c.kind === 'live' ? '24/7 stream' : `${c.channel} · ${ago(c.published)}`),
         h('span', { class: 'grow' }),
@@ -2185,14 +2202,17 @@
     const chip = (label, active, onclick, cls = '') => h('button', { class: `news-chip ${cls}${active ? ' on' : ''}`, onclick }, cls === 'live' && h('i'), label);
     const pick = (id) => { news.filter = id; renderNews(); };
     const live = news.channels.filter((c) => c.live && okChannel(c.id));
-    $('#news-filter').replaceChildren(
+    $('#news-filter').replaceChildren(...[
+      news.language && h('div', { class: 'news-lang', title: 'The language Tamkeen is set to teach. Turn the Tamkeen switch off for the usual channels.' },
+        `${news.language.name} news · from what you are learning in Tamkeen`),
       h('div', { class: 'news-chips' },
         chip('All', news.filter === 'all', () => pick('all')),
         on.map((c) => chip(c.name, news.filter === c.id, () => pick(c.id)))),
       live.length > 0 && h('div', { class: 'news-chips', title: 'Channels with a 24/7 live stream' },
         h('span', { class: 'news-chips-label' }, 'Live'),
         live.map((c) => chip(c.name, news.current?.kind === 'live' && news.current.channelId === c.id && news.playing,
-          () => play({ kind: 'live', channelId: c.id, channel: c.name }), 'live'))));
+          () => play({ kind: 'live', channelId: c.id, channel: c.name }), 'live'))),
+    ].filter(Boolean));
   }
 
   function renderList() {
@@ -2208,7 +2228,7 @@
       const thumb = h('div', { class: 'news-thumb' });
       if (okVideo(s.id)) thumb.style.backgroundImage = `url("https://i.ytimg.com/vi/${s.id}/mqdefault.jpg")`;
       return h('button', { class: `news-row${news.current?.id === s.id && news.playing ? ' playing' : ''}`, title: s.title, onclick: () => play({ kind: 'video', ...s }) },
-        thumb, h('div', null, h('div', { class: 't' }, s.title), h('div', { class: 'm' }, h('b', null, s.channel), ` · ${ago(s.published)}`)));
+        thumb, h('div', null, h('div', { class: 't', dir: 'auto' }, s.title), h('div', { class: 'm' }, h('b', null, s.channel), ` · ${ago(s.published)}`)));
     }));
   }
 

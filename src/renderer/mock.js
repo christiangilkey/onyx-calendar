@@ -429,13 +429,13 @@
     openFile: async () => {},
     pathOf: (file) => `C:\\Users\\you\\Desktop\\${file.name}`,
     updatePin: async (id, d) => { const p = pins.find((x) => x.id === id); if (d.tags) setTags(id, d.tags); if ('notes' in d) p.notes = d.notes; return withTags(p); },
-    news: async () => {
+    news: async (force, mode) => {
       const on = newsChannels.filter((c) => c.on);
       const stories = DEMO_NEWS.filter(([, ch]) => on.some((c) => c.id === ch)).map(([id, ch, title, min]) => ({
         id, title, channelId: ch, channel: newsChannels.find((c) => c.id === ch).name,
         published: new Date(Date.now() - min * 60000).toISOString(), thumb: `https://i.ytimg.com/vi/${id}/mqdefault.jpg`,
       }));
-      return { stories, channels: structuredClone(newsChannels), errors: [] };
+      return { stories, channels: structuredClone(newsChannels), errors: [], language: mode === 'tamkeen' ? { code: 'ar', name: 'Arabic' } : null };
     },
     setNewsChannel: async (id, on) => { newsChannels.find((c) => c.id === id).on = on; return structuredClone(newsChannels); },
     removeNewsChannel: async (id) => { newsChannels = newsChannels.filter((c) => c.id !== id); return structuredClone(newsChannels); },

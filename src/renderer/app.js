@@ -392,10 +392,15 @@
 
     if (!nextRun.parts) {
       const parts = {
-        fill: h('div', { class: 'next-fill' }),
         label: h('button', { class: 'next-label' }),
-        then: h('button', { class: 'next-then' }),
-        when: h('span', { class: 'next-when' }),
+        // The focal point: [icon] NEXT TASK: name | ● 09h 22m 14s, with a gauge that runs down.
+        pill: h('button', { class: 'next-pill' }),
+        kindIcon: h('span', { class: 'next-kind' }),
+        kind: h('b', { class: 'next-kind-label' }),
+        what: h('span', { class: 'what' }),
+        live: h('span', { class: 'next-live', 'aria-hidden': 'true' }),
+        count: h('span', { class: 'next-count' }),
+        gauge: h('span', { class: 'next-gauge', 'aria-hidden': 'true' }, h('i')),
         sound: h('button', { class: 'next-sound', onclick: () => {
           try { localStorage.setItem('onyx.next-sound', nextSoundOn() ? '0' : '1'); } catch { /* this visit only */ }
           toast(nextSoundOn() ? 'Chimes on: 5 minutes before, and as it starts' : 'Chimes off');
@@ -403,42 +408,65 @@
           tickNext();
         } }),
       };
+      parts.pill.append(parts.kindIcon, parts.kind, parts.what, h('span', { class: 'next-sep', 'aria-hidden': 'true' }), parts.live, parts.count, parts.gauge);
       parts.label.addEventListener('click', (ev) => parts.labelItem && openNextItem(parts.labelItem, ev.currentTarget.getBoundingClientRect()));
-      parts.then.addEventListener('click', (ev) => parts.thenItem && openNextItem(parts.thenItem, ev.currentTarget.getBoundingClientRect()));
-      bar.replaceChildren(parts.fill, h('div', { class: 'next-row' }, parts.label, parts.then, h('span', { class: 'grow' }), parts.when, parts.sound));
+      parts.pill.addEventListener('click', (ev) => parts.thenItem && openNextItem(parts.thenItem, ev.currentTarget.getBoundingClientRect()));
+      bar.replaceChildren(h('div', { class: 'next-row' },
+        h('div', { class: 'next-side' }, parts.label),
+        parts.pill,
+        h('div', { class: 'next-side end' }, parts.sound)));
       nextRun.parts = parts;
     }
-    // Now / Next: what you are in (or free time), what comes next, and, biggest, how much
-    // time is left before that next obligation. The bar is that time, shrinking over the last hour.
+    // Now on the left (what you are in, or free time); in the middle, as the thing to look at,
+    // what comes next and the time left before it, ticking by the second.
     const p = nextRun.parts;
-    const setPart = (el, kind, text, sub, item) => {
-      el.replaceChildren(h('b', null, kind), h('span', { class: 'what' }, text), sub && h('small', null, sub));
-      el.title = item ? `Open ${item.title}` : '';
-      el.disabled = !item;
-    };
     p.labelItem = current?.e || null;
-    setPart(p.label, 'Now', current ? current.e.title : 'Free time', current ? `${untilText(current.f - now)} left` : '', p.labelItem);
+    p.label.replaceChildren(h('b', null, 'Now'), h('span', { class: 'what' }, current ? current.e.title : 'Free time'), ...(current ? [h('small', null, `${untilText(current.f - now)} left`)] : []));
+    p.label.title = current ? `Open ${current.e.title}` : '';
+    p.label.disabled = !current;
     p.thenItem = next?.e || null;
-    const day = next && !sameDay(new Date(next.s), new Date()) ? ' tomorrow' : '';
-    setPart(p.then, 'Next', next ? next.e.title : 'Nothing else timed', next ? `${fmtTime(new Date(next.s))}${day}` : '', p.thenItem);
     let tone = 'calm';
-    let fill = 0;
+    let gauge = 0;
     if (next) {
       const left = next.s - now;
-      fill = Math.min(1, left / (NEXT_HORIZON_MIN * 60000));
+      const day = !sameDay(new Date(next.s), new Date()) ? ' tomorrow' : '';
       tone = left <= 60000 ? 'urgent' : left <= NEXT_WARN_MIN * 60000 ? 'soon' : left <= 15 * 60000 ? 'near' : 'calm';
-      p.when.replaceChildren(h('b', null, untilText(left, true)), h('span', { class: 'until' }, ' until next'));
-      p.when.title = `${untilText(left)} until ${next.e.title} at ${fmtTime(new Date(next.s))}${day}`;
+      // The gauge runs down from when the wait began (the last thing ending, or the current one
+      // starting) to the next start; with nothing earlier, over the last hour.
+      const since = Math.max(0, ...timed.filter((x) => x.f <= now).map((x) => x.f), current ? current.s : 0);
+      const span = since ? next.s - since : NEXT_HORIZON_MIN * 60000;
+      gauge = Math.max(0, Math.min(1, left / span));
+      p.kindIcon.replaceChildren(icon(next.e.kind === 'task' ? 'check' : 'calendar'));
+      p.kind.textContent = next.e.kind === 'task' ? 'Next task' : 'Next';
+      p.what.textContent = next.e.title;
+      p.count.textContent = countdown(left);
+      p.pill.title = `${untilText(left)} until ${next.e.title} at ${fmtTime(new Date(next.s))}${day}. Click to open it`;
+      p.pill.disabled = false;
+      p.pill.classList.remove('empty');
     } else {
-      p.when.replaceChildren();
-      p.when.title = '';
+      p.kindIcon.replaceChildren(icon('calendar'));
+      p.kind.textContent = 'Next';
+      p.what.textContent = 'Nothing else timed';
+      p.count.textContent = '';
+      p.pill.title = '';
+      p.pill.disabled = true;
+      p.pill.classList.add('empty');
     }
     const sound = nextSoundOn();
     p.sound.replaceChildren(icon(sound ? 'bell' : 'bell-off'));
     p.sound.title = sound ? 'Chimes on: 5 minutes before, and as it starts. Click to mute' : 'Chimes off. Click to turn them on';
     bar.className = tone;
-    bar.style.setProperty('--left', `${(fill * 100).toFixed(2)}%`);
+    p.pill.style.setProperty('--left', `${(gauge * 100).toFixed(2)}%`);
     bar.hidden = false;
+  }
+
+  /** The countdown in the pill: "09h 22m 14s", "22m 14s", or "2d 03h" for days ahead. */
+  function countdown(ms) {
+    const total = Math.max(0, Math.floor(ms / 1000));
+    const d = Math.floor(total / 86400), hrs = Math.floor((total % 86400) / 3600), m = Math.floor((total % 3600) / 60), s = total % 60;
+    if (d) return `${d}d ${pad(hrs)}h`;
+    if (hrs) return `${pad(hrs)}h ${pad(m)}m ${pad(s)}s`;
+    return `${pad(m)}m ${pad(s)}s`;
   }
 
   // ---- popups: when the Pi phones about something, and when something starts

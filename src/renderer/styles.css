@@ -115,7 +115,7 @@ select { padding-right: 4px; }
 
 /* --side-w, --tasks-w and --news-open-w are set by dragging the panels' edges (app.js). */
 /* --next-h: the Now / Next bar under the title bar, when it is shown. */
-body.has-next { --next-h: 34px; }
+body.has-next { --next-h: 40px; }
 #layout { --side-w: 248px; --tasks-w: 300px; --news-open-w: 380px; --news-w: 34px; position: relative; display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr) var(--tasks-w) var(--news-w); height: calc(100% - var(--bar) - var(--next-h, 0px)); }
 #layout.no-tasks { grid-template-columns: var(--side-w) minmax(0, 1fr) var(--news-w); }
 #layout.news-open { --news-w: var(--news-open-w); }
@@ -568,32 +568,64 @@ pre.code {
 .alert-row .btn { flex: 1; justify-content: center; }
 
 /* ------------------------------------------------------------ Now / Next bar */
-/* The fill is the time left before the next obligation: full an hour or more ahead, empty as it starts. */
-#next-bar { --c: var(--accent); position: relative; height: var(--next-h, 34px); border-bottom: 1px solid var(--line); background: var(--panel); overflow: hidden; }
+/* Now on the left; in the middle a pill that holds the eye: what is next and the time left,
+   ticking by the second in monospace digits, lit in a colour that warms as it gets close,
+   with a live dot and a thin gauge that runs down to the start. */
+#next-bar { --c: #a99bff; position: relative; height: var(--next-h, 40px); border-bottom: 1px solid var(--line); background: var(--panel); overflow: hidden; }
 #next-bar[hidden] { display: none; }
 #next-bar.near { --c: #f5b83d; }
 #next-bar.soon { --c: #ff8a4a; }
 #next-bar.urgent { --c: #ff5b5b; }
-#next-bar .next-fill { position: absolute; left: 0; top: 0; bottom: 0; width: var(--left, 0%); background: color-mix(in srgb, var(--c) 20%, transparent); border-right: 2px solid color-mix(in srgb, var(--c) 75%, transparent); transition: width 1s linear, background .4s; }
-#next-bar.urgent .next-fill { animation: next-pulse 1s ease-in-out infinite; }
-@keyframes next-pulse { 50% { background: color-mix(in srgb, var(--c) 38%, transparent); } }
-#next-bar .next-row { position: relative; height: 100%; display: flex; align-items: center; gap: 6px; padding: 0 10px 0 14px; font-size: 12.5px; min-width: 0; }
-#next-bar .next-label, #next-bar .next-then { display: inline-flex; align-items: baseline; gap: 7px; min-width: 0; max-width: 42%; border: 0; background: transparent; color: var(--text); font: inherit; padding: 4px 8px; border-radius: 8px; cursor: pointer; white-space: nowrap; }
-#next-bar .next-label:hover:not(:disabled), #next-bar .next-then:hover:not(:disabled) { background: rgba(255,255,255,.07); }
+#next-bar .next-row { position: relative; height: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 10px; padding: 0 10px 0 12px; font-size: 12.5px; }
+#next-bar .next-side { display: flex; align-items: center; min-width: 0; }
+#next-bar .next-side.end { justify-content: flex-end; }
+#next-bar .next-label { display: inline-flex; align-items: baseline; gap: 7px; min-width: 0; max-width: 100%; border: 0; background: transparent; color: var(--soft, var(--text)); font: inherit; padding: 4px 8px; border-radius: 8px; cursor: pointer; white-space: nowrap; }
+#next-bar .next-label:hover:not(:disabled) { background: rgba(255,255,255,.07); }
 #next-bar button:disabled { cursor: default; color: var(--muted); }
-#next-bar .next-label b, #next-bar .next-then b { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); font-weight: 700; flex: none; }
-#next-bar .what { overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+#next-bar .next-label b { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); font-weight: 700; flex: none; }
+#next-bar .what { overflow: hidden; text-overflow: ellipsis; font-weight: 600; min-width: 0; }
 #next-bar small { color: var(--muted); font-size: 11.5px; flex: none; }
-#next-bar .next-then { border-left: 1px solid var(--line); border-radius: 0 8px 8px 0; }
-#next-bar .next-when { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
-#next-bar .next-when b { font-size: 16px; font-weight: 700; color: var(--c); font-variant-numeric: tabular-nums; margin-right: 2px; }
+
+#next-bar .next-pill {
+  position: relative; display: inline-flex; align-items: center; gap: 8px; height: 30px; max-width: min(620px, 56vw); min-width: 0;
+  padding: 0 14px 0 10px; border-radius: 999px; overflow: hidden; cursor: pointer; font: inherit; color: var(--text); white-space: nowrap;
+  background: color-mix(in srgb, var(--c) 9%, #1a1a21); border: 1px solid color-mix(in srgb, var(--c) 55%, transparent);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--c) 30%, transparent), inset 0 1px 0 rgba(255,255,255,.05);
+  transition: border-color .4s, box-shadow .4s, background .4s;
+}
+#next-bar .next-pill:hover:not(:disabled) { background: color-mix(in srgb, var(--c) 15%, #1a1a21); }
+#next-bar .next-pill:disabled { cursor: default; color: var(--muted); }
+#next-bar .next-pill.empty { --c: #4b4b53; box-shadow: none; }
+#next-bar .next-kind { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; flex: none; color: var(--c); background: color-mix(in srgb, var(--c) 18%, transparent); }
+#next-bar .next-kind .ico { width: 12px; height: 12px; }
+#next-bar .next-kind-label { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; font-weight: 800; color: var(--c); flex: none; }
+#next-bar .next-kind-label::after { content: ':'; }
+#next-bar .next-pill .what { color: var(--text); }
+#next-bar .next-sep { width: 1px; align-self: stretch; margin: 7px 2px; background: color-mix(in srgb, var(--c) 40%, transparent); flex: none; }
+#next-bar .next-pill.empty .next-sep, #next-bar .next-pill.empty .next-live { display: none; }
+#next-bar .next-live { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--c); box-shadow: 0 0 0 0 color-mix(in srgb, var(--c) 60%, transparent); animation: next-live 1.6s ease-out infinite; }
+@keyframes next-live { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--c) 60%, transparent); } 70%, 100% { box-shadow: 0 0 0 6px transparent; } }
+#next-bar .next-count {
+  flex: none; font: 700 15px/1 "JetBrains Mono", "SF Mono", "Cascadia Mono", ui-monospace, Consolas, monospace;
+  font-variant-numeric: tabular-nums; letter-spacing: .02em; color: color-mix(in srgb, var(--c) 70%, #fff);
+  text-shadow: 0 0 10px color-mix(in srgb, var(--c) 45%, transparent);
+}
+#next-bar .next-gauge { position: absolute; left: 12px; right: 12px; bottom: 3px; height: 2px; border-radius: 2px; background: color-mix(in srgb, var(--c) 16%, transparent); }
+#next-bar .next-gauge i { position: absolute; left: 0; top: 0; bottom: 0; width: var(--left, 0%); border-radius: inherit; background: var(--c); box-shadow: 0 0 6px var(--c); transition: width 1s linear, background .4s; }
+#next-bar .next-pill.empty .next-gauge { display: none; }
+#next-bar.urgent .next-pill { animation: next-urgent 1s ease-in-out infinite; }
+@keyframes next-urgent { 50% { box-shadow: 0 0 22px color-mix(in srgb, var(--c) 55%, transparent); background: color-mix(in srgb, var(--c) 18%, #1a1a21); } }
+@media (prefers-reduced-motion: reduce) { #next-bar .next-live, #next-bar.urgent .next-pill { animation: none; } }
+
 #next-bar .next-sound { border: 0; background: transparent; color: var(--muted); width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; cursor: pointer; flex: none; }
 #next-bar .next-sound:hover { color: var(--text); background: rgba(255,255,255,.07); }
 #next-bar .next-sound .ico { width: 15px; height: 15px; }
-body.mobile #next-bar .next-row { padding: 0 4px 0 6px; gap: 2px; font-size: 12px; }
-body.mobile #next-bar .next-label, body.mobile #next-bar .next-then { padding: 4px 6px; max-width: 40%; }
-body.mobile #next-bar small, body.mobile #next-bar .until { display: none; }
-body.mobile #next-bar .next-when b { font-size: 15px; }
+/* Phone: the pill takes the middle, with Now shortened to its name. */
+body.mobile #next-bar .next-row { padding: 0 2px 0 4px; gap: 4px; grid-template-columns: minmax(0, .8fr) auto auto; }
+body.mobile #next-bar .next-label { padding: 4px 4px; font-size: 12px; }
+body.mobile #next-bar small, body.mobile #next-bar .next-kind-label { display: none; }
+body.mobile #next-bar .next-pill { max-width: 64vw; gap: 6px; padding: 0 10px 0 6px; }
+body.mobile #next-bar .next-count { font-size: 13.5px; }
 #pomo-timer.work { --pc: #ff6b5b; }
 #pomo-timer.rest { --pc: #5fd38d; }
 #pomo-timer::before { content: ''; position: absolute; left: 0; bottom: 0; height: 2px; width: var(--done, 0%); background: var(--pc); transition: width 1s linear; }

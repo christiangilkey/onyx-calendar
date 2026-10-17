@@ -915,7 +915,8 @@ function cleanBefore(before) {
 // 'push' (an ntfy alert, no call), 'call' (a phone call), or 'critical' (a call, then
 // another a little later unless you said you were leaving). "Leaving now" stops the rest.
 
-const MODES = ['push', 'call', 'critical'];
+// alarm: the phone rings a full-screen alarm at the call time (Onyx on Android), and the Pi stays quiet.
+const MODES = ['push', 'call', 'critical', 'alarm'];
 const leaveByOf = (id) => store.data.leaveBy?.[id] ?? null;
 const modeOf = (id) => (store.data.piLinks[id] ? store.data.piLinks[id].mode || 'call' : 'off');
 
@@ -943,7 +944,7 @@ function piAlerts(start, { before = null, leaveBy = null, mode = 'call', ack = f
   if (base == null) return [];
   const grid = Math.max(1, Number(store.data.settings.pi?.checkEvery) || 30) * 60000;
   const first = new Date(Math.floor(base / grid) * grid);
-  const out = [{ at: first, kind: mode === 'push' ? 'push' : 'call' }];
+  const out = [{ at: first, kind: mode === 'push' ? 'push' : mode === 'alarm' ? 'alarm' : 'call' }];
   if (mode === 'critical') {
     const again = new Date(first.getTime() + Math.max(grid, 10 * 60000));
     if (again < start) out.push({ at: again, kind: 'call' });
@@ -960,6 +961,7 @@ function callNotes(start, opts) {
   } else {
     if (opts.mode === 'push') lines.push('Alert: push only');
     if (opts.mode === 'critical') lines.push('Escalation: critical');
+    if (opts.mode === 'alarm') lines.push('Alert: phone alarm'); // the phone rings; the Pi neither calls nor pushes
     for (const a of piAlerts(start, opts)) lines.push(`Call at: ${stamp(a.at)}`);
   }
   return lines.join('\n');

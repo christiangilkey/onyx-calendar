@@ -220,7 +220,7 @@ public class OnyxLiveService extends Service {
             : "Next: " + next.title + " at " + clock(next.start) + (next.leaveAt() > t ? "  ·  leave by " + clock(next.leaveAt()) : "");
         if (coming != null) {
             LauncherData.Alert a = coming.coming(t);
-            nextLine += "  ·  " + ("push".equals(a.kind) ? "reminder at " : "Pi calls at ") + clock(a.at);
+            nextLine += "  ·  " + ("push".equals(a.kind) ? "reminder at " : "alarm".equals(a.kind) ? "alarm at " : "Pi calls at ") + clock(a.at);
         }
 
         if (now != null) {
@@ -279,6 +279,7 @@ public class OnyxLiveService extends Service {
             return;
         }
         LauncherData.Alert a = calling.calling(t);
+        if ("alarm".equals(a.kind)) return; // AlarmActivity is ringing for it
         String key = calling.id + "@" + a.at;
         if (!fired.add(key)) return;
         nm.notify(ID_CALL, callNotification(calling, a, t));
@@ -312,22 +313,8 @@ public class OnyxLiveService extends Service {
 
     /** Android's alarm clock, set for the next timed thing to start (it wakes the phone and rings: AlarmActivity). */
     private void setNextAlarm(long t) {
-        if (!LauncherData.alarmOn(this)) {
-            AlarmActivity.cancel(this);
-            return;
-        }
-        LauncherData.Item next = LauncherData.next(LauncherData.items(this), t);
-        if (next == null) {
-            AlarmActivity.cancel(this);
-            return;
-        }
-        String key = next.id + "@" + next.start;
-        if (key.equals(alarmSet)) return;
-        AlarmActivity.schedule(this, next.id, next.title, next.start, next.kind, next.start, false);
-        alarmSet = key;
+        AlarmActivity.planNext(this);
     }
-
-    private String alarmSet = "";
 
     /** The full Onyx panel over the lock screen, when the phone is locked and Android allows it. */
     private void showLockPanel() {

@@ -232,6 +232,7 @@ public class LauncherActivity extends Activity implements OnyxPanel.Host {
         lastFetch = System.currentTimeMillis();
         bg.execute(() -> {
             LauncherData.fetch(this);
+            AlarmActivity.planNext(this);
             ui.post(this::showPanel);
         });
     }

@@ -188,7 +188,7 @@ final class OnyxPanel {
         boolean push = a != null && "push".equals(a.kind);
         LinearLayout c = card(0xEB2A1C0C);
         ((GradientDrawable) c.getBackground()).setStroke(dp(1.5f), AMBER);
-        c.addView(label(push ? "Reminder from the Pi" : "The Pi is calling", AMBER));
+        c.addView(label(push ? "Reminder from the Pi" : a != null && "alarm".equals(a.kind) ? "Alarm" : "The Pi is calling", AMBER));
         c.addView(title(it.title));
         callIn = text("", 14, 0xFFF7D9A0, false);
         c.addView(callIn);
@@ -237,7 +237,7 @@ final class OnyxPanel {
         LauncherData.Item coming = LauncherData.callComing(items, t);
         if (coming != null && coming != calling) {
             LauncherData.Alert a = coming.coming(t);
-            String what = "push".equals(a.kind) ? "The Pi reminds you at " : "The Pi calls at ";
+            String what = "push".equals(a.kind) ? "The Pi reminds you at " : "alarm".equals(a.kind) ? "Your alarm rings at " : "The Pi calls at ";
             TextView call = text(what + clock(a.at) + (coming == next ? "" : " about " + coming.title), 13, AMBER, false);
             call.setPadding(0, dp(4), 0, 0);
             c.addView(call);

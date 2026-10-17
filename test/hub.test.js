@@ -432,3 +432,11 @@ test('a calendar entry or block can be ticked off like a task, and brought back'
   hub.setEventDone(block.id, false);
   assert.equal((await find()).done, false);
 });
+
+test('Alarm escalation: the phone rings at the call time, and the Pi is told to stay quiet', async () => {
+  reset();
+  const block = await hub.createEvent({ title: 'Dentist', start: day(1, 15, 0), end: day(1, 16, 0), allDay: false, piCall: true, callMode: 'alarm', callBefore: 0 });
+  assert.equal(block.callMode, 'alarm');
+  assert.deepEqual(block.piAlerts.map((a) => a.kind), ['alarm']);
+  assert.match(mirrors()[0].notes, /^Alert: phone alarm$/m);
+});

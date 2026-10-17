@@ -941,6 +941,7 @@
   function ladderText(times, mode) {
     const t = times.map((d) => fmtTime(d));
     if (mode === 'push') return `The Pi sends a push alert at ${t[0]}.`;
+    if (mode === 'alarm') return `Your phone rings an alarm at ${t[0]}, until you press a button.`;
     if (mode === 'critical') return t.length > 1 ? `The Pi phones at ${t[0]}, and again at ${t[1]} unless you tap Leaving now.` : `The Pi phones at ${t[0]}.`;
     return `The Pi phones you at ${t[0]}.`;
   }
@@ -1582,6 +1583,7 @@
       ['push', 'Push only', 'An alert on your phone (ntfy), no call'],
       ['call', 'Voice call', 'The Pi phones you, at the leave-by time when there is one'],
       ['critical', 'Critical', 'A call, then another 10 minutes later unless you tap Leaving now'],
+      ['alarm', 'Alarm', 'Your phone rings an alarm, full screen, until you press a button (no call)'],
     ];
     const ladder = h('div', { class: 'segmented ladder', role: 'radiogroup', 'aria-label': 'Escalation' },
       LADDER.map(([value, label, hint]) => h('button', {
@@ -1642,7 +1644,7 @@
       callHint.textContent = mode === 'off' ? 'No reminder from the Pi.'
         : !st.allowed ? st.text
         : times.length ? ladderText(times, mode)
-        : st.text.replace('The Pi phones you', mode === 'push' ? 'The Pi sends a push alert' : 'The Pi phones you');
+        : st.text.replace('The Pi phones you', mode === 'push' ? 'The Pi sends a push alert' : mode === 'alarm' ? 'Your phone rings an alarm' : 'The Pi phones you');
       callHint.className = mode === 'off' ? '' : st.tone;
       ladder.classList.toggle('disabled', !st.allowed && mode === 'off');
       // With a leave-by time, that is when it reaches out; otherwise a time can be picked.

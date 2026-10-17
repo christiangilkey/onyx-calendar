@@ -105,7 +105,8 @@ public class AlarmActivity extends Activity {
         root.setBackgroundColor(0xFF07080B);
         root.setPadding(dp(24), dp(72), dp(24), dp(40));
 
-        TextView label = text("ONYX  ·  STARTING NOW", 13, OnyxPanel.AMBER, true);
+        boolean early = start - System.currentTimeMillis() > 60_000;
+        TextView label = text(early ? "ONYX  ·  ALARM" : "ONYX  ·  STARTING NOW", 13, OnyxPanel.AMBER, true);
         label.setLetterSpacing(0.14f);
         root.addView(label);
 
@@ -124,7 +125,7 @@ public class AlarmActivity extends Activity {
         what.setEllipsize(TextUtils.TruncateAt.END);
         what.setPadding(0, dp(28), 0, dp(6));
         root.addView(what, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        TextView when = text("Starts " + clock(start), 17, OnyxPanel.MUTED, false);
+        TextView when = text((early ? "Starts at " : "Started ") + clock(start), 17, OnyxPanel.MUTED, false);
         when.setGravity(Gravity.CENTER);
         root.addView(when, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -253,8 +254,35 @@ public class AlarmActivity extends Activity {
         }
     }
 
+    /**
+     * Keeps Android's alarm clock set for the first to come: the next start (with "Alarm as
+     * things start" on), or an entry whose escalation is Alarm, at its call time.
+     */
+    static void planNext(Context ctx) {
+        long t = System.currentTimeMillis();
+        java.util.List<LauncherData.Item> items = LauncherData.items(ctx);
+        LauncherData.Item best = null;
+        long at = Long.MAX_VALUE;
+        if (LauncherData.alarmOn(ctx)) {
+            LauncherData.Item n = LauncherData.next(items, t);
+            if (n != null) { best = n; at = n.start; }
+        }
+        for (LauncherData.Item it : items) {
+            if (it.done || it.ack) continue;
+            for (LauncherData.Alert a : it.alerts) {
+                if ("alarm".equals(a.kind) && a.at > t && a.at < at) { best = it; at = a.at; }
+            }
+        }
+        if (best == null) { cancel(ctx); return; }
+        String key = best.id + "@" + at;
+        if (key.equals(LauncherData.prefs(ctx).getString("alarm_set", ""))) return;
+        schedule(ctx, best.id, best.title, best.start, best.kind, at, false);
+        LauncherData.prefs(ctx).edit().putString("alarm_set", key).apply();
+    }
+
     /** Takes back the alarm that is set (not a snooze). */
     static void cancel(Context ctx) {
+        LauncherData.prefs(ctx).edit().remove("alarm_set").apply();
         AlarmManager am = ctx.getSystemService(AlarmManager.class);
         if (am == null) return;
         Intent open = new Intent(ctx, AlarmActivity.class);

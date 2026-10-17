@@ -383,7 +383,11 @@
       const left = x.s - now;
       const key = `${x.e.id}|${x.e.start}`;
       if (left <= NEXT_WARN_MIN * 60000 && left > (NEXT_WARN_MIN - 1) * 60000 && !nextRun.fired.has(`${key}|warn`)) { nextRun.fired.add(`${key}|warn`); cue(x.e, false); }
-      if (left <= 0 && left > -60000 && !nextRun.fired.has(`${key}|start`)) { nextRun.fired.add(`${key}|start`); nextRun.fired.add(`${key}|warn`); cue(x.e, true); }
+      if (left <= 0 && left > -60000 && !nextRun.fired.has(`${key}|start`)) {
+        nextRun.fired.add(`${key}|start`);
+        nextRun.fired.add(`${key}|warn`);
+        if (popupsOn()) showPopup(popupFor(x.e, 'start')); else cue(x.e, true);
+      }
     }
 
     if (!nextRun.parts) {
@@ -435,6 +439,146 @@
     bar.className = tone;
     bar.style.setProperty('--left', `${(fill * 100).toFixed(2)}%`);
     bar.hidden = false;
+  }
+
+  // ---- popups: when the Pi phones about something, and when something starts
+  // On the PC each is a small window of its own over everything (main.js, showAlert), with a
+  // ring for the call and a chime for the start; on the phone it shows inside the app.
+
+  const popups = { fired: new Set(), snoozed: [] };
+  const popupsOn = () => S?.settings?.popups !== false;
+  const SNOOZE_MIN = 5;
+
+  function popupFor(e, kind, extra = {}) {
+    return {
+      key: `${kind}|${e.id}|${e.start}`, kind, id: e.id, title: e.title, start: e.start, end: e.end, color: e.color,
+      calendar: e.calendarName || '', sound: nextSoundOn(), hour12: S.settings.hour12, ...extra,
+    };
+  }
+
+  function showPopup(a) {
+    if (onyx.alert && !onyx.isPhone) onyx.alert(a).catch(() => showAlertOverlay(a));
+    else showAlertOverlay(a);
+  }
+
+  function popupAction(m) {
+    const a = m?.alert;
+    if (!a) return;
+    if (m.action === 'snooze') {
+      popups.snoozed.push({ at: Date.now() + SNOOZE_MIN * 60000, alert: { ...a, key: `${a.key}|snooze|${Date.now()}`, snoozed: true } });
+      toast(`Snoozed: "${a.title}" again in ${SNOOZE_MIN} minutes`);
+    } else if (m.action === 'open') {
+      const anchor = new DOMRect(innerWidth / 2 - 1, 130, 2, 2);
+      const e = nextRun.items.find((x) => x.id === a.id && x.start === a.start) || nextRun.items.find((x) => x.id === a.id);
+      if (e) openNextItem(e, anchor);
+      else if (tasks.some((t) => t.id === a.id)) openTask(tasks.find((t) => t.id === a.id), anchor);
+    }
+  }
+  onyx.onAlertAction?.(popupAction);
+
+  /** Fires the call popups (at the time the Pi phones) and the snoozed ones; start popups come from tickNext. */
+  function tickPopups() {
+    if (!popupsOn() || !nextRun.loaded) return;
+    const now = Date.now();
+    const fire = (key, make) => {
+      if (popups.fired.has(key)) return;
+      popups.fired.add(key);
+      showPopup(make());
+    };
+    if (S.settings.pi?.enabled) {
+      // Blocks and events with a phone reminder: the Pi calls at the time worked out for them.
+      for (const e of nextRun.items) {
+        if (e.kind !== 'event' || !e.piCall) continue;
+        const start = new Date(e.start);
+        const c = piCallTime(start, e.callBefore ?? null);
+        const at = c.at.getTime();
+        if (!c.quiet && now >= at && now - at < 90000 && start.getTime() > now) fire(`call|${e.id}|${e.start}`, () => popupFor(e, 'call', { callAt: c.at.toISOString() }));
+      }
+      // Google tasks with a time in their name.
+      for (const t of tasks) {
+        if (!t.call || t.call.quiet || t.mirror || t.done || !t.start) continue;
+        const at = new Date(t.call.at).getTime();
+        const start = new Date(t.start).getTime();
+        if (now >= at && now - at < 90000 && start > now) {
+          fire(`call|${t.id}|${t.start}`, () => popupFor({ id: t.id, title: t.label, start: t.start, end: new Date(start + 30 * 60000).toISOString(), color: t.color, calendarName: t.listName }, 'call', { callAt: t.call.at }));
+        }
+      }
+    }
+    for (const s of [...popups.snoozed]) {
+      if (now < s.at) continue;
+      popups.snoozed.splice(popups.snoozed.indexOf(s), 1);
+      showPopup(s.alert);
+    }
+  }
+
+  // ---- the popup inside the app (the phone, and a window that cannot open its own)
+  let overlayRing = null;
+  function ringOnceHere() {
+    try {
+      const ctx = chime.ctx || (chime.ctx = new AudioContext());
+      ctx.resume?.();
+      const note = (f, at, len, vol, type = 'sine') => {
+        const o = ctx.createOscillator(), g = ctx.createGain(), t0 = ctx.currentTime + at;
+        o.type = type;
+        o.frequency.value = f;
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(vol, t0 + 0.015);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + len);
+        o.connect(g).connect(ctx.destination);
+        o.start(t0);
+        o.stop(t0 + len + 0.02);
+      };
+      for (const burst of [0, 0.5]) {
+        for (let i = 0; i < 8; i++) note(i % 2 ? 1046.5 : 1318.5, burst + i * 0.045, 0.06, 0.09, 'triangle');
+        note(659.25, burst, 0.36, 0.05);
+      }
+    } catch { /* no sound: the popup still shows */ }
+    try { navigator.vibrate?.([400, 150, 400]); } catch { /* no buzz */ }
+  }
+
+  function showAlertOverlay(a) {
+    let box = $('#alert-stack');
+    if (!box) { box = h('div', { id: 'alert-stack' }); document.body.append(box); }
+    if (box.querySelector(`[data-key="${CSS.escape(a.key)}"]`)) return;
+    const start = new Date(a.start), end = new Date(a.end);
+    const when = h('div', { class: 'alert-when' });
+    const draw = () => {
+      const left = start - Date.now();
+      const range = `${fmtTime(start)}${Number.isNaN(+end) ? '' : ` – ${fmtTime(end)}`}`;
+      when.replaceChildren(...(left > 30000 ? [h('b', null, `in ${untilText(left)}`), ` · at ${range}`] : [range]), a.calendar ? ` · ${a.calendar}` : '');
+    };
+    draw();
+    const timer = setInterval(draw, 1000);
+    const close = (action) => {
+      clearInterval(timer);
+      if (overlayRing && card.dataset.ringing) { clearInterval(overlayRing); overlayRing = null; }
+      card.classList.add('leaving');
+      setTimeout(() => card.remove(), 220);
+      if (action !== 'dismiss') popupAction({ action, alert: a });
+    };
+    const card = h('div', { class: `alert-card ${a.kind}`, 'data-key': a.key, css: { '--c': a.color || 'var(--accent)' } },
+      h('div', { class: 'alert-head' }, icon(a.kind === 'call' ? 'phone' : 'clock'),
+        h('span', null, a.snoozed ? 'Reminder (snoozed)' : a.kind === 'call' ? 'Reminder call' : 'Starting now'),
+        h('span', { class: 'grow' }), h('button', { class: 'icon-btn', title: 'Close', onclick: () => close('dismiss') }, icon('x'))),
+      h('div', { class: 'alert-title' }, a.title),
+      when,
+      h('div', { class: 'alert-row' },
+        h('button', { class: 'btn primary', onclick: () => close('open') }, 'Open'),
+        h('button', { class: 'btn', onclick: () => close('snooze') }, `Snooze ${SNOOZE_MIN} min`),
+        h('button', { class: 'btn', onclick: () => close('dismiss') }, 'Got it')));
+    box.append(card);
+    if (a.sound !== false) {
+      if (a.kind === 'call') {
+        card.dataset.ringing = '1';
+        clearInterval(overlayRing);
+        let rings = 0;
+        ringOnceHere();
+        overlayRing = setInterval(() => { if (++rings >= 7) { clearInterval(overlayRing); overlayRing = null; } else ringOnceHere(); }, 2600);
+      } else {
+        chime('work');
+      }
+    }
+    setTimeout(() => card.isConnected && close('dismiss'), 15 * 60000);
   }
 
   // ------------------------------------------------------------ where an entry came from
@@ -752,7 +896,7 @@
           // The circle pops and fills white, a check draws in, a little burst and a click.
           celebrate(info.el, dot, src.color);
           const t = tasks.find((x) => x.id === src.id) || { id: src.id, label: src.title };
-          completeTask(t, null, 650).then((ok) => {
+          completeTask(t, null, 900).then((ok) => {
             if (ok) return;
             info.el.classList.remove('is-done', 'done-anim');
             dot.replaceChildren();
@@ -1228,7 +1372,7 @@
     return svg;
   }
 
-  /** The click: a tiny tick of noise, a bright pop rising in pitch, and a soft bell above it. */
+  /** The chime: a soft click, then a bright rising four-note arpeggio that rings out. */
   function doneSound() {
     try {
       const ctx = chime.ctx || (chime.ctx = new AudioContext());
@@ -1258,9 +1402,11 @@
         o.start(t0 + at);
         o.stop(t0 + at + len + 0.02);
       };
-      tone('triangle', 620, 1240, 0.005, 0.12, 0.18); // the pop
-      tone('sine', 1760, 1760, 0.07, 0.45, 0.07);     // the bell
-      tone('sine', 2637, 2637, 0.09, 0.3, 0.03);
+      tone('triangle', 620, 1240, 0.005, 0.1, 0.12); // the click
+      [1046.5, 1318.5, 1568, 2093].forEach((f, i) => {   // C, E, G, C: the chime
+        tone('sine', f, f, 0.05 + i * 0.075, 0.9 - i * 0.12, 0.11 - i * 0.015);
+        tone('triangle', f * 2, f * 2, 0.05 + i * 0.075, 0.25, 0.02);
+      });
     } catch { /* no sound: the circle still fills */ }
     try { navigator.vibrate?.(14); } catch { /* no buzz on this device */ }
   }
@@ -2475,6 +2621,8 @@
             h('button', { class: 'btn', onclick: () => checkForUpdate(true) }, icon('update'), 'Check now')),
           field('Now / Next bar', 'A strip under the top bar: what you are doing now, what is next, and how much time is left before it. It chimes 5 minutes before and as it starts (the bell on the bar mutes it).',
             toggle(s.nextBar !== false, (v) => saveSettings({ nextBar: v }).then(tickNext))),
+          field('Popups', 'A popup over everything, ringing, when the Pi phones you about something, and another as it starts. Snooze brings it back in 5 minutes.',
+            toggle(s.popups !== false, (v) => saveSettings({ popups: v }))),
           field('24-hour time', null, toggle(!s.hour12, (v) => saveSettings({ hour12: !v }))),
           field('Week starts on', null,
             h('select', { onchange: (e) => saveSettings({ weekStart: Number(e.target.value) }) },
@@ -3758,7 +3906,7 @@
     buildCalendar();
     buildNews();
     refreshPomodoros();
-    setInterval(() => { tickPomodoro(); tickNext(); }, 1000);
+    setInterval(() => { tickPomodoro(); tickNext(); tickPopups(); }, 1000);
     setInterval(refreshPomodoros, 60000);
 
     // A tap on a home-screen widget (phone): open the globe, or the calendar on that day.

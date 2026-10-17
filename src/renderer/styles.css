@@ -205,17 +205,26 @@ body.mobile #calendar, body.mobile #calendar .fc-scroller { touch-action: pan-y;
 .fc .fc-day-sat, .fc .fc-day-sun { background: rgba(255,255,255,.008); }
 
 /* blocks */
+/* Still to do: a full-colour bar. Done (a ticked task) or over (a past event): dim, the colour
+   kept only in the edge, like a page already turned. */
 .fc .fc-timegrid-event, .fc .fc-daygrid-block-event {
-  background: color-mix(in srgb, var(--c, var(--accent)) 24%, #09090b) !important;
+  background: color-mix(in srgb, var(--c, var(--accent)) 68%, #0b0b0e) !important;
   border: 0 !important; border-left: 3px solid var(--c, var(--accent)) !important;
   border-radius: 6px; box-shadow: 0 0 0 1px #000; overflow: hidden; cursor: pointer;
-  transition: filter .12s;
+  transition: filter .12s, background-color .45s .28s;
 }
+.fc .fc-timegrid-event .ev-title, .fc .fc-daygrid-block-event .ev-title { color: #fff; text-shadow: 0 1px 1px rgba(0,0,0,.35); }
+.fc .fc-timegrid-event .ev-time, .fc .fc-daygrid-block-event .ev-time { color: rgba(255,255,255,.82); }
+.fc .is-task.is-done.fc-timegrid-event, .fc .is-task.is-done.fc-daygrid-block-event,
+.fc .fc-event-past:not(.is-task).fc-timegrid-event, .fc .fc-event-past:not(.is-task).fc-daygrid-block-event {
+  background: color-mix(in srgb, var(--c, var(--accent)) 22%, #09090b) !important;
+}
+.fc .is-done .ev-title, .fc .fc-event-past:not(.is-task) .ev-title { color: color-mix(in srgb, var(--c, var(--accent)) 22%, #fff); text-shadow: none; }
+.fc .is-done .ev-time, .fc .fc-event-past:not(.is-task) .ev-time { color: color-mix(in srgb, var(--c, var(--accent)) 50%, #c8c8d0); }
 .fc .fc-timegrid-event:hover, .fc .fc-daygrid-block-event:hover { filter: brightness(1.25); }
 .fc .fc-timegrid-event .fc-event-main { padding: 3px 7px; }
 .fc .fc-daygrid-block-event { margin: 1px 3px 0; }
 .fc .fc-daygrid-block-event .fc-event-main { padding: 1px 6px; }
-.fc .fc-event-past { opacity: .62; }
 .fc .fc-event-mirror, .fc .fc-event-dragging, .fc .fc-event-resizing { opacity: .9; box-shadow: 0 10px 30px rgba(0,0,0,.7), 0 0 0 1px var(--c, var(--accent)); }
 .ev { display: flex; flex-direction: column; gap: 1px; min-width: 0; height: 100%; }
 .ev-title { display: flex; align-items: center; gap: 5px; font-weight: 600; color: color-mix(in srgb, var(--c, var(--accent)) 28%, #fff); line-height: 1.3; min-width: 0; }
@@ -236,8 +245,10 @@ body.mobile #calendar, body.mobile #calendar .fc-scroller { touch-action: pan-y;
 .is-task .ev-title .dot .check { position: absolute; inset: -1.5px; width: calc(100% + 3px); height: calc(100% + 3px); }
 .is-task .ev-title .dot .check path { fill: none; stroke: #0b0b0e; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 .is-task .ev-title .t { background: linear-gradient(currentColor, currentColor) no-repeat 0 55% / 0% 1.5px; }
-.is-task.is-done .ev-title .t { background-size: 100% 1.5px; opacity: .6; }
-.fc .is-task.is-done { filter: saturate(.55); }
+.is-task.is-done .ev-title .t { background-size: 100% 1.5px; opacity: .85; }
+/* Ticked: a bright sweep runs across the whole bar, and the bar settles into its done colour behind it. */
+.fc .is-task.done-anim::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(90deg, color-mix(in srgb, var(--c) 40%, transparent) 0%, rgba(255,255,255,.55) 78%, rgba(255,255,255,.9) 100%); animation: done-sweep .9s cubic-bezier(.35, .6, .2, 1) forwards; }
+@keyframes done-sweep { 0% { clip-path: inset(0 100% 0 0); opacity: 1; } 62% { clip-path: inset(0 0 0 0); opacity: .95; } 100% { clip-path: inset(0 0 0 0); opacity: 0; } }
 /* The moment it is ticked: the circle pops, the check draws itself, the strike runs across. */
 .is-task.done-anim .ev-title .dot { animation: dot-pop .5s cubic-bezier(.25, 1.7, .45, 1); }
 .is-task.done-anim .ev-title .dot .check path { stroke-dasharray: 11; stroke-dashoffset: 11; animation: check-draw .28s .1s ease-out forwards; }
@@ -250,7 +261,7 @@ body.mobile #calendar, body.mobile #calendar .fc-scroller { touch-action: pan-y;
 .done-burst i:nth-child(odd) { background: #fff; }
 @keyframes burst-ring { to { transform: scale(3); opacity: 0; } }
 @keyframes burst-spark { 0% { transform: rotate(var(--a)) translateX(4px) scale(1); opacity: 1; } 100% { transform: rotate(var(--a)) translateX(var(--d)) scale(.2); opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .is-task.done-anim .ev-title .dot, .is-task.done-anim .ev-title .dot .check path { animation: none; stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) { .is-task.done-anim .ev-title .dot, .is-task.done-anim .ev-title .dot .check path { animation: none; stroke-dashoffset: 0; } .fc .is-task.done-anim::after { display: none; } }
 /* Stripes only behind the now line: an open task whose time has passed. Anything ahead of
    it, including a task just moved there, is fully coloured. */
 .fc .is-task.fc-event-past:not(.is-done).fc-timegrid-event, .fc .is-task.fc-event-past:not(.is-done).fc-daygrid-block-event {
@@ -518,6 +529,22 @@ pre.code {
 }
 #pomo-timer[hidden] { display: none; }
 
+/* ------------------------------------------------------------ popups inside the app (the phone) */
+#alert-stack { position: fixed; z-index: 400; top: calc(var(--bar) + var(--next-h, 0px) + 10px); left: 50%; transform: translateX(-50%); width: min(400px, calc(100vw - 20px)); display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.alert-card { --c: var(--accent); pointer-events: auto; background: #0e0e12; border: 1px solid var(--line-2, #2c2c33); border-top: 3px solid var(--c); border-radius: 14px; padding: 12px 14px; box-shadow: 0 24px 70px rgba(0,0,0,.85); animation: alert-in .28s cubic-bezier(.2, .9, .3, 1.2); }
+.alert-card.leaving { opacity: 0; transform: translateY(-8px); transition: opacity .2s, transform .2s; }
+@keyframes alert-in { from { opacity: 0; transform: translateY(-12px) scale(.97); } }
+.alert-head { display: flex; align-items: center; gap: 8px; color: var(--c); font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.alert-head .ico { width: 15px; height: 15px; }
+.alert-card.call .alert-head > .ico { animation: alert-shake .9s ease-in-out infinite; }
+@keyframes alert-shake { 0%, 60%, 100% { transform: rotate(0); } 10%, 30%, 50% { transform: rotate(-14deg); } 20%, 40% { transform: rotate(14deg); } }
+.alert-head .icon-btn { width: 26px; height: 26px; color: var(--muted); }
+.alert-title { font-size: 17px; font-weight: 650; margin: 6px 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.alert-when { color: var(--muted); font-size: 13px; }
+.alert-when b { color: var(--text); }
+.alert-row { display: flex; gap: 8px; margin-top: 10px; }
+.alert-row .btn { flex: 1; justify-content: center; }
+
 /* ------------------------------------------------------------ Now / Next bar */
 /* The fill is the time left before the next obligation: full an hour or more ahead, empty as it starts. */
 #next-bar { --c: var(--accent); position: relative; height: var(--next-h, 34px); border-bottom: 1px solid var(--line); background: var(--panel); overflow: hidden; }
@@ -592,7 +619,7 @@ body.dragging-task #graph { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(-
 /* A goal's time frame on the calendar: a quiet bar that fills with its progress. */
 .fc .is-goal { background: color-mix(in srgb, var(--c) 12%, #0b0b0d) !important; border: 1px dashed color-mix(in srgb, var(--c) 55%, transparent) !important; cursor: pointer; }
 .goal-bar { background: linear-gradient(90deg, color-mix(in srgb, var(--c) 30%, transparent) var(--p), transparent var(--p)); border-radius: 4px; }
-.goal-bar .ev-title { color: color-mix(in srgb, var(--c) 45%, #fff); }
+.fc .is-goal .goal-bar .ev-title { color: color-mix(in srgb, var(--c) 45%, #fff); text-shadow: none; }
 .goal-pct { margin-left: auto; font-size: 10px; font-weight: 600; opacity: .8; padding-left: 6px; }
 .ev-title .ev-goal { display: inline-flex; }
 

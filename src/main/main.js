@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, clipboard, dialog, ipcMain, nativeImage, session, shell } = require('electron');
+const { app, BrowserWindow, Menu, Tray, clipboard, dialog, ipcMain, nativeImage, screen, session, shell } = require('electron');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const path = require('path');
@@ -99,6 +99,61 @@ function createWindow() {
     }, 3000));
   }
 }
+
+// ---------------------------------------------------------------- on-screen popups
+// When the Pi phones about something, and when something starts, a small window pops up
+// in the corner of the screen, over everything (even with Onyx hidden in the tray). The
+// calendar window decides when (app.js, tickPopups); a popup only reports its button.
+
+const ALERT_W = 384, ALERT_H = 156, ALERT_GAP = 10;
+const alerts = [];
+
+function placeAlerts() {
+  const area = screen.getPrimaryDisplay().workArea;
+  alerts.forEach((w, i) => {
+    if (w.isDestroyed()) return;
+    w.setBounds({ x: area.x + area.width - ALERT_W - 16, y: area.y + area.height - (ALERT_H + ALERT_GAP) * (i + 1) - 6, width: ALERT_W, height: ALERT_H });
+  });
+}
+
+function showAlert(a) {
+  if (!a || typeof a !== 'object') throw new Error('Nothing to show.');
+  const data = {
+    key: String(a.key || ''), kind: a.kind === 'call' ? 'call' : 'start', id: String(a.id || ''),
+    title: String(a.title || '').slice(0, 200), start: String(a.start || ''), end: String(a.end || ''),
+    color: /^#[0-9a-f]{3,8}$/i.test(a.color || '') ? a.color : '', calendar: String(a.calendar || '').slice(0, 80),
+    sound: a.sound !== false, hour12: a.hour12 !== false, snoozed: !!a.snoozed,
+  };
+  const open = alerts.find((w) => !w.isDestroyed() && w.alertData.key === data.key);
+  if (open) { open.showInactive(); return true; } // the same one is already up
+  const w = new BrowserWindow({
+    width: ALERT_W, height: ALERT_H, frame: false, resizable: false, maximizable: false, minimizable: false, fullscreenable: false,
+    alwaysOnTop: true, skipTaskbar: true, show: false, backgroundColor: '#0b0b0e', icon: ICON, title: 'Onyx',
+    webPreferences: {
+      preload: path.join(__dirname, '../alert-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true,
+      autoplayPolicy: 'no-user-gesture-required', backgroundThrottling: false,
+    },
+  });
+  w.alertData = data;
+  w.setAlwaysOnTop(true, 'screen-saver');
+  w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  w.webContents.on('will-navigate', (e) => e.preventDefault());
+  w.loadFile(path.join(__dirname, '../renderer/alert.html'), { query: { d: JSON.stringify(data) } });
+  w.once('ready-to-show', () => w.showInactive()); // over everything, without taking the keyboard from what you are typing in
+  w.on('closed', () => { alerts.splice(alerts.indexOf(w), 1); placeAlerts(); });
+  alerts.push(w);
+  placeAlerts();
+  return true;
+}
+
+ipcMain.on('alert:act', (e, action) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (!w || !alerts.includes(w)) return;
+  const a = w.alertData;
+  if (action === 'open') { showWindow(); win?.webContents.send('alert-action', { action: 'open', alert: a }); }
+  if (action === 'snooze') win?.webContents.send('alert-action', { action: 'snooze', alert: a });
+  w.close();
+});
 
 function createTray() {
   tray = new Tray(nativeImage.createFromPath(ICON).resize({ width: 16, height: 16 }));
@@ -214,6 +269,8 @@ const HANDLERS = {
   },
   'files:add': (paths, tags) => library.addLocalPins(paths, tags),
   'files:open': (id, reveal) => library.openLocal(id, !!reveal),
+  // The on-screen popup (only the PC has windows to pop up; the phone shows it in the app).
+  'alert:show': (a) => showAlert(a),
   // Tamkeen on this PC (not offered to the phone, which opens its own Tamkeen).
   'tamkeen:info': () => ({ installed: tamkeenInstalled() }),
   'tamkeen:watch': (id, seconds) => watchInTamkeen(id, seconds),

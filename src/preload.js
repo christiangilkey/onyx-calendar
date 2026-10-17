@@ -41,6 +41,9 @@ contextBridge.exposeInMainWorld('onyx', {
   renameTag: (from, to) => call('tag:rename', from, to),
   deleteTag: (tag) => call('tag:delete', tag),
   pairing: () => call('pairing'),
+  // On-screen popups: shown by the app, and what was pressed on them.
+  alert: (a) => call('alert:show', a),
+  onAlertAction: (fn) => ipcRenderer.on('alert-action', (_event, m) => fn(m)),
   // Tamkeen, the Arabic study app: open a news video in its player.
   tamkeen: { info: () => call('tamkeen:info'), watch: (id, seconds) => call('tamkeen:watch', id, seconds) },
   // Other PCs running Onyx, kept in step with this one.

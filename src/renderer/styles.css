@@ -271,7 +271,10 @@ body.mobile #calendar, body.mobile #calendar .fc-scroller { touch-action: pan-y;
 /* A half-hour block has room for one line: the title wins over the times. */
 /* A short block shows its time beside its name rather than hiding it. */
 .fc-timegrid-event-short .ev { flex-direction: row; align-items: baseline; gap: 6px; }
-.fc-timegrid-event-short .ev-time { display: block; flex: none; font-size: 10px; }
+/* The name keeps room (its circle and icons never spill over the time); the time gives way first. */
+.fc-timegrid-event-short .ev-title { flex: 1 1 auto; min-width: 3.4em; overflow: hidden; }
+.fc-timegrid-event-short .ev-title > :not(.t) { flex: none; }
+.fc-timegrid-event-short .ev-time { display: block; flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
 .fc .fc-timegrid-event-short .fc-event-main { padding: 1px 7px; }
 .can-tick .ev-title .dot { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid currentColor; flex: none; cursor: pointer; position: relative; transition: background .12s; }
 /* A bigger target than the circle itself, so it is easy to hit. */

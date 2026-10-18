@@ -1300,7 +1300,7 @@
     const now = (Date.now() - arg.event.start) / 60000;
     const bands = pomodoroChunks(total, p).map((c) => {
       const live = now >= c.from && now < c.to;
-      const col = c.kind === 'work' ? `rgba(255,107,91,${live ? 0.62 : 0.4})` : `rgba(79,209,165,${live ? 0.66 : 0.45})`;
+      const col = c.kind === 'work' ? `rgba(255,99,82,${live ? 0.78 : 0.58})` : `rgba(62,214,160,${live ? 0.85 : 0.68})`;
       return `${col} ${(c.from / total) * 100}%, ${col} ${(c.to / total) * 100}%`;
     });
     if (!bands.length) return;

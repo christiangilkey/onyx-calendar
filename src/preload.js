@@ -51,6 +51,9 @@ contextBridge.exposeInMainWorld('onyx', {
   pairing: () => call('pairing'),
   breakdown: (title, opts) => call('ai:breakdown', title, opts),
   setAiKey: (key) => call('ai:key', key),
+  magicPlan: (text, date, opts) => call('magic:plan', text, date, opts),
+  magicReplan: (tasks, travel, date, opts) => call('magic:replan', tasks, travel, date, opts),
+  magicRemember: (opts) => call('magic:remember', opts),
   // On-screen popups: shown by the app, and what was pressed on them.
   alert: (a) => call('alert:show', a),
   onAlertAction: (fn) => ipcRenderer.on('alert-action', (_event, m) => fn(m)),

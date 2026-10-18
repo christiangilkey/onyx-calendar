@@ -270,6 +270,9 @@
     syncDesktops: () => call('desktops:sync'),
     breakdown: (title, opts) => call('ai:breakdown', title, opts),
     setAiKey: (key) => call('ai:key', key),
+    magicPlan: (text, date, opts) => call('magic:plan', text, date, opts),
+    magicReplan: (tasks, travel, date, opts) => call('magic:replan', tasks, travel, date, opts),
+    magicRemember: (opts) => call('magic:remember', opts),
     // Onyx Home (the launcher) and Onyx on the lock screen, chosen in Settings.
     launcher: Widget ? {
       info: () => Widget.launcherInfo(),

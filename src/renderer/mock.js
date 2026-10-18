@@ -148,6 +148,40 @@
       if (v && typeof v === 'object' && !Array.isArray(v) && k !== 'hidden') merge(target[k] ||= {}, v); else target[k] = v;
     }
   };
+  // Magic add (preview): loads the real planner file once, then plans like the PC does without Claude.
+  let magicLib = null;
+  async function magicRun(text, date, o, tasks, travel) {
+    magicLib ||= await new Promise((ok, no) => {
+      if (window.OnyxMagicPlan) return ok(window.OnyxMagicPlan);
+      const sc = document.createElement('script');
+      sc.src = '../main/magic-plan.js';
+      sc.onload = () => ok(window.OnyxMagicPlan); sc.onerror = () => no(new Error('planner not found'));
+      document.head.append(sc);
+    });
+    const m = state.settings.magic || {};
+    const home = o.home ?? m.home ?? '';
+    const [y, mo, d] = date.split('-').map(Number);
+    const day = new Date(y, mo - 1, d);
+    const at = (hm) => { const [h, mi] = hm.split(':').map(Number); return new Date(y, mo - 1, d, h, mi).getTime(); };
+    let from = at(o.start || m.start || '08:00');
+    const to = at(o.end || m.end || '21:00');
+    if (Date.now() > from && Date.now() < +day + 86400000) from = Math.max(from, Date.now() + 300000);
+    if (to <= from) throw new Error('The day is over: pick tomorrow.');
+    // Like the PC: the entries and the timed tasks of that day.
+    const all = (await window.onyx.events(day.toISOString(), new Date(+day + 86400000).toISOString())).events;
+    const busy = all.filter((e) => (e.kind === 'event' || e.kind === 'task') && !e.allDay && e.start && e.end)
+      .map((e) => ({ start: +new Date(e.start), end: +new Date(e.end), place: e.location || null, title: e.title }));
+    const list = magicLib.normalizeTasks(tasks || magicLib.estimateLocal(text));
+    if (!list.length) throw new Error('No tasks found in that. Put one on each line.');
+    const r = magicLib.schedule(busy, list, { day, from, to, home: home || 'Home', travel: travel || [], lunch: (o.lunch ?? m.lunch) !== false });
+    const iso = (ms) => new Date(ms).toISOString();
+    return {
+      source: tasks ? 'edited' : 'local', warning: '', tasks: list, travel: travel || [],
+      blocks: r.blocks.map((b) => ({ idx: b.idx, part: b.part, title: b.title, start: iso(b.start), end: iso(b.end), minutes: b.minutes, travel: b.travel, place: b.place, why: b.why, kind: b.kind })),
+      unplaced: r.unplaced.map((u) => ({ idx: u.idx, title: u.task.title, minutes: u.task.minutes, reason: u.reason })),
+    };
+  }
+
   const withTags = (x) => ({ ...x, tags: tags[x.id] || [] });
 
   // Goals and repeating tasks (goals.js, repeat.js), kept simple.
@@ -484,6 +518,10 @@
       return all.slice(0, [3, 4, 6, 9, 12][(opts.level || 3) - 1]);
     },
     setAiKey: async () => snapshot(),
+    // Magic add: the same planner the PC uses (src/main/magic-plan.js), with the offline estimate.
+    magicPlan: async (text, date, o = {}) => magicRun(text, date, o),
+    magicReplan: async (tasks, travel, date, o = {}) => magicRun(null, date, o, tasks, travel),
+    magicRemember: async (o) => { Object.assign(state.settings.magic ||= {}, o); return snapshot(); },
     syncDesktops: async () => structuredClone({ ...state.desktops, invite: null }),
     loadGoogleCredentials: async () => snapshot(),
     connectGoogle: async () => snapshot(),

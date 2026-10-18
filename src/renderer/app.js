@@ -18,6 +18,7 @@
     trash: '<path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13"/>',
     check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
     undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+    sparkles: '<path d="M10 3l1.7 4.6L16.5 9.3l-4.8 1.7L10 15.6 8.3 11 3.5 9.3l4.8-1.7z"/><path d="M18 14l.9 2.1 2.1.9-2.1.9L18 20l-.9-2.1-2.1-.9 2.1-.9z"/>',
     car: '<path d="M5 16.5V12l1.8-4.6A1.5 1.5 0 0 1 8.2 6.5h7.6a1.5 1.5 0 0 1 1.4.9L19 12v4.5"/><path d="M4 16.5h16M5 12h14"/><circle cx="8" cy="16.5" r="1.7"/><circle cx="16" cy="16.5" r="1.7"/>',
     flag: '<path d="M5.5 21V4"/><path d="M5.5 4.5h11.5l-2.4 3.8 2.4 3.8H5.5"/>',
     stove: '<rect x="3.5" y="9" width="17" height="11.5" rx="2"/><circle cx="8.5" cy="14.5" r="2.2"/><circle cx="15.5" cy="14.5" r="2.2"/><path d="M8 3.5c-.8 1 .8 1.8 0 3M12 3c-.8 1 .8 1.8 0 3M16 3.5c-.8 1 .8 1.8 0 3"/>',
@@ -2117,7 +2118,7 @@
     // Travel time: the first part of the block is getting there. It shows as its own band on the
     // calendar, and the call to set off comes as the block starts.
     let leaveBy = src?.leaveBy ?? null;
-    const LEAVE = [0, 5, 10, 15, 20, 30, 45, 60, 90, 120];
+    const LEAVE = [...new Set([0, 5, 10, 15, 20, 30, 45, 60, 90, 120, leaveBy || 0])].sort((x, y) => x - y); // keeps a length set some other way
     const leaveSel = h('select', { class: 'leave-sel', title: 'Travel time, counted inside the block: its first minutes are getting there' },
       LEAVE.map((m) => h('option', { value: m, selected: (leaveBy || 0) === m }, m ? `${m < 60 ? `${m} min` : `${m / 60} h`} travel · in the block` : 'No travel time')));
     const leaveHint = h('small', { class: 'leave-hint' });
@@ -4413,6 +4414,204 @@
   function closeSettings() { $('#modal').hidden = true; $('#modal').replaceChildren(); }
   $('#modal').addEventListener('mousedown', (e) => { if (e.target === $('#modal')) closeSettings(); });
 
+  // ------------------------------------------------------------ magic add
+  // Describe what needs doing; the length, the place and the best time of day of each task are
+  // estimated (by Claude when there is a key, else from the words), and the tasks are laid into
+  // the day's free time with the travel between places counted. Planned in main (magic.js).
+
+  function openMagic(preset = {}) {
+    if (graph.on) closeGraph();
+    closePopover();
+    closeDrawers();
+    const m = { home: '', mode: 'drive', start: '08:00', end: '21:00', lunch: true, ...(S.settings.magic || {}) };
+    const writable = S.calendars.filter((c) => c.kind === 'calendar' && c.writable);
+    let view = null; // { date, tasks, travel, result }
+    let working = false;
+    let timer = 0;
+
+    const text = h('textarea', { class: 'magic-text', rows: 5, spellcheck: true, value: preset.text || '',
+      placeholder: 'Pick up the prescription\nGroceries\nStudy Arabic for an hour and a half\nCall the bank by 4pm\nGym' });
+    const date = h('input', { type: 'date', value: preset.date || ymd(new Date()) });
+    const start = h('input', { type: 'time', value: m.start, step: 900 });
+    const end = h('input', { type: 'time', value: m.end, step: 900 });
+    const home = h('input', { type: 'text', value: m.home, spellcheck: false, placeholder: 'Your area or home address (for travel times)' });
+    const mode = h('select', null, [['drive', 'Drive'], ['walk', 'Walk'], ['transit', 'Public transport'], ['bike', 'Bike']]
+      .map(([v, n]) => h('option', { value: v, selected: v === m.mode }, n)));
+    const lunch = h('input', { type: 'checkbox', checked: m.lunch !== false });
+    const calendarPick = h('select', null, writable.map((c) => h('option', { value: c.id }, c.account === 'local' || !c.accountLabel ? c.name : `${c.name}  ·  ${c.accountLabel}`)));
+    calendarPick.value = writable.some((c) => c.id === S.settings.defaultCalendar) ? S.settings.defaultCalendar : writable[0]?.id;
+    const day = (n) => () => { date.value = ymd(addDays(new Date(), n)); };
+    const dayChips = h('span', { class: 'magic-chips' },
+      h('button', { type: 'button', class: 'carry-chip', onclick: day(0) }, 'Today'),
+      h('button', { type: 'button', class: 'carry-chip', onclick: day(1) }, 'Tomorrow'));
+    const go = h('button', { class: 'btn primary', onclick: () => run() }, icon('sparkles'), 'Plan my day');
+    const out = h('div', { class: 'magic-out' });
+    const claude = S.ai?.ready;
+
+    const opts = () => ({ home: home.value.trim(), mode: mode.value, start: start.value || '08:00', end: end.value || '21:00', lunch: lunch.checked });
+    const dayName = (d) => (d === ymd(new Date()) ? 'today' : d === ymd(addDays(new Date(), 1)) ? 'tomorrow' : fmtDay(fromYmd(d)));
+    const mins = (n) => (n >= 60 ? `${Math.floor(n / 60)} h${n % 60 ? ` ${n % 60} min` : ''}` : `${n} min`);
+
+    function paint() {
+      if (!view) { out.replaceChildren(); return; }
+      const { result } = view;
+      const kids = [];
+      if (result.warning) kids.push(h('p', { class: 'magic-warn' }, result.warning));
+      kids.push(h('p', { class: 'magic-source' }, icon(result.source === 'claude' ? 'sparkles' : 'clock'),
+        result.source === 'claude' ? `Estimated by Claude for ${dayName(view.date)}`
+          : result.source === 'edited' ? `Laid out again for ${dayName(view.date)}`
+            : `Estimated from your words for ${dayName(view.date)}${claude ? '' : '. Add a Claude key in Settings for smarter estimates'}`));
+      if (result.blocks.length) {
+        kids.push(h('div', { class: 'magic-plan' }, result.blocks.map((b) => {
+          const s = new Date(b.start), e = new Date(b.end), at = new Date(s.getTime() + b.travel * 60000);
+          return h('div', { class: 'magic-row' },
+            h('div', { class: 'mr-time' }, h('b', null, fmtTime(b.travel ? at : s)), h('small', null, `to ${fmtTime(e)}`)),
+            h('div', { class: 'mr-main' },
+              h('div', { class: 'mr-title' }, b.title),
+              h('div', { class: 'mr-meta' },
+                b.travel > 0 && h('span', { class: 'mr-chip travel', title: 'Inside the block: it starts when you set off' }, icon('car'), `${b.travel} min travel · leave ${fmtTime(s)}`),
+                b.place && h('span', { class: 'mr-chip' }, icon('pin'), b.place),
+                h('span', { class: 'mr-chip' }, mins(b.minutes))),
+              b.why && h('div', { class: 'mr-why' }, b.why)),
+            h('div', { class: 'mr-ctl' },
+              !b.part && h('button', { class: 'icon-btn', title: 'Shorter', onclick: () => nudge(b.idx, -1) }, '−'),
+              !b.part && h('button', { class: 'icon-btn', title: 'Longer', onclick: () => nudge(b.idx, 1) }, '+'),
+              h('button', { class: 'icon-btn', title: 'Leave this one out', onclick: () => drop(b.idx) }, icon('x'))));
+        })));
+      }
+      if (result.unplaced.length) {
+        kids.push(h('div', { class: 'magic-left' },
+          h('h4', null, `Did not fit ${dayName(view.date)}`),
+          result.unplaced.map((u) => h('div', { class: 'magic-row slim' },
+            h('div', { class: 'mr-main' }, h('div', { class: 'mr-title' }, u.title), h('div', { class: 'mr-why' }, `${mins(u.minutes)} · ${u.reason}`)),
+            h('div', { class: 'mr-ctl' }, h('button', { class: 'icon-btn', title: 'Leave this one out', onclick: () => drop(u.idx) }, icon('x'))))),
+          h('div', { class: 'magic-actions' },
+            h('button', { class: 'btn', onclick: later }, 'Plan these for the next day'),
+            h('button', { class: 'btn ghost', onclick: addAsTasks }, 'Add them as tasks'))));
+      }
+      const n = result.blocks.length;
+      kids.push(h('div', { class: 'magic-foot' },
+        h('span', { class: 'magic-total' }, n ? `${n} block${n > 1 ? 's' : ''} · ${mins(result.blocks.reduce((t, b) => t + b.minutes + b.travel, 0))}` : 'Nothing fits in that window'),
+        h('button', { class: 'btn primary', disabled: !n || working, onclick: commit }, icon('plus'), n ? `Add ${n} to my calendar` : 'Add')));
+      out.replaceChildren(...kids);
+    }
+
+    async function run() {
+      if (working) return;
+      if (!text.value.trim()) { text.focus(); return; }
+      working = true;
+      go.disabled = true;
+      go.replaceChildren(icon('sparkles'), claude ? 'Estimating…' : 'Planning…');
+      out.replaceChildren(h('p', { class: 'magic-source' }, icon('sparkles'), claude ? 'Estimating the lengths and the travel…' : 'Fitting them in…'));
+      try {
+        onyx.magicRemember?.(opts()).then((s) => { if (s?.settings) S.settings = s.settings; }).catch(() => {});
+        const r = await onyx.magicPlan(text.value, date.value, opts());
+        view = { date: date.value, tasks: r.tasks, travel: r.travel, result: r };
+        working = false;
+        paint();
+        out.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch (err) {
+        out.replaceChildren(h('p', { class: 'magic-warn' }, err.message));
+      }
+      working = false;
+      go.disabled = false;
+      go.replaceChildren(icon('sparkles'), view ? 'Plan again' : 'Plan my day');
+    }
+
+    // A change to the tasks lays them out again at once, without asking Claude again.
+    function relayout() {
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        try {
+          const r = await onyx.magicReplan(view.tasks, view.travel, view.date, opts());
+          view = { ...view, tasks: r.tasks, result: r };
+          paint();
+        } catch (err) { toast(err.message, 'error'); }
+      }, 250);
+    }
+    function nudge(i, dir) {
+      const t = view.tasks[i];
+      if (!t) return;
+      const step = t.minutes >= 60 ? 15 : 5;
+      t.minutes = Math.max(5, Math.min(240, t.minutes + dir * step));
+      relayout();
+    }
+    function drop(i) {
+      view.tasks = view.tasks.filter((_, k) => k !== i);
+      view.result = { ...view.result, blocks: view.result.blocks.filter((b) => b.idx !== i).map((b) => ({ ...b, idx: b.idx > i ? b.idx - 1 : b.idx })), unplaced: view.result.unplaced.filter((u) => u.idx !== i).map((u) => ({ ...u, idx: u.idx > i ? u.idx - 1 : u.idx })) };
+      paint();
+      relayout();
+    }
+    async function later() {
+      const left = view.result.unplaced.map((u) => view.tasks[u.idx]).filter(Boolean);
+      const next = ymd(addDays(fromYmd(view.date), 1));
+      try {
+        const r = await onyx.magicReplan(left, view.travel, next, { ...opts(), start: start.value || '08:00' });
+        date.value = next;
+        view = { date: next, tasks: r.tasks, travel: view.travel, result: r };
+        paint();
+      } catch (err) { toast(err.message, 'error'); }
+    }
+    async function addAsTasks() {
+      const todo = view.result.unplaced;
+      await act(async () => { for (const u of todo) await onyx.createTask({ title: u.title, due: view.date }); });
+      toast(`Added ${todo.length} task${todo.length > 1 ? 's' : ''} for ${dayName(view.date)}`);
+      view.tasks = view.tasks.filter((_, k) => !todo.some((u) => u.idx === k));
+      view.result = { ...view.result, unplaced: [] };
+      paint();
+      relayout();
+    }
+
+    async function commit() {
+      const calendarId = calendarPick.value;
+      const planned = view.result.blocks;
+      if (!planned.length || working) return;
+      working = true;
+      paint();
+      const made = [];
+      const fields = planned.map((b) => ({
+        calendarId, title: b.title, start: b.start, end: b.end, allDay: false, location: b.place || '', notes: b.why || '',
+        ...(b.travel > 0 ? { leaveBy: b.travel } : {}),
+      }));
+      try {
+        for (const f of fields) made.push(await onyx.createEvent(f));
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+      working = false;
+      if (!made.length) { paint(); return; }
+      closeSettings();
+      calendar.gotoDate(fromYmd(view.date));
+      refetch(true);
+      const label = `Magic add: ${made.length} block${made.length > 1 ? 's' : ''} for ${dayName(view.date)}`;
+      recordAction(label,
+        async () => { for (const e of made) await onyx.deleteEvent(e.id); },
+        async () => { for (let i = 0; i < made.length; i++) made[i] = await onyx.createEvent(fields[i]); });
+    }
+
+    const row = (label, ...kids) => h('label', { class: 'magic-field' }, h('span', null, label), ...kids);
+    const sheet = h('div', { class: 'sheet magic' }, h('div', { class: 'pane' },
+      h('button', { class: 'icon-btn close', onclick: closeSettings }, icon('x')),
+      h('h3', { class: 'magic-h' }, icon('sparkles'), 'Magic add'),
+      h('p', { class: 'hint' }, 'Describe what you need to get done. Each task gets a length, a place and a good time of day, and they are fitted around what is already in your day, with the travel counted.'),
+      text,
+      h('div', { class: 'magic-grid' }, row('Day', date, dayChips), row('Add to', calendarPick)),
+      h('details', { class: 'magic-opts', open: !MOBILE },
+        h('summary', null, 'Hours, travel and lunch'),
+        h('div', { class: 'magic-grid' },
+          row('Hours', h('span', { class: 'magic-hours' }, start, h('i', null, 'to'), end)),
+          row('Getting around', mode),
+          row('Starting from', home),
+          h('label', { class: 'magic-check' }, lunch, h('span', null, 'Keep lunch free')))),
+      h('div', { class: 'magic-run' }, go,
+        h('small', null, claude ? 'Claude estimates with your API key. It is sent your task list and the titles and places of the day\'s entries.' : 'No Claude key set: lengths are guessed from the words. Add one in Settings for better estimates and travel times.')),
+      out));
+    $('#modal').replaceChildren(sheet);
+    $('#modal').hidden = false;
+    setTimeout(() => text.focus(), 50);
+    if (preset.text) run();
+  }
+
   // ------------------------------------------------------------ globe view
   // Entries in a date range, plus notes and pinned Notion pages / Drive files,
   // orbiting around clusters on a 3D globe (graph.js).
@@ -5423,6 +5622,10 @@
     $('#refresh').onclick = refreshAll;
     $('#new-block').onclick = newBlock;
     $('#fab').onclick = newBlock;
+    $('#magic-add').append(icon('sparkles'), 'Magic add');
+    $('#magic-add').onclick = () => openMagic();
+    $('#magic-fab').append(icon('sparkles'));
+    $('#magic-fab').onclick = () => openMagic();
     $('#add-calendar').onclick = () => openSettings(onyx.isPhone ? 'connection' : 'calendars');
     $('#open-settings').onclick = () => openSettings();
     $('#menu').onclick = () => document.body.classList.toggle('drawer-left');
@@ -5449,6 +5652,7 @@
       if (views[key]) pickView(views[key]);
       else if (key === 't') nav(0);
       else if (key === 'n') { e.preventDefault(); newBlock(); }
+      else if (key === 'p') { e.preventDefault(); openMagic(); }
       else if (key === 'r') refreshAll();
       else if (e.key === 'ArrowLeft') nav(-1);
       else if (e.key === 'ArrowRight') nav(1);

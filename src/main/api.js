@@ -157,6 +157,10 @@ const handlers = {
   // Breakdown (the hammer): a task split into steps, 1 (broad) to 5 (micro-steps).
   'ai:breakdown': (title, opts) => ai.breakdown(title, opts),
   'ai:key': withState((key) => ai.setKey(key)),
+  // Magic add: describe the day's tasks, get them placed in the free time (replan: the same tasks, changed).
+  'magic:plan': (text, date, opts) => require('./magic').planDay(text, date, opts),
+  'magic:replan': (tasks, travel, date, opts) => require('./magic').replan(tasks, travel, date, opts),
+  'magic:remember': withState((opts) => require('./magic').remember(opts)),
   // Calls & alerts: the Twilio auth token (kept with the secrets), and a test call or push.
   'calls:token': withState((token) => require('./caller').setTwilioToken(token)),
   'calls:test': (kind) => require('./caller').test(kind),
@@ -164,7 +168,7 @@ const handlers = {
 
 // What the phone may run. Signing in to accounts, and the settings that could
 // cut the phone off (the server itself, start-up behaviour), stay on the PC.
-const PHONE_SETTINGS = ['hidden', 'hour12', 'weekStart', 'defaultCalendar', 'pi'];
+const PHONE_SETTINGS = ['hidden', 'hour12', 'weekStart', 'defaultCalendar', 'pi', 'magic'];
 const PC_ONLY = new Set(['pairing', 'desktops', 'desktops:invite', 'desktops:cancel', 'desktops:join', 'desktops:leave', 'desktops:forget']);
 const remote = Object.fromEntries(Object.entries(handlers).filter(([name]) => !PC_ONLY.has(name)));
 remote.settings = (patch) => changeSettings(Object.fromEntries(Object.entries(patch || {}).filter(([k]) => PHONE_SETTINGS.includes(k))));

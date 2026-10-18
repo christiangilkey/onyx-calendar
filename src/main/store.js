@@ -22,6 +22,8 @@ const DEFAULTS = {
     pi: { enabled: true, taskList: '', leadMinutes: 60, quietStart: '22:00', quietEnd: '07:00', checkEvery: 30 },
     // How reminders reach you (caller.js): alarm (the phone), ntfy (push), twilio (a call), pi. '' = pick for me.
     calls: { method: '', ntfyServer: 'https://ntfy.sh', ntfyTopic: '', twilioSid: '', twilioFrom: '', callTo: '' },
+    // Magic add: where you set off from, how you get around, the hours to plan in, keep lunch free.
+    magic: { home: '', mode: 'drive', start: '08:00', end: '21:00', lunch: true },
     mcp: { enabled: true, port: 4747, lan: true },
   },
   accounts: [],          // { id, provider: 'google' | 'microsoft' | 'ics', label, url? }

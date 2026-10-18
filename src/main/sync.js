@@ -21,7 +21,7 @@ const SECTIONS = {
   tags: MAP, tagColors: MAP, backburner: MAP, doneEvents: MAP, stoppedSeries: MAP, memos: MAP, leaveBy: MAP, repeats: MAP, repeatSpawned: MAP, pomodoro: MAP, madeHere: MAP, piLinks: MAP,
   calendars: MAP, notes: LIST, goals: LIST, pins: LIST, accounts: LIST,
   'local.calendars': LIST, 'local.events': LIST,
-  'settings.hidden': MAP, 'settings.hour12': VALUE, 'settings.weekStart': VALUE, 'settings.defaultCalendar': VALUE, 'settings.pi': VALUE,
+  'settings.hidden': MAP, 'settings.hour12': VALUE, 'settings.weekStart': VALUE, 'settings.defaultCalendar': VALUE, 'settings.pi': VALUE, 'settings.magic': VALUE,
   google: VALUE, microsoft: VALUE, notion: VALUE, news: VALUE,
   'secrets.googleClientSecret': VALUE, 'secrets.notionToken': VALUE, 'secrets.anthropicKey': VALUE, 'secrets.twilioToken': VALUE, 'secrets.mcpToken': VALUE, 'secrets.tokens': MAP,
   desktops: MAP, // device id -> { name, addresses, version }: each PC keeps its own entry

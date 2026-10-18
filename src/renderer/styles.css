@@ -1550,3 +1550,55 @@ body.mobile .magic-row.slim { grid-template-columns: 1fr auto; }
 body.mobile .magic-foot { bottom: calc(-20px - env(safe-area-inset-bottom, 0px)); }
 body.mobile .magic-foot .btn { flex: 1; justify-content: center; }
 body.mobile .magic-grid { gap: 12px; }
+
+/* ------------------------------------------------------------ stretching an entry by its edge */
+/* A generous grab zone along the top and bottom edge (never more than a third of a short block),
+   with a small grip that shows on hover, and on a touched entry. */
+.fc .fc-timegrid-event .fc-event-resizer {
+  left: 0; right: 0; width: auto; height: min(12px, 34%); background: none; border: 0; border-radius: 0; margin: 0;
+}
+.fc .fc-timegrid-event .fc-event-resizer-start { top: -3px; bottom: auto; cursor: ns-resize; }
+.fc .fc-timegrid-event .fc-event-resizer-end { bottom: -3px; top: auto; cursor: ns-resize; }
+.fc .fc-timegrid-event .fc-event-resizer::after {
+  content: ''; position: absolute; left: 50%; width: 24px; height: 3px; margin-left: -12px; border-radius: 2px;
+  background: rgba(255,255,255,.75); box-shadow: 0 0 0 1px rgba(0,0,0,.25); opacity: 0; transition: opacity .12s;
+}
+.fc .fc-timegrid-event .fc-event-resizer-start::after { top: 4px; }
+.fc .fc-timegrid-event .fc-event-resizer-end::after { bottom: 4px; }
+.fc .fc-timegrid-event .fc-event-resizer:hover::after, .fc .fc-timegrid-event.fc-event-selected .fc-event-resizer::after { opacity: 1; }
+body.mobile .fc .fc-timegrid-event .fc-event-resizer { height: min(18px, 40%); }
+body.mobile .fc .fc-timegrid-event .fc-event-resizer::after { width: 30px; margin-left: -15px; height: 4px; }
+/* While it is stretched: a copy follows the pointer, the snapped place shows as a dashed outline. */
+.stretch-float { position: fixed; z-index: 500; pointer-events: none; background: transparent; will-change: top, height; }
+.stretch-float > .fc-event { position: relative !important; inset: auto !important; margin: 0 !important; width: 100% !important; height: 100% !important; overflow: hidden; box-shadow: 0 12px 30px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.2) !important; opacity: .96; }
+.stretch-float.dropping { opacity: 0; transition: opacity .14s; }
+.stretch-chip {
+  position: absolute; left: 50%; transform: translateX(-50%); white-space: nowrap; padding: 4px 10px; border-radius: 9px;
+  background: #fff; color: #000; font-size: 11.5px; font-weight: 600; box-shadow: 0 6px 18px rgba(0,0,0,.6); pointer-events: none;
+}
+.stretch-chip:empty { display: none; }
+.stretch-chip.end { top: calc(100% + 8px); } .stretch-chip.start { bottom: calc(100% + 8px); }
+body.stretching .fc .fc-event-mirror { opacity: .5 !important; box-shadow: none !important; outline: 1.5px dashed color-mix(in srgb, var(--c, var(--accent)) 80%, #fff); outline-offset: -1.5px; filter: none !important; }
+body.stretching .fc .fc-event-mirror .fc-event-main { visibility: hidden; }
+body.stretching, body.stretching * { cursor: ns-resize !important; }
+
+/* ------------------------------------------------------------ Magic add: tasks from other apps */
+.magic-count {
+  min-width: 18px; height: 18px; padding: 0 5px; margin-left: 6px; border-radius: 9px; background: #c9b8ff; color: #120d24;
+  font-size: 11px; font-weight: 700; line-height: 18px; text-align: center;
+}
+.magic-btn { display: flex; align-items: center; justify-content: center; }
+body.mobile #magic-fab { overflow: visible; }
+body.mobile #magic-fab .magic-count { position: absolute; top: -6px; right: -6px; margin: 0; box-shadow: 0 0 0 2px #0a0a0c; }
+.magic-inbox { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 12px; border: 1px solid color-mix(in srgb, #c9b8ff 35%, var(--line-2)); background: color-mix(in srgb, #c9b8ff 7%, #0c0c0f); }
+.magic-inbox[hidden] { display: none; }
+.mi-head { display: flex; align-items: baseline; gap: 7px; font-size: 12px; font-weight: 700; color: #dcd3ff; flex-wrap: wrap; }
+.mi-head .ico { width: 14px; height: 14px; align-self: center; }
+.mi-head small { color: var(--muted); font-weight: 400; font-size: 11.5px; }
+.mi-row { display: flex; align-items: center; gap: 10px; padding: 6px 2px; cursor: pointer; border-top: 1px solid var(--line); }
+.mi-row:first-of-type { border-top: 0; }
+.mi-row input { flex: none; }
+.mi-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.mi-main b { font-weight: 600; overflow-wrap: anywhere; }
+.mi-main small { color: var(--muted); font-size: 11px; }
+.mr-chip.from { background: color-mix(in srgb, #c9b8ff 18%, var(--raise-2)); color: #dcd3ff; }

@@ -12,6 +12,7 @@ const repeat = require('./repeat');
 const series = require('./series');
 const recur = require('./recur');
 const sync = require('./sync');
+const inbox = require('./inbox');
 
 const PROVIDERS = { google, microsoft };
 const LOCAL = { id: 'local', provider: 'local', label: 'On this PC' };
@@ -203,13 +204,14 @@ function taskAsEvent(t) {
   const base = {
     id: t.id, calendarId: t.listId, calendarName: t.listName, color: t.color, kind: 'task',
     title: t.label, location: '', notes: t.notes, link: '', writable: false,
+    leaveBy: t.leaveBy,
     piCall: !!(t.call && !t.call.quiet && !t.call.past), ...(t.call && !t.call.quiet && !t.call.past ? { callAt: t.call.at } : {}), done: t.done, goal: t.goal, repeat: t.repeat, madeHere: t.madeHere,
     provider: t.provider, mirror: t.mirror,
     movable: !t.mirror && !t.done, // dragged to another day in the calendar (see moveTask)
   };
   if (t.start) {
     // A task with a pomodoro split has a real length; others are drawn as a short block.
-    const minutes = t.pomodoro?.minutes || TASK_BLOCK_MINUTES;
+    const minutes = t.pomodoro?.minutes || t.minutes || TASK_BLOCK_MINUTES;
     return { ...base, allDay: false, start: t.start, end: new Date(new Date(t.start).getTime() + minutes * 60000).toISOString() };
   }
   const day = toDate(t.date);
@@ -558,7 +560,7 @@ function unifyTask(cal, t, mirrors) {
     // On the backburner: no date, kept for later. A date (however it came) takes it off.
     backburner: !date && !!store.data.backburner?.[id],
     goal: goalOfTask(id), repeat: store.data.repeats[id]?.rule || null, madeHere: store.data.madeHere[id] || null,
-    pomodoro: pomodoroOf(id),
+    pomodoro: pomodoroOf(id), minutes: store.data.taskMinutes?.[id] || null, leaveBy: leaveByOf(id),
   };
   // The Pi only reads Google Tasks, and only phones for a task with a time in its name.
   const pi = store.data.settings.pi;
@@ -581,7 +583,9 @@ async function listTasks(cal, force) {
     taskCache.set(cal.id, { at: Date.now(), items: raw });
   }
   const mirrors = new Set(Object.values(store.data.piLinks).map((l) => l.task));
-  return raw.map((t) => unifyTask(cal, t, mirrors));
+  const tasks = raw.map((t) => unifyTask(cal, t, mirrors));
+  inbox.scanList(cal.id, tasks); // new arrivals from outside wait for Magic add
+  return tasks;
 }
 
 /**
@@ -616,7 +620,7 @@ async function getTasks({ force = false } = {}) {
     tasks.push(...await repeat.reconcile(module.exports, open, failed, new Set(all.map((c) => c.id))));
   }
   series.annotate(tasks); // copies of a task that repeats in Google are marked as one series
-  return { tasks, errors: [...errors], failed: [...failed] };
+  return { tasks, errors: [...errors], failed: [...failed], inbox: inbox.pendingIds(tasks) };
 }
 
 /** One task, open or done, as Onyx shows it; null when it was deleted. */
@@ -712,6 +716,7 @@ async function createTask(data) {
   markMadeHere(`${cal.id}/${enc(raw.rawId)}`);
   if (data.tags) setTags(`${cal.id}/${enc(raw.rawId)}`, data.tags);
   if (data.backburner && !named.date) setBackburner(`${cal.id}/${enc(raw.rawId)}`, true);
+  if (data.inbox) inbox.add(`${cal.id}/${enc(raw.rawId)}`, String(data.inbox)); // another app made it: Magic add plans it
   return unifyTask(cal, raw, new Set());
 }
 
@@ -780,6 +785,66 @@ async function moveTask(id, to) {
   return updateTask(id, { ...(base !== task.title ? { title: base } : {}), due });
 }
 
+/**
+ * Plans a task into a block of the day (Magic add): its time goes into its name as when it is dragged on the
+ * calendar, its length and travel are kept in Onyx. Returns { task, prev }: what to hand back to unplanTask.
+ */
+async function planTask(id, { start, minutes, leaveBy } = {}) {
+  const { calendarId } = parseId(id);
+  const cal = findCalendar(calendarId);
+  const before = (await listTasks(cal, true)).find((t) => t.id === id);
+  if (!before) throw Object.assign(new Error('That task no longer exists.'), { status: 404 });
+  const prev = {
+    title: before.title, due: before.due || null, minutes: store.data.taskMinutes?.[id] || null, leaveBy: leaveByOf(id),
+    state: store.data.inboxItems?.[id]?.state || null,
+  };
+  const task = await moveTask(id, { start });
+  setTaskMinutes(id, minutes);
+  setLeaveBy(id, leaveBy);
+  inbox.mark(id, 'planned');
+  return { task: { ...task, minutes: store.data.taskMinutes[id] || null, leaveBy: leaveByOf(id) }, prev };
+}
+
+/**
+ * A timed task's block resized on the calendar: a new start (its top edge moved) and a length. The length is
+ * kept in Onyx, since Google Tasks and To Do have none.
+ */
+async function resizeTask(id, { start, minutes } = {}) {
+  const { calendarId } = parseId(id);
+  const cal = findCalendar(calendarId);
+  const task = (await listTasks(cal, true)).find((t) => t.id === id);
+  if (!task) throw Object.assign(new Error('That task no longer exists.'), { status: 404 });
+  if (task.mirror) throw new Error('This task follows a calendar entry for the Pi. Resize the entry instead.');
+  let out = task;
+  if (start && (!task.start || +new Date(start) !== +new Date(task.start))) out = await moveTask(id, { start });
+  setTaskMinutes(id, minutes);
+  if (store.data.pomodoro[id]) { store.data.pomodoro[id].minutes = store.data.taskMinutes[id] || store.data.pomodoro[id].minutes; store.save(); }
+  return { ...out, minutes: store.data.taskMinutes[id] || null };
+}
+
+/** Takes a planned task back to how it was (undo of planTask). */
+async function unplanTask(id, prev = {}) {
+  await updateTask(id, { title: prev.title, due: prev.due || null });
+  setTaskMinutes(id, prev.minutes);
+  setLeaveBy(id, prev.leaveBy);
+  inbox.mark(id, prev.state && prev.state !== 'planned' ? prev.state : 'new');
+  return true;
+}
+
+function setTaskMinutes(id, minutes) {
+  store.data.taskMinutes ??= {};
+  const n = Math.round(Number(minutes));
+  if (!Number.isFinite(n) || n < 5) delete store.data.taskMinutes[id];
+  else store.data.taskMinutes[id] = Math.min(n, 12 * 60);
+  store.save();
+}
+
+/** "Not now": the task stays in its list but leaves the Magic add inbox. */
+function dismissInbox(id) {
+  inbox.mark(id, 'dismissed');
+  return true;
+}
+
 async function deleteTask(id) {
   const { acct, calendarId, rawCal, rawItem } = parseId(id);
   await PROVIDERS[acct.provider].deleteTask(req(acct), rawCal, rawItem);
@@ -787,6 +852,9 @@ async function deleteTask(id) {
   dropTags(id);
   if (store.data.repeats[id]) delete store.data.repeats[id];
   delete store.data.pomodoro[id];
+  delete store.data.taskMinutes?.[id];
+  delete store.data.leaveBy?.[id];
+  inbox.forget(id);
   for (const g of store.data.goals) for (const s of g.steps) if (s.taskId === id) s.taskId = null;
   store.save();
 }
@@ -1110,6 +1178,6 @@ function removeLocalCalendar(id) {
 
 module.exports = {
   calendars, refreshCalendars, invalidate, getEvents, setBackburner, setEventDone, createEvent, updateEvent, deleteEvent, setLeaveBy, ackPiCall, piAlerts,
-  getTasks, archivedTasks, fetchTask, createTask, updateTask, moveTask, deleteTask, setRepeat, setPomodoro, setPiCall, freeTime, addLocalCalendar, removeLocalCalendar,
+  getTasks, archivedTasks, fetchTask, createTask, updateTask, moveTask, resizeTask, planTask, unplanTask, dismissInbox, deleteTask, setRepeat, setPomodoro, setPiCall, freeTime, addLocalCalendar, removeLocalCalendar,
   setTags, allTags, setTagColor, renameTag, deleteTag, setMemo, MAX_NOTE,
 };

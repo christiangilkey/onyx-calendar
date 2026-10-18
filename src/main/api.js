@@ -100,6 +100,11 @@ const handlers = {
   'task:update': (id, patch) => hub.updateTask(id, patch),
   'task:backburner': (id, on) => hub.setBackburner(id, !!on),
   'task:move': (id, to) => hub.moveTask(id, to),
+  'task:resize': (id, to) => hub.resizeTask(id, to),
+  // Magic add: plan a task that arrived from outside into a block of the day, take that back, or leave it for later.
+  'task:plan': (id, to) => hub.planTask(id, to),
+  'task:unplan': (id, prev) => hub.unplanTask(id, prev),
+  'inbox:dismiss': (id) => hub.dismissInbox(id),
   'tasks:archived': (from, to) => hub.archivedTasks(from, to),
   'task:delete': (id) => hub.deleteTask(id),
   'task:repeat': (id, rule) => hub.setRepeat(id, rule),
@@ -158,7 +163,7 @@ const handlers = {
   'ai:breakdown': (title, opts) => ai.breakdown(title, opts),
   'ai:key': withState((key) => ai.setKey(key)),
   // Magic add: describe the day's tasks, get them placed in the free time (replan: the same tasks, changed).
-  'magic:plan': (text, date, opts) => require('./magic').planDay(text, date, opts),
+  'magic:plan': (text, date, opts, inboxIds) => require('./magic').planDay(text, date, opts, inboxIds),
   'magic:replan': (tasks, travel, date, opts) => require('./magic').replan(tasks, travel, date, opts),
   'magic:remember': withState((opts) => require('./magic').remember(opts)),
   // Calls & alerts: the Twilio auth token (kept with the secrets), and a test call or push.

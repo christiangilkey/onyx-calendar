@@ -49,6 +49,9 @@ const DEFAULTS = {
   repeats: {},           // task id -> { rule, day } for tasks that repeat; Onyx adds the next one when it is done (repeat.js)
   repeatSpawned: {},
   pomodoro: {},          // event or task id -> { work, rest, minutes? }: split into work and rest chunks (hub.js)
+  inboxItems: {},        // task id -> { at, state, from? }: tasks that arrived from outside, waiting for Magic add (inbox.js)
+  inboxLists: {},        // task list id -> true once read, so its first read only learns what is there
+  taskMinutes: {},       // task id -> how long its block is on the calendar (Google Tasks and To Do have no length)
   madeHere: {},          // event or task id -> date it was added from Onyx (so a window can say where it came from)     // completed task id -> the task added after it, so Undo can take that back
   news: null,          // { channels: [{ id, name, on, live?, custom? }] } for the News panel (news.js)
   desktops: {},          // linked desktops: device id -> { name, addresses, version } (sync.js)

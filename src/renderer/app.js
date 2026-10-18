@@ -1141,7 +1141,8 @@
       backgroundColor: e.color, borderColor: e.color,
       // Tasks can be dragged to another day or time, but keep their length.
       editable: e.kind === 'task' ? !!e.movable : e.writable && e.kind === 'event',
-      durationEditable: e.kind === 'event' && e.writable,
+      // An entry or a timed task can be stretched by its top or bottom edge.
+      durationEditable: (e.kind === 'event' && e.writable) || (e.kind === 'task' && !!e.movable && !e.allDay),
       classNames: [e.kind === 'task' ? 'is-task' : e.kind === 'goal' ? 'is-goal' : 'is-event', e.kind === 'goal' ? '' : 'can-tick', e.done ? 'is-done' : '', matchesFilter(e.tags) ? '' : 'is-dim'],
       extendedProps: { src: e },
     };
@@ -1253,7 +1254,7 @@
   // tags, which a short or narrow block cuts off. Shown after a short pause, never while dragging.
   const peek = { el: null, timer: 0 };
   document.addEventListener('scroll', () => hidePeek(), true); // the block moved away from under the card
-  const dragging = () => document.body.classList.contains('dragging-entry') || document.body.classList.contains('carrying');
+  const dragging = () => ['dragging-entry', 'carrying', 'stretching'].some((c) => document.body.classList.contains(c));
   function showPeek(info) {
     hidePeek();
     const src = info.event.extendedProps.src;
@@ -1324,7 +1325,8 @@
       const oldEnd = old.end || (old.allDay ? addDays(old.start, 1) : new Date(old.start.getTime() + 3600000));
       const before = old.allDay ? { start: ymd(old.start), end: ymd(oldEnd), allDay: true } : { start: old.start.toISOString(), end: oldEnd.toISOString(), allDay: false };
       const id = saved?.id && !src.seriesId ? saved.id : src.id;
-      recordAction(src.seriesId ? `Moved every repeat of "${src.title}"` : `Moved "${src.title}"`,
+      const verb = end - e.start !== oldEnd - old.start ? 'Resized' : 'Moved'; // an edge stretched, or the whole entry carried
+      recordAction(src.seriesId ? `${verb} every repeat of "${src.title}"` : `${verb} "${src.title}"`,
         () => onyx.updateEvent(id, src.seriesId ? { ...before, seriesId: src.seriesId, from: times.start } : before),
         () => onyx.updateEvent(id, src.seriesId ? { ...times, seriesId: src.seriesId, from: before.start } : times));
       refetch();
@@ -1337,6 +1339,8 @@
   /** A task dropped on another day (or time): its due date in Google Tasks / To Do follows. */
   async function moveTaskTo(info) {
     const e = info.event;
+    const old = info.oldEvent;
+    if (!e.allDay && !old.allDay && e.end && old.end && e.end - e.start !== old.end - old.start) return resizeTaskTo(info);
     try {
       const t = await onyx.moveTask(e.extendedProps.src.id, e.allDay ? { date: ymd(e.start) } : { start: e.start.toISOString() });
       const day = toDate(t.date).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
@@ -1347,6 +1351,22 @@
       const taskId = e.extendedProps.src.id;
       recordAction(`Moved "${e.title}" to ${day}${t.start ? ` ${fmtTime(new Date(t.start))}` : ''}${call}`,
         () => onyx.moveTask(taskId, was), () => onyx.moveTask(taskId, now));
+      refetch();
+      loadTasks(true);
+    } catch (err) {
+      info.revert();
+      toast(err.message, 'error');
+    }
+  }
+
+  /** A task's block stretched by an edge: its new start and length are kept; undo puts both back. */
+  async function resizeTaskTo(info) {
+    const e = info.event, old = info.oldEvent, id = e.extendedProps.src.id;
+    const spec = (x) => ({ start: x.start.toISOString(), minutes: Math.round((x.end - x.start) / 60000) });
+    const now = spec(e), was = spec(old);
+    try {
+      await onyx.resizeTask(id, now);
+      recordAction(`Resized "${e.title}" to ${fmtTime(e.start)} - ${fmtTime(e.end)}`, () => onyx.resizeTask(id, was), () => onyx.resizeTask(id, now));
       refetch();
       loadTasks(true);
     } catch (err) {
@@ -1394,6 +1414,8 @@
       // A real drag blocks out time; a click (even one that wobbles a little over an entry) never
       // turns into a new block by mistake. A plain click on an empty slot still opens one (dateClick).
       selectMinDistance: MOBILE ? 0 : 6,
+      eventResizableFromStart: true, // drag the top edge too, not only the bottom
+      snapDuration: '00:15:00',
       dateClick: (info) => {
         if (MOBILE || info.jsEvent.target.closest?.('.fc-event, .fc-more-link')) return;
         const start = info.date;
@@ -1467,7 +1489,8 @@
       // (snapped to the grid) shows as an outline, and it snaps there when dropped.
       eventDragStart: (info) => { hidePeek(); edgeNavStart(); floatStart(info); },
       eventDragStop: () => { edgeNavStop(); floatStop(); afterDrag(); },
-      eventResizeStop: () => afterDrag(),
+      eventResizeStart: (info) => { hidePeek(); stretchStart(info); },
+      eventResizeStop: () => { stretchStop(); afterDrag(); },
       datesSet: (info) => {
         if (!graph.on) $('#range').textContent = MOBILE ? shortTitle(info.view.currentStart, info.view.currentEnd, info.view.type) : info.view.title;
         for (const b of document.querySelectorAll('[data-view]')) b.classList.toggle('on', !graph.on && b.dataset.view === info.view.type);
@@ -1731,6 +1754,75 @@
     };
     document.addEventListener('touchend', lifted, { capture: true, passive: true });
     document.addEventListener('touchcancel', lifted, { capture: true, passive: true });
+  }
+
+  // ---- stretching an entry by its top or bottom edge
+  // The grid snaps the new time to 15 minutes (the dashed outline). A copy of the entry follows the
+  // pointer exactly, smoothly, with the time it will land on, and settles into place when let go.
+  const stretch = { box: null, chip: null, edge: 'end', rect: null, y: 0, frame: 0, perMin: 0 };
+
+  function stretchStart(info) {
+    stretchStop();
+    const el = info.el;
+    const r = el.getBoundingClientRect();
+    const target = info.jsEvent?.target;
+    stretch.edge = target?.closest?.('.fc-event-resizer-start') ? 'start' : target?.closest?.('.fc-event-resizer-end') ? 'end'
+      : ((info.jsEvent?.touches?.[0] || info.jsEvent)?.clientY ?? r.bottom) < r.top + r.height / 2 ? 'start' : 'end';
+    stretch.rect = r;
+    stretch.y = stretch.edge === 'start' ? r.top : r.bottom;
+    const slot = $('#calendar .fc-timegrid-slot-lane') || $('#calendar .fc-timegrid-slot');
+    stretch.perMin = (slot?.getBoundingClientRect().height || 28) / 30; // pixels in a minute of the grid
+    const copy = el.cloneNode(true);
+    copy.classList.remove('fc-event-dragging', 'fc-event-selected', 'fc-event-resizing');
+    for (const extra of copy.querySelectorAll('.ev-timer, .fc-event-resizer')) extra.remove(); // the drain pie redraws every frame
+    stretch.chip = h('div', { class: `stretch-chip ${stretch.edge}` });
+    stretch.box = h('div', { class: 'fc stretch-float' }, copy, stretch.chip);
+    Object.assign(stretch.box.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+    document.body.append(stretch.box);
+    document.body.classList.add('stretching');
+    document.addEventListener(MOVE_EVENT, stretchMove, { capture: true, passive: true });
+  }
+
+  function stretchMove(e) {
+    const p = e.touches?.[0] || e;
+    if (p.clientY == null) return;
+    stretch.y = p.clientY;
+    if (!stretch.frame) stretch.frame = requestAnimationFrame(stretchFrame);
+  }
+
+  function stretchFrame() {
+    stretch.frame = 0;
+    const box = stretch.box;
+    if (!box) return;
+    // The edge that stays put is read from the snapped outline, so it holds still while the grid scrolls.
+    const mirror = $('#calendar .fc-event-mirror');
+    const base = mirror?.isConnected ? mirror.getBoundingClientRect() : stretch.rect;
+    const area = $('#calendar .fc-timegrid-body')?.closest('.fc-scroller')?.getBoundingClientRect();
+    const y = area ? Math.min(Math.max(stretch.y, area.top), area.bottom) : stretch.y;
+    const MIN = 22;
+    let top, height;
+    if (stretch.edge === 'end') { top = base.top; height = Math.max(MIN, y - base.top); }
+    else { top = Math.min(y, base.bottom - MIN); height = base.bottom - top; }
+    box.style.left = `${base.left}px`;
+    box.style.width = `${base.width}px`;
+    box.style.top = `${top}px`;
+    box.style.height = `${height}px`;
+    // Where it will land: the snapped times, and how long that makes it.
+    const mins = mirror ? Math.round(mirror.getBoundingClientRect().height / stretch.perMin / 15) * 15 : 0;
+    const when = mirror?.querySelector('.ev-time')?.textContent?.trim();
+    stretch.chip.textContent = [when, mins > 0 ? (mins >= 60 ? `${Math.floor(mins / 60)} h${mins % 60 ? ` ${mins % 60} min` : ''}` : `${mins} min`) : ''].filter(Boolean).join(' · ');
+  }
+
+  function stretchStop() {
+    document.removeEventListener(MOVE_EVENT, stretchMove, { capture: true });
+    cancelAnimationFrame(stretch.frame);
+    stretch.frame = 0;
+    document.body.classList.remove('stretching');
+    const box = stretch.box;
+    stretch.box = null;
+    if (!box) return;
+    box.classList.add('dropping'); // it fades as the entry settles on the snapped time
+    setTimeout(() => box.remove(), 160);
   }
 
   // ---- the carried entry: a copy that follows the pointer exactly
@@ -2315,11 +2407,39 @@
       const res = await onyx.tasks(force);
       tasks = res.tasks;
       showProblems(res.errors);
+      noteInbox(res.inbox || []);
     } catch (err) {
       toast(err.message, 'error');
     }
     renderTasks();
     loadGoals();
+  }
+
+  // ---- Magic add's inbox: tasks that arrived from other apps wait to be planned into a day
+  let inboxIds = [];
+  let inboxKnown = null; // the ones seen so far, to say when a new one arrives
+  const inboxTasks = () => inboxIds.map((id) => tasks.find((t) => t.id === id)).filter(Boolean);
+  const sourceName = (t) => (t?.provider === 'microsoft' ? 'Microsoft To Do' : t?.provider === 'google' ? 'Google Tasks' : t?.listName || 'another app');
+
+  function noteInbox(ids) {
+    inboxIds = ids;
+    const fresh = inboxKnown ? ids.filter((id) => !inboxKnown.has(id)) : [];
+    inboxKnown = new Set([...(inboxKnown || []), ...ids]);
+    paintInboxBadge();
+    if (!fresh.length || !$('#modal').hidden) return; // the open Magic add window shows them itself
+    const first = tasks.find((t) => t.id === fresh[0]);
+    toast(fresh.length === 1 ? `New from ${sourceName(first)}: "${first?.label || first?.title}"` : `${fresh.length} new tasks from other apps`, '',
+      { label: 'Plan', run: () => openMagic() });
+  }
+
+  function paintInboxBadge() {
+    const n = inboxIds.length;
+    for (const el of [$('#magic-add'), $('#magic-fab')]) {
+      if (!el) continue;
+      el.querySelector('.magic-count')?.remove();
+      el.classList.toggle('has-inbox', n > 0);
+      if (n) el.append(h('span', { class: 'magic-count', title: `${n} task${n > 1 ? 's' : ''} from other apps waiting to be planned` }, n));
+    }
   }
 
   async function loadGoals() {
@@ -4429,8 +4549,32 @@
     let working = false;
     let timer = 0;
 
+    // Tasks that arrived from other apps: planned along with what is typed. Ones due after the day wait unticked.
+    const planDate = preset.date || ymd(new Date());
+    const picked = new Set(inboxTasks().filter((t) => !t.date || t.date <= planDate).map((t) => t.id));
+    const arrivedBox = h('div', { class: 'magic-inbox' });
+    function paintArrived() {
+      const list = inboxTasks();
+      arrivedBox.hidden = !list.length;
+      arrivedBox.replaceChildren(
+        h('div', { class: 'mi-head' }, icon('tasks'), `From your other apps (${list.length})`,
+          h('small', null, 'They are planned into the day with the rest.')),
+        ...list.map((t) => h('label', { class: 'mi-row' },
+          h('input', { type: 'checkbox', checked: picked.has(t.id), onchange: (e) => { if (e.target.checked) picked.add(t.id); else picked.delete(t.id); } }),
+          h('span', { class: 'mi-main' }, h('b', null, t.label || t.title),
+            h('small', null, [sourceName(t), t.listName && t.listName !== sourceName(t) ? t.listName : null, t.date ? `due ${dayName(t.date)}` : null].filter(Boolean).join(' · '))),
+          h('button', { type: 'button', class: 'icon-btn', title: 'Not now: leave it out of Magic add', onclick: async (e) => {
+            e.preventDefault();
+            picked.delete(t.id);
+            try { await onyx.dismissInbox(t.id); } catch (err) { toast(err.message, 'error'); return; }
+            inboxIds = inboxIds.filter((id) => id !== t.id);
+            paintInboxBadge();
+            paintArrived();
+          } }, icon('x')))));
+    }
     const text = h('textarea', { class: 'magic-text', rows: 5, spellcheck: true, value: preset.text || '',
-      placeholder: 'Pick up the prescription\nGroceries\nStudy Arabic for an hour and a half\nCall the bank by 4pm\nGym' });
+      placeholder: inboxTasks().length ? 'Anything else to get done? One task per line…'
+        : 'Pick up the prescription\nGroceries\nStudy Arabic for an hour and a half\nCall the bank by 4pm\nGym' });
     const date = h('input', { type: 'date', value: preset.date || ymd(new Date()) });
     const start = h('input', { type: 'time', value: m.start, step: 900 });
     const end = h('input', { type: 'time', value: m.end, step: 900 });
@@ -4470,6 +4614,7 @@
               h('div', { class: 'mr-title' }, b.title),
               h('div', { class: 'mr-meta' },
                 b.travel > 0 && h('span', { class: 'mr-chip travel', title: 'Inside the block: it starts when you set off' }, icon('car'), `${b.travel} min travel · leave ${fmtTime(s)}`),
+                b.ref && h('span', { class: 'mr-chip from', title: 'This is the task itself: it gets this time, not a copy' }, icon('tasks'), sourceName(tasks.find((t) => t.id === b.ref))),
                 b.place && h('span', { class: 'mr-chip' }, icon('pin'), b.place),
                 h('span', { class: 'mr-chip' }, mins(b.minutes))),
               b.why && h('div', { class: 'mr-why' }, b.why)),
@@ -4498,14 +4643,14 @@
 
     async function run() {
       if (working) return;
-      if (!text.value.trim()) { text.focus(); return; }
+      if (!text.value.trim() && !picked.size) { text.focus(); return; }
       working = true;
       go.disabled = true;
       go.replaceChildren(icon('sparkles'), claude ? 'Estimating…' : 'Planning…');
       out.replaceChildren(h('p', { class: 'magic-source' }, icon('sparkles'), claude ? 'Estimating the lengths and the travel…' : 'Fitting them in…'));
       try {
         onyx.magicRemember?.(opts()).then((s) => { if (s?.settings) S.settings = s.settings; }).catch(() => {});
-        const r = await onyx.magicPlan(text.value, date.value, opts());
+        const r = await onyx.magicPlan(text.value, date.value, opts(), [...picked]);
         view = { date: date.value, tasks: r.tasks, travel: r.travel, result: r };
         working = false;
         paint();
@@ -4568,13 +4713,24 @@
       if (!planned.length || working) return;
       working = true;
       paint();
+      // A task that arrived from another app is planned itself (its own time, length and travel); the rest are new blocks.
+      const seen = new Set();
+      const steps = planned.map((b) => {
+        if (b.ref && !seen.has(b.ref)) {
+          seen.add(b.ref);
+          return { task: b.ref, spec: { start: b.start, minutes: Math.round((new Date(b.end) - new Date(b.start)) / 60000), leaveBy: b.travel || 0 } };
+        }
+        return { fields: {
+          calendarId, title: b.title, start: b.start, end: b.end, allDay: false, location: b.place || '', notes: b.why || '',
+          ...(b.travel > 0 ? { leaveBy: b.travel } : {}),
+        } };
+      });
       const made = [];
-      const fields = planned.map((b) => ({
-        calendarId, title: b.title, start: b.start, end: b.end, allDay: false, location: b.place || '', notes: b.why || '',
-        ...(b.travel > 0 ? { leaveBy: b.travel } : {}),
-      }));
       try {
-        for (const f of fields) made.push(await onyx.createEvent(f));
+        for (const s of steps) {
+          if (s.task) { const r = await onyx.planTask(s.task, s.spec); made.push({ ...s, prev: r.prev }); }
+          else made.push({ ...s, event: await onyx.createEvent(s.fields) });
+        }
       } catch (err) {
         toast(err.message, 'error');
       }
@@ -4583,17 +4739,20 @@
       closeSettings();
       calendar.gotoDate(fromYmd(view.date));
       refetch(true);
+      loadTasks(true);
       const label = `Magic add: ${made.length} block${made.length > 1 ? 's' : ''} for ${dayName(view.date)}`;
       recordAction(label,
-        async () => { for (const e of made) await onyx.deleteEvent(e.id); },
-        async () => { for (let i = 0; i < made.length; i++) made[i] = await onyx.createEvent(fields[i]); });
+        async () => { for (const m of made) { if (m.task) await onyx.unplanTask(m.task, m.prev); else await onyx.deleteEvent(m.event.id); } },
+        async () => { for (const m of made) { if (m.task) m.prev = (await onyx.planTask(m.task, m.spec)).prev; else m.event = await onyx.createEvent(m.fields); } });
     }
 
     const row = (label, ...kids) => h('label', { class: 'magic-field' }, h('span', null, label), ...kids);
+    paintArrived();
     const sheet = h('div', { class: 'sheet magic' }, h('div', { class: 'pane' },
       h('button', { class: 'icon-btn close', onclick: closeSettings }, icon('x')),
       h('h3', { class: 'magic-h' }, icon('sparkles'), 'Magic add'),
-      h('p', { class: 'hint' }, 'Describe what you need to get done. Each task gets a length, a place and a good time of day, and they are fitted around what is already in your day, with the travel counted.'),
+      h('p', { class: 'hint' }, 'Describe what you need to get done. Each task gets a length, a place and a good time of day, and they are fitted around what is already in your day, with the travel counted. Tasks that arrive from your other apps wait here to be planned in.'),
+      arrivedBox,
       text,
       h('div', { class: 'magic-grid' }, row('Day', date, dayChips), row('Add to', calendarPick)),
       h('details', { class: 'magic-opts', open: !MOBILE },
@@ -4608,7 +4767,7 @@
       out));
     $('#modal').replaceChildren(sheet);
     $('#modal').hidden = false;
-    setTimeout(() => text.focus(), 50);
+    setTimeout(() => (picked.size ? go : text).focus(), 50);
     if (preset.text) run();
   }
 

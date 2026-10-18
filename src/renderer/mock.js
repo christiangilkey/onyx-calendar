@@ -53,6 +53,9 @@
     { ...ev('g1/family', 'Leave', 3, 0, 0, 0, 0, {}, ['family']), allDay: true, start: ymd(day(3)), end: ymd(day(5)) },
   ];
   let tasks = [
+    { id: 'g1/tl~main/in1', title: 'Renew car insurance', label: 'Renew car insurance', arrived: true, provider: 'google', listName: 'My Tasks', date: null, time: null, start: null, call: null, notes: 'Quote from the broker is in my email.' },
+    { id: 'g1/tl~main/in2', title: 'Pick up dry cleaning', label: 'Pick up dry cleaning', arrived: true, provider: 'google', listName: 'My Tasks', date: null, time: null, start: null, call: null },
+    { id: 'g1/tl~main/in3', title: 'Reply to Dana about the budget', label: 'Reply to Dana about the budget', arrived: true, provider: 'microsoft', listName: 'Outlook Tasks', date: null, time: null, start: null, call: null },
     { id: 'g1/tl~main/a', title: '0800 Site visit', label: 'Site visit', date: ymd(day(1)), time: '08:00', start: day(1, 8).toISOString(), call: { at: day(1, 7).toISOString(), quiet: false, past: false } },
     { id: 'g1/tl~main/b', title: 'Call Alex 2pm', label: 'Call Alex', date: ymd(day(0)), time: '14:00', start: day(0, 14).toISOString(), call: { at: day(0, 13).toISOString(), quiet: false, past: day(0, 14) < new Date() } },
     { id: 'g1/tl~main/c', title: '0700 Check flight time', label: 'Check flight time', date: ymd(day(2)), time: '07:00', start: day(2, 7).toISOString(), call: { at: day(2, 6).toISOString(), quiet: true, past: false } },
@@ -150,7 +153,7 @@
   };
   // Magic add (preview): loads the real planner file once, then plans like the PC does without Claude.
   let magicLib = null;
-  async function magicRun(text, date, o, tasks, travel) {
+  async function magicRun(text, date, o, given, travel, inboxIds = []) {
     magicLib ||= await new Promise((ok, no) => {
       if (window.OnyxMagicPlan) return ok(window.OnyxMagicPlan);
       const sc = document.createElement('script');
@@ -171,17 +174,23 @@
     const all = (await window.onyx.events(day.toISOString(), new Date(+day + 86400000).toISOString())).events;
     const busy = all.filter((e) => (e.kind === 'event' || e.kind === 'task') && !e.allDay && e.start && e.end)
       .map((e) => ({ start: +new Date(e.start), end: +new Date(e.end), place: e.location || null, title: e.title }));
-    const list = magicLib.normalizeTasks(tasks || magicLib.estimateLocal(text));
+    // The tasks that arrived from other apps and were picked: each is one task, keeping its id.
+    const arrived = inboxIds.map((id) => tasks.find((t) => t.id === id)).filter(Boolean)
+      .flatMap((t) => magicLib.estimateLocal(t.label).slice(0, 1).map((g) => ({ ...g, ref: t.id })));
+    const list = magicLib.normalizeTasks(given || [...arrived, ...(text && text.trim() ? magicLib.estimateLocal(text) : [])]);
     if (!list.length) throw new Error('No tasks found in that. Put one on each line.');
     const r = magicLib.schedule(busy, list, { day, from, to, home: home || 'Home', travel: travel || [], lunch: (o.lunch ?? m.lunch) !== false });
     const iso = (ms) => new Date(ms).toISOString();
     return {
-      source: tasks ? 'edited' : 'local', warning: '', tasks: list, travel: travel || [],
-      blocks: r.blocks.map((b) => ({ idx: b.idx, part: b.part, title: b.title, start: iso(b.start), end: iso(b.end), minutes: b.minutes, travel: b.travel, place: b.place, why: b.why, kind: b.kind })),
-      unplaced: r.unplaced.map((u) => ({ idx: u.idx, title: u.task.title, minutes: u.task.minutes, reason: u.reason })),
+      source: given ? 'edited' : 'local', warning: '', tasks: list, travel: travel || [],
+      blocks: r.blocks.map((b) => ({ idx: b.idx, part: b.part, ref: b.ref, title: b.title, start: iso(b.start), end: iso(b.end), minutes: b.minutes, travel: b.travel, place: b.place, why: b.why, kind: b.kind })),
+      unplaced: r.unplaced.map((u) => ({ idx: u.idx, ref: u.task.ref, title: u.task.title, minutes: u.task.minutes, reason: u.reason })),
     };
   }
 
+  const inboxDismissed = new Set();
+  // Preview only: a task arrives from another app (window.__arrive('Call the landlord')).
+  window.__arrive = (title, provider = 'google') => tasks.push({ id: `g1/tl~main/in${Date.now()}`, title, label: title, arrived: true, provider, listName: 'My Tasks', date: null, time: null, start: null, call: null });
   const withTags = (x) => ({ ...x, tags: tags[x.id] || [] });
 
   // Goals and repeating tasks (goals.js, repeat.js), kept simple.
@@ -280,9 +289,9 @@
 
   const taskEvent = (t) => ({
     id: t.id, calendarId: t.listId, calendarName: t.listName, color: t.color, kind: 'task', title: t.label, location: '', notes: t.notes || '', link: '',
-    goal: goalOf(t.id), repeat: repeats[t.id] || null, pomodoro: pomodoros[t.id] || null,
+    goal: goalOf(t.id), repeat: repeats[t.id] || null, pomodoro: pomodoros[t.id] || null, leaveBy: t.leaveBy || null,
     writable: false, piCall: !!(t.call && !t.call.quiet && !t.call.past), movable: !t.mirror && !t.done,
-    ...(t.start ? { allDay: false, start: t.start, end: new Date(new Date(t.start).getTime() + (pomodoros[t.id]?.minutes || 30) * 60000).toISOString() }
+    ...(t.start ? { allDay: false, start: t.start, end: new Date(new Date(t.start).getTime() + (pomodoros[t.id]?.minutes || t.minutes || 30) * 60000).toISOString() }
       : { allDay: true, start: t.date, end: ymd(new Date(new Date(`${t.date}T00:00`).getTime() + 86400000)) }),
   });
 
@@ -350,7 +359,10 @@
     ackCall: async (id) => { const e = events.find((x) => x.id === id); if (e) e.callAck = true; return true; },
     deleteEvent: async (id) => { events = events.filter((x) => x.id !== id); delete tags[id]; },
     setCall: async (event, on, before) => { const e = events.find((x) => x.id === event.id); e.piCall = on; e.callBefore = on ? before ?? null : null; return { piCall: on, callBefore: e.callBefore }; },
-    tasks: async () => ({ tasks: withSeries(tasks.filter((t) => !t.done).map(taskOut)), errors: [] }),
+    tasks: async () => ({
+      tasks: withSeries(tasks.filter((t) => !t.done).map(taskOut)), errors: [],
+      inbox: tasks.filter((t) => t.arrived && !t.start && !t.done && !inboxDismissed.has(t.id)).map((t) => t.id),
+    }),
     updateSeries: async (key, d) => {
       const copies = withSeries(tasks.filter((t) => !t.done).map(taskOut)).filter((t) => t.series?.key === key);
       if (d.rule !== undefined && !copies[0]?.series.managed) throw new Error('Google Tasks does not let other apps change how often its tasks repeat. Change that in the Google Tasks app; the name, time and notes can be changed here.');
@@ -429,6 +441,26 @@
         delete spawned[id];
       }
       return taskOut(t);
+    },
+    resizeTask: async (id, to) => {
+      const t = tasks.find((x) => x.id === id);
+      if (to.start && (!t.start || +new Date(to.start) !== +new Date(t.start))) await window.onyx.moveTask(id, { start: to.start });
+      t.minutes = to.minutes;
+      return taskOut(t);
+    },
+    dismissInbox: async (id) => { inboxDismissed.add(id); return true; },
+    planTask: async (id, to) => {
+      const t = tasks.find((x) => x.id === id);
+      const prev = { title: t.title, due: t.due || null, minutes: t.minutes || null, leaveBy: t.leaveBy || null, state: 'new' };
+      await window.onyx.moveTask(id, { start: to.start });
+      t.minutes = to.minutes; t.leaveBy = to.leaveBy || null; inboxDismissed.add(id);
+      return { task: taskOut(t), prev };
+    },
+    unplanTask: async (id, prev) => {
+      const t = tasks.find((x) => x.id === id);
+      Object.assign(t, { date: prev.due, due: prev.due, time: null, start: null, minutes: prev.minutes, leaveBy: prev.leaveBy });
+      inboxDismissed.delete(id);
+      return true;
     },
     moveTask: async (id, to) => {
       const t = tasks.find((x) => x.id === id);
@@ -519,7 +551,7 @@
     },
     setAiKey: async () => snapshot(),
     // Magic add: the same planner the PC uses (src/main/magic-plan.js), with the offline estimate.
-    magicPlan: async (text, date, o = {}) => magicRun(text, date, o),
+    magicPlan: async (text, date, o = {}, inboxIds = []) => magicRun(text, date, o, null, null, inboxIds),
     magicReplan: async (tasks, travel, date, o = {}) => magicRun(null, date, o, tasks, travel),
     magicRemember: async (o) => { Object.assign(state.settings.magic ||= {}, o); return snapshot(); },
     syncDesktops: async () => structuredClone({ ...state.desktops, invite: null }),

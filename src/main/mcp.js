@@ -229,7 +229,7 @@ const TOOLS = [
     write: true,
     run: async (a) => briefTask(await hub.createTask({
       title: a.title, listId: a.list_id, ...(a.due ? { due: a.due } : {}), ...(a.notes ? { notes: a.notes } : {}),
-      ...(a.tags ? { tags: a.tags } : {}),
+      ...(a.tags ? { tags: a.tags } : {}), inbox: 'mcp', // another app made it: Magic add plans it into a day
     })),
   },
   {

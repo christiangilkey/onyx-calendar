@@ -128,6 +128,7 @@ function normalizeTasks(list) {
     kind: kinds.has(t?.kind) ? t.kind : 'other',
     after: hm(t?.after), before: hm(t?.before),
     why: String(t?.why || '').trim().slice(0, 160),
+    ...(t?.ref ? { ref: String(t.ref).slice(0, 400) } : {}), // the task from another app this stands for
   })).filter((t) => t.title);
 }
 
@@ -285,7 +286,7 @@ function schedule(busy, tasks, opts) {
   const blocks = gaps.flatMap((g) => g.layout.items).map((it) => ({
     task: it.task, idx: tasks.indexOf(it.task.origin || it.task), part: !!it.task.origin,
     title: it.task.title, start: it.start, end: it.end, minutes: it.task.minutes, travel: it.travel,
-    place: it.task.place, why: it.task.why, kind: it.task.kind,
+    place: it.task.place, why: it.task.why, kind: it.task.kind, ref: it.task.ref,
   })).sort((a, b) => a.start - b.start);
   return { blocks, unplaced };
 }

@@ -23,7 +23,7 @@ const SECTIONS = {
   'local.calendars': LIST, 'local.events': LIST,
   'settings.hidden': MAP, 'settings.hour12': VALUE, 'settings.weekStart': VALUE, 'settings.defaultCalendar': VALUE, 'settings.pi': VALUE,
   google: VALUE, microsoft: VALUE, notion: VALUE, news: VALUE,
-  'secrets.googleClientSecret': VALUE, 'secrets.notionToken': VALUE, 'secrets.anthropicKey': VALUE, 'secrets.mcpToken': VALUE, 'secrets.tokens': MAP,
+  'secrets.googleClientSecret': VALUE, 'secrets.notionToken': VALUE, 'secrets.anthropicKey': VALUE, 'secrets.twilioToken': VALUE, 'secrets.mcpToken': VALUE, 'secrets.tokens': MAP,
   desktops: MAP, // device id -> { name, addresses, version }: each PC keeps its own entry
 };
 // Files and folders pinned from one PC's disk mean nothing on another.

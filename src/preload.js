@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('onyx', {
   deleteEvent: (id, opts) => call('event:delete', id, opts),
   setBackburner: (id, on) => call('task:backburner', id, on),
   setEventDone: (id, done) => call('event:done', id, done),
+  setTwilioToken: (token) => call('calls:token', token),
+  testCall: (kind) => call('calls:test', kind),
   setCall: (event, on, before, mode) => call('event:call', event, on, before, mode),
   setLeaveBy: (id, minutes) => call('event:leaveby', id, minutes),
   ackCall: (id) => call('event:ack', id),

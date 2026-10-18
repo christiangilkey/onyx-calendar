@@ -37,6 +37,7 @@ function reset() {
   Object.assign(d, { piLinks: {}, tags: {}, goals: [], repeats: {}, repeatSpawned: {} });
   d.settings.hidden = {};
   d.settings.pi = { enabled: false, taskList: '', leadMinutes: 60, quietStart: '22:00', quietEnd: '07:00' };
+  d.settings.calls = { method: 'pi' };
   hub.invalidate();
 }
 

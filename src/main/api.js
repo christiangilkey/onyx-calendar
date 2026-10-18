@@ -33,6 +33,7 @@ function state() {
     desktops: { ...sync.info(), invite: null }, // a link code only ever comes from 'desktops', on the PC itself
     notion: notion.info(),
     ai: ai.info(),
+    calls: require('./caller').info(),
   };
 }
 
@@ -154,6 +155,9 @@ const handlers = {
   // Breakdown (the hammer): a task split into steps, 1 (broad) to 5 (micro-steps).
   'ai:breakdown': (title, opts) => ai.breakdown(title, opts),
   'ai:key': withState((key) => ai.setKey(key)),
+  // Calls & alerts: the Twilio auth token (kept with the secrets), and a test call or push.
+  'calls:token': withState((token) => require('./caller').setTwilioToken(token)),
+  'calls:test': (kind) => require('./caller').test(kind),
 };
 
 // What the phone may run. Signing in to accounts, and the settings that could

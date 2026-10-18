@@ -1310,3 +1310,37 @@ body.mobile.carrying .fc .fc-event-mirror { outline-width: 1px; }
 #popover input[type=date] { min-width: 134px; }
 #popover select.ampm { width: auto; min-width: 58px; flex: none; padding: 0 6px; }
 #popover select.ampm[hidden] { display: none; }
+/* Calls & alerts: the four ways, and setup steps. */
+.method-pick { display: flex; flex-direction: column; gap: 6px; }
+.method-pick .method { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); cursor: pointer; }
+.method-pick .method.on { border-color: color-mix(in srgb, var(--accent, #8b7cff) 70%, transparent); background: color-mix(in srgb, var(--accent, #8b7cff) 10%, transparent); }
+.method-pick .method input { margin-top: 3px; }
+.method-pick .method .txt small { display: block; color: var(--muted); margin-top: 2px; line-height: 1.45; }
+.steps { margin: 4px 0 10px 18px; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); }
+
+/* The due screen (the phone): takes over as something comes due, more urgent as it nears. */
+.due-screen { --c: #5fd38d; position: fixed; inset: 0; z-index: 400; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 32px 22px calc(28px + env(safe-area-inset-bottom, 0px)); background: radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--c) 22%, #07080b), #07080b 70%); color: #fff; text-align: center; transition: background .6s; }
+.due-screen[data-tone=near] { --c: #f5b83d; }
+.due-screen[data-tone=urgent] { --c: #ff5b5b; animation: due-pulse 1.2s ease-in-out infinite; }
+@keyframes due-pulse { 50% { background: radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--c) 38%, #07080b), #07080b 72%); } }
+.due-ring { width: min(64vw, 260px); aspect-ratio: 1; border-radius: 50%; padding: 12px; background: conic-gradient(var(--c) var(--fill, 0%), rgba(255,255,255,.08) 0); box-shadow: 0 0 40px color-mix(in srgb, var(--c) 45%, transparent); margin-bottom: 10px; }
+.due-ring-in { width: 100%; height: 100%; border-radius: 50%; background: #0b0c10; display: grid; place-items: center; }
+.due-count { font: 700 clamp(32px, 11vw, 52px)/1 "JetBrains Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; color: color-mix(in srgb, var(--c) 70%, #fff); }
+.due-label { font-size: 13px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; color: var(--c); }
+.due-title { font-size: clamp(24px, 8vw, 34px); font-weight: 700; line-height: 1.2; max-width: 100%; overflow-wrap: anywhere; }
+.due-sub { font-size: 15px; color: rgba(255,255,255,.75); }
+.due-pomo { margin-top: 4px; padding: 6px 14px; border-radius: 999px; font-weight: 700; font-size: 14px; }
+.due-pomo.work { background: color-mix(in srgb, #ff6b5b 30%, transparent); color: #ffb3a8; }
+.due-pomo.rest { background: color-mix(in srgb, #4fd1a5 28%, transparent); color: #a8f0d6; }
+.due-pomo[hidden] { display: none; }
+.due-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: min(100%, 420px); margin-top: 18px; }
+.due-actions .btn { height: 52px; font-size: 16px; border-radius: 14px; }
+.due-actions .btn.primary { grid-column: 1 / -1; background: var(--c); color: #0b0c10; border: 0; }
+@media (prefers-reduced-motion: reduce) { .due-screen[data-tone=urgent] { animation: none; } }
+/* A pomodoro block in the Now pill: work in red, a break in green, bigger and plain to see. */
+#next-bar .next-pill[data-tone=work] { --c: #ff6b5b; }
+#next-bar .next-pill[data-tone=rest] { --c: #4fd1a5; }
+#next-bar .next-pill.main.pomo-on { height: 38px; background: color-mix(in srgb, var(--c) 18%, #1A1D24); box-shadow: 0 0 22px color-mix(in srgb, var(--c) 45%, transparent); }
+#next-bar .next-pill.main.pomo-on .next-kind-label { font-size: 12px; }
+#next-bar .next-pill.main.pomo-on .next-count { font-size: 19px; }
+#next-bar .next-pill.main.pomo-on .next-gauge { height: 3px; }

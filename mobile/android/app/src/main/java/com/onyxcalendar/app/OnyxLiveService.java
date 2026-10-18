@@ -225,12 +225,13 @@ public class OnyxLiveService extends Service {
 
         if (now != null) {
             int progress = (int) Math.round(1000.0 * (t - now.start) / Math.max(1, now.end - now.start));
-            b.setContentTitle(now.title)
+            long[] ph = now.phase(t);
+            b.setContentTitle(ph == null ? now.title : (ph[0] == 1 ? "WORK · " : "BREAK · ") + now.title + "  (round " + ph[3] + "/" + ph[4] + ")")
                 .setContentText(nextLine)
-                .setSubText("Now, until " + clock(now.end))
+                .setSubText(ph == null ? "Now, until " + clock(now.end) : (ph[0] == 1 ? "Work" : "Break") + " until " + clock(t + ph[1]))
                 .setUsesChronometer(true)
                 .setChronometerCountDown(true)
-                .setWhen(now.end);
+                .setWhen(ph == null ? now.end : t + ph[1]); // a pomodoro counts down its chunk
             if (Build.VERSION.SDK_INT >= 36) {
                 Notification.ProgressStyle style = new Notification.ProgressStyle()
                     .setProgressSegments(Collections.singletonList(new Notification.ProgressStyle.Segment(1000).setColor(now.colorInt(OnyxPanel.ACCENT))))

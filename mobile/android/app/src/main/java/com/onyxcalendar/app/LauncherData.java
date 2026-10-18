@@ -266,6 +266,27 @@ final class LauncherData {
         long start, end;
         boolean allDay, done, ack;
         int leaveBy = -1; // minutes before the start; -1 for none
+        int pomoWork, pomoRest; // a pomodoro split, in minutes (0: none)
+
+        /** Where `t` falls in the pomodoro split: { work (1) or break (0), ms left of the chunk, chunk length ms, round, rounds }, or null. */
+        long[] phase(long t) {
+            if (pomoWork <= 0 || t < start || t >= end) return null;
+            long total = end - start, work = pomoWork * MIN, rest = Math.max(0, pomoRest) * MIN;
+            long at = 0, round = 0, rounds = 0;
+            for (long x = 0; x < total; ) { rounds++; x += work; if (x >= total) break; x += rest; }
+            long into = t - start;
+            while (at < total) {
+                long w = Math.min(work, total - at);
+                round++;
+                if (into < at + w) return new long[] { 1, at + w - into, w, round, rounds };
+                at += w;
+                if (at >= total || rest <= 0) continue;
+                long r = Math.min(rest, total - at);
+                if (into < at + r) return new long[] { 0, at + r - into, r, round, rounds };
+                at += r;
+            }
+            return null;
+        }
         final List<Alert> alerts = new ArrayList<>();
 
         long leaveAt() {
@@ -346,6 +367,8 @@ final class LauncherData {
             it.done = e.optBoolean("done", false);
             it.ack = e.optBoolean("callAck", false) || p.getBoolean("ack_" + it.id + "_" + it.start, false);
             it.leaveBy = e.isNull("leaveBy") ? -1 : e.optInt("leaveBy", -1);
+            JSONObject pomo = e.optJSONObject("pomodoro");
+            if (pomo != null) { it.pomoWork = pomo.optInt("work", 0); it.pomoRest = pomo.optInt("rest", 0); }
             JSONArray alerts = e.optJSONArray("piAlerts");
             if (alerts != null) {
                 for (int j = 0; j < alerts.length(); j++) {

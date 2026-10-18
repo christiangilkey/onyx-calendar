@@ -58,6 +58,7 @@ function reset() {
   d.settings.hidden = {};
   d.settings.defaultCalendar = '';
   d.settings.pi = { enabled: true, taskList: '', leadMinutes: 60, quietStart: '22:00', quietEnd: '07:00' };
+  d.settings.calls = { method: 'pi' };
   hub.invalidate();
 }
 
@@ -439,4 +440,30 @@ test('Alarm escalation: the phone rings at the call time, and the Pi is told to 
   assert.equal(block.callMode, 'alarm');
   assert.deepEqual(block.piAlerts.map((a) => a.kind), ['alarm']);
   assert.match(mirrors()[0].notes, /^Alert: phone alarm$/m);
+});
+
+test('Calls & alerts: with ntfy, this PC sends the push once, as it comes due', async () => {
+  reset();
+  const caller = require('../src/main/caller');
+  store.data.settings.calls = { method: 'ntfy', ntfyServer: 'https://ntfy.example', ntfyTopic: 'onyx-test' };
+  Object.assign(store.data.settings.pi, { quietStart: '00:00', quietEnd: '00:00' }); // no quiet hours, whatever the time the test runs
+  store.data.callsFired = {};
+  const sent = [];
+  const realFetch = global.fetch;
+  global.fetch = async (url, opts) => { sent.push({ url, opts }); return { ok: true, json: async () => ({}) }; };
+  try {
+    const now = new Date();
+    const start = new Date(now.getTime() + 60 * 1000); // a minute before it: now
+    await hub.createEvent({ title: 'Stand-up', start, end: new Date(start.getTime() + 15 * 60000), allDay: false, piCall: true, callMode: 'push', callBefore: 1 });
+    assert.equal(mirrors().length, 0, 'no Google Tasks copy without the Pi');
+    caller.start(hub);
+    await caller.tick();
+    await caller.tick();
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].url, 'https://ntfy.example/onyx-test');
+    assert.match(sent[0].opts.body, /Stand-up/);
+  } finally {
+    global.fetch = realFetch;
+    store.data.settings.calls = { method: 'pi' };
+  }
 });

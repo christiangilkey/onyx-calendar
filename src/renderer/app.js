@@ -288,6 +288,77 @@
     };
   }
 
+  // ---- the due screen (the phone): when something is about to start or has just started, it
+  // takes over the app: what it is, a countdown that grows more urgent, and what to do.
+  const due = { el: null, key: '', hidden: new Map() }; // key -> hidden until (ms)
+  const DUE_AHEAD = 10 * 60000, DUE_AFTER = 15 * 60000;
+
+  function tickDue() {
+    if (!MOBILE || !nextRun.loaded) return;
+    const now = Date.now();
+    // The one that matters most: about to start (soonest first), else just started.
+    const list = nextRun.items.map((e) => ({ e, s: new Date(e.start).getTime(), f: new Date(e.end).getTime() }))
+      .filter((x) => !x.e.done && !x.e.callAck && x.s - now <= DUE_AHEAD && now - x.s <= DUE_AFTER && x.f > now)
+      .filter((x) => (due.hidden.get(`${x.e.id}|${x.e.start}`) || 0) < now)
+      .sort((a, b) => Math.abs(a.s - now) - Math.abs(b.s - now));
+    const x = list[0];
+    if (!x) {
+      if (due.el) { due.el.remove(); due.el = null; due.key = ''; document.body.classList.remove('due-on'); }
+      return;
+    }
+    const key = `${x.e.id}|${x.e.start}`;
+    if (!due.el || due.key !== key) {
+      due.el?.remove();
+      due.key = key;
+      const hide = (ms) => { due.hidden.set(key, ms === Infinity ? Infinity : Date.now() + ms); tickDue(); };
+      const isTask = x.e.kind === 'task';
+      const parts = {
+        label: h('div', { class: 'due-label' }),
+        title: h('div', { class: 'due-title' }, x.e.title),
+        count: h('div', { class: 'due-count' }),
+        sub: h('div', { class: 'due-sub' }),
+        pomo: h('div', { class: 'due-pomo' }),
+      };
+      due.el = h('div', { class: 'due-screen', role: 'alertdialog', 'aria-live': 'assertive' },
+        h('div', { class: 'due-ring' }, h('div', { class: 'due-ring-in' }, parts.count)),
+        parts.label, parts.title, parts.sub, parts.pomo,
+        h('div', { class: 'due-actions' },
+          h('button', { class: 'btn primary', onclick: () => {
+            hide(Infinity);
+            if (isTask) completeTask(tasks.find((t) => t.id === x.e.id) || { id: x.e.id, label: x.e.title });
+            else if (x.e.piCall) onyx.ackCall?.(x.e.id).then(() => refreshPomodoros()).catch(() => {});
+          } }, isTask ? 'Done' : 'Leaving now'),
+          h('button', { class: 'btn', onclick: () => hide(5 * 60000) }, 'Snooze 5 min'),
+          h('button', { class: 'btn ghost', onclick: () => hide(Infinity) }, 'Dismiss'),
+          h('button', { class: 'btn ghost', onclick: () => { hide(Infinity); openNextItem(x.e, { left: 20, right: 20, top: 80, bottom: 80, width: 0, height: 0 }); } }, 'Open')));
+      due.parts = parts;
+      document.body.append(due.el);
+      document.body.classList.add('due-on');
+    }
+    const p = due.parts;
+    const toStart = x.s - now;
+    const started = toStart <= 0;
+    const leaveAt = x.e.leaveBy ? x.s - x.e.leaveBy * 60000 : null;
+    const left = started ? x.f - now : toStart;
+    // Calm (green) over 5 minutes away, amber within 5, red from a minute before to after it starts.
+    const tone = started || toStart <= 60000 || (leaveAt && leaveAt <= now) ? 'urgent' : toStart <= 5 * 60000 ? 'near' : 'calm';
+    due.el.dataset.tone = tone;
+    p.label.textContent = started ? (now - x.s < 60000 ? 'Starting now' : 'On now') : 'Coming up';
+    p.count.textContent = countdown(left);
+    p.sub.textContent = started
+      ? `Started ${fmtTime(new Date(x.s))} · ends ${fmtTime(new Date(x.f))}`
+      : `At ${fmtTime(new Date(x.s))}${leaveAt ? (leaveAt > now ? ` · leave by ${fmtTime(new Date(leaveAt))}` : ' · time to leave') : ''}`;
+    // The ring fills toward the start, then drains through the block.
+    const fill = started ? (x.f - now) / Math.max(1, x.f - x.s) : 1 - Math.min(1, toStart / DUE_AHEAD);
+    due.el.style.setProperty('--fill', `${(fill * 100).toFixed(1)}%`);
+    const ph = started && x.e.pomodoro ? pomodoroPhase(x.e, new Date(now)) : null;
+    p.pomo.hidden = !ph;
+    if (ph) {
+      p.pomo.className = `due-pomo ${ph.kind}`;
+      p.pomo.textContent = `${ph.kind === 'work' ? 'Work' : 'Break'} · ${countdown(ph.left)} left · round ${ph.round} of ${ph.rounds}`;
+    }
+  }
+
   /** A soft two-note chime: rising for work, falling for rest. */
   function chime(kind) {
     try {
@@ -468,6 +539,7 @@
     placeStatus(!MOBILE);
     const p = nextRun.parts;
     let tone = 'calm';
+    p.main.el.classList.remove('pomo-on'); // set again below while a pomodoro block is on
 
     // What comes next: its countdown, leave-by, and how urgent it is. The state: calm (green)
     // over 30 minutes, amber 10 to 30, escalate (red) under 10, counted to the leave-by time
@@ -532,6 +604,19 @@
       m.el.style.setProperty('--left', `${(Math.max(0, Math.min(1, left / (current.f - current.s))) * 100).toFixed(2)}%`);
       m.el.disabled = false;
       m.el.classList.remove('empty');
+      // A pomodoro block: the pill is the timer, red for work and green for a break, counting down the chunk.
+      const ph = current.e.pomodoro ? pomodoroPhase(current.e, new Date(now)) : null;
+      m.el.classList.toggle('pomo-on', !!ph);
+      if (ph) {
+        m.el.dataset.tone = ph.kind === 'work' ? 'work' : 'rest';
+        m.kindIcon.replaceChildren(icon('clock'));
+        m.kind.textContent = ph.kind === 'work' ? 'Work' : 'Break';
+        m.count.textContent = countdown(ph.left);
+        m.leave.textContent = `round ${ph.round}/${ph.rounds}`;
+        m.leave.hidden = false;
+        m.el.style.setProperty('--left', `${(Math.max(0, Math.min(1, ph.left / (ph.length * 60000))) * 100).toFixed(2)}%`);
+        m.el.title = `${current.e.title}: ${ph.kind === 'work' ? 'working' : 'on a break'}, ${untilText(ph.left)} left of this ${ph.kind === 'work' ? 'work' : 'break'} (round ${ph.round} of ${ph.rounds}). Ends ${fmtTime(new Date(current.f))}`;
+      }
       if (next && (nextToday || !todayList.length)) showNext(p.sub, false);
       else if (todayList.length) showToday(p.sub);
       else p.sub.el.hidden = true;
@@ -992,7 +1077,7 @@
   function ladderTimes(start, before, leaveBy, mode) {
     const base = before != null ? start.getTime() - before * 60000 : leaveBy ? start.getTime() - leaveBy * 60000 : null;
     if (base == null) return [];
-    const grid = Math.max(1, Number(S.settings.pi?.checkEvery) || 30) * 60000;
+    const grid = ((S.settings.calls?.method || S.calls?.method || 'pi') === 'pi' ? Math.max(1, Number(S.settings.pi?.checkEvery) || 30) : 1) * 60000;
     const first = Math.floor(base / grid) * grid;
     const out = [new Date(first)];
     if (mode === 'critical' && first + Math.max(grid, 600000) < start.getTime()) out.push(new Date(first + Math.max(grid, 600000)));
@@ -1001,10 +1086,14 @@
 
   function ladderText(times, mode) {
     const t = times.map((d) => fmtTime(d));
-    if (mode === 'push') return `The Pi sends a push alert at ${t[0]}.`;
+    // Said the way reminders go out (Settings → Calls & alerts).
+    const how = S.settings.calls?.method || S.calls?.method || 'pi';
+    const caller = { pi: 'The Pi phones you', twilio: 'Onyx phones you', ntfy: 'Onyx sends a loud push', alarm: 'Your phone rings an alarm' }[how];
+    const pusher = { pi: 'The Pi sends a push alert', twilio: S.calls?.ntfyTopic ? 'Onyx sends a push' : 'Onyx phones you', ntfy: 'Onyx sends a push', alarm: 'Your phone rings an alarm' }[how];
+    if (mode === 'push') return `${pusher} at ${t[0]}.`;
     if (mode === 'alarm') return `Your phone rings an alarm at ${t[0]}, until you press a button.`;
-    if (mode === 'critical') return t.length > 1 ? `The Pi phones at ${t[0]}, and again at ${t[1]} unless you tap Leaving now.` : `The Pi phones at ${t[0]}.`;
-    return `The Pi phones you at ${t[0]}.`;
+    if (mode === 'critical') return t.length > 1 ? `${caller} at ${t[0]}, and again at ${t[1]} unless you tap Leaving now.` : `${caller} at ${t[0]}.`;
+    return `${caller} at ${t[0]}.`;
   }
 
   /** The Pi's looks it could phone at for something starting at `start` (at least 15 minutes apart): from the day before up to the start. */
@@ -1169,11 +1258,17 @@
     if (!p || arg.event.allDay || !arg.view.type.startsWith('timeGrid') || !arg.event.end) return;
     const total = (arg.event.end - arg.event.start) / 60000;
     if (total <= 0) return;
-    const bands = pomodoroChunks(total, p).filter((c) => c.kind === 'rest')
-      .map((c) => `transparent ${(c.from / total) * 100}%, rgba(0,0,0,.5) ${(c.from / total) * 100}%, rgba(0,0,0,.5) ${(c.to / total) * 100}%, transparent ${(c.to / total) * 100}%`);
+    // Colour-coded: work in red, breaks in green, each band where it really falls; the one
+    // you are in now is brighter.
+    const now = (Date.now() - arg.event.start) / 60000;
+    const bands = pomodoroChunks(total, p).map((c) => {
+      const live = now >= c.from && now < c.to;
+      const col = c.kind === 'work' ? `rgba(255,107,91,${live ? 0.62 : 0.4})` : `rgba(79,209,165,${live ? 0.66 : 0.45})`;
+      return `${col} ${(c.from / total) * 100}%, ${col} ${(c.to / total) * 100}%`;
+    });
     if (!bands.length) return;
     arg.el.classList.add('pomo');
-    arg.el.style.backgroundImage = `linear-gradient(to bottom, transparent 0%, ${bands.join(', ')}, transparent 100%)`;
+    arg.el.style.backgroundImage = `linear-gradient(to bottom, ${bands.join(', ')})`;
   }
 
   async function onMove(info) {
@@ -3703,10 +3798,53 @@
       const pi = S.settings.pi;
       const lists = S.calendars.filter((c) => c.kind === 'tasklist' && c.provider === 'google');
       const set = (patch) => saveSettings({ pi: patch }).then(() => { refetch(true); loadTasks(true); });
+      // The saved choice first; the PC's summary for what it worked out (the Pi for an older setup) and the token.
+      const c = { ...(S.calls || {}), ...(S.settings.calls || {}), twilioToken: !!S.calls?.twilioToken };
+      c.method = S.settings.calls?.method || S.calls?.method || 'alarm';
+      const setCalls = (patch) => saveSettings({ calls: patch });
+      const METHOD = [
+        ['alarm', 'Alarm on my phone', 'The Onyx app on your Android phone rings a full-screen alarm and vibrates until you press a button. Nothing to set up, no account.'],
+        ['ntfy', 'Push notification (free)', 'This PC sends a loud push to the free ntfy app on your phone. Install ntfy, subscribe to a topic of your own, and type the same topic here.'],
+        ['twilio', 'Phone call (Twilio)', 'This PC phones you through a Twilio account (pay as you go, about 1–2 cents a call). Needs a Twilio number.'],
+        ['pi', 'Raspberry Pi (advanced)', 'A Raspberry Pi of your own reads a Google Tasks list and phones you, even with this PC off.'],
+      ];
+      const testBtn = (kind, label) => h('button', { class: 'btn', onclick: () => act(() => onyx.testCall(kind), kind === 'push' ? 'Test sent' : 'Calling you now') }, label);
+      const token = h('input', { type: 'password', placeholder: c.twilioToken ? 'Saved (type to replace)' : 'Auth token', autocomplete: 'off' });
       return [
-        h('h3', null, 'Raspberry Pi calls'),
-        h('p', { class: 'lead' }, 'Your Pi phones you (and sends an ntfy alert) about any Google Task with a time in its name. Turn on "Phone reminder" for a block or event and Onyx keeps a matching task for the Pi, so the call follows the event if you move it. Nothing on the Pi needs to change, and calls still happen when this PC is off.'),
-        h('div', { class: 'card' },
+        h('h3', null, 'Calls & alerts'),
+        h('p', { class: 'lead' }, 'How Onyx reaches you about what is coming up, so nothing slips by. Pick the way that suits you; each entry\'s Escalation (Push only, Voice call, Critical, Alarm) then goes out this way.'),
+        h('div', { class: 'card method-pick' }, METHOD.map(([v, name, hint]) => h('label', { class: `method${c.method === v ? ' on' : ''}` },
+          h('input', { type: 'radio', name: 'call-method', checked: c.method === v, onchange: () => setCalls({ method: v }) }),
+          h('div', { class: 'txt' }, h('b', null, name), h('small', null, hint))))),
+        c.method === 'ntfy' && h('div', { class: 'card' },
+          h('h4', null, 'Push notifications with ntfy'),
+          h('ol', { class: 'steps' },
+            h('li', null, 'Install the free ntfy app on your phone (Play Store / App Store).'),
+            h('li', null, 'In ntfy, tap + and subscribe to a topic only you would guess, like onyx-yourname-4821.'),
+            h('li', null, 'Type the same topic below and press Send a test.')),
+          field('Topic', 'Anyone who knows the topic can read it, so make it hard to guess.',
+            h('input', { type: 'text', value: c.ntfyTopic, placeholder: 'onyx-yourname-4821', spellcheck: false, onchange: (e) => setCalls({ ntfyTopic: e.target.value.trim() }) })),
+          field('Server', 'ntfy.sh unless you run your own.', h('input', { type: 'text', value: c.ntfyServer, spellcheck: false, onchange: (e) => setCalls({ ntfyServer: e.target.value.trim() || 'https://ntfy.sh' }) })),
+          h('div', { class: 'row' }, testBtn('push', 'Send a test'), h('small', { class: 'pop-meta' }, 'This PC sends them, so it needs to be on (in the tray is fine).'))),
+        c.method === 'twilio' && h('div', { class: 'card' },
+          h('h4', null, 'Phone calls with Twilio'),
+          h('ol', { class: 'steps' },
+            h('li', null, 'Sign up at twilio.com and buy a phone number (about $1 a month).'),
+            h('li', null, 'From the Twilio console, copy the Account SID and Auth token.'),
+            h('li', null, 'Fill them in below with your Twilio number and your own number (with country code, like +15551234567), then Call me now.')),
+          field('Account SID', null, h('input', { type: 'text', value: c.twilioSid, spellcheck: false, placeholder: 'AC…', onchange: (e) => setCalls({ twilioSid: e.target.value.trim() }) })),
+          field('Auth token', 'Kept with Onyx\'s other keys, on this PC.', h('span', { class: 'row' }, token, h('button', { class: 'btn', onclick: () => act(() => onyx.setTwilioToken(token.value), 'Token saved') }, 'Save'))),
+          field('Your Twilio number', null, h('input', { type: 'tel', value: c.twilioFrom, placeholder: '+15550001111', onchange: (e) => setCalls({ twilioFrom: e.target.value.trim() }) })),
+          field('Call this number', 'Your phone.', h('input', { type: 'tel', value: c.callTo, placeholder: '+15551234567', onchange: (e) => setCalls({ callTo: e.target.value.trim() }) })),
+          field('Push too (optional)', 'Push only reminders go to ntfy if you add a topic; otherwise they ring too.', h('input', { type: 'text', value: c.ntfyTopic, placeholder: 'ntfy topic', onchange: (e) => setCalls({ ntfyTopic: e.target.value.trim() }) })),
+          h('div', { class: 'row' }, testBtn('call', 'Call me now'), h('small', { class: 'pop-meta' }, 'This PC places the calls, so it needs to be on (in the tray is fine).'))),
+        c.method === 'alarm' && h('div', { class: 'card' },
+          h('h4', null, 'Alarms on your phone'),
+          h('ol', { class: 'steps' },
+            h('li', null, 'Install Onyx on your Android phone and pair it (Settings → Phone).'),
+            h('li', null, 'Open Onyx on the phone once; it sets the alarms with Android\'s alarm clock.'),
+            h('li', null, 'Give an entry the Alarm escalation, or keep "Alarm as things start" on in the phone\'s Settings → Home & lock screen.'))),
+        c.method === 'pi' && h('div', { class: 'card' },
           field('Show Pi phone reminders', 'Adds the phone switch to blocks and events, and shows which tasks the Pi will call about.', toggle(pi.enabled, (v) => set({ enabled: v }))),
           field('Task list for reminders', lists.length ? 'Where the matching tasks are kept. The Pi reads every list.' : 'Connect a Google account first.',
             h('select', { disabled: !lists.length, value: pi.taskList, onchange: (e) => set({ taskList: e.target.value }) },
@@ -4044,8 +4182,8 @@
   let settingsTab = onyx.isPhone ? 'connection' : 'calendars';
   function openSettings(tab = settingsTab) {
     const tabs = onyx.isPhone
-      ? [['connection', 'Connection'], ['keys', 'Keys & accounts'], ['pi', 'Pi calls'], ...(onyx.launcher ? [['launcher', 'Home & lock screen']] : []), ['general', 'General']]
-      : [['calendars', 'Calendars'], ['connections', 'Notion, Drive & AI'], ['phone', 'Phone'], ['desktops', 'Desktops'], ['pi', 'Pi calls'], ['mcp', 'MCP server'], ['general', 'General']];
+      ? [['connection', 'Connection'], ['keys', 'Keys & accounts'], ['pi', 'Calls & alerts'], ...(onyx.launcher ? [['launcher', 'Home & lock screen']] : []), ['general', 'General']]
+      : [['calendars', 'Calendars'], ['connections', 'Notion, Drive & AI'], ['phone', 'Phone'], ['desktops', 'Desktops'], ['pi', 'Calls & alerts'], ['mcp', 'MCP server'], ['general', 'General']];
     if (!tabs.some(([id]) => id === tab)) tab = tabs[0][0];
     settingsTab = tab;
     closePopover();
@@ -5160,7 +5298,7 @@
     buildCalendar();
     buildNews();
     refreshPomodoros();
-    setInterval(() => { tickPomodoro(); tickNext(); tickPopups(); }, 1000);
+    setInterval(() => { tickPomodoro(); tickNext(); tickPopups(); tickDue(); }, 1000);
     setInterval(refreshPomodoros, 60000);
 
     // A tap on a home-screen widget (phone): open the globe, or the calendar on that day.

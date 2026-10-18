@@ -217,6 +217,7 @@ async function boot() {
   });
   hub.refreshCalendars().then(() => win?.webContents.send('changed')).catch(() => {});
   updater.start((s) => win?.webContents.send('update', s));
+  require('./caller').start(hub); // reminders by push (ntfy) or call (Twilio), when set up
 }
 
 app.on('before-quit', () => { quitting = true; store.flush(); });

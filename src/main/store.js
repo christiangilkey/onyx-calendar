@@ -20,6 +20,8 @@ const DEFAULTS = {
     defaultCalendar: '', // where new time blocks are saved
     // checkEvery: how often the Pi looks (its cron), so a call asked for at 2:15 comes at the last look before
     pi: { enabled: true, taskList: '', leadMinutes: 60, quietStart: '22:00', quietEnd: '07:00', checkEvery: 30 },
+    // How reminders reach you (caller.js): alarm (the phone), ntfy (push), twilio (a call), pi. '' = pick for me.
+    calls: { method: '', ntfyServer: 'https://ntfy.sh', ntfyTopic: '', twilioSid: '', twilioFrom: '', callTo: '' },
     mcp: { enabled: true, port: 4747, lan: true },
   },
   accounts: [],          // { id, provider: 'google' | 'microsoft' | 'ics', label, url? }
@@ -50,7 +52,8 @@ const DEFAULTS = {
   desktops: {},          // linked desktops: device id -> { name, addresses, version } (sync.js)
   sync: null,            // this PC's sync bookkeeping: its id, when each shared piece changed, what each desktop has seen (sync.js)
   // group: the id and key shared by linked desktops (sync.js)
-  secrets: { googleClientSecret: '', tokens: {}, mcpToken: '', notionToken: '', anthropicKey: '', group: null },
+  secrets: { googleClientSecret: '', tokens: {}, mcpToken: '', notionToken: '', anthropicKey: '', twilioToken: '', group: null },
+  callsFired: {},        // reminder key -> when this PC sent it (caller.js), so each goes once
 };
 
 let file = '';

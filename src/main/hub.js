@@ -562,7 +562,8 @@ function unifyTask(cal, t, mirrors) {
   };
   // The Pi only reads Google Tasks, and only phones for a task with a time in its name.
   const pi = store.data.settings.pi;
-  if (pi.enabled && cal.provider === 'google' && start) {
+  // The Pi reads only Google Tasks; ntfy and Twilio (sent from this PC) work for any list.
+  if (pi.enabled && (cal.provider === 'google' || require('./caller').sendsHere()) && start) {
     const c = callTime(start, pi);
     task.call = { at: c.at.toISOString(), quiet: c.quiet, past: start <= now };
   }
@@ -947,7 +948,8 @@ function piAlerts(start, { before = null, leaveBy = null, mode = 'call', ack = f
   if (ack) return [];
   const base = before != null ? start.getTime() - before * 60000 : leaveBy ? start.getTime() - leaveBy * 60000 : null;
   if (base == null) return [];
-  const grid = Math.max(1, Number(store.data.settings.pi?.checkEvery) || 30) * 60000;
+  // The Pi looks every few minutes (a call comes at its last look before the time); this PC and the phone keep the minute.
+  const grid = (require('./caller').method() === 'pi' ? Math.max(1, Number(store.data.settings.pi?.checkEvery) || 30) : 1) * 60000;
   const first = new Date(Math.floor(base / grid) * grid);
   const out = [{ at: first, kind: mode === 'push' ? 'push' : mode === 'alarm' ? 'alarm' : 'call' }];
   if (mode === 'critical') {
@@ -989,7 +991,7 @@ async function ackPiCall(id) {
   if (!link) return false;
   link.ack = true;
   store.save();
-  await updateTask(link.task, { notes: callNotes(new Date(link.start), { ack: true }) }).catch((err) => { if (err.status !== 404 && err.status !== 410) throw err; });
+  if (link.task) await updateTask(link.task, { notes: callNotes(new Date(link.start), { ack: true }) }).catch((err) => { if (err.status !== 404 && err.status !== 410) throw err; });
   return true;
 }
 
@@ -1005,7 +1007,7 @@ async function setPiCall(event, on, before, mode) {
   // The Pi needs a time of day, so an all-day entry can't have a call.
   if (!on || event.allDay) {
     if (link) {
-      await deleteTask(link.task).catch((err) => { if (err.status !== 404 && err.status !== 410) throw err; });
+      if (link.task) await deleteTask(link.task).catch((err) => { if (err.status !== 404 && err.status !== 410) throw err; });
       delete links[event.id];
       store.save();
     }
@@ -1019,7 +1021,15 @@ async function setPiCall(event, on, before, mode) {
     task, start: start.toISOString(), title: event.title, ...(keep != null ? { before: keep } : {}),
     ...(keepMode !== 'call' ? { mode: keepMode } : {}), ...(ack ? { ack: true } : {}),
   });
-  if (link) {
+  // Without the Pi there is no task for it to read: the reminder is kept here, and this PC
+  // (ntfy, Twilio) or the phone (an alarm) acts on it.
+  if (require('./caller').method() !== 'pi') {
+    if (link?.task) await deleteTask(link.task).catch(() => {});
+    links[event.id] = saved(null);
+    store.save();
+    return true;
+  }
+  if (link?.task) {
     try {
       await updateTask(link.task, fields);
       links[event.id] = saved(link.task);

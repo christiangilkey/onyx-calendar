@@ -37,6 +37,7 @@ final class OnyxPanel {
 
     static final int TEXT = 0xFFF4F4F6, MUTED = 0xFFA4A8B4, FAINT = 0xFF6E7380;
     static final int CARD = 0xD914161C, AMBER = 0xFFF5B83D, GREEN = 0xFF5FD38D, ACCENT = 0xFF8B7CF6;
+    static final int WORK = 0xFFFF6B5B, BREAK = 0xFF4FD1A5; // pomodoro: work and break
 
     final LinearLayout root;
     private final Context ctx;
@@ -45,7 +46,7 @@ final class OnyxPanel {
 
     // what tick() keeps moving
     private LauncherData.Item now, next, calling;
-    private TextView nowLeft, nextIn, leaveIn, callIn;
+    private TextView nowLeft, nextIn, leaveIn, callIn, pomoLine;
     private BarView nowBar;
     private long renderedFor; // the minute the cards were built for
 
@@ -207,7 +208,11 @@ final class OnyxPanel {
         if (now != null) {
             c.addView(label("● Now", GREEN));
             c.addView(title(now.title));
-            nowBar = bar(now.colorInt(ACCENT), 0, big ? 10 : 8);
+            // A pomodoro block: the phase in big, red for work, green for a break.
+            pomoLine = text("", big ? 22 : 19, TEXT, true);
+            pomoLine.setPadding(0, dp(4), 0, 0);
+            c.addView(pomoLine);
+            nowBar = bar(now.colorInt(ACCENT), 0, big ? 12 : 10);
             c.addView(nowBar);
             nowLeft = text("", 13, MUTED, false);
             c.addView(nowLeft);
@@ -337,9 +342,23 @@ final class OnyxPanel {
         if (next != null && t >= next.start) return true;
         if (calling != null && calling.calling(t) == null) return true;
         if (now != null && nowBar != null) {
-            float p = (float) (t - now.start) / Math.max(1, now.end - now.start);
-            nowBar.setProgress(p);
-            if (nowLeft != null) nowLeft.setText(span(now.end - t) + " left  ·  until " + clock(now.end));
+            long[] ph = now.phase(t);
+            if (ph != null) {
+                boolean work = ph[0] == 1;
+                int color = work ? WORK : BREAK;
+                pomoLine.setVisibility(View.VISIBLE);
+                pomoLine.setTextColor(color);
+                pomoLine.setText((work ? "WORK  " : "BREAK  ") + span(ph[1]) + "  ·  round " + ph[3] + " of " + ph[4]);
+                nowBar.setColor(color);
+                nowBar.setProgress(1f - (float) ph[1] / Math.max(1, ph[2]));
+                if (nowLeft != null) nowLeft.setText("Block: " + span(now.end - t) + " left  ·  until " + clock(now.end));
+            } else {
+                if (pomoLine != null) pomoLine.setVisibility(View.GONE);
+                nowBar.setColor(now.colorInt(ACCENT));
+                float p = (float) (t - now.start) / Math.max(1, now.end - now.start);
+                nowBar.setProgress(p);
+                if (nowLeft != null) nowLeft.setText(span(now.end - t) + " left  ·  until " + clock(now.end));
+            }
         } else if (nowLeft != null) {
             nowLeft.setText(next != null ? "Free for " + span(next.start - t) : "Nothing on");
         }

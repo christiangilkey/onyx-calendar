@@ -1373,3 +1373,49 @@ body.mobile.carrying .fc .fc-event-mirror { outline-width: 1px; }
 /* A window's date and time row wraps when the AM/PM pickers make it too wide, rather than clipping off the edge. */
 #popover .row:has(> input[type=time]) { flex-wrap: wrap; row-gap: 6px; }
 #popover .row:has(> input[type=time]) > input[type=time] { min-width: 104px; flex: 0 1 auto; }
+/* The phone: the screen never pans or zooms sideways (the Tasks drawer waits just off its edge,
+   which let Android slide the whole view, + button and all); sideways swipes are the app's,
+   which turns the days with them. */
+html { overflow: hidden; overscroll-behavior: none; }
+body.mobile { overscroll-behavior: none; touch-action: pan-y; }
+
+/* The pill's words: one line on the PC (as before). */
+#next-bar .next-text, #next-bar .next-top { display: contents; }
+#next-bar .next-when { display: none; }
+
+/* The phone: two rows, nothing squeezed. On top, small: what is on now (or free time), and what
+   comes after; below, full width, the main pill: a small line (Next · 7:00 AM) over the whole
+   name, and the countdown. */
+body.mobile.has-next { --next-h: 86px; }
+body.mobile #next-bar .next-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-rows: 26px 1fr;
+  column-gap: 6px; row-gap: 4px; padding: 4px 10px 6px; height: 100%; box-sizing: border-box; align-items: center;
+}
+body.mobile #next-bar .next-center { display: contents; }
+body.mobile #next-bar .next-side:first-child { grid-row: 1; grid-column: 1; min-width: 0; }
+body.mobile #next-bar .next-side.end { grid-row: 1; grid-column: 3; }
+body.mobile #next-bar .next-label { padding: 2px 0; font-size: 12px; max-width: 100%; }
+body.mobile #next-bar .next-label .what { overflow: hidden; text-overflow: ellipsis; }
+
+body.mobile #next-bar .next-pill.main {
+  grid-row: 2; grid-column: 1 / -1; width: 100%; max-width: none; height: 48px; padding: 0 14px 0 8px; gap: 10px; border-radius: 16px;
+}
+body.mobile #next-bar .next-pill.main .next-text { display: flex; flex-direction: column; min-width: 0; flex: 1; gap: 1px; }
+body.mobile #next-bar .next-pill.main .next-top { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
+body.mobile #next-bar .next-pill.main .next-kind-label { display: inline; font-size: 9.5px; }
+body.mobile #next-bar .next-pill.main .next-kind-label::after { content: ''; }
+body.mobile #next-bar .next-pill.main .next-when { display: inline; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.mobile #next-bar .next-pill.main .what { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.mobile #next-bar .next-pill.main .next-leave { display: none; }
+body.mobile #next-bar .next-pill.main .next-kind { width: 28px; height: 28px; }
+body.mobile #next-bar .next-pill.main .next-count { font-size: 19px; }
+body.mobile #next-bar .next-pill.main.pomo-on { height: 48px; }
+
+body.mobile #next-bar .next-pill.sub {
+  display: inline-flex; grid-row: 1; grid-column: 2; max-width: 52vw; height: 24px; padding: 0 9px 0 5px; gap: 5px;
+}
+body.mobile #next-bar .next-pill.sub[hidden] { display: none; }
+body.mobile #next-bar .next-pill.sub .next-kind-label { display: inline; }
+body.mobile #next-bar .next-pill.sub .next-leave, body.mobile #next-bar .next-pill.sub .next-sep { display: none; }
+body.mobile #next-bar .next-pill.sub .what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+body.mobile #next-bar .next-pill.main .next-text { text-align: left; align-items: flex-start; }

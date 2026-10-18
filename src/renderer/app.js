@@ -473,6 +473,12 @@
     else openEditor({ src: e, start: toDate(e.start), end: toDate(e.end), allDay: false }, anchor);
   }
 
+  function shortCount(ms) {
+    const t = Math.max(0, Math.round(ms / 1000));
+    const hh = Math.floor(t / 3600), mm = Math.floor((t % 3600) / 60), ss = t % 60;
+    return hh ? `${hh}h ${pad(mm)}m` : `${mm}:${pad(ss)}`;
+  }
+
   function tickNext() {
     const bar = $('#next-bar');
     const show = nextBarOn() && nextRun.loaded;
@@ -512,7 +518,9 @@
           count: h('span', { class: 'next-count' }),
           gauge: h('span', { class: 'next-gauge', 'aria-hidden': 'true' }, h('i')),
         };
-        q.el.append(q.kindIcon, q.kind, q.what, q.leave, h('span', { class: 'next-sep', 'aria-hidden': 'true' }), q.live, q.count, q.gauge);
+        q.when = h('span', { class: 'next-when' });
+        q.el.append(q.kindIcon, h('span', { class: 'next-text' }, h('span', { class: 'next-top' }, q.kind, q.when), q.what), q.leave,
+          h('span', { class: 'next-sep', 'aria-hidden': 'true' }), q.live, q.count, q.gauge);
         q.el.addEventListener('click', (ev) => q.item && openNextItem(q.item, ev.currentTarget.getBoundingClientRect()));
         return q;
       };
@@ -557,10 +565,12 @@
       q.el.dataset.tone = tone;
       q.kindIcon.replaceChildren(icon(next.e.kind === 'task' ? 'check' : 'calendar'));
       q.kind.textContent = big && next.e.kind === 'task' ? 'Next task' : 'Next';
+      q.when.textContent = `${fmtTime(new Date(next.s))}${day}`;
       q.what.textContent = next.e.title;
       q.leave.textContent = leaveAt ? (leaveAt > now ? `Leave by ${fmtTime(new Date(leaveAt))}` : 'Time to leave') : '';
       q.leave.hidden = !leaveAt;
-      q.count.textContent = big ? countdown(left) : untilText(left, true);
+      if (MOBILE && leaveAt) q.when.textContent += ` · ${q.leave.textContent.toLowerCase()}`; // the phone shows it on the small line
+      q.count.textContent = MOBILE ? shortCount(left) : big ? countdown(left) : untilText(left, true);
       q.el.title = `${untilText(left)} until ${next.e.title} at ${fmtTime(new Date(next.s))}${day}${leaveAt ? `. Leave by ${fmtTime(new Date(leaveAt))}` : ''}. Click to open it`;
       q.el.style.setProperty('--left', `${(Math.max(0, Math.min(1, left / span)) * 100).toFixed(2)}%`);
       q.el.disabled = false;
@@ -577,6 +587,7 @@
       q.el.dataset.tone = 'calm';
       q.kindIcon.replaceChildren(icon('check'));
       q.kind.textContent = 'To do today';
+      q.when.textContent = todayList.length > 1 ? `${todayList.length} due` : 'due today';
       q.what.textContent = t.title;
       q.leave.textContent = todayList.length > 1 ? `+${todayList.length - 1} more` : '';
       q.leave.hidden = todayList.length < 2;
@@ -597,9 +608,10 @@
       m.el.dataset.tone = left <= 5 * 60000 ? 'near' : 'calm';
       m.kindIcon.replaceChildren(icon(current.e.kind === 'task' ? 'check' : 'calendar'));
       m.kind.textContent = 'Now';
+      m.when.textContent = `until ${fmtTime(new Date(current.f))}`;
       m.what.textContent = current.e.title;
       m.leave.hidden = true;
-      m.count.textContent = countdown(left);
+      m.count.textContent = MOBILE ? shortCount(left) : countdown(left);
       m.el.title = `${untilText(left)} left of ${current.e.title}, until ${fmtTime(new Date(current.f))}. Click to open it`;
       m.el.style.setProperty('--left', `${(Math.max(0, Math.min(1, left / (current.f - current.s))) * 100).toFixed(2)}%`);
       m.el.disabled = false;
@@ -611,7 +623,8 @@
         m.el.dataset.tone = ph.kind === 'work' ? 'work' : 'rest';
         m.kindIcon.replaceChildren(icon('clock'));
         m.kind.textContent = ph.kind === 'work' ? 'Work' : 'Break';
-        m.count.textContent = countdown(ph.left);
+        m.when.textContent = `round ${ph.round}/${ph.rounds}`;
+        m.count.textContent = MOBILE ? shortCount(ph.left) : countdown(ph.left);
         m.leave.textContent = `round ${ph.round}/${ph.rounds}`;
         m.leave.hidden = false;
         m.el.style.setProperty('--left', `${(Math.max(0, Math.min(1, ph.left / (ph.length * 60000))) * 100).toFixed(2)}%`);
@@ -638,6 +651,7 @@
         m.el.dataset.tone = 'calm';
         m.kindIcon.replaceChildren(icon('calendar'));
         m.kind.textContent = 'Next';
+        m.when.textContent = '';
         m.what.textContent = 'Nothing else timed';
         m.leave.hidden = true;
         m.count.textContent = '';

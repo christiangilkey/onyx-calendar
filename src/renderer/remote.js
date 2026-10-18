@@ -314,6 +314,7 @@
     setEventDone: (id, done) => call('event:done', id, done),
     setTwilioToken: (token) => call('calls:token', token),
     testCall: (kind) => call('calls:test', kind),
+    emails: (start, end) => call('emails', start, end),
     // The alarms coming up, set on Android's alarm clock (it wakes the phone and rings until a button is pressed).
     setAlarms: async (alarms) => { if (Widget?.setAlarms) await Widget.setAlarms({ alarms }); },
     setCall: (event, on, before, mode) => call('event:call', event, on, before, mode),

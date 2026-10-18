@@ -359,6 +359,10 @@
       return { tasks: done.sort((a, b) => b.completed.localeCompare(a.completed)).map(withTags), errors: [] };
     },
     createTask: async (d) => taskOut(addTask(d)),
+    emails: async () => ({ emails: [
+      { id: 'mail:g1:1', provider: 'gmail', account: 'you@gmail.com', subject: 'Flight confirmation: SFO → JFK', from: 'United Airlines', date: new Date().toISOString(), preview: 'Your trip on Oct 22 is confirmed.', link: 'https://mail.google.com', tags: [] },
+      { id: 'mail:m1:2', provider: 'outlook', account: 'you@outlook.com', subject: 'Quarterly report draft', from: 'Dana', date: new Date(Date.now() - 86400000).toISOString(), preview: 'Can you look over section 3 by Friday?', link: 'https://outlook.office.com/mail/', tags: ['work'] },
+    ], problems: [] }),
     setEventDone: async (id, done) => { const e = events.find((x) => x.id === id); if (e) e.done = !!done; return !!done; },
     setBackburner: async (id, on) => { const t = tasks.find((x) => x.id === id); if (t) t.backburner = !!on; return !!on; },
     updateTask: async (id, patch) => {

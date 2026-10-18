@@ -123,6 +123,8 @@ const handlers = {
   pairing: () => pairing.info(),
   // The globe's notes and pinned Notion pages / Drive files.
   globe: () => library.globeItems(),
+  // Starred Gmail and flagged Outlook emails received in a range, for the globe.
+  emails: (start, end) => require('./providers/mail').list(start, end),
   'note:create': (data) => library.createNote(data),
   'note:update': (id, patch) => library.updateNote(id, patch),
   'note:delete': (id) => library.deleteNote(id),

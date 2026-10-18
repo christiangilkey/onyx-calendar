@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('onyx', {
   setEventDone: (id, done) => call('event:done', id, done),
   setTwilioToken: (token) => call('calls:token', token),
   testCall: (kind) => call('calls:test', kind),
+  emails: (start, end) => call('emails', start, end),
   setCall: (event, on, before, mode) => call('event:call', event, on, before, mode),
   setLeaveBy: (id, minutes) => call('event:leaveby', id, minutes),
   ackCall: (id) => call('event:ack', id),

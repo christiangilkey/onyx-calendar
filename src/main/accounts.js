@@ -9,12 +9,12 @@ const GOOGLE = {
   auth: 'https://accounts.google.com/o/oauth2/v2/auth',
   token: 'https://oauth2.googleapis.com/token',
   // Drive: names and links only, for pinning files to the globe.
-  scope: 'openid email https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/drive.metadata.readonly',
+  scope: 'openid email https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/gmail.readonly',
 };
 const MICROSOFT = {
   auth: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
   token: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
-  scope: 'offline_access User.Read Calendars.ReadWrite Tasks.ReadWrite',
+  scope: 'offline_access User.Read Calendars.ReadWrite Tasks.ReadWrite Mail.Read',
 };
 
 const newId = (prefix) => prefix + crypto.randomBytes(4).toString('hex');

@@ -342,7 +342,7 @@ function send(res, code, body, headers = {}) {
 
 // Commands the Android app may run (see api.js), set by main.js.
 let appApi = {};
-const READS = new Set(['state', 'events', 'tasks', 'refresh']);
+const READS = new Set(['state', 'events', 'tasks', 'refresh', 'emails']);
 
 async function appRpc(req, res) {
   if (req.method !== 'POST') return send(res, 405, { error: 'Use POST.' }, { Allow: 'POST' });

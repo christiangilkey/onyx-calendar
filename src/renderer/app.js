@@ -4239,7 +4239,7 @@
 
   const graph = {
     on: false, kind: 'week', anchor: new Date(), from: '', to: '', groupBy: 'tags', view: null, seq: 0,
-    show: { tasks: true, goals: true, notes: true, notion: true, drive: true, web: true, local: true }, // what joins the calendar entries
+    show: { tasks: true, goals: true, notes: true, notion: true, drive: true, web: true, local: true, email: true }, // what joins the calendar entries
     lib: { notes: [], pins: [] },
     events: [],          // the last range's entries, so the clusters can be redrawn without fetching
     hidden: readHidden(), // tag clusters switched off in the Clusters tab ('' stands for untagged)
@@ -4273,6 +4273,7 @@
     drive: { label: 'Drive', color: '#3ddc97' },
     web: { label: 'Links', color: '#9fd0ff' },
     local: { label: 'Files', color: '#ffd28a' },
+    email: { label: 'Emails', color: '#ff8fa3' },
   };
 
   function graphRange() {
@@ -4411,6 +4412,16 @@
         if (matchesFilter(n.tags)) items.push(sourceItem('notes', { id: n.id, title: n.title, tags: n.tags, kind: 'note', shape: 'diamond', note: n, notes: (n.body || '').trim() }));
       }
     }
+    // Starred Gmail and flagged Outlook emails from these days: their own cluster, or their tags.
+    if (graph.show.email) {
+      for (const m of graph.emails || []) {
+        if (!matchesFilter(m.tags)) continue;
+        items.push(sourceItem('email', {
+          id: m.id, title: m.subject, tags: m.tags, kind: 'email', shape: 'square', email: m,
+          notes: `From ${m.from} · ${fmtDay(new Date(m.date))}${m.preview ? `\n\n${m.preview}` : ''}`,
+        }));
+      }
+    }
     for (const p of graph.lib.pins) {
       if (graph.show[p.source] && matchesFilter(p.tags)) {
         items.push(sourceItem(p.source, { id: p.id, title: p.title, tags: p.tags, kind: 'pin', shape: 'square', pin: p, notes: notesOf(p) }));
@@ -4433,9 +4444,17 @@
     $('#range').textContent = graphTitle(range);
     let events = [];
     try {
-      const [ev, lib] = await Promise.all([onyx.events(range[0].toISOString(), range[1].toISOString()), onyx.globe()]);
+      const [ev, lib, mail] = await Promise.all([
+        onyx.events(range[0].toISOString(), range[1].toISOString()), onyx.globe(),
+        onyx.emails ? onyx.emails(range[0].toISOString(), range[1].toISOString()).catch((err) => ({ emails: [], problems: [err.message] })) : null,
+      ]);
       events = ev.events;
       graph.lib = lib;
+      if (mail) {
+        graph.emails = mail.emails || [];
+        // Each account's problem once (an account to connect again for its emails).
+        for (const p of mail.problems || []) if (!graph.mailWarned?.has(p)) { (graph.mailWarned ||= new Set()).add(p); toast(p, 'warn'); }
+      }
     } catch (err) {
       toast(err.message, 'error');
     }
@@ -4614,6 +4633,8 @@
       openSeries(item.series, rect);
     } else if (item.kind === 'note') {
       openNote(item.note, rect);
+    } else if (item.kind === 'email') {
+      onyx.open(item.email.link); // opens it in Gmail or Outlook
     } else if (item.kind === 'pin') {
       openPin(item.pin, rect);
     } else {
@@ -4634,6 +4655,7 @@
     const saveTags = (next) => {
       if (item.kind === 'note') return onyx.updateNote(item.id, { tags: next });
       if (item.kind === 'pin') return onyx.updatePin(item.id, { tags: next });
+      if (item.kind === 'email') { item.email.tags = next; return onyx.setTags(item.id, next); }
       if (item.kind === 'series') return Promise.all(item.series.ids.map((id) => onyx.setTags(id, next)));
       return onyx.setTags(item.id, next);
     };
@@ -5010,7 +5032,8 @@
           chip('notion', 'Notion', 'Notion pages pinned to the globe'),
           chip('drive', 'Drive', 'Google Drive files pinned to the globe'),
           chip('web', 'Links', 'Web links pinned to the globe'),
-          chip('local', 'Files', 'Files and folders from this PC pinned to the globe'))),
+          chip('local', 'Files', 'Files and folders from this PC pinned to the globe'),
+          chip('email', 'Emails', 'Starred Gmail and flagged Outlook emails from these days'))),
       // Right: one menu for everything that adds an item.
       open && h('div', { class: 'bar-zone create' },
         h('button', { class: 'btn primary add-btn', title: 'Add a note, a Notion page, a Drive file, a link or a file', onclick: newMenu }, icon('plus'), 'New'))));

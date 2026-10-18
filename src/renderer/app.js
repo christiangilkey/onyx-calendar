@@ -1982,18 +1982,20 @@
     // keep coming until "Leaving now"), at the leave-by time when there is one.
     let mode = src?.piCall ? src.callMode || 'call' : 'off';
     const call = h('input', { type: 'checkbox', checked: mode !== 'off', hidden: true });
+    // Each says what it really does, with the way reminders go out (Settings → Calls & alerts).
+    const via = { pi: 'the Pi', twilio: 'Onyx (Twilio)', ntfy: 'ntfy', alarm: 'your phone' }[S.settings.calls?.method || S.calls?.method || 'pi'];
     const LADDER = [
-      ['off', 'Off', 'No reminder from the Pi'],
-      ['push', 'Push only', 'An alert on your phone (ntfy), no call'],
-      ['call', 'Voice call', 'The Pi phones you, at the leave-by time when there is one'],
-      ['critical', 'Critical', 'A call, then another 10 minutes later unless you tap Leaving now'],
-      ['alarm', 'Alarm', 'Your phone rings an alarm, full screen, until you press a button (no call)'],
+      ['off', 'bell-off', 'Off', 'No reminder'],
+      ['push', 'bell', 'Push only', 'A notification on your phone, no ringing'],
+      ['call', 'phone', 'Voice call', `One phone call from ${via}`],
+      ['critical', 'phone', 'Critical', 'A call, then a second one 10 minutes later unless you tap Leaving now'],
+      ['alarm', 'clock', 'Alarm', 'Your phone rings and vibrates full screen until you press a button'],
     ];
-    const ladder = h('div', { class: 'segmented ladder', role: 'radiogroup', 'aria-label': 'Escalation' },
-      LADDER.map(([value, label, hint]) => h('button', {
-        type: 'button', 'data-mode': value, title: hint, role: 'radio',
+    const ladder = h('div', { class: 'ladder-list', role: 'radiogroup', 'aria-label': 'Escalation' },
+      LADDER.map(([value, ico, label, hint]) => h('button', {
+        type: 'button', class: 'ladder-opt', 'data-mode': value, role: 'radio',
         onclick: () => { mode = value; call.checked = value !== 'off'; sync(); },
-      }, label)));
+      }, h('span', { class: 'lo-ico' }, icon(ico)), h('span', { class: 'lo-txt' }, h('b', null, label), h('small', null, hint)), h('span', { class: 'lo-dot' }))));
     // Leave by: how long before it starts you need to set off (travel, getting ready).
     let leaveBy = src?.leaveBy ?? null;
     const LEAVE = [0, 5, 10, 15, 20, 30, 45, 60, 90, 120];
@@ -3923,8 +3925,8 @@
             h('div', { class: 'row' },
               h('button', { class: 'btn', onclick: () => onyx.launcher.open('launcher') }, 'Preview'),
               h('button', { class: info.isHome ? 'btn' : 'btn primary', onclick: () => onyx.launcher.open('home') }, info.isHome ? 'Change home app' : 'Make it my home app'))),
-          field('Alarm as things start', 'Wakes the phone and fills the screen, ringing your alarm sound until you press Stop, Snooze or Leaving now. Uses Android\'s alarm clock, so it comes on time.',
-            toggle(info.alarm !== false, (v) => onyx.launcher.setAlarm(v).then(draw).catch((err) => toast(err.message, 'error')))),
+          field('Alarm for everything as it starts', 'On top of each entry\'s own Escalation: every timed entry and task rings the full-screen alarm as it starts. Off, only entries set to Alarm ring your phone.',
+            toggle(info.alarm === true, (v) => onyx.launcher.setAlarm(v).then(draw).catch((err) => toast(err.message, 'error')))),
           lock && field('Notifications', 'The lock screen shows what is on now, its progress bar and a countdown to the next thing as a live notification.', allow(info.notifications, 'notifications')),
           lock && field('Over the lock screen', 'Brings the full Onyx panel up over the lock screen each time the screen turns on ("Display over other apps").', allow(info.overlay, 'overlay')),
           lock && !info.overlay && h('div', { class: 'restricted-guide' },
@@ -3936,7 +3938,7 @@
               h('li', null, 'If that option is missing, tap the greyed-out switch once first, then look again.'),
               h('li', null, 'Come back here and tap Allow: the switch turns on now.')),
             h('button', { class: 'btn', onclick: () => onyx.launcher.open('appinfo') }, 'App info')),
-          (lock || info.alarm !== false) && field('Full-screen alarms', 'An alarm (and a call from the Pi) wakes the phone and fills the screen. Without it, it still rings and shakes, as a notification.', allow(info.fullScreen, 'fullscreen')),
+          field('Full-screen alarms', 'An alarm (and a call from the Pi) wakes the phone and fills the screen. Without it, it still rings and shakes, as a notification.', allow(info.fullScreen, 'fullscreen')),
         ].filter(Boolean));
       };
       const load = () => onyx.launcher.info().then(draw).catch(() => box.replaceChildren(h('p', null, 'Update the Onyx app to use this.')));

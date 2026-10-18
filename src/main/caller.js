@@ -25,7 +25,10 @@ const calls = () => store.data.settings.calls || {};
 function method() {
   const m = calls().method;
   if (METHODS.includes(m)) return m;
-  return store.data.settings.pi?.taskList ? 'pi' : 'alarm';
+  // Anyone who already had Pi reminders (a list picked, or reminders the Pi was given) keeps the Pi.
+  const pi = store.data.settings.pi || {};
+  const hadPi = pi.taskList || Object.values(store.data.piLinks || {}).some((l) => l.task);
+  return hadPi ? 'pi' : 'alarm';
 }
 
 /** Whether this PC sends the reminders itself (ntfy or Twilio). */

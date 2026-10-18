@@ -1058,7 +1058,9 @@ function reconcileCalls(cal, items, start, end) {
     const linked = new Date(link.start);
     const event = byId.get(eventId);
     let job = null;
-    if (event && (event.allDay || new Date(event.start).getTime() !== linked.getTime() || event.title !== link.title)) {
+    // With the Pi, a reminder kept without its task (saved while another way was picked) gets one now.
+    const needsTask = event && !link.task && !event.allDay && require('./caller').method() === 'pi';
+    if (event && (needsTask || event.allDay || new Date(event.start).getTime() !== linked.getTime() || event.title !== link.title)) {
       job = setPiCall(event, !event.allDay);
     } else if (!event && linked >= from && linked < to) {
       job = setPiCall({ id: eventId }, false);

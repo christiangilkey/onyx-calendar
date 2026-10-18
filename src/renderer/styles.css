@@ -1349,3 +1349,21 @@ body.mobile.carrying .fc .fc-event-mirror { outline-width: 1px; }
 /* An all-day item says so, small, beside its name. */
 .fc-daygrid-event .ev-time:empty { display: none; }
 .fc-daygrid-block-event .ev-time, .fc-daygrid-dot-event .ev-time { font-size: 9.5px; opacity: .8; }
+
+/* Escalation: a clear list, one row per choice, each with what it really does. */
+.ladder-list { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 6px; }
+.ladder-list.disabled { opacity: .5; pointer-events: none; }
+.ladder-opt { --lc: #8b8b96; display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px; border-radius: 10px; border: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; transition: background .12s, border-color .12s; }
+.ladder-opt:hover { background: rgba(255,255,255,.04); }
+.ladder-opt[data-mode=push] { --lc: #4aa8ff; }
+.ladder-opt[data-mode=call] { --lc: #5fd38d; }
+.ladder-opt[data-mode=critical] { --lc: #ff8a4a; }
+.ladder-opt[data-mode=alarm] { --lc: #ff5b5b; }
+.lo-ico { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; flex: none; color: var(--lc); background: color-mix(in srgb, var(--lc) 14%, transparent); }
+.lo-ico .ico { width: 15px; height: 15px; }
+.lo-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.lo-txt b { font-size: 13px; font-weight: 600; }
+.lo-txt small { font-size: 11.5px; color: var(--muted); line-height: 1.35; }
+.lo-dot { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line-2, #444); flex: none; }
+.ladder-opt.on { border-color: color-mix(in srgb, var(--lc) 60%, transparent); background: color-mix(in srgb, var(--lc) 10%, transparent); }
+.ladder-opt.on .lo-dot { border-color: var(--lc); background: radial-gradient(circle, var(--lc) 45%, transparent 50%); }

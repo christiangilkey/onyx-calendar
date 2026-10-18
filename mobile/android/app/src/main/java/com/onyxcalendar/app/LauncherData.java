@@ -71,7 +71,7 @@ final class LauncherData {
 
     /** The alarm as each thing starts: on unless turned off (whatever the home and lock screen show). */
     static boolean alarmOn(Context ctx) {
-        return prefs(ctx).getBoolean("alarm", true);
+        return prefs(ctx).getBoolean("alarm", false);
     }
 
     static void setAlarm(Context ctx, boolean on) {
@@ -128,7 +128,7 @@ final class LauncherData {
             o.put("notifications", notificationsAllowed(ctx));
             o.put("overlay", overlayAllowed(ctx));
             o.put("fullScreen", fullScreenAllowed(ctx));
-            o.put("alarm", prefs(ctx).getBoolean("alarm", true));
+            o.put("alarm", prefs(ctx).getBoolean("alarm", false));
         } catch (Exception ignored) {
             // a JSON key can't fail here
         }

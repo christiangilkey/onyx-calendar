@@ -176,7 +176,7 @@
       .map((e) => ({ start: +new Date(e.start), end: +new Date(e.end), place: e.location || null, title: e.title }));
     // The tasks that arrived from other apps and were picked: each is one task, keeping its id.
     const arrived = inboxIds.map((id) => tasks.find((t) => t.id === id)).filter(Boolean)
-      .flatMap((t) => magicLib.estimateLocal(t.label).slice(0, 1).map((g) => ({ ...g, ref: t.id })));
+      .flatMap((t) => magicLib.estimateLocal(t.label).slice(0, 1).map((g) => ({ ...g, ref: t.id, ...(t.minutes ? { minutes: t.minutes, why: 'Length given by the app that sent it' } : {}) })));
     const list = magicLib.normalizeTasks(given || [...arrived, ...(text && text.trim() ? magicLib.estimateLocal(text) : [])]);
     if (!list.length) throw new Error('No tasks found in that. Put one on each line.');
     const r = magicLib.schedule(busy, list, { day, from, to, home: home || 'Home', travel: travel || [], lunch: (o.lunch ?? m.lunch) !== false });
@@ -449,6 +449,14 @@
       return taskOut(t);
     },
     dismissInbox: async (id) => { inboxDismissed.add(id); return true; },
+    receiveTask: async (link) => {
+      const q = new URL(link).searchParams;
+      const id = `g1/tl~main/in${Date.now()}`;
+      tasks.push({ id, title: q.get('title'), label: q.get('title'), arrived: true, from: q.get('from') || 'app', provider: 'google', listName: 'My Tasks', date: q.get('due') || ymd(day(0)), time: null, start: null, call: null, minutes: Number(q.get('minutes')) || null });
+      return { taskId: id, title: q.get('title'), date: q.get('due') || ymd(day(0)), minutes: Number(q.get('minutes')) || null, from: q.get('from') || 'app', created: true };
+    },
+    takeMagicLink: async () => { const d = window.__magicLink || null; window.__magicLink = null; return d; },
+    onMagicLink: (fn) => { window.__onMagicLink = fn; },
     planTask: async (id, to) => {
       const t = tasks.find((x) => x.id === id);
       const prev = { title: t.title, due: t.due || null, minutes: t.minutes || null, leaveBy: t.leaveBy || null, state: 'new' };

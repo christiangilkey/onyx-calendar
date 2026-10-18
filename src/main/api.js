@@ -105,6 +105,8 @@ const handlers = {
   'task:plan': (id, to) => hub.planTask(id, to),
   'task:unplan': (id, prev) => hub.unplanTask(id, prev),
   'inbox:dismiss': (id) => hub.dismissInbox(id),
+  // Another app hands over a task: onyx://task?title=…&minutes=…&due=…&id=…&from=… (deeplink.js)
+  'link:task': (link) => hub.receiveTask(link),
   'tasks:archived': (from, to) => hub.archivedTasks(from, to),
   'task:delete': (id) => hub.deleteTask(id),
   'task:repeat': (id, rule) => hub.setRepeat(id, rule),

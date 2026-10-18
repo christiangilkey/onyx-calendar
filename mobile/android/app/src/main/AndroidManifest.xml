@@ -31,6 +31,8 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="onyx" android:host="pair" />
                 <data android:scheme="onyx" android:host="open" />
+                <!-- Another app hands over a task: onyx://task?title=…&minutes=…&due=…&id=…&from=… -->
+                <data android:scheme="onyx" android:host="task" />
             </intent-filter>
 
         </activity>

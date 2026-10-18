@@ -2419,7 +2419,9 @@
   let inboxIds = [];
   let inboxKnown = null; // the ones seen so far, to say when a new one arrives
   const inboxTasks = () => inboxIds.map((id) => tasks.find((t) => t.id === id)).filter(Boolean);
-  const sourceName = (t) => (t?.provider === 'microsoft' ? 'Microsoft To Do' : t?.provider === 'google' ? 'Google Tasks' : t?.listName || 'another app');
+  const FROM_NAME = { mcp: 'another app', tamkeen: 'Tamkeen' };
+  const sourceName = (t) => (t?.from ? FROM_NAME[t.from] || t.from.replace(/^./, (c) => c.toUpperCase())
+    : t?.provider === 'microsoft' ? 'Microsoft To Do' : t?.provider === 'google' ? 'Google Tasks' : t?.listName || 'another app');
 
   function noteInbox(ids) {
     inboxIds = ids;
@@ -4768,7 +4770,7 @@
     $('#modal').replaceChildren(sheet);
     $('#modal').hidden = false;
     setTimeout(() => (picked.size ? go : text).focus(), 50);
-    if (preset.text) run();
+    if (preset.text || (preset.auto && picked.size)) run();
   }
 
   // ------------------------------------------------------------ globe view
@@ -5913,6 +5915,20 @@
     };
     window.addEventListener('onyx:open', (e) => openFromWidget(e.detail));
     openFromWidget(window.onyxPendingOpen);
+
+    // Another app handed over a task (onyx://task…): it is already made; the window opens Magic add with it, planned for its day.
+    const openMagicFromLink = async (d) => {
+      if (!d) return;
+      window.onyxPendingMagic = null;
+      if (d.error) { toast(d.error, 'error'); return; }
+      (inboxKnown ||= new Set()).add(d.taskId); // no "new task" toast on top of the window itself
+      await loadTasks(true);
+      openMagic({ date: d.date, auto: true });
+    };
+    window.addEventListener('onyx:magic', (e) => openMagicFromLink(e.detail));
+    openMagicFromLink(window.onyxPendingMagic);
+    onyx.onMagicLink?.(() => onyx.takeMagicLink().then(openMagicFromLink));
+    onyx.takeMagicLink?.().then(openMagicFromLink).catch(() => {});
     renderSidebar();
     loadTasks();
 

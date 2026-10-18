@@ -57,7 +57,7 @@ function pendingIds(tasks) {
     const item = items[t.id];
     if (item?.state !== 'new') continue;
     if (t.done || t.mirror || t.start || t.backburner) continue;
-    if (t.madeHere && item.from !== 'mcp') { item.state = 'seen'; continue; } // Onyx's own, caught before it was marked
+    if (t.madeHere && !item.from) { item.state = 'seen'; continue; } // Onyx's own, caught before it was marked
     out.push(t.id);
   }
   return out.sort((a, b) => items[a].at - items[b].at);

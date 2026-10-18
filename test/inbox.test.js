@@ -28,6 +28,7 @@ google.updateTask = async (req, list, id, d) => {
   return Object.assign(fake.tasks.get(id), d);
 };
 google.deleteTask = async (req, list, id) => { fake.tasks.delete(id); };
+google.getTask = async (req, list, id) => fake.tasks.get(id) || null;
 
 /** Somebody else's app adds a task to the list (not through Onyx). */
 const arrives = (title, extra = {}) => {
@@ -184,4 +185,87 @@ test('Magic add with Claude: arrived tasks are tagged, and mapped back to their 
     assert.equal(byTitle['Call the bank'], picked[1]);
     assert.equal(byTitle.Invented, undefined, 'a tag Claude made up is not a task of yours');
   } finally { global.fetch = real; }
+});
+
+// ---- onyx://task: another app hands over a task (Tamkeen's review, say)
+const { parseTaskLink } = require('../src/main/deeplink');
+const link = (q) => `onyx://task?${new URLSearchParams(q)}`;
+
+test('a task link is read strictly: title needed, minutes 1-600, a real day, a safe id and app name', () => {
+  const ok = parseTaskLink('onyx://task?title=Tamkeen%20review%3A%2042%20cards&minutes=18&due=2026-10-18&id=tamkeen-review-2026-10-18&from=tamkeen&n=123');
+  assert.deepEqual(ok, { title: 'Tamkeen review: 42 cards', minutes: 18, due: '2026-10-18', notes: '', id: 'tamkeen-review-2026-10-18', from: 'tamkeen' });
+  assert.equal(parseTaskLink('onyx://task?minutes=5'), null, 'no title');
+  assert.equal(parseTaskLink('onyx://pair?a=1&t=2'), null, 'not a task link');
+  assert.equal(parseTaskLink('https://example.com/?title=x'), null);
+  const odd = parseTaskLink(link({ title: `  ${'x'.repeat(300)}  `, minutes: '9999', due: '2026-13-45', id: 'bad id!', from: 'Evil App', notes: 'n'.repeat(5000) }));
+  assert.equal(odd.title.length, 120);
+  assert.equal(odd.minutes, 600);
+  assert.equal(odd.due, null);
+  assert.equal(odd.id, null);
+  assert.equal(odd.from, 'app');
+  assert.equal(odd.notes.length, 1000);
+  assert.equal(parseTaskLink(link({ title: 'x', minutes: '0' })).minutes, null);
+  assert.equal(parseTaskLink(link({ title: 'x', minutes: 'abc' })).minutes, null);
+  assert.equal(parseTaskLink('onyx://task/?title=Slash').title, 'Slash', 'a trailing slash is fine');
+});
+
+test('a task link makes a task for Magic add with the length given; the same id again updates it', async () => {
+  reset();
+  await inbox();
+  const a = await hub.receiveTask(link({ title: 'Tamkeen review: 42 cards', minutes: '18', due: ymd(day(0)), id: 'tamkeen-review-1', from: 'tamkeen' }));
+  assert.equal(a.created, true);
+  assert.equal(a.minutes, 18);
+  assert.deepEqual(await inbox(), [a.taskId]);
+  const tasks = (await hub.getTasks({ force: true })).tasks;
+  const t = tasks.find((x) => x.id === a.taskId);
+  assert.equal(t.minutes, 18);
+  assert.equal(t.from, 'tamkeen');
+  assert.equal(t.date, ymd(day(0)));
+
+  // sent again (more cards due): the same task, updated, not a second one
+  const b = await hub.receiveTask(link({ title: 'Tamkeen review: 60 cards', minutes: '25', id: 'tamkeen-review-1', from: 'tamkeen' }));
+  assert.equal(b.created, false);
+  assert.equal(b.taskId, a.taskId);
+  const after = (await hub.getTasks({ force: true })).tasks.filter((x) => /Tamkeen review/.test(x.title));
+  assert.equal(after.length, 1);
+  assert.equal(after[0].title, 'Tamkeen review: 60 cards');
+  assert.equal(after[0].minutes, 25);
+
+  // "Not now", then sent again: it is wanted again
+  hub.dismissInbox(a.taskId);
+  assert.deepEqual(await inbox(), []);
+  await hub.receiveTask(link({ title: 'Tamkeen review: 60 cards', minutes: '25', id: 'tamkeen-review-1', from: 'tamkeen' }));
+  assert.deepEqual(await inbox(), [a.taskId]);
+
+  // no id: each send is its own task
+  const c = await hub.receiveTask(link({ title: 'Loose task', from: 'tamkeen' })), d = await hub.receiveTask(link({ title: 'Loose task', from: 'tamkeen' }));
+  assert.notEqual(c.taskId, d.taskId);
+});
+
+test('Magic add plans a link task for the length it was given, and once planned a resend leaves its time alone', async () => {
+  reset();
+  await inbox();
+  const sent = await hub.receiveTask(link({ title: 'Tamkeen review: 42 cards', minutes: '18', due: ymd(day(2)), id: 'r1', from: 'tamkeen' }));
+  const r = await magic.planDay('', ymd(day(2)), {}, [sent.taskId]);
+  assert.equal(r.blocks.length, 1);
+  assert.equal(r.blocks[0].ref, sent.taskId);
+  assert.equal(r.blocks[0].minutes, 20, '18 minutes, to the 5');
+  assert.equal(r.blocks[0].start === r.blocks[0].end, false);
+
+  await hub.planTask(sent.taskId, { start: r.blocks[0].start, minutes: 20, leaveBy: 0 });
+  const again = await hub.receiveTask(link({ title: 'Tamkeen review: 42 cards', minutes: '18', due: ymd(day(5)), id: 'r1', from: 'tamkeen' }));
+  assert.equal(again.created, false);
+  const t = (await hub.getTasks({ force: true })).tasks.find((x) => x.id === sent.taskId);
+  assert.ok(t.start, 'still planned at its time');
+  assert.equal(t.date, ymd(day(2)), 'the day it was planned for');
+});
+
+test('too many links at once are held back', async () => {
+  reset();
+  await inbox();
+  let failed = 0;
+  for (let i = 0; i < 20; i++) {
+    try { await hub.receiveTask(link({ title: `Spam ${i}`, from: 'spammer' })); } catch (err) { if (/Too many/.test(err.message)) failed++; }
+  }
+  assert.ok(failed >= 6, `held back ${failed}`);
 });

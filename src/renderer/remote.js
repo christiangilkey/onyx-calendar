@@ -331,6 +331,7 @@
     planTask: (id, to) => call('task:plan', id, to),
     unplanTask: (id, prev) => call('task:unplan', id, prev),
     dismissInbox: (id) => call('inbox:dismiss', id),
+    receiveTask: (link) => call('link:task', link),
     archivedTasks: (from, to) => call('tasks:archived', from, to),
     deleteTask: (id) => call('task:delete', id),
     repeatTask: (id, rule) => call('task:repeat', id, rule),
@@ -419,6 +420,14 @@
       // The launch link is reported again after the reload below, so each link is used once.
       if (!url || !url.startsWith('onyx://') || read('onyx.used-link', '') === url) return;
       write('onyx.used-link', url);
+      // Another app hands over a task: onyx://task?title=…&minutes=…&due=…&id=…&from=… The PC makes it; Magic add opens to plan it.
+      if (url.startsWith('onyx://task')) {
+        let detail;
+        try { detail = await window.onyx.receiveTask(url); } catch (err) { detail = { error: err.message }; }
+        window.onyxPendingMagic = detail;
+        window.dispatchEvent(new CustomEvent('onyx:magic', { detail }));
+        return;
+      }
       // A tap on a home-screen widget: onyx://open?view=calendar|globe&date=YYYY-MM-DD
       if (url.startsWith('onyx://open')) {
         const q = new URL(url.replace('onyx://open', 'https://onyx.local/open')).searchParams;

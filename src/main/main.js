@@ -27,8 +27,28 @@ let quitting = false;
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', showWindow);
+  // A link opened while Onyx runs (onyx://task…) reaches this instance as an argument of the second one.
+  app.on('second-instance', (_event, argv) => {
+    showWindow();
+    const link = linkIn(argv);
+    if (link) receiveLink(link);
+  });
   app.whenReady().then(boot);
+}
+
+// ---- onyx:// links: another app hands over a task (see deeplink.js). Only task links are taken on the
+// PC; pairing links are for the phone.
+const linkIn = (argv) => (argv || []).find((a) => /^onyx:\/\/task/i.test(a));
+let pendingLink = null; // what the window is to plan: it asks for it when it is ready
+
+async function receiveLink(url) {
+  try {
+    pendingLink = await api.handlers['link:task'](url);
+  } catch (err) {
+    pendingLink = { error: err.message };
+  }
+  showWindow();
+  win?.webContents.send('magic-link');
 }
 
 function showWindow() {
@@ -206,7 +226,12 @@ async function boot() {
     }
   });
   mcp.setAppApi(api.remote);
+  // Onyx opens onyx:// links (a task from Tamkeen, say); an installed copy tells Windows each start.
+  if (app.isPackaged) app.setAsDefaultProtocolClient('onyx');
+  ipcMain.handle('magic-link:take', () => { const d = pendingLink; pendingLink = null; return d; });
   createWindow();
+  const first = linkIn(process.argv);
+  if (first) receiveLink(first);
   if (!SMOKE_SHOT) createTray();
   await mcp.start(() => win?.webContents.send('changed'));
   // Another linked desktop changed something: show it. New sign-ins need their calendars read.

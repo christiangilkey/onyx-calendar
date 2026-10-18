@@ -59,7 +59,7 @@ function userMessage({ text, day, from, to, busy, home, mode, arrived = [] }) {
     `Day: ${day.toDateString()}. Free window to plan in: ${hm(new Date(from))} to ${hm(new Date(to))}.`,
     `Home base: ${home || 'not given'}. They get around ${MODES[mode] || MODES.drive}.`,
     `Already in their schedule:\n${lines.length ? lines.join('\n') : '(nothing)'}`,
-    arrived.length ? `Tasks that arrived from other apps:\n${arrived.map((a, i) => `[t${i + 1}] ${String(a.title).slice(0, 120)}${a.notes ? ` (${String(a.notes).replace(/\s+/g, ' ').slice(0, 160)})` : ''}`).join('\n')}` : '',
+    arrived.length ? `Tasks that arrived from other apps:\n${arrived.map((a, i) => `[t${i + 1}] ${String(a.title).slice(0, 120)}${a.minutes ? ` [expected length: ${a.minutes} min]` : ''}${a.notes ? ` (${String(a.notes).replace(/\s+/g, ' ').slice(0, 160)})` : ''}`).join('\n')}` : '',
     String(text).trim() ? `What they need to get done:\n${String(text).slice(0, 3000)}` : '',
   ].filter(Boolean).join('\n\n');
 }
@@ -147,6 +147,11 @@ async function planDay(text, date, o, inboxIds = []) {
     if (have.has(a.id)) continue;
     const guess = plan.normalizeTasks(plan.estimateLocal(a.label || a.title).slice(0, 1).map((g) => ({ ...g, ref: a.id })));
     tasks.push(...guess);
+  }
+  // A length the other app gave (Tamkeen's review time) is the length planned.
+  for (const t of tasks) {
+    const given = t.ref && arrived.find((a) => a.id === t.ref)?.minutes;
+    if (given) { t.minutes = plan.clampMinutes(given); t.why ||= 'Length given by the app that sent it'; }
   }
   if (!tasks.length) throw new Error('No tasks found in that. Put one on each line.');
   const result = plan.schedule(busy, tasks, { day, from, to, home: opts.home || 'Home', travel, lunch: opts.lunch });

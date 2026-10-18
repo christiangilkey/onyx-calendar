@@ -30,6 +30,9 @@ contextBridge.exposeInMainWorld('onyx', {
   planTask: (id, to) => call('task:plan', id, to),
   unplanTask: (id, prev) => call('task:unplan', id, prev),
   dismissInbox: (id) => call('inbox:dismiss', id),
+  // A task another app handed over (onyx://task…): the window is told, then asks for what to plan.
+  onMagicLink: (fn) => ipcRenderer.on('magic-link', () => fn()),
+  takeMagicLink: () => ipcRenderer.invoke('magic-link:take'),
   archivedTasks: (from, to) => call('tasks:archived', from, to),
   deleteTask: (id) => call('task:delete', id),
   repeatTask: (id, rule) => call('task:repeat', id, rule),

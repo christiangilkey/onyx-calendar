@@ -13,6 +13,7 @@ const series = require('./series');
 const recur = require('./recur');
 const sync = require('./sync');
 const inbox = require('./inbox');
+const { parseTaskLink } = require('./deeplink');
 
 const PROVIDERS = { google, microsoft };
 const LOCAL = { id: 'local', provider: 'local', label: 'On this PC' };
@@ -561,6 +562,7 @@ function unifyTask(cal, t, mirrors) {
     backburner: !date && !!store.data.backburner?.[id],
     goal: goalOfTask(id), repeat: store.data.repeats[id]?.rule || null, madeHere: store.data.madeHere[id] || null,
     pomodoro: pomodoroOf(id), minutes: store.data.taskMinutes?.[id] || null, leaveBy: leaveByOf(id),
+    from: store.data.inboxItems?.[id]?.from || null, // the app that handed it over (Tamkeen, MCP), when it did
   };
   // The Pi only reads Google Tasks, and only phones for a task with a time in its name.
   const pi = store.data.settings.pi;
@@ -837,6 +839,47 @@ function setTaskMinutes(id, minutes) {
   if (!Number.isFinite(n) || n < 5) delete store.data.taskMinutes[id];
   else store.data.taskMinutes[id] = Math.min(n, 12 * 60);
   store.save();
+}
+
+const linkSent = []; // when each link task arrived, to hold a runaway sender back
+
+/**
+ * A task handed over by another app through onyx://task (see deeplink.js): it is made (or, with the same
+ * id, updated), kept for Magic add with the length the app gave, and returned for the window to plan.
+ * Returns { taskId, title, date, minutes, from, created }.
+ */
+async function receiveTask(link) {
+  const t = parseTaskLink(link);
+  if (!t) throw new Error('That link is not a task Onyx understands.');
+  const now = Date.now();
+  while (linkSent.length && now - linkSent[0] > 60000) linkSent.shift();
+  if (linkSent.length >= 12) throw new Error('Too many tasks were sent at once. Try again in a minute.');
+  linkSent.push(now);
+
+  store.data.linkedTasks ??= {};
+  const key = t.id ? `${t.from}:${t.id}` : null;
+  const due = t.due || localDate(new Date());
+  let task = null, created = false;
+  const known = key && store.data.linkedTasks[key];
+  if (known) {
+    try {
+      const cur = await fetchTask(known);
+      if (cur && !cur.done) {
+        // Already planned into a block: its time stays; otherwise it is brought up to date.
+        task = cur.start ? cur : await updateTask(known, { title: t.title, notes: t.notes, due });
+      }
+    } catch { /* gone: made again below */ }
+  }
+  if (!task) {
+    task = await createTask({ title: t.title, notes: t.notes, due, inbox: t.from });
+    created = true;
+    if (key) store.data.linkedTasks[key] = task.id;
+  }
+  if (t.minutes) setTaskMinutes(task.id, t.minutes);
+  if (!task.start) inbox.mark(task.id, 'new'); // sent again after "Not now": it is wanted
+  if (!store.data.inboxItems[task.id]?.from) store.data.inboxItems[task.id] = { ...store.data.inboxItems[task.id], at: now, from: t.from };
+  store.save();
+  return { taskId: task.id, title: t.title, date: task.date || due, minutes: t.minutes, from: t.from, created };
 }
 
 /** "Not now": the task stays in its list but leaves the Magic add inbox. */
@@ -1178,6 +1221,6 @@ function removeLocalCalendar(id) {
 
 module.exports = {
   calendars, refreshCalendars, invalidate, getEvents, setBackburner, setEventDone, createEvent, updateEvent, deleteEvent, setLeaveBy, ackPiCall, piAlerts,
-  getTasks, archivedTasks, fetchTask, createTask, updateTask, moveTask, resizeTask, planTask, unplanTask, dismissInbox, deleteTask, setRepeat, setPomodoro, setPiCall, freeTime, addLocalCalendar, removeLocalCalendar,
+  getTasks, archivedTasks, fetchTask, createTask, updateTask, moveTask, resizeTask, receiveTask, planTask, unplanTask, dismissInbox, deleteTask, setRepeat, setPomodoro, setPiCall, freeTime, addLocalCalendar, removeLocalCalendar,
   setTags, allTags, setTagColor, renameTag, deleteTag, setMemo, MAX_NOTE,
 };

@@ -1210,7 +1210,7 @@
     // A goal's step: how far along the goal is, as a bar across its block.
     const gp = src.goal?.progress;
     const goalBar = gp && gp.total > 0 && h('div', { class: 'ev-goalbar', css: { '--p': `${gp.percent}%`, '--g': src.goal.color || '#8b7cff' }, title: `${src.goal.title}: ${gp.done} of ${gp.total} steps done (${gp.percent}%)` }, h('i'));
-    return { domNodes: [h('div', { class: 'ev', title: notes && MOBILE ? `${arg.event.title}\n\n${notes}` : null }, title, arg.timeText && h('div', { class: 'ev-time' }, arg.timeText), goalBar)] };
+    return { domNodes: [h('div', { class: 'ev', title: notes && MOBILE ? `${arg.event.title}\n\n${notes}` : null }, title, h('div', { class: 'ev-time' }, arg.timeText || (arg.event.allDay ? 'All day' : '')), goalBar)] };
   }
 
   // A preview card for the block under the pointer: its whole name, times, calendar, notes and
@@ -1343,6 +1343,15 @@
       ...timeFormats(),
       // Drag across the grid to block out time; the highlight stays until the editor closes.
       selectable: true,
+      // A real drag blocks out time; a click (even one that wobbles a little over an entry) never
+      // turns into a new block by mistake. A plain click on an empty slot still opens one (dateClick).
+      selectMinDistance: MOBILE ? 0 : 6,
+      dateClick: (info) => {
+        if (MOBILE || info.jsEvent.target.closest?.('.fc-event, .fc-more-link')) return;
+        const start = info.date;
+        const end = info.allDay ? addDays(start, 1) : new Date(start.getTime() + 30 * 60000);
+        openEditor({ start, end, allDay: info.allDay }, pointRect(info.jsEvent));
+      },
       selectMirror: true,
       unselectAuto: false,
       editable: true,
@@ -2704,6 +2713,8 @@
     };
     // The due date: changing it here does what dragging the task in the calendar does.
     const date = !t.mirror && h('input', { type: 'date', value: t.date || '', title: 'Due date' });
+    // Its time (kept in the name, which the Pi reads): empty for an all-day task.
+    const when = !t.mirror && h('input', { type: 'time', value: t.time || '', step: 300, title: 'Time (leave empty for all day)' });
     // Notes are the task's own notes in Google Tasks / To Do, so they show there too.
     const notes = notesField(t.notes);
     // Repeating: Onyx adds the next one (with the next date) when this one is done.
@@ -2730,8 +2741,9 @@
       if (!sameTags(picked, t.tags)) patch.tags = picked;
       if (Object.keys(patch).length) await onyx.updateTask(t.id, patch);
       if (patch.tags) reloadTags();
-      if (date && date.value && date.value !== (t.date || '')) {
-        await onyx.moveTask(t.id, t.time ? { start: at(date.value, t.time).toISOString() } : { date: date.value });
+      const newTime = when ? when.value : t.time;
+      if (date && date.value && (date.value !== (t.date || '') || (newTime || '') !== (t.time || ''))) {
+        await onyx.moveTask(t.id, newTime ? { start: at(date.value, newTime).toISOString() } : { date: date.value });
       } else if (date && !date.value && t.date && !t.dateInName) {
         await onyx.updateTask(t.id, { due: null });
       }
@@ -2759,7 +2771,7 @@
       h('div', { class: 'pop-meta' }, [t.listName, t.start ? `${fmtDay(new Date(t.start))}, ${fmtTime(new Date(t.start))}` : t.date ? fmtDay(fromYmd(t.date)) : 'No date'].filter(Boolean).join('  ·  ')),
       t.goal && h('button', { class: 'row goal-link', css: { '--g': t.goal.color }, title: 'Open the goal', onclick: (e) => openGoalById(t.goal.id, e.currentTarget.getBoundingClientRect()) },
         icon('flag'), h('span', null, 'A step toward ', h('b', null, t.goal.title))),
-      date && h('div', { class: 'row' }, icon('calendar'), date),
+      date && h('div', { class: 'row' }, icon('clock'), date, when, !t.time && h('small', { class: 'pop-meta' }, 'all day')),
       repeatPick && h('div', { class: 'row' }, icon('repeat'), repeatPick),
       t.series && !t.series.managed && h('button', { class: 'row goal-link series-link', css: { '--g': '#a9b4ff' }, title: 'Edit every copy of this repeating task', onclick: (e) => openSeries(t.series, e.currentTarget.getBoundingClientRect()) },
         icon('repeat'), h('span', null, h('b', null, seriesText(t.series)), ` · set in Google Tasks · ${t.series.count} open copies. Edit all`)),

@@ -269,7 +269,9 @@ body.mobile #calendar, body.mobile #calendar .fc-scroller { touch-action: pan-y;
 .fc-daygrid-event .ev { flex-direction: row; align-items: center; gap: 6px; }
 .fc-daygrid-event .ev-time { order: -1; }
 /* A half-hour block has room for one line: the title wins over the times. */
-.fc-timegrid-event-short .ev-time { display: none; }
+/* A short block shows its time beside its name rather than hiding it. */
+.fc-timegrid-event-short .ev { flex-direction: row; align-items: baseline; gap: 6px; }
+.fc-timegrid-event-short .ev-time { display: block; flex: none; font-size: 10px; }
 .fc .fc-timegrid-event-short .fc-event-main { padding: 1px 7px; }
 .can-tick .ev-title .dot { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid currentColor; flex: none; cursor: pointer; position: relative; transition: background .12s; }
 /* A bigger target than the circle itself, so it is easy to hit. */
@@ -1344,3 +1346,6 @@ body.mobile.carrying .fc .fc-event-mirror { outline-width: 1px; }
 #next-bar .next-pill.main.pomo-on .next-kind-label { font-size: 12px; }
 #next-bar .next-pill.main.pomo-on .next-count { font-size: 19px; }
 #next-bar .next-pill.main.pomo-on .next-gauge { height: 3px; }
+/* An all-day item says so, small, beside its name. */
+.fc-daygrid-event .ev-time:empty { display: none; }
+.fc-daygrid-block-event .ev-time, .fc-daygrid-dot-event .ev-time { font-size: 9.5px; opacity: .8; }

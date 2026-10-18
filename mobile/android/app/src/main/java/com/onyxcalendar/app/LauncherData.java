@@ -69,14 +69,15 @@ final class LauncherData {
         OnyxLiveService.sync(ctx);
     }
 
-    /** The alarm as each thing starts (on the lock screen only): on unless turned off. */
+    /** The alarm as each thing starts: on unless turned off (whatever the home and lock screen show). */
     static boolean alarmOn(Context ctx) {
-        return onLock(ctx) && prefs(ctx).getBoolean("alarm", true);
+        return prefs(ctx).getBoolean("alarm", true);
     }
 
     static void setAlarm(Context ctx, boolean on) {
         prefs(ctx).edit().putBoolean("alarm", on).apply();
-        if (!on) AlarmActivity.cancel(ctx);
+        AlarmActivity.cancel(ctx);
+        AlarmActivity.planNext(ctx);
         OnyxLiveService.poke(ctx);
     }
 

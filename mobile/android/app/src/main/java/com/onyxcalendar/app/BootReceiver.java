@@ -11,6 +11,7 @@ public class BootReceiver extends BroadcastReceiver {
         String action = intent.getAction();
         if (Intent.ACTION_BOOT_COMPLETED.equals(action) || Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)) {
             OnyxLiveService.sync(ctx);
+            AlarmActivity.planNext(ctx); // a restart clears Android's alarms: set the next one again
         }
     }
 }

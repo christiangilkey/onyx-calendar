@@ -312,6 +312,8 @@
     deleteEvent: (id, opts) => call('event:delete', id, opts),
     setBackburner: (id, on) => call('task:backburner', id, on),
     setEventDone: (id, done) => call('event:done', id, done),
+    // The alarms coming up, set on Android's alarm clock (it wakes the phone and rings until a button is pressed).
+    setAlarms: async (alarms) => { if (Widget?.setAlarms) await Widget.setAlarms({ alarms }); },
     setCall: (event, on, before, mode) => call('event:call', event, on, before, mode),
     setLeaveBy: (id, minutes) => call('event:leaveby', id, minutes),
     ackCall: (id) => call('event:ack', id),

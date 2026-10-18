@@ -3,22 +3,15 @@ package com.onyxcalendar.app;
 import android.app.Activity;
 import android.app.AlarmManager;
 import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
-import android.media.AudioAttributes;
-import android.media.MediaPlayer;
-import android.media.RingtoneManager;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
-import android.os.VibrationEffect;
-import android.os.Vibrator;
-import android.os.VibratorManager;
 import android.text.TextUtils;
 import android.text.format.DateFormat;
 import android.util.TypedValue;
@@ -31,23 +24,28 @@ import android.widget.TextClock;
 import android.widget.TextView;
 import android.window.OnBackInvokedDispatcher;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.Executors;
 
 /**
- * The Onyx alarm: as something starts (with Onyx on the lock screen), Android's alarm clock
- * wakes the phone and this fills the screen, over the lock screen, ringing the alarm sound
- * and vibrating until Stop, Snooze 5 min or Leaving now is pressed. Back does nothing.
+ * The Onyx alarm, full screen over the lock screen with the screen woken. The ringing and
+ * shaking come from AlarmService; this shows what it is for and the buttons that stop it:
+ * Stop, Snooze 5 min, Leaving now. Back does nothing.
  */
 public class AlarmActivity extends Activity {
     static final String EXTRA_ID = "id", EXTRA_TITLE = "title", EXTRA_START = "start", EXTRA_KIND = "kind";
-    private static final long SAFETY_MS = 20 * 60_000; // rings this long at most if left alone
 
-    private MediaPlayer player;
-    private Vibrator vibrator;
-    private final Handler ui = new Handler(Looper.getMainLooper());
+    private final BroadcastReceiver ended = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context ctx, Intent intent) {
+            finish();
+        }
+    };
 
     private int dp(float v) {
         return Math.round(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, getResources().getDisplayMetrics()));
@@ -67,16 +65,17 @@ public class AlarmActivity extends Activity {
         if (Build.VERSION.SDK_INT >= 33) {
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_OVERLAY, () -> { /* rings until a button is pressed */ });
         }
+        IntentFilter filter = new IntentFilter(AlarmService.ACTION_ENDED);
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(ended, filter, Context.RECEIVER_NOT_EXPORTED);
+        else registerReceiver(ended, filter);
         setContentView(build(getIntent()));
-        ring();
-        ui.postDelayed(this::stop, SAFETY_MS);
     }
 
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        setContentView(build(intent)); // a second one while the first rings: show the newer
+        setContentView(build(intent));
     }
 
     @SuppressWarnings("deprecation")
@@ -87,8 +86,11 @@ public class AlarmActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        silence();
-        ui.removeCallbacksAndMessages(null);
+        try {
+            unregisterReceiver(ended);
+        } catch (Exception ignored) {
+            // never registered
+        }
         super.onDestroy();
     }
 
@@ -99,13 +101,13 @@ public class AlarmActivity extends Activity {
     private View build(Intent intent) {
         String title = intent.getStringExtra(EXTRA_TITLE);
         long start = intent.getLongExtra(EXTRA_START, System.currentTimeMillis());
+        boolean early = start - System.currentTimeMillis() > 60_000;
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER_HORIZONTAL);
         root.setBackgroundColor(0xFF07080B);
         root.setPadding(dp(24), dp(72), dp(24), dp(40));
 
-        boolean early = start - System.currentTimeMillis() > 60_000;
         TextView label = text(early ? "ONYX  ·  ALARM" : "ONYX  ·  STARTING NOW", 13, OnyxPanel.AMBER, true);
         label.setLetterSpacing(0.14f);
         root.addView(label);
@@ -132,10 +134,19 @@ public class AlarmActivity extends Activity {
         View grow = new View(this);
         root.addView(grow, new LinearLayout.LayoutParams(1, 0, 1));
 
-        root.addView(button("Stop", 0xFFF5B83D, 0xFF1A1206, v -> stop()));
-        root.addView(button("Snooze 5 min", 0x33FFFFFF, Color.WHITE, v -> snooze(intent)));
-        root.addView(button("task".equals(intent.getStringExtra(EXTRA_KIND)) ? "Done" : "Leaving now", 0x33FFFFFF, Color.WHITE, v -> leaving(intent)));
+        root.addView(button("Stop", 0xFFF5B83D, 0xFF1A1206, v -> send(AlarmService.ACTION_STOP)));
+        root.addView(button("Snooze 5 min", 0x33FFFFFF, Color.WHITE, v -> send(AlarmService.ACTION_SNOOZE)));
+        root.addView(button("task".equals(intent.getStringExtra(EXTRA_KIND)) ? "Done" : "Leaving now", 0x33FFFFFF, Color.WHITE, v -> send(AlarmService.ACTION_LEAVING)));
         return root;
+    }
+
+    private void send(String action) {
+        try {
+            startService(new Intent(this, AlarmService.class).setAction(action));
+        } catch (Exception ignored) {
+            // the ringing already ended
+        }
+        finish();
     }
 
     private TextView text(String s, float sp, int color, boolean bold) {
@@ -162,122 +173,26 @@ public class AlarmActivity extends Activity {
         return b;
     }
 
-    // ------------------------------------------------------------ the ringing
-
-    @SuppressWarnings("deprecation")
-    private void ring() {
-        try {
-            Uri sound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
-            if (sound == null) sound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
-            player = new MediaPlayer();
-            player.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build());
-            player.setDataSource(this, sound);
-            player.setLooping(true);
-            player.prepare();
-            player.start();
-        } catch (Exception ignored) {
-            // no sound to play: the vibration and the screen still come
-        }
-        try {
-            vibrator = Build.VERSION.SDK_INT >= 31 ? getSystemService(VibratorManager.class).getDefaultVibrator() : (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
-            if (vibrator != null) vibrator.vibrate(VibrationEffect.createWaveform(new long[] { 0, 700, 500 }, 0));
-        } catch (Exception ignored) {
-            // no vibrator
-        }
-    }
-
-    private void silence() {
-        try {
-            if (player != null) { player.stop(); player.release(); }
-        } catch (Exception ignored) {
-            // already stopped
-        }
-        player = null;
-        try {
-            if (vibrator != null) vibrator.cancel();
-        } catch (Exception ignored) {
-            // nothing to stop
-        }
-    }
-
-    private void stop() {
-        silence();
-        finish();
-    }
-
-    private void snooze(Intent intent) {
-        schedule(this, intent.getStringExtra(EXTRA_ID), intent.getStringExtra(EXTRA_TITLE), intent.getLongExtra(EXTRA_START, 0),
-            intent.getStringExtra(EXTRA_KIND), System.currentTimeMillis() + 5 * 60_000, true);
-        stop();
-    }
-
-    private void leaving(Intent intent) {
-        String id = intent.getStringExtra(EXTRA_ID);
-        long start = intent.getLongExtra(EXTRA_START, 0);
-        stop();
-        if (id == null) return;
-        Context app = getApplicationContext();
-        Executors.newSingleThreadExecutor().execute(() -> {
-            for (LauncherData.Item it : LauncherData.items(app)) {
-                if (id.equals(it.id) && it.start == start) {
-                    try {
-                        LauncherData.acknowledge(app, it);
-                    } catch (Exception ignored) {
-                        // the PC wasn't reachable
-                    }
-                    break;
-                }
-            }
-            LauncherData.fetch(app);
-            OnyxLiveService.poke(app);
-        });
-    }
-
     // ------------------------------------------------------------ setting the alarm
 
     /**
-     * Sets Android's alarm clock for `at`, to open this alarm for the entry. Only one is kept
-     * (each new one replaces the last); `snoozed` uses its own slot, so a snooze isn't lost.
+     * Sets Android's alarm clock for `at` (it wakes the phone from sleep at that minute) to ring
+     * for the entry. One is kept (each new one replaces the last); a snooze has its own slot.
      */
     static void schedule(Context ctx, String id, String title, long start, String kind, long at, boolean snoozed) {
         AlarmManager am = ctx.getSystemService(AlarmManager.class);
         if (am == null) return;
-        Intent open = new Intent(ctx, AlarmActivity.class)
-            .putExtra(EXTRA_ID, id).putExtra(EXTRA_TITLE, title).putExtra(EXTRA_START, start).putExtra(EXTRA_KIND, kind)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        PendingIntent pi = PendingIntent.getActivity(ctx, snoozed ? 4402 : 4401, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        Intent fire = new Intent(ctx, AlarmReceiver.class)
+            .putExtra(EXTRA_ID, id).putExtra(EXTRA_TITLE, title).putExtra(EXTRA_START, start).putExtra(EXTRA_KIND, kind);
+        PendingIntent pi = PendingIntent.getBroadcast(ctx, snoozed ? 4402 : 4401, fire, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        // Tapping the alarm icon in the status bar opens Onyx.
+        Intent open = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("onyx://open?view=calendar")).setPackage(ctx.getPackageName()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        PendingIntent show = PendingIntent.getActivity(ctx, 4403, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         try {
-            am.setAlarmClock(new AlarmManager.AlarmClockInfo(at, pi), pi);
+            am.setAlarmClock(new AlarmManager.AlarmClockInfo(at, show), pi);
         } catch (SecurityException e) {
-            // exact alarms not allowed (Android 12): as close as Android allows
-            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
+            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
         }
-    }
-
-    /**
-     * Keeps Android's alarm clock set for the first to come: the next start (with "Alarm as
-     * things start" on), or an entry whose escalation is Alarm, at its call time.
-     */
-    static void planNext(Context ctx) {
-        long t = System.currentTimeMillis();
-        java.util.List<LauncherData.Item> items = LauncherData.items(ctx);
-        LauncherData.Item best = null;
-        long at = Long.MAX_VALUE;
-        if (LauncherData.alarmOn(ctx)) {
-            LauncherData.Item n = LauncherData.next(items, t);
-            if (n != null) { best = n; at = n.start; }
-        }
-        for (LauncherData.Item it : items) {
-            if (it.done || it.ack) continue;
-            for (LauncherData.Alert a : it.alerts) {
-                if ("alarm".equals(a.kind) && a.at > t && a.at < at) { best = it; at = a.at; }
-            }
-        }
-        if (best == null) { cancel(ctx); return; }
-        String key = best.id + "@" + at;
-        if (key.equals(LauncherData.prefs(ctx).getString("alarm_set", ""))) return;
-        schedule(ctx, best.id, best.title, best.start, best.kind, at, false);
-        LauncherData.prefs(ctx).edit().putString("alarm_set", key).apply();
     }
 
     /** Takes back the alarm that is set (not a snooze). */
@@ -285,11 +200,64 @@ public class AlarmActivity extends Activity {
         LauncherData.prefs(ctx).edit().remove("alarm_set").apply();
         AlarmManager am = ctx.getSystemService(AlarmManager.class);
         if (am == null) return;
-        Intent open = new Intent(ctx, AlarmActivity.class);
-        PendingIntent pi = PendingIntent.getActivity(ctx, 4401, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_NO_CREATE);
+        PendingIntent pi = PendingIntent.getBroadcast(ctx, 4401, new Intent(ctx, AlarmReceiver.class), PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_NO_CREATE);
         if (pi != null) {
             am.cancel(pi);
             pi.cancel();
         }
+    }
+
+    /** The alarms the Onyx app handed over (setAlarms): { id, title, start, kind, at, why: 'start' | 'alarm' }. */
+    static void setFromApp(Context ctx, JSONArray list) {
+        LauncherData.prefs(ctx).edit().putString("app_alarms", list == null ? "[]" : list.toString()).apply();
+        planNext(ctx);
+    }
+
+    /**
+     * Keeps Android's alarm clock set for the first to come: an entry whose escalation is
+     * Alarm (at its call time), or, with "Alarm as things start" on, the next start. From what
+     * the Onyx app handed over, and what the home screen and lock screen fetched.
+     */
+    static void planNext(Context ctx) {
+        long t = System.currentTimeMillis();
+        boolean starts = LauncherData.alarmOn(ctx);
+        String bestId = null, bestTitle = null, bestKind = null;
+        long bestStart = 0, at = Long.MAX_VALUE;
+        try {
+            JSONArray list = new JSONArray(LauncherData.prefs(ctx).getString("app_alarms", "[]"));
+            for (int i = 0; i < list.length(); i++) {
+                JSONObject a = list.optJSONObject(i);
+                if (a == null) continue;
+                long when = a.optLong("at", 0);
+                if (when <= t || when >= at) continue;
+                if (!"alarm".equals(a.optString("why")) && !starts) continue;
+                at = when;
+                bestId = a.optString("id");
+                bestTitle = a.optString("title");
+                bestStart = a.optLong("start", when);
+                bestKind = a.optString("kind", "event");
+            }
+        } catch (Exception ignored) {
+            // nothing handed over
+        }
+        List<LauncherData.Item> items = LauncherData.items(ctx);
+        if (starts) {
+            LauncherData.Item n = LauncherData.next(items, t);
+            if (n != null && n.start < at) { at = n.start; bestId = n.id; bestTitle = n.title; bestStart = n.start; bestKind = n.kind; }
+        }
+        for (LauncherData.Item it : items) {
+            if (it.done || it.ack) continue;
+            for (LauncherData.Alert a : it.alerts) {
+                if ("alarm".equals(a.kind) && a.at > t && a.at < at) { at = a.at; bestId = it.id; bestTitle = it.title; bestStart = it.start; bestKind = it.kind; }
+            }
+        }
+        if (bestId == null) {
+            cancel(ctx);
+            return;
+        }
+        String key = bestId + "@" + at;
+        if (key.equals(LauncherData.prefs(ctx).getString("alarm_set", ""))) return;
+        schedule(ctx, bestId, bestTitle, bestStart, bestKind, at, false);
+        LauncherData.prefs(ctx).edit().putString("alarm_set", key).apply();
     }
 }

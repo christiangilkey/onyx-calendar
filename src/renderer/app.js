@@ -219,6 +219,31 @@
 
   const pomoRun = { blocks: [], key: '', dismissed: new Set(), parts: null, loading: false };
 
+  /**
+   * On the phone: the alarms coming up, handed to Android's alarm clock, which wakes the phone
+   * and rings until a button is pressed. Each start ("Alarm as things start"), and the call time
+   * of each entry whose escalation is Alarm.
+   */
+  let handedAlarms = '';
+  function handAlarms(items) {
+    if (!onyx.isPhone || !onyx.setAlarms) return;
+    const now = Date.now();
+    const list = [];
+    for (const e of items) {
+      const start = new Date(e.start).getTime();
+      const base = { id: e.id, title: e.title, start, kind: e.kind };
+      if (start > now) list.push({ ...base, at: start, why: 'start' });
+      if (e.callMode === 'alarm' && !e.callAck) {
+        for (const a of e.piAlerts || []) { const at = new Date(a.at).getTime(); if (at > now) list.push({ ...base, at, why: 'alarm' }); }
+      }
+    }
+    list.sort((a, b) => a.at - b.at);
+    const key = JSON.stringify(list.slice(0, 40));
+    if (key === handedAlarms) return;
+    handedAlarms = key;
+    onyx.setAlarms(list.slice(0, 40)).catch(() => { handedAlarms = ''; });
+  }
+
   async function refreshPomodoros() {
     if (!S || pomoRun.loading) return;
     pomoRun.loading = true;
@@ -230,6 +255,7 @@
       // The next-thing bar uses the same read: every timed entry and task still to come.
       nextRun.items = events.filter((e) => !e.allDay && e.end && !e.done && (e.kind === 'event' || (e.kind === 'task' && !e.mirror)) && visible(e.calendarId));
       nextRun.loaded = true;
+      handAlarms(nextRun.items);
     } catch { /* keep the last list */ }
     pomoRun.loading = false;
     tickPomodoro();
@@ -3439,11 +3465,11 @@
             h('div', { class: 'row' },
               h('button', { class: 'btn', onclick: () => onyx.launcher.open('launcher') }, 'Preview'),
               h('button', { class: info.isHome ? 'btn' : 'btn primary', onclick: () => onyx.launcher.open('home') }, info.isHome ? 'Change home app' : 'Make it my home app'))),
-          lock && field('Alarm as things start', 'Wakes the phone and fills the screen, ringing your alarm sound until you press Stop, Snooze or Leaving now. Uses Android\'s alarm clock, so it comes on time.',
+          field('Alarm as things start', 'Wakes the phone and fills the screen, ringing your alarm sound until you press Stop, Snooze or Leaving now. Uses Android\'s alarm clock, so it comes on time.',
             toggle(info.alarm !== false, (v) => onyx.launcher.setAlarm(v).then(draw).catch((err) => toast(err.message, 'error')))),
           lock && field('Notifications', 'The lock screen shows what is on now, its progress bar and a countdown to the next thing as a live notification.', allow(info.notifications, 'notifications')),
           lock && field('Over the lock screen', 'Brings the full Onyx panel up over the lock screen each time the screen turns on ("Display over other apps").', allow(info.overlay, 'overlay')),
-          lock && field('Full-screen calls', 'A call from the Pi fills the locked screen as it rings.', allow(info.fullScreen, 'fullscreen')),
+          (lock || info.alarm !== false) && field('Full-screen alarms', 'An alarm (and a call from the Pi) wakes the phone and fills the screen. Without it, it still rings and shakes, as a notification.', allow(info.fullScreen, 'fullscreen')),
         ].filter(Boolean));
       };
       const load = () => onyx.launcher.info().then(draw).catch(() => box.replaceChildren(h('p', null, 'Update the Onyx app to use this.')));

@@ -73,6 +73,17 @@ public class OnyxWidgetPlugin extends Plugin {
         call.resolve(launcherState());
     }
 
+    /** The alarms coming up, from the app: Android's alarm clock is set for the first (AlarmActivity.planNext). */
+    @PluginMethod
+    public void setAlarms(PluginCall call) {
+        try {
+            AlarmActivity.setFromApp(getContext(), call.getArray("alarms", new JSArray()));
+            call.resolve();
+        } catch (Exception e) {
+            call.reject(e.getMessage());
+        }
+    }
+
     /** Opens where one of them is turned on: home, notifications, overlay, fullscreen, or Onyx Home itself. */
     @PluginMethod
     public void launcherOpen(PluginCall call) {

@@ -1419,3 +1419,13 @@ body.mobile #next-bar .next-pill.sub .next-kind-label { display: inline; }
 body.mobile #next-bar .next-pill.sub .next-leave, body.mobile #next-bar .next-pill.sub .next-sep { display: none; }
 body.mobile #next-bar .next-pill.sub .what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 body.mobile #next-bar .next-pill.main .next-text { text-align: left; align-items: flex-start; }
+
+/* The phone's window (a sheet along the bottom) never scrolls sideways: every row wraps, every
+   field shrinks to fit, and Android's own time picker has AM/PM (no second picker beside it). */
+body.mobile #popover { overflow-x: hidden; max-width: 100vw; box-sizing: border-box; }
+body.mobile #popover * { max-width: 100%; box-sizing: border-box; }
+body.mobile #popover .row { flex-wrap: wrap; min-width: 0; row-gap: 8px; }
+body.mobile #popover input[type=date], body.mobile #popover input[type=time] { min-width: 0; flex: 1 1 38%; }
+body.mobile #popover select { min-width: 0; flex: 1 1 auto; }
+body.mobile #popover select.ampm { display: none; }
+body.mobile #popover textarea, body.mobile #popover .pop-title { width: 100%; }

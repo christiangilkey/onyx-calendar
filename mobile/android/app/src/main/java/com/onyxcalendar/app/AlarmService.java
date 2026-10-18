@@ -57,6 +57,7 @@ public class AlarmService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent == null ? null : intent.getAction();
         if (ACTION_RING.equals(action)) {
+            named(intent);
             ringing = new Intent(intent);
             Notification n = notification(intent);
             try {
@@ -90,6 +91,42 @@ public class AlarmService extends Service {
     public void onDestroy() {
         silence();
         super.onDestroy();
+    }
+
+    /**
+     * The alarm is named after what is due as it rings: the entry whose alarm time (or start)
+     * is now, from what the app handed over or the home screen fetched, as it is now (renamed
+     * or moved since the alarm was set). A snooze keeps the entry it was for.
+     */
+    private void named(Intent intent) {
+        long t = System.currentTimeMillis();
+        String id = intent.getStringExtra(AlarmActivity.EXTRA_ID);
+        String title = null, kind = null;
+        long start = 0, best = 3 * 60_000; // within 3 minutes of now
+        try {
+            org.json.JSONArray list = new org.json.JSONArray(LauncherData.prefs(this).getString("app_alarms", "[]"));
+            for (int i = 0; i < list.length(); i++) {
+                org.json.JSONObject a = list.optJSONObject(i);
+                if (a == null) continue;
+                boolean same = id != null && id.equals(a.optString("id"));
+                long off = Math.abs(a.optLong("at", 0) - t);
+                if (same || off < best) {
+                    if (!same) best = off;
+                    title = a.optString("title", title);
+                    start = a.optLong("start", start);
+                    kind = a.optString("kind", kind);
+                    if (same) break;
+                }
+            }
+        } catch (Exception ignored) {
+            // nothing handed over
+        }
+        for (LauncherData.Item it : LauncherData.items(this)) {
+            if (id != null && id.equals(it.id)) { title = it.title; start = it.start; kind = it.kind; break; }
+        }
+        if (title != null && !title.isEmpty()) intent.putExtra(AlarmActivity.EXTRA_TITLE, title);
+        if (start > 0) intent.putExtra(AlarmActivity.EXTRA_START, start);
+        if (kind != null && !kind.isEmpty()) intent.putExtra(AlarmActivity.EXTRA_KIND, kind);
     }
 
     private void end() {

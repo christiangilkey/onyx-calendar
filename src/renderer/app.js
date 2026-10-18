@@ -1364,7 +1364,12 @@
         const src = arg.event.extendedProps.src;
         if (src && (src.kind === 'event' || src.kind === 'task')) {
           if (clip.selected === src.id) arg.el.classList.add('is-selected');
-          arg.el.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); selectEntry(src); entryMenu(e, src); });
+          // The right-click menu is for a mouse: on a touch screen a long press is how an entry is
+          // picked up to drag, and the browser calls that a right-click too.
+          if (!MOBILE) arg.el.addEventListener('contextmenu', (e) => {
+            if (e.sourceCapabilities?.firesTouchEvents || dragging()) return;
+            e.preventDefault(); e.stopPropagation(); selectEntry(src); entryMenu(e, src);
+          });
         }
       },
       // Month headers stand for a weekday, not a real date, so they use FullCalendar's own text.
@@ -1427,7 +1432,7 @@
     if (!MOBILE) {
       edgeArrows();
       // Right-click on an empty spot: paste there.
-      $('#calendar').addEventListener('contextmenu', (e) => { if (e.target.closest('.fc-event')) return; e.preventDefault(); entryMenu(e, null); });
+      $('#calendar').addEventListener('contextmenu', (e) => { if (e.target.closest('.fc-event') || e.sourceCapabilities?.firesTouchEvents || dragging()) return; e.preventDefault(); entryMenu(e, null); });
     }
   }
 

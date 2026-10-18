@@ -1602,3 +1602,19 @@ body.mobile #magic-fab .magic-count { position: absolute; top: -6px; right: -6px
 .mi-main b { font-weight: 600; overflow-wrap: anywhere; }
 .mi-main small { color: var(--muted); font-size: 11px; }
 .mr-chip.from { background: color-mix(in srgb, #c9b8ff 18%, var(--raise-2)); color: #dcd3ff; }
+
+/* ------------------------------------------------------------ panels always fit the window */
+/* A panel never runs off the screen: taller than the window, it scrolls, and its buttons stay pinned at its bottom. */
+#popover { max-height: calc(100vh - 68px); overflow-y: auto; overscroll-behavior: contain; }
+#popover > .pop-actions {
+  position: sticky; bottom: -14px; z-index: 3; margin: 2px -14px -14px; padding: 10px 14px 14px;
+  background: #0e0e10; border-radius: 0 0 14px 14px;
+}
+#popover > .pop-actions::before {
+  content: ''; position: absolute; left: 0; right: 0; top: -16px; height: 16px; pointer-events: none;
+  background: linear-gradient(to bottom, transparent, #0e0e10);
+}
+body.mobile #popover > .pop-actions {
+  bottom: calc(-18px - env(safe-area-inset-bottom, 0px)); margin: 2px -16px calc(-18px - env(safe-area-inset-bottom, 0px));
+  padding: 10px 16px calc(18px + env(safe-area-inset-bottom, 0px));
+}

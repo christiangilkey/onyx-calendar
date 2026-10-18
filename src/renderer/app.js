@@ -2063,21 +2063,31 @@
     addLinkButtons(pop);
     for (const input of pop.querySelectorAll('input[type=time], input[type=date]')) scrubbable(input);
     pop.hidden = false;
+    let refit = null;
     closePopover = () => {
       closePopover = () => {};
+      refit?.disconnect();
       pop.hidden = true;
       pop.replaceChildren();
       calendar.unselect();
       if (onClose) onClose();
     };
     if (MOBILE) return; // on a phone it is a sheet along the bottom (styles.css)
-    const margin = 10, width = pop.offsetWidth, height = pop.offsetHeight;
-    let x = anchor.right + margin;
-    if (x + width > innerWidth - margin) x = anchor.left - width - margin;
-    if (x < margin) x = Math.min(Math.max(margin, anchor.left), innerWidth - width - margin);
-    const y = Math.min(Math.max(58, anchor.top), Math.max(58, innerHeight - height - margin));
-    pop.style.left = `${x}px`;
-    pop.style.top = `${y}px`;
+    // Placed beside what it is about, and kept inside the window: a panel that is taller than the window
+    // scrolls (its buttons stay at the bottom), and one that grows (a repeat, a pomodoro, a longer list)
+    // is moved up to fit again, so nothing is ever off the screen.
+    const place = () => {
+      const margin = 10, top = 58, width = pop.offsetWidth, height = pop.offsetHeight;
+      let x = anchor.right + margin;
+      if (x + width > innerWidth - margin) x = anchor.left - width - margin;
+      if (x < margin) x = Math.min(Math.max(margin, anchor.left), innerWidth - width - margin);
+      const y = Math.min(Math.max(top, anchor.top), Math.max(top, innerHeight - height - margin));
+      pop.style.left = `${x}px`;
+      pop.style.top = `${y}px`;
+    };
+    place();
+    refit = new ResizeObserver(place);
+    refit.observe(pop);
   }
 
   document.addEventListener('pointerdown', (e) => {

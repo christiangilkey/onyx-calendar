@@ -1012,7 +1012,7 @@
       forceNext = false;
       const { events, errors } = await onyx.events(info.start.toISOString(), info.end.toISOString(), force);
       showProblems(errors);
-      ok(events.filter((e) => visible(e.calendarId) && !carriedOver(e)).map(toFc).concat(transitionBuffers(events)));
+      ok(events.filter((e) => e.kind !== 'goal' && visible(e.calendarId) && !carriedOver(e)).map(toFc).concat(transitionBuffers(events)));
     } catch (err) {
       toast(err.message, 'error');
       ok([]);
@@ -1293,14 +1293,30 @@
     return edgeNav.marks;
   }
 
+  // The pointer is read on every move, but the carried copy and the edges are updated once a
+  // frame, against sizes measured when the drag began: a phone sends a move event many times a
+  // frame, and measuring the page each time made the drag stutter.
+  const drag = { x: 0, y: 0, frame: 0, rect: null, axis: 28 };
+
+  function dragMeasure() {
+    drag.rect = $('#calendar').getBoundingClientRect();
+    // The left side counts only over the time column, so the first day stays a place to drop.
+    drag.axis = Math.max(28, $('#calendar .fc-timegrid-axis')?.getBoundingClientRect().width || 0);
+  }
+
   function edgeMove(e) {
     const p = e.touches?.[0] || e;
     if (p.clientX == null) return;
-    floatMove(p.clientX, p.clientY);
-    const r = $('#calendar').getBoundingClientRect();
-    // The left side counts only over the time column, so the first day stays a place to drop.
-    const axis = Math.max(28, $('#calendar .fc-timegrid-axis')?.getBoundingClientRect().width || 0);
-    setEdge(p.clientX >= r.right - EDGE_ZONE ? 1 : p.clientX <= r.left + axis ? -1 : 0);
+    drag.x = p.clientX;
+    drag.y = p.clientY;
+    if (drag.frame) return;
+    drag.frame = requestAnimationFrame(() => {
+      drag.frame = 0;
+      floatMove(drag.x, drag.y);
+      if (!drag.rect) dragMeasure();
+      const r = drag.rect;
+      setEdge(drag.x >= r.right - EDGE_ZONE ? 1 : drag.x <= r.left + drag.axis ? -1 : 0);
+    });
   }
 
   function setEdge(dir) {
@@ -1324,15 +1340,22 @@
     edgeNav.timer = setTimeout(edgeTurn, EDGE_REPEAT);
   }
 
+  // One kind of move event: touches on the phone (the calendar drags by touch there), the pointer elsewhere.
+  const MOVE_EVENT = MOBILE || matchMedia('(pointer: coarse)').matches ? 'touchmove' : 'pointermove';
+
   function edgeNavStart() {
     edgeMarks();
+    dragMeasure();
     document.body.classList.add('dragging-entry');
-    for (const type of ['pointermove', 'mousemove', 'touchmove']) document.addEventListener(type, edgeMove, true);
+    document.addEventListener(MOVE_EVENT, edgeMove, { capture: true, passive: true });
   }
 
   function edgeNavStop() {
     document.body.classList.remove('dragging-entry');
-    for (const type of ['pointermove', 'mousemove', 'touchmove']) document.removeEventListener(type, edgeMove, true);
+    document.removeEventListener(MOVE_EVENT, edgeMove, { capture: true });
+    cancelAnimationFrame(drag.frame);
+    drag.frame = 0;
+    drag.rect = null;
     setEdge(0);
   }
 
@@ -1348,17 +1371,18 @@
     float.dy = (p.clientY ?? r.top + 8) - r.top;
     const copy = el.cloneNode(true);
     copy.classList.remove('fc-event-dragging', 'fc-event-selected');
+    for (const extra of copy.querySelectorAll('.ev-timer')) extra.remove(); // the drain pie redraws every frame
     copy.style.width = `${r.width}px`;
     copy.style.height = `${r.height}px`;
     // Inside an element with the "fc" class, so it keeps the calendar's look.
     float.box = h('div', { class: 'fc drag-float' }, copy);
-    float.box.style.transform = `translate(${r.left}px, ${r.top}px)`;
+    float.box.style.transform = `translate3d(${r.left}px, ${r.top}px, 0)`;
     document.body.append(float.box);
     document.body.classList.add('carrying');
   }
 
   function floatMove(x, y) {
-    if (float.box) float.box.style.transform = `translate(${x - float.dx}px, ${y - float.dy}px)`;
+    if (float.box) float.box.style.transform = `translate3d(${x - float.dx}px, ${y - float.dy}px, 0)`;
   }
 
   function floatStop() {
@@ -3235,11 +3259,28 @@
     return Math.round(Math.max(p.min, Math.min(px, p.max, Math.max(p.min, room))));
   }
 
+  // A panel dragged 30% narrower than it can go snaps shut to a slim tab at its edge; a click
+  // on the tab opens it again at its width. (News already folds to its own tab.)
+  const SNAP = 0.7;
+  const TAB_W = 30;
+  const collapsed = (k) => !!S?.settings?.collapsed?.[k];
+
+  function setCollapsed(key, on) {
+    if (key === 'news') { setNewsOpen(!on); return; }
+    S.settings.collapsed = { ...(S.settings.collapsed || {}), [key]: on };
+    saveSettings({ collapsed: { [key]: on } }, true);
+    applyPanelWidths();
+    calendar?.updateSize();
+  }
+
   function applyPanelWidths() {
     if (MOBILE) return;
     const saved = S?.settings?.panels || {};
+    for (const k of ['side', 'tasks']) $('#layout').classList.toggle(`${k}-collapsed`, collapsed(k));
     // When room is short, Tasks gives way first, then the sidebar, then News.
-    for (const k of ['tasks', 'side', 'news']) $('#layout').style.setProperty(PANELS[k].prop, `${clampPanel(k, saved[k] || PANELS[k].def)}px`);
+    for (const k of ['tasks', 'side', 'news']) {
+      $('#layout').style.setProperty(PANELS[k].prop, `${collapsed(k) ? TAB_W : clampPanel(k, saved[k] || PANELS[k].def)}px`);
+    }
   }
 
   function savePanelWidth(key, px) {
@@ -3249,8 +3290,14 @@
 
   if (!MOBILE) {
     for (const [key, p] of Object.entries(PANELS)) {
-      const grip = h('div', { class: `panel-grip ${key}`, title: 'Drag to resize · double-click for the usual width' });
+      const grip = h('div', { class: `panel-grip ${key}`, title: 'Drag to resize (far past its narrowest, it snaps shut to a tab) · double-click for the usual width' });
       p.grip().prepend(grip);
+      // The tab a shut panel becomes (News has its own).
+      if (key !== 'news') {
+        const label = key === 'side' ? 'Calendars' : 'Tasks';
+        p.el().prepend(h('button', { class: `panel-tab ${key}`, title: `Open ${label.toLowerCase()}`, onclick: () => setCollapsed(key, false) },
+          icon(key === 'side' ? 'calendar' : 'tasks'), h('span', { class: 'panel-tab-label' }, label)));
+      }
       grip.addEventListener('pointerdown', (e) => {
         if (e.button !== 0) return;
         e.preventDefault();
@@ -3261,9 +3308,14 @@
         let frame = 0;
         grip.classList.add('on');
         document.body.classList.add('resizing');
+        let snap = false;
         const move = (ev) => {
           const dx = ev.clientX - startX;
-          width = clampPanel(key, startW + (p.edge === 'left' ? -dx : dx));
+          const wanted = startW + (p.edge === 'left' ? -dx : dx);
+          // Far past its narrowest: it will snap shut when let go (it fades to say so).
+          snap = wanted < p.min * SNAP;
+          p.el().classList.toggle('snap-ready', snap);
+          width = clampPanel(key, wanted);
           $('#layout').style.setProperty(p.prop, `${width}px`);
           if (!frame) frame = requestAnimationFrame(() => { frame = 0; calendar?.updateSize(); });
         };
@@ -3273,6 +3325,12 @@
           grip.removeEventListener('pointercancel', up);
           grip.classList.remove('on');
           document.body.classList.remove('resizing');
+          p.el().classList.remove('snap-ready');
+          if (snap) {
+            $('#layout').style.setProperty(p.prop, `${clampPanel(key, startW)}px`); // its width, for when it opens again
+            setCollapsed(key, true);
+            return;
+          }
           calendar?.updateSize();
           if (Math.round(width) !== Math.round(startW)) savePanelWidth(key, width);
         };

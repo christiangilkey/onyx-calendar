@@ -1267,3 +1267,23 @@ body.mobile #next-bar .next-pill.sub { display: none; }
 /* The window's buttons wrap on a narrow screen rather than running off its edge. */
 .pop-actions { flex-wrap: wrap; row-gap: 8px; }
 .pi-row input.call-when { color-scheme: dark; margin-top: 6px; }
+
+/* A panel snapped shut: a slim tab at its edge with its name (a click opens it again). */
+.panel-tab { display: none; }
+#layout.side-collapsed #sidebar, #layout.tasks-collapsed #tasks { padding: 0; overflow: hidden; }
+#layout.side-collapsed #sidebar > :not(.panel-tab), #layout.tasks-collapsed #tasks > :not(.panel-tab) { display: none !important; }
+#layout.side-collapsed #sidebar > .panel-tab, #layout.tasks-collapsed #tasks > .panel-tab {
+  display: flex; flex: 1; width: 100%; height: 100%; border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 14px 0;
+  flex-direction: column; align-items: center; gap: 10px; transition: color .12s, background .12s;
+}
+.panel-tab:hover { color: var(--text) !important; background: var(--raise) !important; }
+.panel-tab .ico { width: 16px; height: 16px; }
+.panel-tab-label { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 11px; letter-spacing: 2.5px; text-transform: uppercase; font-weight: 600; }
+#layout.side-collapsed > .panel-grip.side, #layout.tasks-collapsed #tasks > .panel-grip { display: none; }
+/* While dragged far past its narrowest, a panel fades: let go and it snaps shut. */
+.snap-ready { opacity: .35; transition: opacity .12s; }
+.snap-ready::after { content: ''; position: absolute; inset: 6px; border: 2px dashed var(--accent, #8b7cff); border-radius: 10px; pointer-events: none; }
+#sidebar, #tasks { position: relative; }
+/* On the phone the carried copy is flat and light: a tilt and a deep shadow cost the phone a redraw every frame. */
+body.mobile .drag-float > .fc-event { transform: none; box-shadow: 0 6px 16px rgba(0,0,0,.5) !important; }
+body.mobile.carrying .fc .fc-event-mirror { outline-width: 1px; }

@@ -3953,11 +3953,17 @@
   const SNAP = 0.7;
   const TAB_W = 30;
   const collapsed = (k) => !!S?.settings?.collapsed?.[k];
+  // A panel that is not showing leaves its slim tab (like News does), so it is always one click away:
+  // Tasks is shut when it was snapped shut, or switched off with the button in the top bar.
+  const shut = (k) => collapsed(k) || (k === 'tasks' && S?.settings?.tasksPanel === false);
 
   function setCollapsed(key, on) {
     if (key === 'news') { setNewsOpen(!on); return; }
     S.settings.collapsed = { ...(S.settings.collapsed || {}), [key]: on };
-    saveSettings({ collapsed: { [key]: on } }, true);
+    const reopenTasks = key === 'tasks' && !on && S.settings.tasksPanel === false; // its tab also undoes the top-bar switch
+    if (reopenTasks) S.settings.tasksPanel = true;
+    saveSettings({ collapsed: { [key]: on }, ...(reopenTasks ? { tasksPanel: true } : {}) }, true);
+    $('#toggle-tasks').classList.toggle('on', !MOBILE && !shut('tasks'));
     applyPanelWidths();
     calendar?.updateSize();
   }
@@ -3965,10 +3971,11 @@
   function applyPanelWidths() {
     if (MOBILE) return;
     const saved = S?.settings?.panels || {};
-    for (const k of ['side', 'tasks']) $('#layout').classList.toggle(`${k}-collapsed`, collapsed(k));
+    for (const k of ['side', 'tasks']) $('#layout').classList.toggle(`${k}-collapsed`, shut(k));
+    $('#toggle-tasks').classList.toggle('on', !shut('tasks'));
     // When room is short, Tasks gives way first, then the sidebar, then News.
     for (const k of ['tasks', 'side', 'news']) {
-      $('#layout').style.setProperty(PANELS[k].prop, `${collapsed(k) ? TAB_W : clampPanel(k, saved[k] || PANELS[k].def)}px`);
+      $('#layout').style.setProperty(PANELS[k].prop, `${shut(k) ? TAB_W : clampPanel(k, saved[k] || PANELS[k].def)}px`);
     }
   }
 
@@ -4041,8 +4048,8 @@
     applyPanelWidths();
     calendar.setOption('firstDay', S.settings.weekStart);
     for (const [k, v] of Object.entries(timeFormats())) calendar.setOption(k, v);
-    $('#layout').classList.toggle('no-tasks', !S.settings.tasksPanel);
-    $('#toggle-tasks').classList.toggle('on', S.settings.tasksPanel);
+    $('#layout').classList.toggle('no-tasks', !S.settings.tasksPanel && MOBILE); // on the PC a hidden Tasks panel leaves its tab
+    $('#toggle-tasks').classList.toggle('on', MOBILE ? S.settings.tasksPanel : !shut('tasks'));
     calendar.updateSize();
     renderSidebar();
     renderMini();
@@ -5803,6 +5810,7 @@
     $('#scrim').onclick = closeDrawers;
     $('#toggle-tasks').onclick = () => {
       if (MOBILE) document.body.classList.toggle('drawer-right');
+      else if (S.settings.tasksPanel !== false && collapsed('tasks')) setCollapsed('tasks', false); // snapped shut: the button opens it
       else saveSettings({ tasksPanel: !S.settings.tasksPanel });
     };
     for (const b of document.querySelectorAll('[data-view]')) b.onclick = () => pickView(b.dataset.view);
@@ -5902,8 +5910,8 @@
       throw err;
     }
     buildChrome();
-    $('#layout').classList.toggle('no-tasks', !S.settings.tasksPanel && !MOBILE);
-    $('#toggle-tasks').classList.toggle('on', S.settings.tasksPanel && !MOBILE);
+    $('#layout').classList.remove('no-tasks');
+    applyPanelWidths();
     buildCalendar();
     buildNews();
     refreshPomodoros();

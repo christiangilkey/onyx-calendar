@@ -916,8 +916,8 @@ function cleanBefore(before) {
 }
 
 // ---- leave-by times and the escalation ladder
-// "Leave by": minutes before an entry's start that you need to set off (travel, getting
-// ready). Kept in Onyx, by entry. The ladder is how the Pi reaches out at that time:
+// Travel time ("leaveBy"): the first minutes of an entry's block, spent getting there. You set
+// off when the block starts and are there when the travel part ends. Kept in Onyx, by entry. The ladder is how the Pi reaches out at that time:
 // 'push' (an ntfy alert, no call), 'call' (a phone call), or 'critical' (a call, then
 // another a little later unless you said you were leaving). "Leaving now" stops the rest.
 
@@ -932,7 +932,7 @@ function setLeaveBy(id, minutes) {
     delete store.data.leaveBy[id];
   } else {
     const n = Math.round(Number(minutes));
-    if (!Number.isFinite(n) || n < 1 || n > 6 * 60) throw new Error('Leave by can be up to 6 hours before it starts.');
+    if (!Number.isFinite(n) || n < 1 || n > 6 * 60) throw new Error('Travel time can be up to 6 hours.');
     store.data.leaveBy[id] = n;
   }
   store.save();
@@ -946,15 +946,17 @@ function setLeaveBy(id, minutes) {
  */
 function piAlerts(start, { before = null, leaveBy = null, mode = 'call', ack = false } = {}) {
   if (ack) return [];
-  const base = before != null ? start.getTime() - before * 60000 : leaveBy ? start.getTime() - leaveBy * 60000 : null;
+  // With travel time the call is to set off: at the block's start (the trip is inside it).
+  const base = before != null ? start.getTime() - before * 60000 : leaveBy ? start.getTime() : null;
   if (base == null) return [];
+  const there = start.getTime() + (before == null && leaveBy ? leaveBy * 60000 : 0);
   // The Pi looks every few minutes (a call comes at its last look before the time); this PC and the phone keep the minute.
   const grid = (require('./caller').method() === 'pi' ? Math.max(1, Number(store.data.settings.pi?.checkEvery) || 30) : 1) * 60000;
   const first = new Date(Math.floor(base / grid) * grid);
   const out = [{ at: first, kind: mode === 'push' ? 'push' : mode === 'alarm' ? 'alarm' : 'call' }];
   if (mode === 'critical') {
     const again = new Date(first.getTime() + Math.max(grid, 10 * 60000));
-    if (again < start) out.push({ at: again, kind: 'call' });
+    if (again.getTime() < there) out.push({ at: again, kind: 'call' });
   }
   return out;
 }

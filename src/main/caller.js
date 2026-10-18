@@ -142,7 +142,7 @@ async function tick() {
       const start = new Date(e.start);
       const mins = Math.round((start.getTime() - now) / 60000);
       const when = mins > 1 ? `starts in ${mins} minutes, at ${clock(start)}` : mins >= -1 ? 'is starting now' : `started ${-mins} minutes ago`;
-      const leave = e.leaveBy ? ` Leave by ${clock(new Date(start.getTime() - e.leaveBy * 60000))}.` : '';
+      const leave = e.leaveBy ? ` It starts with ${e.leaveBy} minutes of travel: leave at ${clock(start)}, there by ${clock(new Date(start.getTime() + e.leaveBy * 60000))}.` : '';
       try {
         await send(a.kind, e.title, `Reminder: ${e.title} ${when}.${leave}`);
       } catch (err) {

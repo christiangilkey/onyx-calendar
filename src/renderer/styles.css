@@ -1429,3 +1429,55 @@ body.mobile #popover input[type=date], body.mobile #popover input[type=time] { m
 body.mobile #popover select { min-width: 0; flex: 1 1 auto; }
 body.mobile #popover select.ampm { display: none; }
 body.mobile #popover textarea, body.mobile #popover .pop-title { width: 100%; }
+
+/* ------------------------------------------------------------ undo / redo bar */
+
+.undo-bar {
+  position: fixed; left: 50%; bottom: 18px; z-index: 61; display: flex; align-items: center; gap: 4px;
+  max-width: min(560px, calc(100vw - 32px)); padding: 6px 6px 6px 16px; border-radius: 14px;
+  background: #141417; border: 1px solid var(--line-2); box-shadow: 0 14px 40px rgba(0,0,0,.8); color: var(--text);
+  transform: translate(-50%, calc(100% + 30px)); opacity: 0; pointer-events: none;
+  transition: transform .22s cubic-bezier(.2,.9,.3,1.1), opacity .18s ease-out;
+}
+.undo-bar.show { transform: translate(-50%, 0); opacity: 1; pointer-events: auto; }
+.undo-bar .ub-label { flex: 1; min-width: 0; margin-right: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--soft); }
+.undo-bar button {
+  flex: none; display: grid; place-items: center; width: 38px; height: 38px; border: 0; border-radius: 10px;
+  background: var(--raise-2); color: var(--text); cursor: pointer; padding: 0; transition: background .12s, opacity .12s;
+}
+.undo-bar button:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 22%, var(--raise-2)); }
+.undo-bar button:disabled { opacity: .3; cursor: default; }
+.undo-bar button .ico { width: 19px; height: 19px; }
+.undo-bar button .ico svg { stroke-width: 2.2; }
+.undo-bar .ub-redo .ico { transform: scaleX(-1); }
+.undo-bar .ub-close { background: transparent; width: 30px; color: var(--muted); }
+.undo-bar .ub-close .ico { width: 15px; height: 15px; }
+body:has(.undo-bar.show) #toasts { bottom: 76px; }
+body.mobile .undo-bar {
+  left: 16px; right: 86px; max-width: none; bottom: calc(22px + env(safe-area-inset-bottom, 0px)); min-height: 56px;
+  transform: translateY(calc(100% + 40px)); border-radius: 18px;
+}
+body.mobile .undo-bar.show { transform: none; }
+body.mobile .undo-bar button { width: 44px; height: 44px; border-radius: 12px; }
+body.mobile .undo-bar .ub-close { width: 32px; }
+body.mobile:has(.undo-bar.show) #toasts { bottom: calc(92px + env(safe-area-inset-bottom, 0px)); }
+body:has(#popover:not([hidden])) .undo-bar, body:has(#modal:not([hidden])) .undo-bar { display: none; }
+
+body.mobile #undo-btn { display: none !important; } /* the bar along the bottom does it on a phone */
+
+/* ------------------------------------------------------------ travel time, inside the block */
+/* The block splits in two: the trip across the top (as tall as it is long), then the entry. */
+.fc .fc-timegrid-event .ev.has-travel { gap: 1px; }
+.fc .fc-timegrid-event .ev-travel {
+  flex: 0 0 calc(var(--travel) + 3px); min-height: 0; margin: -3px -7px 3px; padding: 3px 7px 0; overflow: hidden;
+  display: flex; flex-direction: column; gap: 1px; border-radius: 6px 6px 0 0;
+  background: repeating-linear-gradient(135deg, rgba(0,0,0,.30) 0 6px, rgba(0,0,0,.20) 6px 12px);
+  border-bottom: 1.5px dashed rgba(255,255,255,.5);
+}
+.fc .fc-timegrid-event .ev-travel .ev-title .ico { width: 13px; height: 13px; flex: none; }
+.fc .fc-timegrid-event-short .ev-travel { display: none; }
+.fc .fc-event-mirror .ev-travel { display: none; }
+.leave-row .leave-hint.warn { color: var(--warn); }
+/* A line that does not fit whole wraps out of sight (into a hidden column) instead of showing half. */
+.fc .fc-timegrid-event .ev-travel { flex-wrap: wrap; align-content: flex-start; column-gap: 20px; }
+.fc .fc-timegrid-event .ev-travel > * { width: 100%; flex: none; }

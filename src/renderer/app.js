@@ -18,6 +18,7 @@
     trash: '<path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13"/>',
     check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
     undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+    car: '<path d="M5 16.5V12l1.8-4.6A1.5 1.5 0 0 1 8.2 6.5h7.6a1.5 1.5 0 0 1 1.4.9L19 12v4.5"/><path d="M4 16.5h16M5 12h14"/><circle cx="8" cy="16.5" r="1.7"/><circle cx="16" cy="16.5" r="1.7"/>',
     flag: '<path d="M5.5 21V4"/><path d="M5.5 4.5h11.5l-2.4 3.8 2.4 3.8H5.5"/>',
     stove: '<rect x="3.5" y="9" width="17" height="11.5" rx="2"/><circle cx="8.5" cy="14.5" r="2.2"/><circle cx="15.5" cy="14.5" r="2.2"/><path d="M8 3.5c-.8 1 .8 1.8 0 3M12 3c-.8 1 .8 1.8 0 3M16 3.5c-.8 1 .8 1.8 0 3"/>',
     repeat: '<path d="M4.5 10.5a6.5 6.5 0 0 1 11.3-3.8L18 9"/><path d="M18 4.5V9h-4.5"/><path d="M19.5 13.5a6.5 6.5 0 0 1-11.3 3.8L6 15"/><path d="M6 19.5V15h4.5"/>',
@@ -338,7 +339,7 @@
     const p = due.parts;
     const toStart = x.s - now;
     const started = toStart <= 0;
-    const leaveAt = x.e.leaveBy ? x.s - x.e.leaveBy * 60000 : null;
+    const leaveAt = x.e.leaveBy ? x.s : null; // the travel is the first part of the block
     const left = started ? x.f - now : toStart;
     // Calm (green) over 5 minutes away, amber within 5, red from a minute before to after it starts.
     const tone = started || toStart <= 60000 || (leaveAt && leaveAt <= now) ? 'urgent' : toStart <= 5 * 60000 ? 'near' : 'calm';
@@ -556,7 +557,7 @@
     const showNext = (q, big) => {
       const left = next.s - now;
       const day = !sameDay(new Date(next.s), new Date()) ? ' tomorrow' : '';
-      const leaveAt = next.e.leaveBy ? next.s - next.e.leaveBy * 60000 : null;
+      const leaveAt = next.e.leaveBy ? next.s : null;
       const toGo = (leaveAt ?? next.s) - now;
       tone = toGo <= 10 * 60000 ? 'urgent' : toGo <= 30 * 60000 ? 'near' : 'calm';
       const since = Math.max(0, ...timed.filter((x) => x.f <= now).map((x) => x.f), current ? current.s : 0);
@@ -720,7 +721,7 @@
     return {
       key: `${kind}|${e.id}|${e.start}`, kind, id: e.id, title: e.title, start: e.start, end: e.end, color: e.color,
       calendar: e.calendarName || '', sound: nextSoundOn(), hour12: S.settings.hour12,
-      leaveAt: e.leaveBy ? new Date(new Date(e.start).getTime() - e.leaveBy * 60000).toISOString() : '',
+      leaveAt: e.leaveBy ? new Date(e.start).toISOString() : '',
       steps: breakdownSteps(e), ...extra,
     };
   }
@@ -808,8 +809,8 @@
     for (const e of nextRun.items) {
       if (e.kind !== 'event' || !e.leaveBy || (e.piCall && S.settings.pi?.enabled)) continue;
       const start = new Date(e.start).getTime();
-      const at = start - e.leaveBy * 60000;
-      if (now >= at && now - at < 90000 && start > now) fire(`leave|${e.id}|${e.start}`, () => popupFor(e, 'leave'));
+      const at = start; // set off as the block (its travel part) begins
+      if (now >= at && now - at < 90000) fire(`leave|${e.id}|${e.start}`, () => popupFor(e, 'leave'));
     }
     for (const s of [...popups.snoozed]) {
       if (now < s.at) continue;
@@ -1089,12 +1090,13 @@
 
   /** When the Pi reaches out (mirrors piAlerts in hub.js): the last look before the leave-by or picked time. */
   function ladderTimes(start, before, leaveBy, mode) {
-    const base = before != null ? start.getTime() - before * 60000 : leaveBy ? start.getTime() - leaveBy * 60000 : null;
+    const base = before != null ? start.getTime() - before * 60000 : leaveBy ? start.getTime() : null;
     if (base == null) return [];
+    const there = start.getTime() + (before == null && leaveBy ? leaveBy * 60000 : 0);
     const grid = ((S.settings.calls?.method || S.calls?.method || 'pi') === 'pi' ? Math.max(1, Number(S.settings.pi?.checkEvery) || 30) : 1) * 60000;
     const first = Math.floor(base / grid) * grid;
     const out = [new Date(first)];
-    if (mode === 'critical' && first + Math.max(grid, 600000) < start.getTime()) out.push(new Date(first + Math.max(grid, 600000)));
+    if (mode === 'critical' && first + Math.max(grid, 600000) < there) out.push(new Date(first + Math.max(grid, 600000)));
     return out;
   }
 
@@ -1157,8 +1159,13 @@
     }
   }
 
+  // Reloading the entries while one is being carried pulls it out from under the finger, and its
+  // outline was left stuck on the grid: a reload then waits until the drag is over.
+  const midDrag = () => dragging() || !!document.querySelector('#calendar .fc-event-dragging, #calendar .fc-event-resizing');
   function refetch(force) {
     if (force) forceNext = true;
+    if (midDrag()) { refetch.later = true; return; }
+    refetch.later = false;
     calendar.refetchEvents();
     if (graph.on) loadGraph();
     clearTimeout(refetch.pomo);
@@ -1224,7 +1231,21 @@
     // A goal's step: how far along the goal is, as a bar across its block.
     const gp = src.goal?.progress;
     const goalBar = gp && gp.total > 0 && h('div', { class: 'ev-goalbar', css: { '--p': `${gp.percent}%`, '--g': src.goal.color || '#8b7cff' }, title: `${src.goal.title}: ${gp.done} of ${gp.total} steps done (${gp.percent}%)` }, h('i'));
-    return { domNodes: [h('div', { class: 'ev', title: notes && MOBILE ? `${arg.event.title}\n\n${notes}` : null }, title, h('div', { class: 'ev-time' }, arg.timeText || (arg.event.allDay ? 'All day' : '')), goalBar)] };
+    const travel = travelPart(arg, src);
+    return { domNodes: [h('div', { class: `ev${travel ? ' has-travel' : ''}`, title: notes && MOBILE ? `${arg.event.title}\n\n${notes}` : null }, travel, title, h('div', { class: 'ev-time' }, arg.timeText || (arg.event.allDay ? 'All day' : '')), goalBar)] };
+  }
+
+  /** A block's travel time as its own band across the top, as tall as the trip is long. */
+  function travelPart(arg, src) {
+    const mins = src.leaveBy;
+    if (!mins || arg.event.allDay || !arg.event.end || !arg.view.type.startsWith('timeGrid')) return null;
+    const total = (arg.event.end - arg.event.start) / 60000;
+    if (total <= mins) return null;
+    const there = new Date(arg.event.start.getTime() + mins * 60000);
+    return h('div', { class: 'ev-travel', css: { '--travel': `${(mins / total) * 100}%` }, title: `Travel time: ${mins} min. Leave at ${fmtTime(arg.event.start)}, there by ${fmtTime(there)}` },
+      h('div', { class: 'ev-title' }, icon('car'), h('span', { class: 't' }, 'Travel time')),
+      // Its times, written like every block's own.
+      h('div', { class: 'ev-time' }, calendar.formatRange(arg.event.start, there, { ...timeFormats().eventTimeFormat, separator: ' - ' })));
   }
 
   // A preview card for the block under the pointer: its whole name, times, calendar, notes and
@@ -1297,7 +1318,14 @@
       // A day of a repeat moves them all (by as much, and to the same new time).
       const saved = await onyx.updateEvent(src.id, src.seriesId ? { ...times, seriesId: src.seriesId, from: src.start } : times);
       if (saved.warning) toast(saved.warning, 'warn');
-      else if (src.seriesId) toast(`Moved every repeat of "${src.title}"`);
+      // Undo puts it back where it was (a repeat: all of it); redo moves it again.
+      const old = info.oldEvent;
+      const oldEnd = old.end || (old.allDay ? addDays(old.start, 1) : new Date(old.start.getTime() + 3600000));
+      const before = old.allDay ? { start: ymd(old.start), end: ymd(oldEnd), allDay: true } : { start: old.start.toISOString(), end: oldEnd.toISOString(), allDay: false };
+      const id = saved?.id && !src.seriesId ? saved.id : src.id;
+      recordAction(src.seriesId ? `Moved every repeat of "${src.title}"` : `Moved "${src.title}"`,
+        () => onyx.updateEvent(id, src.seriesId ? { ...before, seriesId: src.seriesId, from: times.start } : before),
+        () => onyx.updateEvent(id, src.seriesId ? { ...times, seriesId: src.seriesId, from: before.start } : times));
       refetch();
     } catch (err) {
       info.revert();
@@ -1312,7 +1340,12 @@
       const t = await onyx.moveTask(e.extendedProps.src.id, e.allDay ? { date: ymd(e.start) } : { start: e.start.toISOString() });
       const day = toDate(t.date).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
       const call = t.call && !t.call.quiet && !t.call.past ? ` · the Pi phones at ${fmtTime(new Date(t.call.at))}` : '';
-      toast(`Moved to ${day}${t.start ? ` ${fmtTime(new Date(t.start))}` : ''}${call}`);
+      const old = info.oldEvent;
+      const was = old.allDay ? { date: ymd(old.start) } : { start: old.start.toISOString() };
+      const now = e.allDay ? { date: ymd(e.start) } : { start: e.start.toISOString() };
+      const taskId = e.extendedProps.src.id;
+      recordAction(`Moved "${e.title}" to ${day}${t.start ? ` ${fmtTime(new Date(t.start))}` : ''}${call}`,
+        () => onyx.moveTask(taskId, was), () => onyx.moveTask(taskId, now));
       refetch();
       loadTasks(true);
     } catch (err) {
@@ -1432,7 +1465,8 @@
       // While it is carried, the entry itself follows the pointer freely; where it will land
       // (snapped to the grid) shows as an outline, and it snaps there when dropped.
       eventDragStart: (info) => { hidePeek(); edgeNavStart(); floatStart(info); },
-      eventDragStop: () => { edgeNavStop(); floatStop(); },
+      eventDragStop: () => { edgeNavStop(); floatStop(); afterDrag(); },
+      eventResizeStop: () => afterDrag(),
       datesSet: (info) => {
         if (!graph.on) $('#range').textContent = MOBILE ? shortTitle(info.view.currentStart, info.view.currentEnd, info.view.type) : info.view.title;
         for (const b of document.querySelectorAll('[data-view]')) b.classList.toggle('on', !graph.on && b.dataset.view === info.view.type);
@@ -1443,6 +1477,7 @@
     });
     calendar.render();
     swipeToChangeDates($('#calendar'));
+    touchDragWatchdog();
     if (!MOBILE) {
       edgeArrows();
       // Right-click on an empty spot: paste there.
@@ -1490,9 +1525,15 @@
     try {
       if (src.kind === 'task') {
         const t = tasks.find((x) => x.id === src.id) || { label: src.title, listId: src.calendarId, notes: src.notes };
-        const made = await onyx.createTask({ title: t.label || src.title, listId: t.listId || src.calendarId, notes: t.notes || '', due: slot.day, tags: src.tags || [] });
+        const fields = { title: t.label || src.title, listId: t.listId || src.calendarId, notes: t.notes || '', due: slot.day, tags: src.tags || [] };
         const time = slot.time || (src.allDay ? null : hm(start));
-        if (time) await onyx.moveTask(made.id, { start: at(slot.day, time).toISOString() });
+        let made = null;
+        const make = async () => {
+          made = await onyx.createTask(fields);
+          if (time) await onyx.moveTask(made.id, { start: at(slot.day, time).toISOString() });
+        };
+        await make();
+        recordAction(`Pasted "${src.title}"`, () => onyx.deleteTask(made.id), make);
         await loadTasks(true);
       } else {
         const allDay = !!src.allDay;
@@ -1506,9 +1547,10 @@
           e = new Date(begin.getTime() + length).toISOString();
         }
         const cal = S.calendars.find((c) => c.id === src.calendarId && c.kind === 'calendar' && c.writable) ? src.calendarId : undefined;
-        await onyx.createEvent({ title: src.title, notes: src.notes || '', location: src.location || '', start: s, end: e, allDay, calendarId: cal, tags: src.tags || [] });
+        const fields = { title: src.title, notes: src.notes || '', location: src.location || '', start: s, end: e, allDay, calendarId: cal, tags: src.tags || [] };
+        let made = await onyx.createEvent(fields);
+        recordAction(`Pasted "${src.title}"`, () => onyx.deleteEvent(made.id), async () => { made = await onyx.createEvent(fields); });
       }
-      toast(`Pasted "${src.title}"`);
       refetch(true);
     } catch (err) {
       toast(err.message, 'error');
@@ -1648,6 +1690,46 @@
     drag.frame = 0;
     drag.rect = null;
     setEdge(0);
+  }
+
+  // A reload that waited for a drag runs once it is over.
+  function afterDrag() {
+    setTimeout(() => { if (refetch.later && !midDrag()) refetch(); }, 60);
+  }
+
+  // A backstop for touch: once every finger is off the screen, a drag still going (its end got
+  // lost, say to a system gesture) is ended where the finger last was, so nothing stays stuck.
+  function touchDragWatchdog() {
+    const last = { target: null, x: 0, y: 0 };
+    const at = (e) => { const p = e.touches?.[0] || e.changedTouches?.[0]; if (p) { last.x = p.pageX; last.y = p.pageY; } };
+    document.addEventListener('touchstart', (e) => { if (e.touches.length === 1) last.target = e.target; at(e); }, { capture: true, passive: true });
+    document.addEventListener('touchmove', at, { capture: true, passive: true });
+    const lifted = (e) => {
+      if (e.touches.length) return;
+      at(e);
+      const target = last.target;
+      setTimeout(() => {
+        const stuck = midDrag() || document.querySelector('#calendar .fc-event-mirror:not(.fc-event-selected)');
+        if (!stuck || $('#popover:not([hidden])')) return;
+        // The calendar listens for the end on the element the finger first touched.
+        if (target) {
+          const end = new Event('touchend', { bubbles: false });
+          Object.defineProperties(end, { pageX: { value: last.x }, pageY: { value: last.y }, touches: { value: [] } });
+          target.dispatchEvent(end);
+        }
+        setTimeout(() => {
+          if (!midDrag() && !document.querySelector('#calendar .fc-event-mirror')) return;
+          // Still there: clear it and redraw from what is saved.
+          edgeNavStop(); floatStop();
+          document.body.classList.remove('dragging-entry', 'carrying');
+          for (const m of document.querySelectorAll('#calendar .fc-event-mirror')) m.closest('.fc-timegrid-event-harness, .fc-daygrid-event-harness')?.remove();
+          calendar.unselect();
+          refetch(true);
+        }, 120);
+      }, 350);
+    };
+    document.addEventListener('touchend', lifted, { capture: true, passive: true });
+    document.addEventListener('touchcancel', lifted, { capture: true, passive: true });
   }
 
   // ---- the carried entry: a copy that follows the pointer exactly
@@ -2032,11 +2114,12 @@
         type: 'button', class: 'ladder-opt', 'data-mode': value, role: 'radio',
         onclick: () => { mode = value; call.checked = value !== 'off'; sync(); },
       }, h('span', { class: 'lo-ico' }, icon(ico)), h('span', { class: 'lo-txt' }, h('b', null, label), h('small', null, hint)), h('span', { class: 'lo-dot' }))));
-    // Leave by: how long before it starts you need to set off (travel, getting ready).
+    // Travel time: the first part of the block is getting there. It shows as its own band on the
+    // calendar, and the call to set off comes as the block starts.
     let leaveBy = src?.leaveBy ?? null;
     const LEAVE = [0, 5, 10, 15, 20, 30, 45, 60, 90, 120];
-    const leaveSel = h('select', { class: 'leave-sel', title: 'How long before it starts you need to set off' },
-      LEAVE.map((m) => h('option', { value: m, selected: (leaveBy || 0) === m }, m ? `${m} min before` : 'No travel time')));
+    const leaveSel = h('select', { class: 'leave-sel', title: 'Travel time, counted inside the block: its first minutes are getting there' },
+      LEAVE.map((m) => h('option', { value: m, selected: (leaveBy || 0) === m }, m ? `${m < 60 ? `${m} min` : `${m / 60} h`} travel · in the block` : 'No travel time')));
     const leaveHint = h('small', { class: 'leave-hint' });
     leaveSel.addEventListener('change', () => { leaveBy = Number(leaveSel.value) || null; sync(); });
     const callHint = h('small');
@@ -2076,7 +2159,11 @@
       untilRow.hidden = !r.allDay && !multiDay;
       pomoRow.hidden = r.allDay;
       pomo.sync();
-      leaveHint.textContent = leaveBy && !r.allDay ? `Leave by ${fmtTime(new Date(r.at.getTime() - leaveBy * 60000))}` : '';
+      const there = r.at.getTime() + (leaveBy || 0) * 60000;
+      leaveHint.textContent = leaveBy && !r.allDay
+        ? (there >= new Date(r.end).getTime() ? 'Longer than the block: make it longer or the travel shorter' : `Leave at ${fmtTime(r.at)} · there by ${fmtTime(new Date(there))}`)
+        : '';
+      leaveHint.classList.toggle('warn', !!leaveBy && !r.allDay && there >= new Date(r.end).getTime());
       for (const b of ladder.children) {
         b.classList.toggle('on', b.dataset.mode === mode);
         b.setAttribute('aria-checked', String(b.dataset.mode === mode));
@@ -2120,6 +2207,8 @@
         if (!src) {
           saved = await onyx.createEvent(data);
           if (S.settings.defaultCalendar !== data.calendarId) saveSettings({ defaultCalendar: data.calendarId }, true);
+          let made = saved;
+          recordAction(`Added "${saved.title}"`, () => onyx.deleteEvent(made.id), async () => { made = await onyx.createEvent(data); });
         } else if (readOnly) {
           // A read-only calendar can still carry tags and a phone reminder: both live in Onyx.
           if (leaveChanged) await onyx.setLeaveBy(src.id, leaveBy);
@@ -2128,6 +2217,13 @@
           if (cleanNote(memo.value) !== (src.memo || '')) await onyx.setMemo(src.seriesId || src.id, memo.value);
         } else {
           saved = await onyx.updateEvent(src.id, data);
+          // Undo puts back what it was (not across a move to another calendar, which makes a new entry).
+          if (!data.calendarId || data.calendarId === src.calendarId) {
+            const before = { title: src.title, notes: src.notes || '', start: src.start, end: src.end, allDay: !!src.allDay, tags: src.tags || [],
+              ...(src.seriesId ? { seriesId: src.seriesId, from: data.start } : {}) };
+            const again = src.seriesId ? { ...data, from: src.start } : data;
+            recordAction(`Edited "${data.title || src.title}"`, () => onyx.updateEvent(src.id, before), () => onyx.updateEvent(src.id, again));
+          }
         }
         if (saved?.warning) toast(saved.warning, 'warn');
         // The split is kept in Onyx, by the entry's id (a new id when it moved calendar).
@@ -2149,6 +2245,12 @@
       if (src.seriesId && scope === 'all' && !confirm(`Delete every repeat of "${src.title}"?`)) return;
       try {
         await onyx.deleteEvent(src.id, src.seriesId ? { scope, seriesId: src.seriesId } : undefined);
+        // A one-off can be brought back (as a new entry with the same details).
+        if (!src.seriesId) {
+          const copy = { title: src.title, notes: src.notes || '', location: src.location || '', start: src.start, end: src.end, allDay: !!src.allDay, calendarId: src.calendarId, tags: src.tags || [] };
+          let back = null;
+          recordAction(`Deleted "${src.title}"`, async () => { back = await onyx.createEvent(copy); }, () => onyx.deleteEvent(back.id));
+        }
         closePopover();
         refetch();
       } catch (err) {
@@ -2174,7 +2276,7 @@
       }, notes || memo),
       pomoRow,
       src?.location && h('div', { class: 'row pop-meta' }, icon('pin'), src.location),
-      h('div', { class: 'row leave-row' }, icon('leave'), h('span', { class: 'dash' }, 'Leave'), leaveSel, leaveHint),
+      h('div', { class: 'row leave-row' }, icon('car'), h('span', { class: 'dash' }, 'Travel'), leaveSel, leaveHint),
       S.settings.pi.enabled && h('div', { class: 'row pi-row' }, icon('phone'),
         h('div', { class: 'txt' }, h('b', null, 'Escalation'), ladder, callHint, callWhen, call)),
       readOnly && h('div', { class: 'pop-meta' }, 'This calendar is read-only here. ',
@@ -2347,12 +2449,69 @@
 
   // A task marked done is archived: it stays in Google Tasks / To Do as completed, the
   // Archived tab reads it back by the day it was done, and Undo marks it not done again.
-  const undoStack = []; // tasks archived this session, newest last
-  function syncUndo() {
-    const last = undoStack.at(-1);
-    $('#undo-btn').disabled = !last;
-    $('#undo-btn').title = last ? `Undo: bring back "${last.label}" (Ctrl+Z)` : 'Nothing to undo';
+  // ---- undo and redo: changes made on the calendar can be taken back and done again. After
+  // each one a bar pops up along the bottom with what happened and ↶ / ↷ (Ctrl+Z, Ctrl+Y).
+  const history = { past: [], future: [], busy: false, bar: null, timer: 0 };
+
+  /** Records a change: `undo` and `redo` are what take it back and do it again. */
+  function recordAction(label, undo, redo) {
+    history.past.push({ label, undo, redo });
+    if (history.past.length > 60) history.past.shift();
+    history.future = [];
+    syncUndo();
+    showUndoBar(label);
   }
+
+  async function stepHistory(back) {
+    if (history.busy) return;
+    const from = back ? history.past : history.future;
+    const a = from.pop();
+    if (!a) return;
+    history.busy = true;
+    syncUndo();
+    try {
+      await (back ? a.undo() : a.redo());
+      (back ? history.future : history.past).push(a);
+      showUndoBar(`${back ? 'Undone' : 'Redone'}: ${a.label}`);
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+    history.busy = false;
+    syncUndo();
+    await loadTasks(true);
+    if (taskTab === 'archived') loadArchive();
+    refetch(true);
+  }
+
+  function syncUndo() {
+    const last = history.past.at(-1);
+    $('#undo-btn').disabled = !last || history.busy;
+    $('#undo-btn').title = last ? `Undo: ${last.label} (Ctrl+Z)` : 'Nothing to undo';
+    if (history.bar) {
+      history.bar.querySelector('.ub-undo').disabled = !history.past.length || history.busy;
+      history.bar.querySelector('.ub-redo').disabled = !history.future.length || history.busy;
+    }
+  }
+
+  /** The bar along the bottom: what just happened, ↶ undo, ↷ redo. It goes after a few seconds. */
+  function showUndoBar(label) {
+    if (!history.bar) {
+      history.bar = h('div', { class: 'undo-bar', role: 'status', 'aria-live': 'polite' },
+        h('span', { class: 'ub-label' }),
+        h('button', { class: 'ub-undo', title: 'Undo (Ctrl+Z)', 'aria-label': 'Undo', onclick: () => stepHistory(true) }, icon('undo')),
+        h('button', { class: 'ub-redo', title: 'Redo (Ctrl+Y)', 'aria-label': 'Redo', onclick: () => stepHistory(false) }, icon('undo')),
+        h('button', { class: 'ub-close', title: 'Close', 'aria-label': 'Close', onclick: () => hideUndoBar() }, icon('x')));
+      history.bar.addEventListener('mouseenter', () => clearTimeout(history.timer));
+      history.bar.addEventListener('mouseleave', () => { history.timer = setTimeout(hideUndoBar, 4000); });
+      document.body.append(history.bar);
+    }
+    history.bar.querySelector('.ub-label').textContent = label;
+    history.bar.classList.add('show');
+    syncUndo();
+    clearTimeout(history.timer);
+    history.timer = setTimeout(hideUndoBar, 8000);
+  }
+  function hideUndoBar() { history.bar?.classList.remove('show'); }
 
   // ---- ticking off: a pop, a check, a small burst and a soft click
 
@@ -2434,11 +2593,8 @@
       const res = await onyx.updateTask(t.id, { done: true });
       const wait = hold - (Date.now() - t0);
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-      undoStack.push({ id: t.id, label: t.label });
-      if (undoStack.length > 30) undoStack.shift();
-      syncUndo();
-      const next = res?.next?.date ? `. Next one: ${fmtDay(fromYmd(res.next.date))}` : '';
-      toast(`Done: "${t.label}"${next}`, '', { label: 'Undo', run: () => restoreTask(t.id, t.label) });
+      const next = res?.next?.date ? ` · next one ${fmtDay(fromYmd(res.next.date))}` : '';
+      recordAction(`Done: "${t.label}"${next}`, () => onyx.updateTask(t.id, { done: false }), () => onyx.updateTask(t.id, { done: true }));
       await loadTasks();
       refetch();
       return true;
@@ -2456,7 +2612,7 @@
       await onyx.setEventDone(src.id, true);
       const wait = hold - (Date.now() - t0);
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-      toast(`Done: "${src.title}"`, '', { label: 'Undo', run: () => restoreEvent(src) });
+      recordAction(`Done: "${src.title}"`, () => onyx.setEventDone(src.id, false), () => onyx.setEventDone(src.id, true));
       refetch();
       return true;
     } catch (err) {
@@ -2468,7 +2624,7 @@
   async function restoreEvent(src) {
     try {
       await onyx.setEventDone(src.id, false);
-      toast(`Restored "${src.title}"`);
+      recordAction(`Restored "${src.title}"`, () => onyx.setEventDone(src.id, true), () => onyx.setEventDone(src.id, false));
       refetch();
     } catch (err) {
       toast(err.message, 'error');
@@ -2478,10 +2634,7 @@
   async function restoreTask(id, label) {
     try {
       await onyx.updateTask(id, { done: false });
-      const i = undoStack.findIndex((u) => u.id === id);
-      if (i >= 0) undoStack.splice(i, 1);
-      syncUndo();
-      toast(`Restored "${label}"`);
+      recordAction(`Restored "${label}"`, () => onyx.updateTask(id, { done: true }), () => onyx.updateTask(id, { done: false }));
       await loadTasks();
       if (taskTab === 'archived') loadArchive();
       refetch();
@@ -2490,7 +2643,7 @@
     }
   }
 
-  const undoLast = () => { const last = undoStack.at(-1); if (last) restoreTask(last.id, last.label); };
+  const undoLast = () => stepHistory(true);
 
   // ------------------------------------------------------------ archived tasks
 
@@ -2823,7 +2976,12 @@
         h('div', { class: 'txt' }, h('b', null, 'Phone reminder'), h('small', { class: st.tone }, st.text))),
       h('div', { class: 'pop-actions' },
         h('button', { class: 'btn complete', title: 'Mark it done: it moves to the Archived tab (Undo brings it back)', onclick: () => { closePopover(); completeTask(t); } }, icon('check'), 'Complete'),
-        !t.mirror && h('button', { class: 'btn danger', title: 'Delete it from your tasks', onclick: () => { if (confirm(`Delete "${t.label || t.title}"?`)) run(() => onyx.deleteTask(t.id)); } }, icon('trash'), 'Delete'),
+        !t.mirror && h('button', { class: 'btn danger', title: 'Delete it from your tasks', onclick: () => { if (confirm(`Delete "${t.label || t.title}"?`)) run(async () => {
+          await onyx.deleteTask(t.id);
+          const copy = { title: t.title, notes: t.notes || '', listId: t.listId, ...(t.date ? { due: t.date } : {}), tags: t.tags || [] };
+          let back = null;
+          recordAction(`Deleted "${t.label || t.title}"`, async () => { back = await onyx.createTask(copy); }, () => onyx.deleteTask(back.id));
+        }); } }, icon('trash'), 'Delete'),
         h('div', { class: 'grow' }),
         h('button', { class: 'btn primary', onclick: save }, 'Save')),
     ]);
@@ -3004,7 +3162,10 @@
     const due = later ? '' : $('#task-date').value;
     input.value = '';
     try {
-      const t = await onyx.createTask({ title, listId: $('#task-list').value || undefined, ...(later ? { backburner: true } : due ? { due } : {}) });
+      const fields = { title, listId: $('#task-list').value || undefined, ...(later ? { backburner: true } : due ? { due } : {}) };
+      const t = await onyx.createTask(fields);
+      let made = t;
+      recordAction(`Added "${t.label || title}"`, () => onyx.deleteTask(made.id), async () => { made = await onyx.createTask(fields); });
       $('#task-date').value = '';
       burner.checked = false;
       syncBurner();
@@ -5277,10 +5438,10 @@
         window.onyxBack();
         return;
       }
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && !e.target.closest?.('input, textarea, select') && undoStack.length) {
-        e.preventDefault();
-        undoLast();
-        return;
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]')) {
+        const k = e.key.toLowerCase();
+        if (k === 'z' && !e.shiftKey && history.past.length) { e.preventDefault(); stepHistory(true); return; }
+        if ((k === 'y' || (k === 'z' && e.shiftKey)) && history.future.length) { e.preventDefault(); stepHistory(false); return; }
       }
       if (e.target.closest('input, textarea, select') || e.ctrlKey || e.altKey || e.metaKey || !$('#modal').hidden || !$('#popover').hidden) return;
       const views = { d: 'timeGridDay', w: 'timeGridWeek', m: 'dayGridMonth', a: 'listWeek', g: 'graph' };

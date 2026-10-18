@@ -245,21 +245,30 @@
   }
 
   async function refreshPomodoros() {
-    if (!S || pomoRun.loading) return;
+    if (!S) return;
+    // One read at a time; a change made during a read is read again straight after (it was
+    // dropped before, so a task just made could miss the bar).
+    if (pomoRun.loading) { pomoRun.again = true; return; }
     pomoRun.loading = true;
+    pomoRun.again = false;
     const now = new Date();
     const from = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1); // a block may have started yesterday
     try {
-      const { events } = await onyx.events(from.toISOString(), addDays(from, 3).toISOString());
+      // A week ahead, so late in the evening the next thing is still found.
+      const { events } = await onyx.events(from.toISOString(), addDays(from, 9).toISOString());
       pomoRun.blocks = events.filter((e) => e.pomodoro && !e.allDay && e.end && visible(e.calendarId));
       // The next-thing bar uses the same read: every timed entry and task still to come.
       nextRun.items = events.filter((e) => !e.allDay && e.end && !e.done && (e.kind === 'event' || (e.kind === 'task' && !e.mirror)) && visible(e.calendarId));
+      // And the open tasks due today with no time: shown when nothing timed is coming today.
+      const today = ymd(now);
+      nextRun.today = events.filter((e) => e.kind === 'task' && e.allDay && !e.done && !e.mirror && visible(e.calendarId) && String(e.start).slice(0, 10) === today);
       nextRun.loaded = true;
       handAlarms(nextRun.items);
     } catch { /* keep the last list */ }
     pomoRun.loading = false;
     tickPomodoro();
     tickNext();
+    if (pomoRun.again) refreshPomodoros();
   }
 
   /** Where `now` falls in a pomodoro block: the chunk it is in, time left, and which round. */
@@ -487,6 +496,26 @@
       q.el.classList.remove('empty');
     };
 
+    // Nothing timed left today: the open tasks due today (they have no time) are what is next.
+    const todayList = (nextRun.today || []).filter((t) => !tasks.find((x) => x.id === t.id && x.done));
+    const nextToday = next && sameDay(new Date(next.s), new Date());
+    const showToday = (q) => {
+      const t = todayList[0];
+      q.item = t;
+      q.el.dataset.tone = 'calm';
+      q.kindIcon.replaceChildren(icon('check'));
+      q.kind.textContent = 'To do today';
+      q.what.textContent = t.title;
+      q.leave.textContent = todayList.length > 1 ? `+${todayList.length - 1} more` : '';
+      q.leave.hidden = todayList.length < 2;
+      q.count.textContent = '';
+      q.el.title = `Due today: ${todayList.map((x) => x.title).join(', ')}. Click to open it`;
+      q.el.style.setProperty('--left', '0%');
+      q.el.disabled = false;
+      q.el.hidden = false;
+      q.el.classList.remove('empty');
+    };
+
     if (current) {
       // On now: the big pill, counting down what is left of it (amber in its last 5 minutes);
       // what comes next beside it, smaller.
@@ -503,7 +532,9 @@
       m.el.style.setProperty('--left', `${(Math.max(0, Math.min(1, left / (current.f - current.s))) * 100).toFixed(2)}%`);
       m.el.disabled = false;
       m.el.classList.remove('empty');
-      if (next) showNext(p.sub, false); else p.sub.el.hidden = true;
+      if (next && (nextToday || !todayList.length)) showNext(p.sub, false);
+      else if (todayList.length) showToday(p.sub);
+      else p.sub.el.hidden = true;
       p.label.hidden = true;
     } else {
       // Nothing on: free time on the left, and what comes next as the big pill.
@@ -511,8 +542,12 @@
       p.label.replaceChildren(h('b', null, 'Now'), h('span', { class: 'what' }, 'Free time'));
       p.label.disabled = true;
       p.sub.el.hidden = true;
-      if (next) showNext(p.main, true);
-      else {
+      if (next && (nextToday || !todayList.length)) showNext(p.main, true);
+      else if (todayList.length) {
+        // Tasks due today first; what is timed later (tomorrow) beside them, smaller.
+        showToday(p.main);
+        if (next) showNext(p.sub, false);
+      } else {
         const m = p.main;
         m.item = null;
         m.el.dataset.tone = 'calm';
@@ -1083,7 +1118,10 @@
       src.tags?.length > 0 && h('span', { class: 'tagdots', title: src.tags.map((t) => `#${t}`).join(' ') },
         src.tags.slice(0, 4).map((t) => h('i', { css: { '--t': tagColor(t) } }))));
     // On the PC, hovering shows a preview card (showPeek); the phone keeps the plain tooltip.
-    return { domNodes: [h('div', { class: 'ev', title: notes && MOBILE ? `${arg.event.title}\n\n${notes}` : null }, title, arg.timeText && h('div', { class: 'ev-time' }, arg.timeText))] };
+    // A goal's step: how far along the goal is, as a bar across its block.
+    const gp = src.goal?.progress;
+    const goalBar = gp && gp.total > 0 && h('div', { class: 'ev-goalbar', css: { '--p': `${gp.percent}%`, '--g': src.goal.color || '#8b7cff' }, title: `${src.goal.title}: ${gp.done} of ${gp.total} steps done (${gp.percent}%)` }, h('i'));
+    return { domNodes: [h('div', { class: 'ev', title: notes && MOBILE ? `${arg.event.title}\n\n${notes}` : null }, title, arg.timeText && h('div', { class: 'ev-time' }, arg.timeText), goalBar)] };
   }
 
   // A preview card for the block under the pointer: its whole name, times, calendar, notes and
@@ -1219,6 +1257,11 @@
         arg.el.style.setProperty('--c', arg.event.extendedProps.src?.color || '#8b7cff');
         if (arg.event.extendedProps.src) arg.el.dataset.eid = arg.event.id; // for the timer pie (drainTimers)
         drawPomodoroStripes(arg);
+        const src = arg.event.extendedProps.src;
+        if (src && (src.kind === 'event' || src.kind === 'task')) {
+          if (clip.selected === src.id) arg.el.classList.add('is-selected');
+          arg.el.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); selectEntry(src); entryMenu(e, src); });
+        }
       },
       // Month headers stand for a weekday, not a real date, so they use FullCalendar's own text.
       dayHeaderContent: (arg) => (arg.view.type === 'dayGridMonth'
@@ -1233,6 +1276,7 @@
         info.jsEvent.preventDefault();
         hidePeek();
         const src = info.event.extendedProps.src;
+        if (src && (src.kind === 'event' || src.kind === 'task')) selectEntry(src);
         const anchor = info.el.getBoundingClientRect();
         if ((src.kind === 'task' || src.kind === 'event') && info.jsEvent.target.closest?.('.dot')) {
           const dot = info.el.querySelector('.dot');
@@ -1276,6 +1320,130 @@
     });
     calendar.render();
     swipeToChangeDates($('#calendar'));
+    if (!MOBILE) {
+      edgeArrows();
+      // Right-click on an empty spot: paste there.
+      $('#calendar').addEventListener('contextmenu', (e) => { if (e.target.closest('.fc-event')) return; e.preventDefault(); entryMenu(e, null); });
+    }
+  }
+
+  // ---- copy and paste: a click highlights an entry; Ctrl+C (or right-click → Copy) copies it,
+  // and Ctrl+V (or right-click → Paste here) makes a copy where the pointer is on the calendar.
+  const clip = { selected: null, entry: null, x: 0, y: 0 };
+  document.addEventListener('mousemove', (e) => { clip.x = e.clientX; clip.y = e.clientY; }, { passive: true });
+
+  function selectEntry(src) {
+    clip.selected = src.id;
+    for (const el of document.querySelectorAll('#calendar .fc-event.is-selected')) el.classList.remove('is-selected');
+    for (const el of document.querySelectorAll(`#calendar .fc-event[data-eid="${CSS.escape(src.id)}"]`)) el.classList.add('is-selected');
+  }
+
+  function copyEntry(src) {
+    clip.entry = src;
+    toast(`Copied "${src.title}". Ctrl+V (or right-click → Paste here) puts a copy where the pointer is.`);
+  }
+
+  /** The calendar day (and, on the time grid, the time) under a point on the screen. */
+  function slotAt(x, y) {
+    let day = null, time = null;
+    for (const el of document.elementsFromPoint(x, y)) {
+      if (!day && el.matches?.('.fc-timegrid-col[data-date], .fc-daygrid-day[data-date]')) day = el.dataset.date;
+    }
+    if (!day) return null;
+    for (const lane of document.querySelectorAll('#calendar .fc-timegrid-slot-lane[data-time]')) {
+      const r = lane.getBoundingClientRect();
+      if (y >= r.top && y < r.bottom) { time = lane.dataset.time.slice(0, 5); break; }
+    }
+    return { day, time };
+  }
+
+  async function pasteEntry(place) {
+    const src = clip.entry;
+    if (!src) return toast('Nothing copied yet: click an entry and press Ctrl+C.');
+    const slot = place || slotAt(clip.x, clip.y);
+    if (!slot) return toast('Point at a day or time on the calendar, then paste.');
+    const start = toDate(src.start), end = toDate(src.end || src.start);
+    const length = Math.max(15 * 60000, end - start);
+    try {
+      if (src.kind === 'task') {
+        const t = tasks.find((x) => x.id === src.id) || { label: src.title, listId: src.calendarId, notes: src.notes };
+        const made = await onyx.createTask({ title: t.label || src.title, listId: t.listId || src.calendarId, notes: t.notes || '', due: slot.day, tags: src.tags || [] });
+        const time = slot.time || (src.allDay ? null : hm(start));
+        if (time) await onyx.moveTask(made.id, { start: at(slot.day, time).toISOString() });
+        await loadTasks(true);
+      } else {
+        const allDay = !!src.allDay;
+        let s, e;
+        if (src.allDay) {
+          s = slot.day;
+          e = ymd(addDays(fromYmd(slot.day), Math.max(1, Math.round((end - start) / 86400000))));
+        } else {
+          const begin = at(slot.day, slot.time || hm(start));
+          s = begin.toISOString();
+          e = new Date(begin.getTime() + length).toISOString();
+        }
+        const cal = S.calendars.find((c) => c.id === src.calendarId && c.kind === 'calendar' && c.writable) ? src.calendarId : undefined;
+        await onyx.createEvent({ title: src.title, notes: src.notes || '', location: src.location || '', start: s, end: e, allDay, calendarId: cal, tags: src.tags || [] });
+      }
+      toast(`Pasted "${src.title}"`);
+      refetch(true);
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  /** The right-click menu: on an entry (copy, paste, duplicate, open) or on an empty spot (paste here). */
+  function entryMenu(e, src) {
+    closeMenu();
+    const slot = slotAt(e.clientX, e.clientY);
+    const item = (label, run, off) => h('button', { class: 'ctx-item', disabled: !!off, onclick: () => { closeMenu(); run(); } }, label);
+    const menu = h('div', { class: 'ctx-menu', role: 'menu' },
+      src && item('Open', () => (src.kind === 'task' ? openTask(tasks.find((t) => t.id === src.id) || { id: src.id, title: src.title, label: src.title, listName: src.calendarName }, pointRect(e)) : openEditor({ src, start: toDate(src.start), end: toDate(src.end), allDay: src.allDay }, pointRect(e)))),
+      src && item('Copy   Ctrl+C', () => copyEntry(src)),
+      src && item('Duplicate', () => { clip.entry = src; const d = toDate(src.start); pasteEntry({ day: ymd(addDays(d, src.allDay ? 1 : 0)), time: src.allDay ? null : hm(new Date(d.getTime() + Math.max(15 * 60000, toDate(src.end) - d))) }); }),
+      item(`Paste here   Ctrl+V${clip.entry ? `: ${clip.entry.title}` : ''}`, () => pasteEntry(slot), !clip.entry || !slot));
+    menu.style.left = `${Math.min(e.clientX, innerWidth - 230)}px`;
+    menu.style.top = `${Math.min(e.clientY, innerHeight - 160)}px`;
+    document.body.append(menu);
+    setTimeout(() => document.addEventListener('mousedown', closeMenuOutside, true), 0);
+  }
+  function closeMenuOutside(e) { if (!e.target.closest('.ctx-menu')) closeMenu(); }
+  function closeMenu() {
+    document.removeEventListener('mousedown', closeMenuOutside, true);
+    for (const m of document.querySelectorAll('.ctx-menu')) m.remove();
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+    if (e.target.closest?.('input, textarea, select, [contenteditable]')) return;
+    const k = e.key.toLowerCase();
+    if (k === 'c' && clip.selected) {
+      const src = calendar?.getEventById(clip.selected)?.extendedProps?.src;
+      if (src) { e.preventDefault(); copyEntry(src); }
+    } else if (k === 'v' && clip.entry) {
+      e.preventDefault();
+      pasteEntry();
+    }
+  });
+
+  /** The pointer near the calendar's left or right side: an arrow there to click to the previous or next days. */
+  function edgeArrows() {
+    const stage = $('#calendar').parentElement;
+    const arrow = (dir) => h('button', {
+      class: `edge-hover ${dir > 0 ? 'next' : 'prev'}`, title: dir > 0 ? 'Next' : 'Previous', 'aria-label': dir > 0 ? 'Next' : 'Previous',
+      onclick: () => (dir > 0 ? calendar.next() : calendar.prev()),
+    }, dir > 0 ? '›' : '‹');
+    const prev = arrow(-1), next = arrow(1);
+    stage.append(prev, next);
+    const ZONE = 70;
+    stage.addEventListener('mousemove', (e) => {
+      if (document.body.classList.contains('dragging-entry') || graph.on) { prev.classList.remove('show'); next.classList.remove('show'); return; }
+      const r = stage.getBoundingClientRect();
+      const axis = Math.max(40, $('#calendar .fc-timegrid-axis')?.getBoundingClientRect().width || 0);
+      prev.classList.toggle('show', e.clientX - r.left < axis + ZONE);
+      next.classList.toggle('show', r.right - e.clientX < ZONE);
+    });
+    stage.addEventListener('mouseleave', () => { prev.classList.remove('show'); next.classList.remove('show'); });
   }
 
   // ---- dragging to the edge turns the page
@@ -1491,12 +1659,94 @@
     refresh();
   }
 
+  // ---- dates and times you can drag: press on the hour, minute, day, month or year and drag
+  // right to move it up, left to move it down. A 12-hour time gets an AM/PM picker beside it.
+  const TWELVE = new Intl.DateTimeFormat([], { hour: 'numeric' }).resolvedOptions().hour12 !== false;
+  const DATE_ORDER = new Intl.DateTimeFormat([], { year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(2000, 0, 2))
+    .filter((p) => p.type !== 'literal').map((p) => p.type);
+
+  function scrubbable(input) {
+    if (input.dataset.scrub) return;
+    input.dataset.scrub = '1';
+    const isTime = input.type === 'time';
+    input.classList.add('scrub');
+    // Which group the pointer is on: hours / minutes (/ AM-PM), or the date's parts in the order shown.
+    const partAt = (x) => {
+      const r = input.getBoundingClientRect();
+      const f = (x - r.left - 8) / Math.max(1, r.width - 34); // leave out the picker icon
+      if (isTime) return f < (TWELVE ? 0.33 : 0.5) ? 'h' : f < (TWELVE ? 0.62 : 1.1) ? 'm' : 'ap';
+      return DATE_ORDER[Math.max(0, Math.min(2, Math.floor(f * 3)))];
+    };
+    const shift = (value, part, n) => {
+      if (isTime) {
+        let [hh, mm] = (value || '09:00').split(':').map(Number);
+        if (part === 'h') hh += n;
+        else if (part === 'm') mm += n * 5;
+        else if (n % 2) hh += 12;
+        const total = (((hh * 60 + mm) % 1440) + 1440) % 1440;
+        return `${pad(Math.floor(total / 60))}:${pad(total % 60)}`;
+      }
+      const d = value ? fromYmd(value) : new Date();
+      if (part === 'day') d.setDate(d.getDate() + n);
+      else if (part === 'month') d.setMonth(d.getMonth() + n);
+      else d.setFullYear(d.getFullYear() + n);
+      return ymd(d);
+    };
+    input.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || e.pointerType === 'touch' || input.disabled) return;
+      const startX = e.clientX, from = input.value, part = partAt(e.clientX);
+      let dragging = false, last = 0;
+      const move = (ev) => {
+        const dx = ev.clientX - startX;
+        if (!dragging && Math.abs(dx) < 5) return;
+        if (!dragging) {
+          dragging = true;
+          try { input.setPointerCapture(e.pointerId); } catch { /* the drag still works while over the box */ }
+          input.classList.add('scrubbing');
+        }
+        const n = Math.trunc(dx / (part === 'ap' ? 30 : 12));
+        if (n === last) return;
+        last = n;
+        input.value = shift(from, part, n);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      const up = () => {
+        input.removeEventListener('pointermove', move);
+        input.removeEventListener('pointerup', up);
+        input.removeEventListener('pointercancel', up);
+        input.classList.remove('scrubbing');
+        if (dragging) input.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      input.addEventListener('pointermove', move);
+      input.addEventListener('pointerup', up);
+      input.addEventListener('pointercancel', up);
+    });
+    // AM/PM, picked from a list (the box cut it off).
+    if (isTime && TWELVE) {
+      const ap = h('select', { class: 'ampm', title: 'AM or PM', disabled: input.disabled }, h('option', { value: 'AM' }, 'AM'), h('option', { value: 'PM' }, 'PM'));
+      const sync = () => { ap.value = Number((input.value || '00:00').slice(0, 2)) >= 12 ? 'PM' : 'AM'; ap.hidden = input.hidden; };
+      ap.addEventListener('change', () => {
+        const hh = Number((input.value || '09:00').slice(0, 2));
+        const want = ap.value === 'PM' ? (hh % 12) + 12 : hh % 12;
+        input.value = `${pad(want)}:${(input.value || '09:00').slice(3, 5)}`;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      input.addEventListener('input', sync);
+      input.addEventListener('change', sync);
+      new MutationObserver(sync).observe(input, { attributes: true, attributeFilter: ['hidden'] });
+      sync();
+      input.after(ap);
+    }
+  }
+
   function showPopover(anchor, nodes, onClose, { wide = false } = {}) {
     closePopover();
     const pop = $('#popover');
     pop.classList.toggle('wide', wide);
     pop.replaceChildren(...nodes.filter((n) => n && n.nodeType));
     addLinkButtons(pop);
+    for (const input of pop.querySelectorAll('input[type=time], input[type=date]')) scrubbable(input);
     pop.hidden = false;
     closePopover = () => {
       closePopover = () => {};
@@ -3527,6 +3777,15 @@
             toggle(info.alarm !== false, (v) => onyx.launcher.setAlarm(v).then(draw).catch((err) => toast(err.message, 'error')))),
           lock && field('Notifications', 'The lock screen shows what is on now, its progress bar and a countdown to the next thing as a live notification.', allow(info.notifications, 'notifications')),
           lock && field('Over the lock screen', 'Brings the full Onyx panel up over the lock screen each time the screen turns on ("Display over other apps").', allow(info.overlay, 'overlay')),
+          lock && !info.overlay && h('div', { class: 'restricted-guide' },
+            h('b', null, 'Switch greyed out?'),
+            h('p', null, 'Android locks this switch for apps installed from a download. To unlock it:'),
+            h('ol', null,
+              h('li', null, 'Tap App info below (Settings → Apps → Onyx Calendar).'),
+              h('li', null, 'Tap ⋮ at the top right, then Allow restricted settings, and confirm with your PIN or fingerprint.'),
+              h('li', null, 'If that option is missing, tap the greyed-out switch once first, then look again.'),
+              h('li', null, 'Come back here and tap Allow: the switch turns on now.')),
+            h('button', { class: 'btn', onclick: () => onyx.launcher.open('appinfo') }, 'App info')),
           (lock || info.alarm !== false) && field('Full-screen alarms', 'An alarm (and a call from the Pi) wakes the phone and fills the screen. Without it, it still rings and shakes, as a notification.', allow(info.fullScreen, 'fullscreen')),
         ].filter(Boolean));
       };

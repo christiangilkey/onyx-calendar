@@ -286,4 +286,4 @@ function spans(start, end, includeHidden = false) {
     });
 }
 
-module.exports = { list, create, update, remove, setStep, spans, timesDue };
+module.exports = { list, create, update, remove, setStep, spans, timesDue, progressOf: (g) => out(g).progress };

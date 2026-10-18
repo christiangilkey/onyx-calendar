@@ -608,7 +608,7 @@
       lastInput = performance.now();
       if (drag?.pinch) {
         cam.goal = null;
-        cam.dist = Math.max(140, Math.min(2600, drag.dist * drag.pinch / pinchDistance()));
+        cam.dist = Math.max(minDist(), Math.min(2600, drag.dist * drag.pinch / pinchDistance()));
         return;
       }
       if (!drag) return;
@@ -654,7 +654,7 @@
         // Tapping a cluster opens it (its entries spread out and show their names); again closes it.
         focus = focus === n ? null : n;
         alpha = Math.max(alpha, 0.6);
-        if (focus) cam.goal = Math.max(260, Math.min(cam.dist, 520));
+        if (focus) cam.goal = Math.max(minDist(), 260, Math.min(cam.dist, 520));
         return;
       }
       const b = canvas.getBoundingClientRect();
@@ -662,11 +662,17 @@
       if (onPick) onPick(n.item, r);
     }
 
+    /** As close as the camera comes: the globe just touching the top and bottom of the screen. */
+    function minDist() {
+      if (!sphere || !height) return 140;
+      return Math.max(140, (2 * cam.focal * sphere * 1.06) / height + sphere);
+    }
+
     function onWheel(e) {
       e.preventDefault();
       lastInput = performance.now();
       cam.goal = null;
-      cam.dist = Math.max(140, Math.min(2600, cam.dist * Math.exp(e.deltaY * 0.0012)));
+      cam.dist = Math.max(minDist(), Math.min(2600, cam.dist * Math.exp(e.deltaY * 0.0012)));
     }
 
     function onLeave() { if (!drag) { hover = null; canvas.title = ''; } }

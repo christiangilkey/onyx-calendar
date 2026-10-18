@@ -172,6 +172,9 @@ final class LauncherData {
                     ? new Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:" + pkg))
                     : new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, pkg);
                 break;
+            case "appinfo":
+                intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + pkg));
+                break;
             case "launcher":
                 intent = new Intent(activity, LauncherActivity.class);
                 break;

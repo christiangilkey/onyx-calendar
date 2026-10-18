@@ -1287,3 +1287,26 @@ body.mobile #next-bar .next-pill.sub { display: none; }
 /* On the phone the carried copy is flat and light: a tilt and a deep shadow cost the phone a redraw every frame. */
 body.mobile .drag-float > .fc-event { transform: none; box-shadow: 0 6px 16px rgba(0,0,0,.5) !important; }
 body.mobile.carrying .fc .fc-event-mirror { outline-width: 1px; }
+.restricted-guide { margin: 4px 0 10px; padding: 10px 12px; border-radius: 10px; background: var(--raise); border: 1px solid var(--line); font-size: 12.5px; }
+.restricted-guide p { margin: 4px 0; color: var(--muted); }
+.restricted-guide ol { margin: 4px 0 8px 18px; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+/* The arrows at the calendar's sides: shown as the pointer comes near, a click turns to the next or previous days. */
+.edge-hover { position: absolute; top: 50%; z-index: 7; width: 38px; height: 64px; margin-top: -32px; border: 1px solid var(--line-2, var(--line)); border-radius: 12px; background: color-mix(in srgb, var(--panel) 88%, transparent); color: var(--text); font-size: 28px; line-height: 1; cursor: pointer; opacity: 0; pointer-events: none; transition: opacity .15s, transform .15s; backdrop-filter: blur(6px); box-shadow: 0 6px 18px rgba(0,0,0,.4); }
+.edge-hover.prev { left: 58px; transform: translateX(-6px); }
+.edge-hover.next { right: 10px; transform: translateX(6px); }
+.edge-hover.show { opacity: 1; pointer-events: auto; transform: none; }
+.edge-hover:hover { background: var(--raise-2, var(--raise)); }
+/* A highlighted entry (clicked: Ctrl+C copies it), and the right-click menu. */
+.fc .fc-event.is-selected { outline: 2px solid #fff; outline-offset: 1px; z-index: 5; }
+.ctx-menu { position: fixed; z-index: 600; min-width: 200px; padding: 5px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line-2, var(--line)); box-shadow: 0 14px 34px rgba(0,0,0,.55); display: flex; flex-direction: column; }
+.ctx-item { border: 0; background: transparent; color: var(--text); font: inherit; font-size: 13px; text-align: left; padding: 7px 10px; border-radius: 7px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; }
+.ctx-item:hover:not(:disabled) { background: var(--raise-2, var(--raise)); }
+.ctx-item:disabled { color: var(--faint, var(--muted)); cursor: default; }
+/* Dates and times you can drag (left/right) and an AM/PM list beside a 12-hour time, so nothing is cut off. */
+#popover input.scrub { cursor: ew-resize; }
+#popover input.scrub:focus { cursor: text; }
+#popover input.scrubbing { outline: 2px solid var(--accent, #8b7cff); }
+#popover input[type=time] { min-width: 112px; }
+#popover input[type=date] { min-width: 134px; }
+#popover select.ampm { width: auto; min-width: 58px; flex: none; padding: 0 6px; }
+#popover select.ampm[hidden] { display: none; }

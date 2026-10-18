@@ -50,7 +50,7 @@ test('a goal makes one task per step and one bar on the calendar', async () => {
   assert.deepEqual(g.progress, { done: 0, total: 3, percent: 0 });
   const { tasks: open } = await hub.getTasks({ force: true });
   const step = open.find((t) => t.title === 'Run 5k');
-  assert.deepEqual(step.goal, { id: g.id, title: 'Run a half marathon', color: g.color });
+  assert.deepEqual(step.goal, { id: g.id, title: 'Run a half marathon', color: g.color, progress: { done: 0, total: 3, percent: 0 } });
   assert.match(step.notes, /A step toward: Run a half marathon/);
 
   const { events } = await hub.getEvents(new Date(2026, 9, 12).toISOString(), new Date(2026, 9, 19).toISOString());

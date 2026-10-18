@@ -520,7 +520,12 @@ async function deleteEvent(id, { scope = 'all', seriesId = null } = {}) {
 /** The goal a task is a step of, if any: { id, title, color }. */
 function goalOfTask(id) {
   for (const g of store.data.goals) {
-    if (g.steps.some((s) => s.taskId === id)) return { id: g.id, title: g.title, color: g.color };
+    // With its progress, for the bar on each of its steps in the calendar (goals.js loads late).
+    if (g.steps.some((s) => s.taskId === id)) {
+      let progress = null;
+      try { progress = require('./goals').progressOf(g); } catch { /* shown without it */ }
+      return { id: g.id, title: g.title, color: g.color, progress };
+    }
   }
   return null;
 }

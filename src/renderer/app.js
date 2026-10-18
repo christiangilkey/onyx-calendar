@@ -1775,11 +1775,28 @@
     const isTime = input.type === 'time';
     input.classList.add('scrub');
     // Which group the pointer is on: hours / minutes (/ AM-PM), or the date's parts in the order shown.
+    // Measured from the text itself (in the box's own font), not the box's width, which is wider
+    // than what it shows: "07:26 AM" or "10/17/2026".
     const partAt = (x) => {
       const r = input.getBoundingClientRect();
-      const f = (x - r.left - 8) / Math.max(1, r.width - 34); // leave out the picker icon
-      if (isTime) return f < (TWELVE ? 0.33 : 0.5) ? 'h' : f < (TWELVE ? 0.62 : 1.1) ? 'm' : 'ap';
-      return DATE_ORDER[Math.max(0, Math.min(2, Math.floor(f * 3)))];
+      const cs = getComputedStyle(input);
+      const ctx = partAt.ctx || (partAt.ctx = document.createElement('canvas').getContext('2d'));
+      ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+      const w = (s) => ctx.measureText(s).width;
+      const at = x - r.left - parseFloat(cs.paddingLeft || '0') - parseFloat(cs.borderLeftWidth || '0');
+      if (isTime) {
+        if (at < w('00') + w(':') / 2) return 'h';
+        if (!TWELVE || at < w('00:00') + w(' ') / 2) return 'm';
+        return 'ap';
+      }
+      const lens = DATE_ORDER.map((p) => (p === 'year' ? '0000' : '00'));
+      let edge = 0;
+      for (let i = 0; i < 3; i++) {
+        edge += w(lens[i]) + (i < 2 ? w('/') / 2 : 0);
+        if (at < edge) return DATE_ORDER[i];
+        edge += i < 2 ? w('/') / 2 : 0;
+      }
+      return DATE_ORDER[2];
     };
     const shift = (value, part, n) => {
       if (isTime) {

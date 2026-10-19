@@ -105,6 +105,8 @@ public class LauncherActivity extends Activity implements OnyxPanel.Host {
     private GridView drawerGrid;
     private final AppAdapter drawerAdapter = new AppAdapter();
     private OnyxPanel panel;
+    private FocusScene scene; // Hyperfocus: in place of the clock
+    private View clockView, dateView, homeRoot;
     private int pendingWidget = -1;
     private boolean resumed;
     private long lastFetch;
@@ -159,6 +161,7 @@ public class LauncherActivity extends Activity implements OnyxPanel.Host {
     protected void onDestroy() {
         launcherApps.unregisterCallback(appsChanged);
         bg.shutdownNow();
+        if (scene != null) scene.release();
         super.onDestroy();
     }
 
@@ -187,6 +190,7 @@ public class LauncherActivity extends Activity implements OnyxPanel.Host {
         super.onResume();
         resumed = true;
         showPanel();
+        scene.resume();
         if (System.currentTimeMillis() - lastFetch > 60_000) fetch();
         ui.removeCallbacks(ticker);
         ui.post(ticker);
@@ -197,6 +201,7 @@ public class LauncherActivity extends Activity implements OnyxPanel.Host {
         super.onPause();
         resumed = false;
         ui.removeCallbacks(ticker);
+        scene.pause();
     }
 
     /** The Home button on the home screen: back to the top, drawer closed. */
@@ -222,7 +227,8 @@ public class LauncherActivity extends Activity implements OnyxPanel.Host {
         @Override
         public void run() {
             if (!resumed) return;
-            if (panel != null && LauncherData.onHome(LauncherActivity.this) && panel.tick()) panel.render();
+            if (panel != null && LauncherData.onHome(LauncherActivity.this) && panel.tick()) showPanel();
+            if (scene != null) scene.tick();
             if (System.currentTimeMillis() - lastFetch > 5 * 60_000) fetch();
             ui.postDelayed(this, 1000 - System.currentTimeMillis() % 1000);
         }
@@ -241,6 +247,7 @@ public class LauncherActivity extends Activity implements OnyxPanel.Host {
 
     private View build() {
         GestureFrame root = new GestureFrame(this);
+        homeRoot = root;
 
         LinearLayout home = new LinearLayout(this);
         home.setOrientation(LinearLayout.VERTICAL);
@@ -260,6 +267,7 @@ public class LauncherActivity extends Activity implements OnyxPanel.Host {
         scroll.addView(content, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextClock clock = new TextClock(this);
+        clockView = clock;
         clock.setFormat12Hour("h:mm");
         clock.setFormat24Hour("H:mm");
         clock.setTextSize(TypedValue.COMPLEX_UNIT_SP, 64);
@@ -278,11 +286,15 @@ public class LauncherActivity extends Activity implements OnyxPanel.Host {
         date.setPadding(dp(2), 0, 0, dp(18));
         date.setOnClickListener(v -> openOnyx(null));
         content.addView(date);
+        dateView = date;
 
         panelBox = new LinearLayout(this);
         panelBox.setOrientation(LinearLayout.VERTICAL);
         content.addView(panelBox);
         panel = new OnyxPanel(this, this, false);
+        panelBox.addView(panel.top); // the Pi's call, above everything
+        scene = new FocusScene(this, false, v -> openOnyx(null));
+        panelBox.addView(scene.root);
         panelBox.addView(panel.root);
 
         widgetsBox = new LinearLayout(this);
@@ -440,6 +452,12 @@ public class LauncherActivity extends Activity implements OnyxPanel.Host {
         boolean on = LauncherData.onHome(this);
         panelBox.setVisibility(on ? View.VISIBLE : View.GONE);
         if (on) panel.render();
+        // Hyperfocus: the scene takes the clock's place, over a deep backdrop that quiets the wallpaper.
+        LauncherData.Focus f = on ? LauncherData.focus(this) : null;
+        scene.show(f);
+        clockView.setVisibility(f != null ? View.GONE : View.VISIBLE);
+        dateView.setVisibility(f != null ? View.GONE : View.VISIBLE);
+        homeRoot.setBackgroundColor(f != null ? FocusScene.BACKDROP : Color.TRANSPARENT);
     }
 
     @Override

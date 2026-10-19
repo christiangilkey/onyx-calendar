@@ -40,15 +40,15 @@ final class OnyxPanel {
     static final int WORK = 0xFFFF6B5B, BREAK = 0xFF4FD1A5; // pomodoro: work and break
 
     final LinearLayout root;
+    /** The Pi's call as it rings: placed above everything (above the Hyperfocus scene too). */
+    final LinearLayout top;
     private final Context ctx;
     private final Host host;
     private final boolean big;
 
     // what tick() keeps moving
     private LauncherData.Item now, next, calling;
-    private LauncherData.Focus focus;
-    private TextView focusLeft;
-    private BarView focusBar;
+    private LauncherData.Focus focus; // a Hyperfocus session: the scene above shows it, this shows the rest of the day
     private TextView nowLeft, nextIn, leaveIn, callIn, pomoLine;
     private BarView nowBar;
     private long renderedFor; // the minute the cards were built for
@@ -59,6 +59,8 @@ final class OnyxPanel {
         this.big = big;
         root = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
+        top = new LinearLayout(ctx);
+        top.setOrientation(LinearLayout.VERTICAL);
     }
 
     int dp(float v) {
@@ -162,16 +164,22 @@ final class OnyxPanel {
         long t = System.currentTimeMillis();
         renderedFor = t / LauncherData.MIN;
         root.removeAllViews();
-        nowLeft = nextIn = leaveIn = callIn = focusLeft = null;
-        nowBar = focusBar = null;
+        top.removeAllViews();
+        nowLeft = nextIn = leaveIn = callIn = null;
+        nowBar = null;
         focus = LauncherData.focus(ctx);
         List<LauncherData.Item> items = LauncherData.items(ctx);
         now = LauncherData.now(items, t);
         next = LauncherData.next(items, t);
         calling = LauncherData.calling(items, t);
 
-        if (calling != null) root.addView(callCard(calling, t));
-        if (focus != null) root.addView(focusCard());
+        if (calling != null) top.addView(callCard(calling, t));
+        if (focus != null) {
+            // Under the Hyperfocus scene: the rest of the day, quieter (what is on now is the scene itself).
+            TextView rest = label("Rest of today", FAINT);
+            rest.setPadding(dp(4), dp(6), 0, dp(8));
+            root.addView(rest);
+        }
         root.addView(nowNextCard(items, t));
         List<LauncherData.Goal> goals = LauncherData.goals(ctx);
         if (!goals.isEmpty()) root.addView(goalsCard(goals));
@@ -207,27 +215,18 @@ final class OnyxPanel {
         return c;
     }
 
-    /** Hyperfocus is on: the goal, the time left to the hard stop in large type, and a bar draining to it. */
-    private View focusCard() {
-        LinearLayout c = card(0xE61A1630);
-        ((GradientDrawable) c.getBackground()).setStroke(dp(1.5f), ACCENT);
-        c.setOnClickListener(v -> host.openOnyx(null));
-        c.addView(label("◎ Hyperfocus", 0xFFB9AEFF));
-        c.addView(title(focus.goal));
-        focusLeft = text("", big ? 26 : 22, TEXT, true);
-        focusLeft.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
-        focusLeft.setPadding(0, dp(4), 0, 0);
-        c.addView(focusLeft);
-        focusBar = bar(0xFFB9AEFF, 1, big ? 10 : 8);
-        c.addView(focusBar);
-        c.addView(text("Hard stop " + clock(focus.end) + "  ·  one thing until then", 13, MUTED, false));
-        return c;
-    }
-
     private View nowNextCard(List<LauncherData.Item> items, long t) {
         LinearLayout c = card(CARD);
         c.setOnClickListener(v -> host.openOnyx(LocalDate.now().toString()));
-        if (now != null) {
+        if (focus != null) {
+            if (now != null && !now.title.equals(focus.goal)) {
+                TextView on = text("Now  ·  " + now.title + "  ·  until " + clock(now.end), 13, MUTED, false);
+                on.setSingleLine(true);
+                on.setEllipsize(TextUtils.TruncateAt.END);
+                on.setPadding(0, 0, 0, dp(8));
+                c.addView(on);
+            }
+        } else if (now != null) {
             c.addView(label("● Now", GREEN));
             c.addView(title(now.title));
             // A pomodoro block: the phase in big, red for work, green for a break.
@@ -244,7 +243,7 @@ final class OnyxPanel {
             nowLeft = text("", 13, MUTED, false);
             c.addView(nowLeft);
         }
-        c.addView(divider());
+        if (focus == null) c.addView(divider());
         if (next != null) {
             boolean today = LauncherData.dayOf(next.start).equals(LocalDate.now());
             c.addView(label(today ? "Next" : "Next · tomorrow", ACCENT));
@@ -364,10 +363,6 @@ final class OnyxPanel {
         if (next != null && t >= next.start) return true;
         if (calling != null && calling.calling(t) == null) return true;
         if (focus != null && t >= focus.end) return true;
-        if (focus != null && focusLeft != null) {
-            focusLeft.setText(span(focus.end - t) + " left");
-            focusBar.setProgress((float) (focus.end - t) / Math.max(1, focus.end - focus.start));
-        }
         if (now != null && nowBar != null) {
             long[] ph = now.phase(t);
             if (ph != null) {

@@ -53,6 +53,8 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ExecutorService bg = Executors.newSingleThreadExecutor();
     private OnyxPanel panel;
+    private FocusScene scene; // Hyperfocus: in place of the big clock
+    private View root, clockView, dateView;
     private LinearLayout notifs; // your other apps' notifications, under the panel
     private final Runnable notifsChanged = () -> ui.post(this::renderNotifs);
     private boolean resumed, unlocking;
@@ -107,6 +109,7 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
             // never registered
         }
         bg.shutdownNow();
+        if (scene != null) scene.release();
         super.onDestroy();
     }
 
@@ -114,7 +117,8 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
     protected void onResume() {
         super.onResume();
         resumed = true;
-        if (panel != null) panel.render();
+        render();
+        if (scene != null) scene.resume();
         OnyxNotificationListener.watch(notifsChanged);
         renderNotifs();
         ui.removeCallbacks(ticker);
@@ -127,6 +131,7 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
         resumed = false;
         ui.removeCallbacks(ticker);
         OnyxNotificationListener.unwatch(notifsChanged);
+        if (scene != null) scene.pause();
     }
 
     /** The screen went off or something else came up: shown afresh next time. */
@@ -146,7 +151,8 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
         @Override
         public void run() {
             if (!resumed) return;
-            if (panel != null && panel.tick()) panel.render();
+            if (panel != null && panel.tick()) render();
+            if (scene != null) scene.tick();
             ui.postDelayed(this, 1000 - System.currentTimeMillis() % 1000);
         }
     };
@@ -155,6 +161,7 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
     private View build() {
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(0xCC000000);
+        this.root = root;
 
         LinearLayout column = new LinearLayout(this);
         column.setOrientation(LinearLayout.VERTICAL);
@@ -177,6 +184,7 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
         clock.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
         clock.setGravity(Gravity.CENTER);
         content.addView(clock, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        clockView = clock;
         TextClock date = new TextClock(this);
         date.setFormat12Hour("EEEE, MMMM d");
         date.setFormat24Hour("EEEE, MMMM d");
@@ -185,8 +193,12 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
         date.setGravity(Gravity.CENTER);
         date.setPadding(0, 0, 0, dp(20));
         content.addView(date, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        dateView = date;
 
         panel = new OnyxPanel(this, this, true);
+        content.addView(panel.top); // the Pi's call, above everything
+        scene = new FocusScene(this, true, v -> openOnyx(null));
+        content.addView(scene.root);
         content.addView(panel.root);
 
         notifs = new LinearLayout(this);
@@ -230,6 +242,18 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
             return WindowInsetsCompat.CONSUMED;
         });
         return root;
+    }
+
+    /** The panel, and the screen around it: in Hyperfocus the scene takes the clock's place on a deeper background. */
+    private void render() {
+        if (panel == null) return;
+        panel.render();
+        LauncherData.Focus f = LauncherData.focus(this);
+        scene.show(f);
+        boolean on = f != null;
+        clockView.setVisibility(on ? View.GONE : View.VISIBLE);
+        dateView.setVisibility(on ? View.GONE : View.VISIBLE);
+        root.setBackgroundColor(on ? FocusScene.BACKDROP : 0xCC000000);
     }
 
     /** Your other apps' notifications, newest first: a tap unlocks and opens it, a long press clears it. */

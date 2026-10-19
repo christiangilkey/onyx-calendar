@@ -272,6 +272,10 @@
     logFocus: (session) => call('focus:log', session),
     focusSessions: (range) => call('focus:sessions', range),
     focusInsights: () => call('focus:insights'),
+    // A session run on the phone tells the PC it is on (assistants hold their messages) and when it ends.
+    focusStart: (session) => call('focus:start', session),
+    focusEnd: () => call('focus:end'),
+    focusNext: (info) => call('focus:next', info),
     setAiKey: (key) => call('ai:key', key),
     magicPlan: (text, date, opts, inboxIds) => call('magic:plan', text, date, opts, inboxIds),
     magicReplan: (tasks, travel, date, opts) => call('magic:replan', tasks, travel, date, opts),

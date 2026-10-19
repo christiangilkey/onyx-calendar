@@ -2,7 +2,9 @@ package com.onyxcalendar.app;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.ActivityOptions;
 import android.app.KeyguardManager;
+import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -22,7 +24,10 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.text.TextUtils;
+import android.text.format.DateUtils;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextClock;
@@ -35,6 +40,7 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -47,6 +53,8 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ExecutorService bg = Executors.newSingleThreadExecutor();
     private OnyxPanel panel;
+    private LinearLayout notifs; // your other apps' notifications, under the panel
+    private final Runnable notifsChanged = () -> ui.post(this::renderNotifs);
     private boolean resumed, unlocking;
     private GestureDetector swipe;
 
@@ -107,6 +115,8 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
         super.onResume();
         resumed = true;
         if (panel != null) panel.render();
+        OnyxNotificationListener.watch(notifsChanged);
+        renderNotifs();
         ui.removeCallbacks(ticker);
         ui.post(ticker);
     }
@@ -116,6 +126,7 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
         super.onPause();
         resumed = false;
         ui.removeCallbacks(ticker);
+        OnyxNotificationListener.unwatch(notifsChanged);
     }
 
     /** The screen went off or something else came up: shown afresh next time. */
@@ -178,6 +189,12 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
         panel = new OnyxPanel(this, this, true);
         content.addView(panel.root);
 
+        notifs = new LinearLayout(this);
+        notifs.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        np.topMargin = dp(14);
+        content.addView(notifs, np);
+
         TextView unlock = new TextView(this);
         unlock.setText("︿  Unlock");
         unlock.setTextColor(Color.WHITE);
@@ -213,6 +230,96 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
             return WindowInsetsCompat.CONSUMED;
         });
         return root;
+    }
+
+    /** Your other apps' notifications, newest first: a tap unlocks and opens it, a long press clears it. */
+    private void renderNotifs() {
+        if (notifs == null) return;
+        notifs.removeAllViews();
+        List<OnyxNotificationListener.Item> list = OnyxNotificationListener.items(this, 8);
+        if (list.isEmpty()) return;
+        TextView head = new TextView(this);
+        head.setText("NOTIFICATIONS");
+        head.setTextColor(0x99FFFFFF);
+        head.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        head.setLetterSpacing(0.08f);
+        head.setPadding(dp(4), 0, 0, dp(6));
+        notifs.addView(head);
+        for (OnyxNotificationListener.Item it : list) notifs.addView(notifRow(it));
+    }
+
+    private View notifRow(OnyxNotificationListener.Item it) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(14), dp(10), dp(14), dp(11));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(0x26FFFFFF);
+        bg.setCornerRadius(dp(18));
+        card.setBackground(bg);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.bottomMargin = dp(8);
+        card.setLayoutParams(lp);
+
+        LinearLayout top = new LinearLayout(this);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        if (it.icon != null) {
+            ImageView icon = new ImageView(this);
+            icon.setImageDrawable(it.icon);
+            LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(dp(18), dp(18));
+            ip.rightMargin = dp(8);
+            top.addView(icon, ip);
+        }
+        TextView app = new TextView(this);
+        app.setText(it.app + " · " + DateUtils.getRelativeTimeSpanString(it.when, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS, DateUtils.FORMAT_ABBREV_RELATIVE));
+        app.setTextColor(0xB3FFFFFF);
+        app.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        app.setSingleLine(true);
+        app.setEllipsize(TextUtils.TruncateAt.END);
+        top.addView(app, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        card.addView(top);
+
+        if (it.title != null && !it.title.isEmpty()) {
+            TextView title = new TextView(this);
+            title.setText(it.title);
+            title.setTextColor(Color.WHITE);
+            title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+            title.setTypeface(Typeface.DEFAULT_BOLD);
+            title.setSingleLine(true);
+            title.setEllipsize(TextUtils.TruncateAt.END);
+            title.setPadding(0, dp(5), 0, 0);
+            card.addView(title);
+        }
+        if (it.text != null && !it.text.isEmpty()) {
+            TextView text = new TextView(this);
+            text.setText(it.text);
+            text.setTextColor(0xD9FFFFFF);
+            text.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+            text.setMaxLines(2);
+            text.setEllipsize(TextUtils.TruncateAt.END);
+            text.setPadding(0, dp(2), 0, 0);
+            card.addView(text);
+        }
+
+        card.setOnClickListener(v -> unlock(() -> openNotif(it.open)));
+        card.setOnLongClickListener(v -> {
+            if (!it.clearable) return false;
+            OnyxNotificationListener.dismiss(it.key);
+            renderNotifs();
+            return true;
+        });
+        return card;
+    }
+
+    /** Opens what a notification leads to, as Android would from its own list. */
+    private void openNotif(PendingIntent pi) {
+        if (pi == null) return;
+        try {
+            ActivityOptions options = ActivityOptions.makeBasic();
+            if (Build.VERSION.SDK_INT >= 34) options.setPendingIntentBackgroundActivityStartMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
+            pi.send(this, 0, null, null, null, null, options.toBundle());
+        } catch (Exception ignored) {
+            // the app took it back
+        }
     }
 
     /** Asks Android to unlock; then does `then` (if anything) and gets out of the way. */

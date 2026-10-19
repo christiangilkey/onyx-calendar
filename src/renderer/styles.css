@@ -1804,3 +1804,26 @@ body.mobile #next-bar .next-stop .ico { width: 15px; height: 15px; }
   border: 1px solid var(--line-2); background: #050506; color: var(--text); font: inherit; font-size: 12px; line-height: 1.45;
 }
 .pomo-opts .pomo-ideas:focus { outline: none; border-color: color-mix(in srgb, var(--accent) 60%, var(--line-2)); }
+
+/* ------------------------------------------------------------ Hyperfocus on the phone */
+body.mobile #popover > .pop-actions .focus-btn { order: -1; flex: 1 1 100%; justify-content: center; height: 42px; }
+body.mobile .focus-screen { padding: calc(12px + env(safe-area-inset-top, 0px)) 16px calc(14px + env(safe-area-inset-bottom, 0px)); gap: 12px; }
+body.mobile .fs-top { font-size: 13px; flex-wrap: wrap; row-gap: 4px; }
+body.mobile .fs-main { overflow-y: auto; align-content: start; justify-items: stretch; gap: 16px; padding-bottom: 6px; }
+body.mobile .fs-side { align-items: center; }
+body.mobile .fs-disc { width: min(210px, 56vw); justify-self: center; }
+body.mobile .bodydouble { width: min(240px, 66vw); }
+body.mobile .fs-text { overflow: visible; max-height: none; }
+body.mobile .fs-step, body.mobile .fs-goal.alone { font-size: clamp(22px, 6.4vw, 30px); }
+body.mobile .fs-goal { font-size: clamp(17px, 5vw, 22px); }
+body.mobile .fs-ticks li { padding: 12px; font-size: 15px; }
+body.mobile .fs-capture { gap: 8px; flex-wrap: wrap; }
+body.mobile .fs-capture-in { flex: 1 1 100%; height: 44px; }
+body.mobile .fs-capture .btn { flex: 1; height: 42px; }
+body.mobile .fs-body, body.mobile .fs-ceiling { left: 16px; right: 16px; width: auto; top: auto; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
+body.mobile .sheet.focus-setup .magic-grid { grid-template-columns: 1fr; }
+body.mobile .fs-start { flex: 1; }
+/* A tap leaves no grey highlight stuck on a top-bar button (phones have no hover). */
+@media (hover: none) { .icon-btn:hover:not(.on) { background: transparent; } }
+/* On a phone the sheet closes with back or a tap outside: no Cancel button taking a row of its own. */
+body.mobile #popover > .pop-actions > .btn.ghost:not(.focus-btn) { display: none; }

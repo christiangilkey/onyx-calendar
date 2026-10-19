@@ -128,6 +128,7 @@ final class LauncherData {
             o.put("notifications", notificationsAllowed(ctx));
             o.put("overlay", overlayAllowed(ctx));
             o.put("fullScreen", fullScreenAllowed(ctx));
+            o.put("notiflist", OnyxNotificationListener.allowed(ctx));
             o.put("alarm", prefs(ctx).getBoolean("alarm", false));
         } catch (Exception ignored) {
             // a JSON key can't fail here
@@ -171,6 +172,14 @@ final class LauncherData {
                 intent = Build.VERSION.SDK_INT >= 34
                     ? new Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:" + pkg))
                     : new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, pkg);
+                break;
+            case "notiflist":
+                if (Build.VERSION.SDK_INT >= 30) {
+                    intent = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
+                        .putExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME, OnyxNotificationListener.component(activity).flattenToString());
+                } else {
+                    intent = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
+                }
                 break;
             case "appinfo":
                 intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + pkg));

@@ -249,6 +249,10 @@
         for (const a of e.piAlerts || []) { const at = new Date(a.at).getTime(); if (at > now) list.push({ ...base, at, why: 'alarm' }); }
       }
     }
+    const f = focus.s;
+    if (f && f.phase === 'focus' && f.plannedEnd > now) {
+      list.push({ id: 'hyperfocus-stop', title: `Hyperfocus stop: ${f.goal}`, start: f.plannedEnd, kind: 'event', at: f.plannedEnd, why: 'alarm' });
+    }
     list.sort((a, b) => a.at - b.at);
     const key = JSON.stringify(list.slice(0, 40));
     if (key === handedAlarms) return;
@@ -3418,7 +3422,7 @@
     return { id: x.id, kind: 'event', title: x.title, notes: notesOf(x), start: x.start, end: x.end, allDay: !!x.allDay, color: x.color, src: x };
   }
 
-  const focusButton = (x) => !MOBILE && h('button', { class: 'btn focus-btn', title: 'Hyperfocus: one goal, a hard stop, and Onyx goes quiet until then',
+  const focusButton = (x) => h('button', { class: 'btn focus-btn', title: 'Hyperfocus: one goal, a hard stop, and Onyx goes quiet until then',
     onclick: () => { closePopover(); openFocusSetup(focusEntry(x)); } }, icon('target'), 'Hyperfocus');
 
   function openFocusSetup(entry, ask = {}) {
@@ -3590,7 +3594,7 @@
       startFocus({
         entry, goal: goal.value.trim() || entry.title, firstStep, ifThen: ifThen.value.trim() === F.IF_THEN ? '' : ifThen.value.trim(),
         steps: list, plannedEnd: at, stopKind: o.kind, sound: { kind: sound, volume: +volume.value, link: sound === 'spotify' ? link : null }, hook,
-        ceiling: { minutes: +ceiling.value, asks: [] }, preflight: [...ready], escalate: reach.ok && escalate,
+        ceiling: { minutes: +ceiling.value, asks: [] }, preflight: [...ready], escalate: !onyx.isPhone && reach.ok && escalate,
         body: { every: +body.value, shown: 0 }, breakIdeas: OnyxFocus.parseActivities(breakIn.value),
       });
     } }, icon('target'), 'Start hyperfocus');
@@ -3609,7 +3613,8 @@
       field('Sound', soundChips, volume, spotify, soundHint),
       h('div', { class: 'magic-grid' },
         field('Hook', hookSeg, hookHint),
-        field('Reach my phone at the stop', reachSeg, reachHint)),
+        onyx.isPhone ? field('At the stop', h('small', { class: 'fs-hint' }, 'This phone rings its alarm at the hard stop, even with the screen off, until you answer it.'))
+          : field('Reach my phone at the stop', reachSeg, reachHint)),
       h('div', { class: 'magic-grid' },
         field('Soft check-in', ceiling, h('small', { class: 'fs-hint' }, 'A chime asks: keep going, or stop here?')),
         field('Body check', body, h('small', { class: 'fs-hint' }, 'A quiet nudge: water, shoulders, eyes.'))),
@@ -3644,7 +3649,23 @@
     clearInterval(focus.timer);
     focus.timer = setInterval(tickFocus, 1000);
     tickFocus();
+    // On the phone: the screen stays on, and the hard stop is handed to Android's alarm clock.
+    keepAwake(true);
+    handAlarms(nextRun.items);
   }
+
+  /** Keeps the screen on while a session runs (asked again when the app comes back to the front). */
+  const wake = { lock: null, want: false };
+  async function keepAwake(on) {
+    wake.want = on;
+    try {
+      if (on && !wake.lock && navigator.wakeLock) {
+        wake.lock = await navigator.wakeLock.request('screen');
+        wake.lock.addEventListener?.('release', () => { wake.lock = null; });
+      } else if (!on && wake.lock) { await wake.lock.release(); wake.lock = null; }
+    } catch { wake.lock = null; /* not offered here: the session runs anyway */ }
+  }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && wake.want) keepAwake(true); });
 
   function buildFocusScreen() {
     const s = focus.s;
@@ -3846,6 +3867,7 @@
     focus.parts.ceiling.hidden = true;
     focus.parts.body.hidden = true;
     if (stop !== 'hard') onyx.focusEnd?.().catch(() => {}); // you are here: nothing goes to the phone
+    handAlarms(nextRun.items); // the phone's own stop alarm is taken back (or, at the stop, has rung)
     if (stop === 'hard') { focus.parts.disc.style.setProperty('--timer-p', '0'); focus.parts.left.textContent = countdown(0); }
     stopNoise();
     const cur = OnyxFocus.currentStep(s.steps);
@@ -3984,6 +4006,8 @@
     focus.el?.remove();
     Object.assign(focus, { s: null, el: null, parts: null });
     document.body.classList.remove('focus-on');
+    keepAwake(false);
+    handAlarms(nextRun.items);
     refreshPomodoros(); // Now / Next carries on from here
   }
 
@@ -4861,7 +4885,7 @@
     calendar.setOption('firstDay', S.settings.weekStart);
     for (const [k, v] of Object.entries(timeFormats())) calendar.setOption(k, v);
     $('#layout').classList.toggle('no-tasks', !S.settings.tasksPanel && MOBILE); // on the PC a hidden Tasks panel leaves its tab
-    $('#toggle-tasks').classList.toggle('on', MOBILE ? S.settings.tasksPanel : !shut('tasks'));
+    $('#toggle-tasks').classList.toggle('on', !MOBILE && !shut('tasks'));
     calendar.updateSize();
     renderSidebar();
     renderMini();
@@ -5078,7 +5102,9 @@
             toggle(info.alarm === true, (v) => onyx.launcher.setAlarm(v).then(draw).catch((err) => toast(err.message, 'error')))),
           lock && field('Notifications', 'The lock screen shows what is on now, its progress bar and a countdown to the next thing as a live notification.', allow(info.notifications, 'notifications')),
           lock && field('Over the lock screen', 'Brings the full Onyx panel up over the lock screen each time the screen turns on ("Display over other apps").', allow(info.overlay, 'overlay')),
-          lock && !info.overlay && h('div', { class: 'restricted-guide' },
+          lock && 'notiflist' in info && field('My notifications under the panel', 'Android hides its own notification list behind the Onyx panel, so Onyx lists your other apps\' notifications under it: tap one to unlock and open it, hold it to clear it. Private ones show only "Contents hidden", and your lock screen settings for notifications are kept. Needs Notification access.',
+            allow(info.notiflist, 'notiflist')),
+          lock && (!info.overlay || info.notiflist === false) && h('div', { class: 'restricted-guide' },
             h('b', null, 'Switch greyed out?'),
             h('p', null, 'Android locks this switch for apps installed from a download. To unlock it:'),
             h('ol', null,

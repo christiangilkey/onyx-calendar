@@ -702,6 +702,16 @@
     const sound = nextSoundOn();
     p.sound.replaceChildren(icon(sound ? 'bell' : 'bell-off'));
     p.sound.title = sound ? 'Chimes on: 5 minutes before, and as it starts. Click to mute' : 'Chimes off. Click to turn them on';
+    // The phone has one line under the pill: what comes after it, or else the free time, or else that nothing
+    // else is timed (never an empty row with only the bell in it).
+    if (MOBILE) {
+      if (!p.sub.el.hidden) p.label.hidden = true;
+      else if (p.label.hidden) {
+        p.label.hidden = false;
+        p.label.replaceChildren(h('b', null, 'Next'), h('span', { class: 'what' }, 'Nothing else timed'));
+        p.label.disabled = true;
+      }
+    }
     bar.className = tone;
     bar.hidden = false;
   }
@@ -1527,7 +1537,8 @@
       snapDuration: '00:15:00',
       dateClick: (info) => {
         if (MOBILE) {
-          // A month is too small to read on a phone: a tap on a day opens that day.
+          // A month is too small to read on a phone: a tap on a day opens that day (not the lift of a pinch).
+          if (Date.now() - pinch.at < 600) return;
           if (info.view.type === 'dayGridMonth' && !info.jsEvent.target.closest?.('.fc-event, .fc-more-link')) calendar.changeView('timeGridDay', info.date);
           return;
         }
@@ -3634,7 +3645,7 @@
     drawSound(false);
     drawHook();
     drawReach();
-    setTimeout(() => (first.value ? start : first).focus({ preventScroll: true }), 50);
+    if (!MOBILE) setTimeout(() => (first.value ? start : first).focus({ preventScroll: true }), 50); // no keyboard over the setup on a phone
     if (hammer && !first.value.trim() && steps.length < 2) breakItDown();
   }
 
@@ -3754,7 +3765,8 @@
     drawSoundMenu();
     document.body.append(focus.el);
     syncBuddy();
-    setTimeout(() => capture.focus({ preventScroll: true }), 60);
+    // Ready to type on the PC; on a phone that would bring the keyboard up over the session, so it waits for a tap.
+    if (!MOBILE) setTimeout(() => capture.focus({ preventScroll: true }), 60);
   }
 
   /**
@@ -6633,12 +6645,92 @@
     if (graph.on) closeGraph(); else openGraph();
   }
 
-  function pickView(view) {
+  function pickView(view, date) {
     if (view === 'graph') return toggleGlobe();
     if (graph.on) closeGraph();
-    calendar.changeView(view);
+    calendar.changeView(view, date);
     for (const b of document.querySelectorAll('[data-view]')) b.classList.toggle('on', b.dataset.view === view);
     closeDrawers();
+  }
+
+  // ---- pinch to change the view: spread two fingers to zoom in (month, then the week, then the day),
+  // pinch them together to zoom out. Zooming in goes to the day under the fingers. The calendar follows the
+  // fingers a little while they move, and the new view settles in from the same direction. On the PC a
+  // trackpad pinch does the same (Day, Week, Month); on the phone the middle step is its 3-day view.
+  const pinch = { at: 0, s: null, wheel: 0, wheelAt: 0, busy: false };
+  const pinchViews = () => (MOBILE ? ['timeGridDay', 'timeGrid3', 'dayGridMonth'] : ['timeGridDay', 'timeGridWeek', 'dayGridMonth']);
+  /** The day under a point (a month cell, a day column or its header), if there is one. */
+  function dayAt(x, y) {
+    for (const el of document.elementsFromPoint(x, y)) {
+      const d = el.closest?.('[data-date]')?.dataset.date;
+      if (d) return fromYmd(d.slice(0, 10));
+    }
+    return null;
+  }
+  /** One step in (-1) or out (+1) from the view on screen. Returns whether it moved. */
+  function pinchStep(dir, x, y) {
+    if (graph.on || !calendar) return false;
+    const list = pinchViews();
+    let i = list.indexOf(calendar.view.type);
+    if (i < 0) i = 1; // the agenda: in goes to the day, out to the month
+    const to = list[Math.max(0, Math.min(list.length - 1, i + dir))];
+    if (to === calendar.view.type) return false;
+    const day = dir < 0 ? dayAt(x, y) : null;
+    const el = $('#calendar');
+    pickView(to, day || calendar.getDate());
+    el.classList.remove('pinch-in', 'pinch-out');
+    void el.offsetWidth; // start the settle animation again
+    el.classList.add(dir < 0 ? 'pinch-in' : 'pinch-out');
+    setTimeout(() => el.classList.remove('pinch-in', 'pinch-out'), 260);
+    try { if (MOBILE) navigator.vibrate?.(8); } catch { /* no buzz */ }
+    return true;
+  }
+  function setupPinch() {
+    const stage = $('#stage'), el = $('#calendar');
+    const gap = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    const settle = () => {
+      el.style.transition = 'transform .16s ease-out';
+      el.style.transform = '';
+      setTimeout(() => { el.style.transition = ''; el.style.transformOrigin = ''; }, 170);
+    };
+    stage.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 2 || graph.on) { if (e.touches.length > 2) pinch.s = null; return; }
+      const x = (e.touches[0].clientX + e.touches[1].clientX) / 2, y = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      const r = el.getBoundingClientRect();
+      pinch.s = { d: gap(e.touches), x, y, ratio: 1 };
+      el.style.transition = '';
+      el.style.transformOrigin = `${x - r.left}px ${y - r.top}px`;
+    }, { passive: true });
+    stage.addEventListener('touchmove', (e) => {
+      if (!pinch.s || e.touches.length !== 2) return;
+      e.preventDefault(); // no scrolling while two fingers pinch
+      pinch.s.ratio = gap(e.touches) / pinch.s.d;
+      const k = Math.max(0.9, Math.min(1.1, 1 + (pinch.s.ratio - 1) * 0.3));
+      el.style.transform = `scale(${k.toFixed(3)})`;
+    }, { passive: false });
+    const end = () => {
+      const s = pinch.s;
+      if (!s) return;
+      pinch.s = null;
+      pinch.at = Date.now();
+      const dir = s.ratio > 1.25 ? -1 : s.ratio < 0.8 ? 1 : 0;
+      // Far enough: the next view settles in. Not far enough (or already at the end): the calendar eases back.
+      if (dir) { el.style.transform = ''; el.style.transformOrigin = ''; if (pinchStep(dir, s.x, s.y)) return; }
+      settle();
+    };
+    stage.addEventListener('touchend', (e) => { if (e.touches.length < 2) end(); });
+    stage.addEventListener('touchcancel', end);
+    // A trackpad pinch arrives as a wheel with Ctrl held: one step per pinch, however long it goes on.
+    stage.addEventListener('wheel', (e) => {
+      if (!e.ctrlKey || MOBILE) return;
+      e.preventDefault();
+      const now = Date.now();
+      if (now - pinch.wheelAt > 350) { pinch.wheel = 0; pinch.busy = false; }
+      pinch.wheelAt = now;
+      if (pinch.busy) return;
+      pinch.wheel += e.deltaY;
+      if (Math.abs(pinch.wheel) > 40) { pinch.busy = true; pinchStep(pinch.wheel < 0 ? -1 : 1, e.clientX, e.clientY); }
+    }, { passive: false });
   }
 
   // ------------------------------------------------------------ updates
@@ -6810,6 +6902,7 @@
       else saveSettings({ tasksPanel: !S.settings.tasksPanel });
     };
     for (const b of document.querySelectorAll('[data-view]')) b.onclick = () => pickView(b.dataset.view);
+    setupPinch();
 
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {

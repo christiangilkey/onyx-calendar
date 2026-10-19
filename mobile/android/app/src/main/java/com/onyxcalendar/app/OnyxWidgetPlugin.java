@@ -117,9 +117,10 @@ public class OnyxWidgetPlugin extends Plugin {
         if (Boolean.TRUE.equals(call.getBoolean("clear", false))) {
             LauncherData.setFocus(getContext(), null, 0, 0);
         } else {
-            Double start = call.getDouble("startedAt"), end = call.getDouble("plannedEnd");
-            LauncherData.setFocus(getContext(), call.getString("goal", "Hyperfocus"),
-                start == null ? System.currentTimeMillis() : start.longValue(), end == null ? 0 : end.longValue());
+            // Times in ms arrive as longs (getDouble only takes doubles and ints): read them as numbers of any kind.
+            long start = call.getData().optLong("startedAt", System.currentTimeMillis());
+            long end = call.getData().optLong("plannedEnd", 0);
+            LauncherData.setFocus(getContext(), call.getString("goal", "Hyperfocus"), start, end);
         }
         call.resolve();
     }

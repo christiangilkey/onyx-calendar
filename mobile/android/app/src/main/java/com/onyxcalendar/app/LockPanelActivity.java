@@ -300,7 +300,10 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
             card.addView(text);
         }
 
-        card.setOnClickListener(v -> unlock(() -> openNotif(it.open)));
+        card.setOnClickListener(v -> unlock(() -> {
+            openNotif(it.open);
+            if (it.autoCancel) OnyxNotificationListener.dismiss(it.key);
+        }));
         card.setOnLongClickListener(v -> {
             if (!it.clearable) return false;
             OnyxNotificationListener.dismiss(it.key);

@@ -1828,7 +1828,7 @@ body.mobile .fs-start { flex: 1; }
 /* A tap leaves no grey highlight stuck on a top-bar button (phones have no hover). */
 @media (hover: none) { .icon-btn:hover:not(.on) { background: transparent; } }
 /* On a phone the sheet closes with back or a tap outside: no Cancel button taking a row of its own. */
-body.mobile #popover > .pop-actions > .btn.ghost:not(.focus-btn) { display: none; }
+body.mobile #popover > .pop-actions:has(> .btn.primary) > .btn.ghost:not(.focus-btn) { display: none; }
 
 /* ------------------------------------------------------------ a pomodoro during Hyperfocus */
 .focus-screen { --pomo-rest: color-mix(in srgb, var(--c) 38%, #101116); }
@@ -1872,3 +1872,35 @@ body.mobile .fs-pomo-head { flex-wrap: wrap; row-gap: 6px; }
 body.mobile .fs-close { opacity: 1; width: 40px; height: 40px; background: rgba(255, 255, 255, .06); }
 body.mobile .fs-corner { width: auto; height: auto; padding: calc(8px + var(--safe-top, env(safe-area-inset-top, 0px))) 8px 0 0; }
 body.mobile .focus-screen .fs-top { padding-right: 46px; }
+
+/* ------------------------------------------------------------ Hyperfocus on the PC: clear of the window's own buttons */
+/* Windows draws minimise, maximise and close over the top right 48px (titleBarOverlay): Stop now sits left of
+   them, and the X just under them. */
+body:not(.mobile) .focus-screen .fs-top { padding-right: 150px; }
+body:not(.mobile) .fs-corner { padding-top: 56px; padding-right: 14px; }
+
+/* ------------------------------------------------------------ the sound menu, bottom left */
+.fs-sounds {
+  position: absolute; left: 16px; bottom: 16px; z-index: 6; display: flex; flex-direction: column; gap: 1px; min-width: 176px;
+  padding: 8px; border-radius: 14px; background: rgba(16, 17, 22, .92); border: 1px solid rgba(255, 255, 255, .06);
+  color: #8a8d98; font-size: 12.5px; opacity: 0; pointer-events: none; transform: translateY(6px);
+  transition: opacity .2s ease, transform .2s ease; backdrop-filter: blur(8px);
+}
+.fs-sounds.near, .fs-sounds.open, .fs-sounds:focus-within { opacity: 1; pointer-events: auto; transform: none; }
+.fs-sounds-head { display: flex; align-items: center; gap: 6px; padding: 2px 8px 6px; font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #6e7380; }
+.fs-sounds-head .ico { width: 12px; height: 12px; }
+.fs-sound {
+  display: flex; align-items: center; gap: 9px; width: 100%; padding: 6px 8px; border: 0; border-radius: 8px; background: transparent;
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.fs-sound:hover { background: rgba(255, 255, 255, .05); color: #c9ccd6; }
+.fs-sound .dot { width: 6px; height: 6px; border-radius: 50%; border: 1px solid #555a66; flex: none; }
+.fs-sound.on { color: #d6d8e0; }
+.fs-sound.on .dot { background: color-mix(in srgb, var(--c) 70%, #fff); border-color: transparent; }
+.fs-sound small { margin-left: auto; font-size: 10.5px; color: #6e7380; }
+.fs-sounds-vol { display: flex; align-items: center; gap: 6px; padding: 8px 8px 2px; }
+.fs-sounds-vol .ico { width: 12px; height: 12px; color: #6e7380; flex: none; }
+.fs-sounds-vol input[type=range] { flex: 1; min-width: 0; accent-color: color-mix(in srgb, var(--c) 70%, #fff); height: 16px; }
+/* On a phone: opened by the bell, under the top row. */
+body.mobile .fs-sounds { left: 16px; right: auto; bottom: auto; top: calc(64px + var(--safe-top, env(safe-area-inset-top, 0px))); font-size: 14px; min-width: 210px; }
+body.mobile .fs-sound { padding: 10px; }

@@ -38,7 +38,7 @@ public class OnyxNotificationListener extends NotificationListenerService {
         long when;
         Drawable icon;
         PendingIntent open;
-        boolean clearable;
+        boolean clearable, autoCancel;
     }
 
     /** Whether Notification access is on for Onyx. */
@@ -145,6 +145,7 @@ public class OnyxNotificationListener extends NotificationListenerService {
             it.text = text;
             it.open = n.contentIntent;
             it.clearable = s.isClearable();
+            it.autoCancel = (n.flags & Notification.FLAG_AUTO_CANCEL) != 0; // gone once opened, as from Android's own list
             it.app = s.getPackageName();
             try {
                 ApplicationInfo ai = Build.VERSION.SDK_INT >= 33

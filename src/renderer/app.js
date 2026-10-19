@@ -976,6 +976,7 @@
         !exitBox && h('button', { class: 'icon-btn', title: 'Close', onclick: () => close('dismiss') }, icon('x'))),
       h('div', { class: 'ac-title' }, a.title), when, leaveAt && leave, exitBox || [actions, stepsBox]);
     const shade = h('div', { class: 'action-shade' }, card);
+    shade.dismiss = () => close('dismiss'); // closed from outside (the Hyperfocus X): its timers and bell stop too
     document.body.append(shade);
     if (exitBox) {
       // The exit is meant to be heard: the bell, again every 20 seconds until something is written or pressed.
@@ -3656,7 +3657,7 @@
     focus.timer = setInterval(tickFocus, 1000);
     tickFocus();
     // On the phone: the screen stays on, and the hard stop is handed to Android's alarm clock.
-    keepAwake(true);
+    if (onyx.isPhone) keepAwake(true);
     handAlarms(nextRun.items);
   }
 
@@ -3688,7 +3689,8 @@
       ceiling: h('div', { class: 'fs-ceiling', hidden: true }),
       body: h('div', { class: 'fs-body', hidden: true, role: 'status' }),
       buddy: bodyDouble(),
-      sound: h('button', { class: 'icon-btn', onclick: () => toggleSound() }),
+      sound: h('button', { class: 'icon-btn', onclick: () => (MOBILE ? openSoundMenu() : toggleSound()) }),
+      sounds: h('div', { class: 'fs-sounds', role: 'menu', 'aria-label': 'Sound' }),
       pomo: h('div', { class: 'fs-pomo', hidden: true }),
       breaks: h('div', { class: 'fs-disc-breaks' }),
     };
@@ -3733,16 +3735,24 @@
       p.ceiling, p.body,
       // A way straight out: a small grey X in the top right corner, shown as the pointer comes near (always on a phone).
       h('div', { class: 'fs-corner' },
-        h('button', { class: 'fs-close', title: 'Leave Hyperfocus now', 'aria-label': 'Leave Hyperfocus', onclick: () => endFocus() }, icon('x'))));
+        h('button', { class: 'fs-close', title: 'Leave Hyperfocus now', 'aria-label': 'Leave Hyperfocus', onclick: () => leaveFocus() }, icon('x'))),
+      // The sound, changed without leaving: a small grey menu in the bottom left corner, shown as the
+      // pointer comes near (on a phone, the bell at the top opens it).
+      p.sounds);
     focus.parts = p;
     const corner = focus.el.querySelector('.fs-corner');
     focus.el.addEventListener('pointermove', (e) => {
       if (e.pointerType !== 'mouse') return;
       corner.classList.toggle('near', e.clientX > innerWidth - 180 && e.clientY < 120);
+      // The sound menu: near the bottom left corner, or still over the menu once it is open.
+      const m = p.sounds, r = m.getBoundingClientRect();
+      const over = m.classList.contains('near') && e.clientX < r.right + 40 && e.clientY > r.top - 40;
+      m.classList.toggle('near', focus.s?.phase === 'focus' && ((e.clientX < 240 && e.clientY > innerHeight - 170) || over));
     });
-    focus.el.addEventListener('pointerleave', () => corner.classList.remove('near'));
+    focus.el.addEventListener('pointerleave', () => { corner.classList.remove('near'); p.sounds.classList.remove('near'); });
     drawFocusSteps();
     drawSoundButton();
+    drawSoundMenu();
     document.body.append(focus.el);
     syncBuddy();
     setTimeout(() => capture.focus({ preventScroll: true }), 60);
@@ -3801,12 +3811,65 @@
     focus.parts.sound.replaceChildren(icon(on ? 'bell' : 'bell-off'));
     focus.parts.sound.title = s.sound.kind === 'none' ? 'Silence: no sound for this session' : s.sound.kind === 'spotify' ? 'Playing in Spotify: pause it there'
       : on ? `${name} on. Click to pause it` : `${name} paused. Click to play it`;
-    focus.parts.sound.disabled = s.sound.kind === 'none' || s.sound.kind === 'spotify';
+    focus.parts.sound.disabled = !MOBILE && (s.sound.kind === 'none' || s.sound.kind === 'spotify');
+    if (MOBILE) focus.parts.sound.title = 'Sound';
   }
   function toggleSound() {
     const s = focus.s;
     if (noise.src) stopNoise(); else playNoise(s.sound.kind, s.sound.volume);
     drawSoundButton();
+    drawSoundMenu();
+  }
+
+  /** The sound menu: each sound (Spotify when a playlist is known), the one playing ticked, and the volume. */
+  function drawSoundMenu() {
+    const s = focus.s, m = focus.parts?.sounds;
+    if (!s || !m) return;
+    const link = s.sound.link || readFocusPrefs().spotify;
+    const opts = SOUNDS.filter(([k]) => k !== 'spotify' || link).map(([k, name]) => {
+      const on = s.sound.kind === k;
+      const paused = on && k !== 'none' && k !== 'spotify' && !noise.src;
+      return h('button', { class: `fs-sound${on ? ' on' : ''}`, role: 'menuitemradio', 'aria-checked': String(on), onclick: () => pickSound(k) },
+        h('span', { class: 'dot' }), name, paused && h('small', null, 'paused'));
+    });
+    const vol = h('input', { type: 'range', min: 0, max: 100, value: s.sound.volume ?? 35, 'aria-label': 'Volume', title: 'Volume' });
+    vol.addEventListener('input', () => {
+      s.sound.volume = +vol.value;
+      if (s.sound.kind !== 'none' && s.sound.kind !== 'spotify') playNoise(s.sound.kind, s.sound.volume);
+      drawSoundButton();
+    });
+    vol.addEventListener('change', () => { saveFocusPrefs({ ...readFocusPrefs(), volume: s.sound.volume }); drawSoundMenu(); });
+    m.replaceChildren(h('div', { class: 'fs-sounds-head' }, icon('bell'), 'Sound'), ...opts,
+      !['none', 'spotify'].includes(s.sound.kind) && h('label', { class: 'fs-sounds-vol' }, icon('bell-off'), vol, icon('bell')));
+  }
+
+  /** Changes the sound now (and for the next session): a noise plays, Silence stops it, Spotify opens the playlist. */
+  function pickSound(kind) {
+    const s = focus.s;
+    if (!s) return;
+    s.sound.kind = kind;
+    if (kind === 'spotify') {
+      stopNoise();
+      const link = s.sound.link || readFocusPrefs().spotify;
+      if (link) { s.sound.link = link; onyx.open(link).catch(() => {}); }
+    } else {
+      if (kind !== 'none' && !s.sound.volume) s.sound.volume = 35; // picked at zero: give it a volume to be heard
+      playNoise(kind, s.sound.volume);
+    }
+    saveFocusPrefs({ ...readFocusPrefs(), sound: kind, volume: s.sound.volume });
+    drawSoundButton();
+    drawSoundMenu();
+    if (MOBILE) focus.parts.sounds.classList.remove('open');
+  }
+
+  /** On a phone (no pointer to come near): the bell opens and closes the menu. */
+  function openSoundMenu() {
+    const m = focus.parts?.sounds;
+    if (!m || focus.s?.phase !== 'focus') return;
+    drawSoundMenu();
+    // Just under the top row, whatever its height (it wraps on a narrow phone), so Stop now stays in reach.
+    m.style.top = `${Math.round(focus.el.querySelector('.fs-top').getBoundingClientRect().bottom + 8)}px`;
+    m.classList.toggle('open');
   }
 
   function tickFocus() {
@@ -3950,6 +4013,7 @@
     s.endedAt = Date.now();
     focus.parts.ceiling.hidden = true;
     focus.parts.body.hidden = true;
+    focus.parts.sounds.classList.remove('near', 'open'); // the sound stops here: no menu for it
     if (stop !== 'hard') onyx.focusEnd?.().catch(() => {}); // you are here: nothing goes to the phone
     onyx.launcher?.focus?.(null);
     handAlarms(nextRun.items); // the phone's own stop alarm is taken back (or, at the stop, has rung)
@@ -3999,14 +4063,34 @@
     if (where || next) {
       try { await saveLeftOff(s.entry, { where, next }); } catch (err) { toast(`The note could not be saved: ${err.message}`, 'error'); }
     }
+    logFocusSession(s, { where, next, rating: note.rating || null });
+    windDown(where || next, { rating: note.rating || null, minutes: (s.endedAt - s.startedAt) / 60000 });
+  }
+
+  /** A session into the log (focus.js): what it was on, how it went, and how it ended. */
+  function logFocusSession(s, { where = '', next = '', rating = null } = {}) {
     const done = s.steps.filter((x) => x.done).length;
     onyx.logFocus?.({
       entry: { id: s.entry.id, kind: s.entry.kind, title: s.entry.title }, goal: s.goal, firstStep: s.firstStep, ifThen: s.ifThen,
-      startedAt: s.startedAt, plannedEnd: s.plannedEnd, endedAt: s.endedAt, stop: s.stop, ceiling: s.ceiling, sound: s.sound, hook: s.hook,
+      startedAt: s.startedAt, plannedEnd: s.plannedEnd, endedAt: s.endedAt || Date.now(), stop: s.stop || 'early', ceiling: s.ceiling, sound: s.sound, hook: s.hook,
       preflight: s.preflight, steps: { total: s.steps.length, done }, captured: s.captured, where, next, windDown: FOCUS_WIND_MIN,
-      escalate: s.escalate, bodyChecks: s.body, rating: note.rating || null,
+      escalate: s.escalate, bodyChecks: s.body, rating,
     }).catch(() => {});
-    windDown(where || next, { rating: note.rating || null, minutes: (s.endedAt - s.startedAt) / 60000 });
+  }
+
+  /**
+   * The X: out at once, with no action card or wind-down. The session still goes in the log (with
+   * no rating), unless it is there already, and what was held back while you focused is listed.
+   */
+  function leaveFocus() {
+    const s = focus.s;
+    if (!s) return;
+    if (s.phase !== 'wind') logFocusSession(s); // in the wind-down it is logged already
+    const held = focus.held.slice();
+    endFocus();
+    // The "Stopping here" card, if it is up: closed too (with its bell). Nothing is saved from it now.
+    document.querySelector(`.action-card[data-key="focus|${s.startedAt}"]`)?.closest('.action-shade')?.dismiss?.();
+    if (held.length) toast(`Held while you focused: ${held.slice(0, 4).join(' · ')}${held.length > 4 ? ` and ${held.length - 4} more` : ''}`);
   }
 
   function windDown(saved, how = {}) {

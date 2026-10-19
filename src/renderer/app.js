@@ -1564,6 +1564,7 @@
           return;
         }
         if (info.jsEvent.target.closest?.('.fc-event, .fc-more-link')) return;
+        if (Date.now() - clickOff.at < 1000) return; // this click only put the open entry away
         const start = info.date;
         const end = info.allDay ? addDays(start, 1) : new Date(start.getTime() + 30 * 60000);
         openEditor({ start, end, allDay: info.allDay }, pointRect(info.jsEvent));
@@ -2294,8 +2295,14 @@
     refit.observe(pop);
   }
 
+  // A click on the calendar's background while an entry is open (or highlighted) puts it away and deselects it:
+  // that click does nothing more (it used to open a new block's window there, so the window seemed to jump).
+  const clickOff = { at: 0 };
   document.addEventListener('pointerdown', (e) => {
-    if (!$('#popover').hidden && !$('#popover').contains(e.target)) closePopover();
+    const onGrid = !!e.target.closest?.('#calendar') && !e.target.closest('.fc-event');
+    const open = !$('#popover').hidden && !$('#popover').contains(e.target);
+    if (open) closePopover();
+    if (onGrid && (open || clip.selected)) { clearSelection(); clickOff.at = Date.now(); }
   });
 
   // ------------------------------------------------------------ block editor

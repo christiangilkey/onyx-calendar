@@ -1619,3 +1619,45 @@ body.mobile #popover > .pop-actions {
   bottom: calc(-18px - env(safe-area-inset-bottom, 0px)); margin: 2px -16px calc(-18px - env(safe-area-inset-bottom, 0px));
   padding: 10px 16px calc(18px + env(safe-area-inset-bottom, 0px));
 }
+
+/* ------------------------------------------------------------ phone polish */
+/* The date always has room: the pomodoro chip in the top bar is just its icon and stop button (the Now pill shows the time). */
+body.mobile #pomo-timer .pomo-time { display: none; }
+body.mobile #pomo-timer { gap: 4px; padding: 0 3px 0 8px; }
+body.mobile .nav h1 { min-width: 3.4em; flex: 1 1 auto; }
+@media (max-width: 400px) {
+  body.mobile #titlebar { padding: 0 4px; gap: 0; }
+  body.mobile .nav { gap: 0; }
+  body.mobile .nav h1 { font-size: 14px; margin-left: 0; }
+  body.mobile #pomo-timer { padding: 0 2px 0 6px; gap: 3px; margin-right: 0; }
+}
+@media (max-width: 340px) {
+  body.mobile .icon-btn { width: 34px; }
+  body.mobile .nav h1 { font-size: 13.5px; }
+}
+/* The round buttons are not on the screen behind an open drawer, and a message sits above both of them. */
+body.mobile.drawer-left #fab, body.mobile.drawer-right #fab, body.mobile.drawer-news #fab,
+body.mobile.drawer-left #magic-fab, body.mobile.drawer-right #magic-fab, body.mobile.drawer-news #magic-fab { display: none; }
+body.mobile.mobile #toasts { bottom: calc(146px + env(safe-area-inset-bottom, 0px)); }
+body.mobile:has(.undo-bar.show) #toasts { bottom: calc(146px + env(safe-area-inset-bottom, 0px)); }
+/* The News handle: slimmer, so it covers less of the day. */
+body.mobile #news-tab { width: 20px; height: 66px; opacity: .92; }
+body.mobile #news-tab .news-tab-label { font-size: 9px; letter-spacing: 1.2px; }
+/* Small things you have to tap get a larger touch area than they look (the picture does not change). */
+body.mobile :is(.tick, .box, .tagrow .swatch, .pomo-stop, .link-btn, .carry, .date-bubble, .tamkeen-toggle, .carry-chip) { position: relative; }
+body.mobile :is(.tick, .box, .tagrow .swatch, .pomo-stop, .link-btn, .carry, .date-bubble, .tamkeen-toggle, .carry-chip)::after { content: ''; position: absolute; inset: -8px; }
+body.mobile #tasks [data-tab] { min-height: 30px; }
+/* The month is a map of busy days on a phone: each entry a small coloured bar, a tap on the day opens it. */
+body.mobile .fc-dayGridMonth-view .fc-daygrid-event { height: 6px; min-height: 0 !important; margin: 1px 3px 0; border-radius: 3px; border-left-width: 0 !important; }
+body.mobile .fc-dayGridMonth-view .fc-daygrid-event .fc-event-main { display: none; }
+body.mobile .fc-dayGridMonth-view .fc-daygrid-more-link { font-size: 10px; }
+/* The Settings tabs scroll sideways: a fade on the right edge says there are more. */
+body.mobile .sheet nav { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 64px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 64px), transparent); }
+
+/* The due screen's buttons share a row, and nothing sits on top of it. */
+.due-actions { display: flex; flex-wrap: wrap; }
+.due-actions .btn { flex: 1 1 28%; }
+.due-actions .btn.primary { flex: 1 1 100%; }
+body.due-on #fab, body.due-on #magic-fab, body.due-on #news-tab, body.due-on .undo-bar { display: none !important; }
+
+.due-actions .btn { padding: 0 6px; font-size: 15px; white-space: nowrap; min-width: 0; }

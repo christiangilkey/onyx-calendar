@@ -349,7 +349,7 @@
     p.count.textContent = countdown(left);
     p.sub.textContent = started
       ? `Started ${fmtTime(new Date(x.s))} · ends ${fmtTime(new Date(x.f))}`
-      : `At ${fmtTime(new Date(x.s))}${leaveAt ? (leaveAt > now ? ` · leave by ${fmtTime(new Date(leaveAt))}` : ' · time to leave') : ''}`;
+      : `At ${fmtTime(new Date(x.s))}${leaveAt ? ` · ${x.e.leaveBy} min trip, there by ${fmtTime(new Date(x.s + x.e.leaveBy * 60000))}` : ''}`; // the trip is the first part of the block
     // The ring fills toward the start, then drains through the block.
     const fill = started ? (x.f - now) / Math.max(1, x.f - x.s) : 1 - Math.min(1, toStart / DUE_AHEAD);
     due.el.style.setProperty('--fill', `${(fill * 100).toFixed(1)}%`);
@@ -569,11 +569,11 @@
       q.kind.textContent = big && next.e.kind === 'task' ? 'Next task' : 'Next';
       q.when.textContent = `${fmtTime(new Date(next.s))}${day}`;
       q.what.textContent = next.e.title;
-      q.leave.textContent = leaveAt ? (leaveAt > now ? `Leave by ${fmtTime(new Date(leaveAt))}` : 'Time to leave') : '';
+      q.leave.textContent = leaveAt ? `${next.e.leaveBy} min trip` : '';
       q.leave.hidden = !leaveAt;
       if (MOBILE && leaveAt) q.when.textContent += ` · ${q.leave.textContent.toLowerCase()}`; // the phone shows it on the small line
       q.count.textContent = MOBILE ? shortCount(left) : big ? countdown(left) : untilText(left, true);
-      q.el.title = `${untilText(left)} until ${next.e.title} at ${fmtTime(new Date(next.s))}${day}${leaveAt ? `. Leave by ${fmtTime(new Date(leaveAt))}` : ''}. Click to open it`;
+      q.el.title = `${untilText(left)} until ${next.e.title} at ${fmtTime(new Date(next.s))}${day}${leaveAt ? `. ${next.e.leaveBy} min trip: there by ${fmtTime(new Date(next.s + next.e.leaveBy * 60000))}` : ''}. Click to open it`;
       q.el.style.setProperty('--left', `${(Math.max(0, Math.min(1, left / span)) * 100).toFixed(2)}%`);
       q.el.disabled = false;
       q.el.hidden = false;
@@ -1417,7 +1417,12 @@
       eventResizableFromStart: true, // drag the top edge too, not only the bottom
       snapDuration: '00:15:00',
       dateClick: (info) => {
-        if (MOBILE || info.jsEvent.target.closest?.('.fc-event, .fc-more-link')) return;
+        if (MOBILE) {
+          // A month is too small to read on a phone: a tap on a day opens that day.
+          if (info.view.type === 'dayGridMonth' && !info.jsEvent.target.closest?.('.fc-event, .fc-more-link')) calendar.changeView('timeGridDay', info.date);
+          return;
+        }
+        if (info.jsEvent.target.closest?.('.fc-event, .fc-more-link')) return;
         const start = info.date;
         const end = info.allDay ? addDays(start, 1) : new Date(start.getTime() + 30 * 60000);
         openEditor({ start, end, allDay: info.allDay }, pointRect(info.jsEvent));
@@ -4786,7 +4791,7 @@
       out));
     $('#modal').replaceChildren(sheet);
     $('#modal').hidden = false;
-    setTimeout(() => (picked.size ? go : text).focus(), 50);
+    setTimeout(() => (picked.size ? go : text).focus({ preventScroll: true }), 50);
     if (preset.text || (preset.auto && picked.size)) run();
   }
 

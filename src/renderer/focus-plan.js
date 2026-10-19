@@ -335,7 +335,22 @@
       .slice(0, max).map(({ score, ...x }) => x);
   }
 
+  /** Break ideas as written ("Stretch, walk to the window" or one to a line): a clean list, at most 12 of up to 60 characters. */
+  const parseActivities = (input) => {
+    const raw = Array.isArray(input) ? input : String(input || '').split(/[\n,;]+/);
+    const out = [];
+    for (const r of raw) {
+      const t = String(r).replace(/\s+/g, ' ').trim().slice(0, 60);
+      if (t && !out.some((x) => x.toLowerCase() === t.toLowerCase())) out.push(t);
+      if (out.length >= 12) break;
+    }
+    return out;
+  };
+  /** The idea for break number `n` (1 on): each break takes the next one, round and round. '' when there are none. */
+  const breakIdea = (list, n) => (Array.isArray(list) && list.length ? list[(Math.max(1, Math.round(n || 1)) - 1) % list.length] : '');
+
   const api = {
+    parseActivities, breakIdea,
     focusHours, bestWindow, hourScore, rotation, BEST_MIN_RATED,
     nextEntry, stopOptions, quickTasks, taskMinutes, notesSteps, currentStep, leftOffNote, lastLeftOff, nextCeiling,
     fillNoise, fillRain, fillWaves, soundBuffer, noiseGain, spotifyLink, nextBodyCheck, bodyCheck,

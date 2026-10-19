@@ -203,14 +203,24 @@
     const rest = pick([3, 5, 10, 15, 20, 30], cfg?.rest || 5);
     const len = length && pick([30, 45, 60, 90, 120, 150, 180, 240], cfg?.minutes || 60);
     const summary = h('small', { class: 'pomo-summary' });
-    const body = h('div', { class: 'pomo-opts' }, ...extra, h('span', null, 'Work'), work, h('span', null, 'Rest'), rest, len && h('span', null, 'for'), len);
-    const get = () => (on.checked ? { work: +work.value, rest: +rest.value, ...(len ? { minutes: +len.value } : {}) } : null);
+    // What to do on a break, written by you: each break shows the next one. A new pomodoro starts from the last list you wrote.
+    const lastIdeas = (() => { try { return localStorage.getItem('onyx.break-ideas') || ''; } catch { return ''; } })();
+    const ideas = h('textarea', { class: 'pomo-ideas', rows: 2, spellcheck: true, placeholder: 'Break ideas: stretch, drink water, walk to the window…',
+      title: 'What to do on a break. Separate them with commas or new lines; each break shows the next one.',
+      value: cfg ? (cfg.activities || []).join(', ') : lastIdeas });
+    const body = h('div', { class: 'pomo-opts' }, ...extra, h('span', null, 'Work'), work, h('span', null, 'Rest'), rest, len && h('span', null, 'for'), len, ideas);
+    const get = () => {
+      if (!on.checked) return null;
+      const acts = OnyxFocus.parseActivities(ideas.value);
+      return { work: +work.value, rest: +rest.value, ...(len ? { minutes: +len.value } : {}), ...(acts.length ? { activities: acts } : {}) };
+    };
     const sync = () => {
       body.hidden = !on.checked;
       const p = get();
       summary.textContent = p ? chunkSummary(len ? p.minutes : duration(), p) : 'Split it into work and rest chunks, with a timer in the top bar';
     };
     for (const el of [on, work, rest, len].filter(Boolean)) el.addEventListener('change', sync);
+    ideas.addEventListener('change', () => { try { localStorage.setItem('onyx.break-ideas', ideas.value); } catch { /* this visit only */ } });
     sync();
     const el = h('div', { class: 'pomo-field' }, h('label', { class: 'check' }, on, h('b', null, 'Pomodoro')), body, summary);
     return { el, get, sync };
@@ -357,7 +367,8 @@
     p.pomo.hidden = !ph;
     if (ph) {
       p.pomo.className = `due-pomo ${ph.kind}`;
-      p.pomo.textContent = `${ph.kind === 'work' ? 'Work' : 'Break'} · ${countdown(ph.left)} left · round ${ph.round} of ${ph.rounds}`;
+      const idea = ph.kind === 'rest' ? OnyxFocus.breakIdea(x.e.pomodoro?.activities, ph.round) : '';
+      p.pomo.textContent = `${ph.kind === 'work' ? 'Work' : 'Break'} · ${countdown(ph.left)} left · round ${ph.round} of ${ph.rounds}${idea ? ` · ${idea}` : ''}`;
     }
   }
 
@@ -384,7 +395,8 @@
     if (focusHold()) { holdFor(e.title); return; }
     chime(p.kind);
     const title = first ? `Pomodoro: ${e.title}` : p.kind === 'work' ? `Back to work: ${e.title}` : `Rest: ${e.title}`;
-    const body = `${p.kind === 'work' ? 'Work' : 'Rest'} for ${Math.round(p.length)} min (round ${p.round} of ${p.rounds})`;
+    const idea = p.kind === 'rest' ? OnyxFocus.breakIdea(e.pomodoro?.activities, p.round) : '';
+    const body = `${p.kind === 'work' ? 'Work' : 'Rest'} for ${Math.round(p.length)} min (round ${p.round} of ${p.rounds})${idea ? `. Try: ${idea}` : ''}`;
     toast(`${title}. ${body}`);
     try {
       if (typeof Notification !== 'undefined' && Notification.permission === 'granted') new Notification(title, { body, silent: true });
@@ -643,6 +655,9 @@
         m.kindIcon.replaceChildren(icon('clock'));
         m.kind.textContent = ph.kind === 'work' ? 'Work' : 'Break';
         m.when.textContent = `round ${ph.round}/${ph.rounds}`;
+        // On a break the pill says what to do (your own list), with the block's name beside the round.
+        const idea = ph.kind === 'rest' ? OnyxFocus.breakIdea(current.e.pomodoro?.activities, ph.round) : '';
+        if (idea) { m.what.textContent = idea; m.when.textContent = `${current.e.title} · round ${ph.round}/${ph.rounds}`; }
         m.count.textContent = MOBILE ? shortCount(ph.left) : countdown(ph.left);
         m.leave.textContent = `round ${ph.round}/${ph.rounds}`;
         m.leave.hidden = false;
@@ -3286,12 +3301,12 @@
   const FOCUS_CEILINGS = [30, 45, 60, 90, 0];
   const PREFLIGHT = [['water', '💧', 'Water'], ['snack', '🍎', 'Snack'], ['bathroom', '🚻', 'Bathroom'], ['phone', '📵', 'Phone away']];
   const FOCUS_BODY = [20, 30, 45, 60, 0];
-  const SOUNDS = [['brown', 'Brown noise'], ['pink', 'Pink noise'], ['white', 'White noise'], ['rain', 'Rainforest rain'], ['waves', 'Beach waves'], ['spotify', 'Spotify playlist'], ['none', 'None']];
+  const SOUNDS = [['brown', 'Brown noise'], ['pink', 'Pink noise'], ['white', 'White noise'], ['rain', 'Rainforest rain'], ['waves', 'Beach waves'], ['spotify', 'Spotify playlist'], ['none', 'Silence']];
   const RATINGS = ['Couldn\'t settle', 'On and off', 'Steady', 'Deep', 'Lost in it'];
   const focus = { s: null, el: null, parts: null, timer: 0, held: [] };
   const focusHold = () => !!focus.s;
   const readFocusPrefs = () => {
-    const base = { sound: 'pink', volume: 35, hook: 'none', ceiling: 45, length: 90, body: 30, escalate: true, spotify: '' };
+    const base = { sound: 'pink', volume: 35, hook: 'none', ceiling: 45, length: 90, body: 30, escalate: true, spotify: '', breaks: '' };
     try { return { ...base, ...JSON.parse(localStorage.getItem('onyx.hyperfocus') || '{}') }; } catch { return base; }
   };
   const saveFocusPrefs = (p) => { try { localStorage.setItem('onyx.hyperfocus', JSON.stringify(p)); } catch { /* this visit only */ } };
@@ -3508,7 +3523,7 @@
       spotify.hidden = sound !== 'spotify';
       const bad = sound === 'spotify' && spotify.value.trim() && !F.spotifyLink(spotify.value);
       soundHint.textContent = sound === 'spotify' ? (bad ? 'That is not a Spotify link. Use Share → Copy link in Spotify.' : 'Opens in Spotify as the session starts. Pause it there when you stop.')
-        : SOUND_HINT[sound] || 'No sound.';
+        : SOUND_HINT[sound] || 'Silence: no sound at all, just the timer.';
       soundHint.classList.toggle('warn', !!bad);
       if (play) playNoise(sound, +volume.value);
       canStart();
@@ -3531,6 +3546,8 @@
     // Body checks: deep focus forgets the body (water, shoulders, eyes).
     const body = h('select', { title: 'A quiet nudge every so often: water, shoulders, eyes. It goes by itself.' },
       FOCUS_BODY.map((m) => h('option', { value: m, selected: m === prefs.body }, m ? `Every ${m} min` : 'Off')));
+    // Your own break ideas: the body check shows them in turn, instead of the usual ones.
+    const breakIn = h('input', { type: 'text', class: 'fs-in', spellcheck: true, value: prefs.breaks || '', placeholder: 'Stretch, walk to the window, make tea…' });
     // Reach my phone: the stop also goes out the way reminders do (Settings → Calls & alerts).
     const reach = focusReach();
     let escalate = reach.ok && prefs.escalate !== false;
@@ -3565,7 +3582,7 @@
       const at = o.kind === 'length' ? Date.now() + o.minutes * 60000 : o.at;
       const link = F.spotifyLink(spotify.value);
       saveFocusPrefs({ sound, volume: +volume.value, hook, ceiling: +ceiling.value, length: o.kind === 'length' ? o.minutes : prefs.length,
-        body: +body.value, escalate: reach.ok ? escalate : prefs.escalate, spotify: link || prefs.spotify || '' });
+        body: +body.value, escalate: reach.ok ? escalate : prefs.escalate, spotify: link || prefs.spotify || '', breaks: breakIn.value });
       const firstStep = first.value.trim();
       const list = steps.map((s) => ({ ...s }));
       if (firstStep && !list.some((s) => !s.done && s.text === firstStep)) list.unshift({ text: firstStep, done: false });
@@ -3574,7 +3591,7 @@
         entry, goal: goal.value.trim() || entry.title, firstStep, ifThen: ifThen.value.trim() === F.IF_THEN ? '' : ifThen.value.trim(),
         steps: list, plannedEnd: at, stopKind: o.kind, sound: { kind: sound, volume: +volume.value, link: sound === 'spotify' ? link : null }, hook,
         ceiling: { minutes: +ceiling.value, asks: [] }, preflight: [...ready], escalate: reach.ok && escalate,
-        body: { every: +body.value, shown: 0 },
+        body: { every: +body.value, shown: 0 }, breakIdeas: OnyxFocus.parseActivities(breakIn.value),
       });
     } }, icon('target'), 'Start hyperfocus');
 
@@ -3596,6 +3613,7 @@
       h('div', { class: 'magic-grid' },
         field('Soft check-in', ceiling, h('small', { class: 'fs-hint' }, 'A chime asks: keep going, or stop here?')),
         field('Body check', body, h('small', { class: 'fs-hint' }, 'A quiet nudge: water, shoulders, eyes.'))),
+      field('Break ideas', breakIn, h('small', { class: 'fs-hint' }, 'Your own, separated by commas: the body check shows them in turn, instead of the usual ones.')),
       field('Pre-flight', preflight),
       quickBox,
       h('div', { class: 'magic-foot' }, h('button', { class: 'btn ghost', onclick: () => closeSettings() }, 'Cancel'), start)));
@@ -3742,7 +3760,7 @@
     const s = focus.s, on = !!noise.src;
     const name = SOUNDS.find(([k]) => k === s.sound.kind)?.[1] || 'Sound';
     focus.parts.sound.replaceChildren(icon(on ? 'bell' : 'bell-off'));
-    focus.parts.sound.title = s.sound.kind === 'none' ? 'No sound picked for this session' : s.sound.kind === 'spotify' ? 'Playing in Spotify: pause it there'
+    focus.parts.sound.title = s.sound.kind === 'none' ? 'Silence: no sound for this session' : s.sound.kind === 'spotify' ? 'Playing in Spotify: pause it there'
       : on ? `${name} on. Click to pause it` : `${name} paused. Click to play it`;
     focus.parts.sound.disabled = s.sound.kind === 'none' || s.sound.kind === 'spotify';
   }
@@ -3785,7 +3803,8 @@
   /** A quiet nudge for the body: a soft note and a small card that goes by itself. */
   function showBodyCheck() {
     const s = focus.s, p = focus.parts;
-    const [e, text] = OnyxFocus.bodyCheck(s.body.shown);
+    // Your own break ideas when you wrote some, otherwise the usual nudges.
+    const [e, text] = s.breakIdeas?.length ? ['✨', OnyxFocus.breakIdea(s.breakIdeas, s.body.shown + 1)] : OnyxFocus.bodyCheck(s.body.shown);
     s.body.shown++;
     bodyTone();
     clearTimeout(p.bodyTimer);

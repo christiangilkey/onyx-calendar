@@ -130,10 +130,18 @@ function setPomodoro(id, cfg) {
       if (!Number.isFinite(n) || n < lo || n > hi) throw new Error(`${name} must be between ${lo} and ${hi} minutes.`);
       return n;
     };
+    // What to do on a break, in turn (written by the user): at most 12 short ones.
+    const ideas = [];
+    for (const raw of Array.isArray(cfg.activities) ? cfg.activities : String(cfg.activities || '').split(/[\n,;]+/)) {
+      const t = String(raw).replace(/\s+/g, ' ').trim().slice(0, 60);
+      if (t && !ideas.some((x) => x.toLowerCase() === t.toLowerCase())) ideas.push(t);
+      if (ideas.length >= 12) break;
+    }
     store.data.pomodoro[id] = {
       work: num(cfg.work ?? 25, 5, 180, 'Work'),
       rest: num(cfg.rest ?? 5, 1, 60, 'Rest'),
       ...(cfg.minutes != null ? { minutes: num(cfg.minutes, 10, 720, 'The length') } : {}),
+      ...(ideas.length ? { activities: ideas } : {}),
     };
   }
   store.save();

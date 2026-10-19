@@ -1797,3 +1797,10 @@ body.focus-on #toasts .toast:not(.error) { display: none; }
 #next-bar .next-stop .ico { width: 13px; height: 13px; }
 body.mobile #next-bar .next-stop { width: 30px; height: 30px; margin-left: 4px; }
 body.mobile #next-bar .next-stop .ico { width: 15px; height: 15px; }
+
+/* ------------------------------------------------------------ break ideas */
+.pomo-opts .pomo-ideas {
+  flex: 1 1 100%; width: 100%; min-height: 40px; resize: vertical; padding: 7px 9px; border-radius: 9px;
+  border: 1px solid var(--line-2); background: #050506; color: var(--text); font: inherit; font-size: 12px; line-height: 1.45;
+}
+.pomo-opts .pomo-ideas:focus { outline: none; border-color: color-mix(in srgb, var(--accent) 60%, var(--line-2)); }

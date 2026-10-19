@@ -301,6 +301,8 @@
       set: (show) => Widget.setLauncher({ show }),
       setAlarm: (alarm) => Widget.setLauncher({ alarm }),
       open: (what) => Widget.launcherOpen({ what }),
+      // A Hyperfocus session on this phone, shown on Onyx Home and the lock screen (null: it is over).
+      focus: (s) => Widget.setFocus?.(s ? { goal: s.goal, startedAt: s.startedAt, plannedEnd: s.plannedEnd } : { clear: true })?.catch?.(() => {}),
     } : null,
     // Tamkeen on this phone (not on the PC): checked and opened through the app's own plugin.
     tamkeen: {

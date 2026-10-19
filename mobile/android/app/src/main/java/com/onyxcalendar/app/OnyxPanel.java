@@ -46,6 +46,9 @@ final class OnyxPanel {
 
     // what tick() keeps moving
     private LauncherData.Item now, next, calling;
+    private LauncherData.Focus focus;
+    private TextView focusLeft;
+    private BarView focusBar;
     private TextView nowLeft, nextIn, leaveIn, callIn, pomoLine;
     private BarView nowBar;
     private long renderedFor; // the minute the cards were built for
@@ -159,14 +162,16 @@ final class OnyxPanel {
         long t = System.currentTimeMillis();
         renderedFor = t / LauncherData.MIN;
         root.removeAllViews();
-        nowLeft = nextIn = leaveIn = callIn = null;
-        nowBar = null;
+        nowLeft = nextIn = leaveIn = callIn = focusLeft = null;
+        nowBar = focusBar = null;
+        focus = LauncherData.focus(ctx);
         List<LauncherData.Item> items = LauncherData.items(ctx);
         now = LauncherData.now(items, t);
         next = LauncherData.next(items, t);
         calling = LauncherData.calling(items, t);
 
         if (calling != null) root.addView(callCard(calling, t));
+        if (focus != null) root.addView(focusCard());
         root.addView(nowNextCard(items, t));
         List<LauncherData.Goal> goals = LauncherData.goals(ctx);
         if (!goals.isEmpty()) root.addView(goalsCard(goals));
@@ -199,6 +204,23 @@ final class OnyxPanel {
         row.addView(button("task".equals(it.kind) ? "Done" : "Leaving now", true, v -> host.acknowledge(it)));
         row.addView(button("Open", false, v -> host.openOnyx(LauncherData.dayOf(it.start).toString())));
         c.addView(row);
+        return c;
+    }
+
+    /** Hyperfocus is on: the goal, the time left to the hard stop in large type, and a bar draining to it. */
+    private View focusCard() {
+        LinearLayout c = card(0xE61A1630);
+        ((GradientDrawable) c.getBackground()).setStroke(dp(1.5f), ACCENT);
+        c.setOnClickListener(v -> host.openOnyx(null));
+        c.addView(label("◎ Hyperfocus", 0xFFB9AEFF));
+        c.addView(title(focus.goal));
+        focusLeft = text("", big ? 26 : 22, TEXT, true);
+        focusLeft.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+        focusLeft.setPadding(0, dp(4), 0, 0);
+        c.addView(focusLeft);
+        focusBar = bar(0xFFB9AEFF, 1, big ? 10 : 8);
+        c.addView(focusBar);
+        c.addView(text("Hard stop " + clock(focus.end) + "  ·  one thing until then", 13, MUTED, false));
         return c;
     }
 
@@ -341,6 +363,11 @@ final class OnyxPanel {
         if (now != null && t >= now.end) return true;
         if (next != null && t >= next.start) return true;
         if (calling != null && calling.calling(t) == null) return true;
+        if (focus != null && t >= focus.end) return true;
+        if (focus != null && focusLeft != null) {
+            focusLeft.setText(span(focus.end - t) + " left");
+            focusBar.setProgress((float) (focus.end - t) / Math.max(1, focus.end - focus.start));
+        }
         if (now != null && nowBar != null) {
             long[] ph = now.phase(t);
             if (ph != null) {

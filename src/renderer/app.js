@@ -3647,6 +3647,7 @@
     closePopover();
     playNoise(cfg.sound.kind, cfg.sound.volume);
     if (cfg.sound.link) onyx.open(cfg.sound.link).catch(() => {});
+    onyx.launcher?.focus?.({ goal: cfg.goal, startedAt: now, plannedEnd: cfg.plannedEnd }); // on the phone's home and lock screen too
     onyx.focusStart?.({ startedAt: now, plannedEnd: cfg.plannedEnd, goal: cfg.goal, escalate: cfg.escalate })
       .then((r) => { if (r?.warning) toast(r.warning, 'error'); })
       .catch((err) => { if (cfg.escalate) toast(`Your phone will not be reached: ${err.message}`, 'error'); });
@@ -3950,6 +3951,7 @@
     focus.parts.ceiling.hidden = true;
     focus.parts.body.hidden = true;
     if (stop !== 'hard') onyx.focusEnd?.().catch(() => {}); // you are here: nothing goes to the phone
+    onyx.launcher?.focus?.(null);
     handAlarms(nextRun.items); // the phone's own stop alarm is taken back (or, at the stop, has rung)
     if (stop === 'hard') { focus.parts.disc.style.setProperty('--timer-p', '0'); focus.parts.left.textContent = countdown(0); }
     stopNoise();
@@ -4082,6 +4084,7 @@
 
   function endFocus() {
     if (focus.s) onyx.focusEnd?.().catch(() => {});
+    onyx.launcher?.focus?.(null);
     const buddy = focus.parts?.buddy;
     if (buddy) { buddy.pause(); buddy.removeAttribute('src'); buddy.load(); } // let the video go
     clearInterval(focus.timer);

@@ -170,6 +170,11 @@ const handlers = {
   // The session running now: its stop can reach the phone until it is answered.
   'focus:start': (session) => require('./focus').startActive(session),
   'focus:end': () => require('./focus').endActive(),
+  // For the phone's launcher and lock screen: the session running now ({ goal, startedAt, plannedEnd }), or null.
+  'focus:active': () => {
+    const a = require('./focus').active();
+    return a && a.plannedEnd > Date.now() ? { goal: a.goal, startedAt: a.startedAt, plannedEnd: a.plannedEnd } : null;
+  },
   // What the log shows (the best hours), and what to do next for a change of pace.
   'focus:insights': () => require('./focus').insights(),
   'focus:next': (info) => require('./focus').suggestions(info),

@@ -111,6 +111,19 @@ public class OnyxWidgetPlugin extends Plugin {
         call.resolve(launcherState());
     }
 
+    /** A Hyperfocus session on this phone (or { clear: true } when it is over), for Onyx Home and the lock screen. */
+    @PluginMethod
+    public void setFocus(PluginCall call) {
+        if (Boolean.TRUE.equals(call.getBoolean("clear", false))) {
+            LauncherData.setFocus(getContext(), null, 0, 0);
+        } else {
+            Double start = call.getDouble("startedAt"), end = call.getDouble("plannedEnd");
+            LauncherData.setFocus(getContext(), call.getString("goal", "Hyperfocus"),
+                start == null ? System.currentTimeMillis() : start.longValue(), end == null ? 0 : end.longValue());
+        }
+        call.resolve();
+    }
+
     /** The alarms coming up, from the app: Android's alarm clock is set for the first (AlarmActivity.planNext). */
     @PluginMethod
     public void setAlarms(PluginCall call) {

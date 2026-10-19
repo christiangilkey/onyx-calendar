@@ -1946,3 +1946,70 @@ body.mobile #next-bar .next-sound { width: 32px; height: 22px; }
 @keyframes pinch-in { from { transform: scale(.94); opacity: .35; } to { transform: none; opacity: 1; } }
 @keyframes pinch-out { from { transform: scale(1.06); opacity: .35; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { #calendar.pinch-in, #calendar.pinch-out { animation: none; } }
+
+/* ------------------------------------------------------------ the phone: the grid holds still under a carried entry */
+/* While an entry is carried or stretched, the finger moves the entry, never the grid under it (the grid still
+   scrolls by itself near the top and bottom edges, as the calendar does it). */
+body.mobile.carrying #calendar .fc-scroller, body.mobile.stretching #calendar .fc-scroller { overflow: hidden !important; }
+
+/* ------------------------------------------------------------ the month in the corner above the times */
+/* Laid over the corner cell (absolute), so the time column keeps the width its hours give it: nothing moves. */
+.fc .fc-col-header .fc-timegrid-axis-frame { position: relative; overflow: visible; }
+.fc .fc-col-header .fc-timegrid-axis-cushion { padding: 0; min-width: 0; }
+.axis-month {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  line-height: 1.1; cursor: pointer; text-decoration: none; -webkit-tap-highlight-color: transparent;
+}
+.axis-month b { font-size: 11px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
+.axis-month small { font-size: 9.5px; font-weight: 600; color: var(--faint); font-variant-numeric: tabular-nums; }
+.axis-month:hover b { color: var(--text); }
+
+/* ------------------------------------------------------------ the drag bars on the highlighted entry */
+/* The highlighted (white-outlined) entry always shows its bars, top and bottom, for a quick change of time. */
+.fc .fc-timegrid-event.is-selected .fc-event-resizer { display: block; }
+.fc .fc-timegrid-event.is-selected .fc-event-resizer::after { opacity: 1; }
+/* The calendar's own selection (kept with the highlight on the phone) would dim the entry: the outline says it. */
+.fc .fc-event.is-selected.fc-event-selected::after { background: transparent; }
+.fc .fc-event.is-selected.fc-event-selected { box-shadow: none; }
+
+/* ------------------------------------------------------------ the Backburner button in a task's or block's window */
+.burner-btn .ico { color: #c4b5fd; }
+.burner-btn.on { border-color: color-mix(in srgb, #8b5cf6 45%, var(--line-2)); color: #ddd6fe; }
+/* The phone: Hyperfocus and Backburner share the top row, half each (now, intensely; or later). */
+body.mobile #popover > .pop-actions .burner-btn { order: -1; flex: 1 1 calc(50% - 3px); justify-content: center; height: 42px; }
+body.mobile #popover > .pop-actions:has(> .burner-btn) .focus-btn { flex: 1 1 calc(50% - 3px); }
+/* The button bar reaches both edges of the sheet (its negative margins): the sheet-wide 100% cap cut it short,
+   so its buttons wrapped early and the row behind showed through on the right. */
+body.mobile #popover > .pop-actions { max-width: none; }
+/* Every row of buttons fills the sheet's width, as the row above it does: no ragged gap at its end. */
+body.mobile #popover > .pop-actions > .btn { flex: 1 1 auto; justify-content: center; }
+
+/* ------------------------------------------------------------ the globe on the phone: one calm row along the bottom */
+/* The Clusters and Inbox tabs side by side on the left, the + button on the right, all on one centre line.
+   An open panel takes the row's width and the rest steps aside (one panel at a time). The reset rides above
+   the + button, where Magic add sits on the calendar; Magic add itself is for the calendar, so it is not here.
+   The clusters count is in the Clusters tab, as the Inbox shows its own. */
+.clusters-tab .count.n { display: none; }
+body.mobile .clusters-tab .count.n:not(:empty) { display: inline; color: var(--muted); font-weight: 600; }
+body.mobile #graph-dock {
+  position: absolute; left: 16px; right: 92px; bottom: calc(32px + var(--safe-bottom, env(safe-area-inset-bottom, 0px)));
+  z-index: 3; display: flex; align-items: flex-end; gap: 8px; pointer-events: none;
+}
+body.mobile #graph-dock > * { pointer-events: auto; }
+body.mobile #graph-dock > #graph-clusters, body.mobile #graph-dock > #graph-inbox {
+  position: relative; left: auto; right: auto; bottom: auto; flex: none; width: auto; max-height: calc(100vh - 280px);
+}
+body.mobile #graph-dock:has(> .open) { right: 16px; }
+body.mobile #graph-dock > .open { flex: 1 1 auto; width: auto !important; }
+body.mobile #graph-dock:has(> .open) > :not(.open) { display: none; }
+body:has(#graph:not([hidden])) #magic-fab { display: none !important; }
+body.mobile:has(#graph:not([hidden]) #graph-dock > .open) #fab { display: none; }
+body.mobile #graph-foot { right: 26px; left: auto; top: auto; bottom: calc(90px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); z-index: 3; }
+body.mobile #graph-stats { display: none; }
+body.mobile #graph-reset {
+  width: 40px; height: 40px; border-radius: 14px; border: 1px solid var(--line-2); background: #17171b; color: var(--soft);
+  box-shadow: 0 8px 22px rgba(0,0,0,.6);
+}
+body.mobile #graph-reset .ico { width: 18px; height: 18px; }
+body.mobile:has(#graph-dock > .open) #graph-foot { display: none; }
+body.mobile #graph-dock > #graph-clusters.open, body.mobile #graph-dock > #graph-inbox.open { flex: 1 1 auto; min-width: 0; width: auto !important; }

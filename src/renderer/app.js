@@ -1502,6 +1502,21 @@
     };
   }
 
+  /**
+   * The month for the corner above the times: "SEP", or "SEP" over "OCT" when the days shown run into the next
+   * month, with the year under it when it is not this one. Laid over the corner (styles.css), so the time
+   * column keeps the width its hours give it.
+   */
+  function cornerMonth(start, days) {
+    const end = addDays(start, days - 1);
+    const name = (d) => d.toLocaleDateString([], { month: 'short' }).replace('.', '');
+    const months = [name(start), ...(end.getMonth() !== start.getMonth() ? [name(end)] : [])];
+    const year = end.getFullYear() !== new Date().getFullYear() ? String(end.getFullYear()) : '';
+    const full = (d) => d.toLocaleDateString([], { month: 'long', year: 'numeric' });
+    return { domNodes: [h('span', { class: 'axis-month', title: `${full(start)}${months.length > 1 ? ` – ${full(end)}` : ''}. Tap for the month` },
+      ...months.map((m) => h('b', null, m)), year && h('small', null, year))] };
+  }
+
   function buildCalendar() {
     // A week is too narrow on a phone: it gets three days instead, and the reverse on the desktop.
     let view = S.settings.view;
@@ -1509,7 +1524,13 @@
     if (!MOBILE && view === 'timeGrid3') view = 'timeGridWeek';
     calendar = new FullCalendar.Calendar($('#calendar'), {
       initialView: view,
-      views: { timeGrid3: { type: 'timeGrid', duration: { days: 3 } } },
+      // The month sits in the empty corner above the times (through the week-number slot, which is all that
+      // corner can hold): nothing moves or shrinks for it. Tapping it opens the month.
+      views: {
+        timeGrid3: { type: 'timeGrid', duration: { days: 3 }, weekNumbers: true, weekNumberContent: (a) => cornerMonth(a.date, 3) },
+        timeGridDay: { weekNumbers: true, weekNumberContent: (a) => cornerMonth(a.date, 1) },
+        timeGridWeek: { weekNumbers: true, weekNumberContent: (a) => cornerMonth(a.date, 7) },
+      },
       longPressDelay: 350,
       headerToolbar: false,
       height: '100%',
@@ -1552,13 +1573,15 @@
       editable: true,
       events: source,
       eventContent,
+      // The highlight is one of the calendar's own classes, so a redraw (its selection, say) keeps it.
+      eventClassNames: (arg) => (clip.selected && arg.event.id === clip.selected ? ['is-selected'] : []),
       eventDidMount: (arg) => {
         arg.el.style.setProperty('--c', arg.event.extendedProps.src?.color || '#8b7cff');
         if (arg.event.extendedProps.src) arg.el.dataset.eid = arg.event.id; // for the timer pie (drainTimers)
         drawPomodoroStripes(arg);
         const src = arg.event.extendedProps.src;
         if (src && (src.kind === 'event' || src.kind === 'task')) {
-          if (clip.selected === src.id) arg.el.classList.add('is-selected');
+          if (clip.selected === src.id) { arg.el.classList.add('is-selected'); setTimeout(holdSelection, 0); }
           // The right-click menu is for a mouse: on a touch screen a long press is how an entry is
           // picked up to drag, and the browser calls that a right-click too.
           if (!MOBILE) arg.el.addEventListener('contextmenu', (e) => {
@@ -1644,6 +1667,39 @@
     clip.selected = src.id;
     for (const el of document.querySelectorAll('#calendar .fc-event.is-selected')) el.classList.remove('is-selected');
     for (const el of document.querySelectorAll(`#calendar .fc-event[data-eid="${CSS.escape(src.id)}"]`)) el.classList.add('is-selected');
+    holdSelection();
+  }
+  function clearSelection() {
+    clip.selected = null;
+    for (const el of document.querySelectorAll('#calendar .fc-event.is-selected')) el.classList.remove('is-selected');
+  }
+
+  /**
+   * The highlighted entry shows its drag bars, top and bottom, for a quick change of time. With a mouse they
+   * work at once; on a touch screen the calendar only lets a selected entry be stretched (and drops its
+   * selection at any tap that is not on one), so on the phone the highlighted entry is kept selected there too,
+   * picked again once a sheet closes or the entries are redrawn. A tap on the calendar itself clears both.
+   */
+  function holdSelection() {
+    if (!MOBILE || !calendar || !clip.selected || midDrag()) return;
+    if (!$('#popover').hidden || !$('#modal').hidden) return; // a sheet is up: picked again when it closes
+    const ev = calendar.getEventById(clip.selected);
+    const id = ev?._instance?.instanceId;
+    if (!id || calendar.getCurrentData?.().eventSelection === id) return;
+    calendar.dispatch({ type: 'SELECT_EVENT', eventInstanceId: id });
+  }
+  function touchSelection() {
+    if (!MOBILE) return;
+    const down = { el: null, x: 0, y: 0 };
+    document.addEventListener('pointerdown', (e) => { down.el = e.target; down.x = e.clientX; down.y = e.clientY; }, true);
+    document.addEventListener('pointerup', (e) => {
+      const el = down.el;
+      down.el = null;
+      const tap = Math.hypot(e.clientX - down.x, e.clientY - down.y) < 10;
+      // A tap on the calendar itself (an empty slot, the times, the day names), not on an entry: nothing highlighted.
+      if (tap && el?.closest?.('#calendar') && !el.closest('.fc-event') && $('#popover').hidden) clearSelection();
+      setTimeout(holdSelection, 120); // after the tap's own work (a sheet closing, the calendar dropping its selection)
+    }, true);
   }
 
   function copyEntry(src) {
@@ -1843,6 +1899,21 @@
     setEdge(0);
   }
 
+  /**
+   * Every trace of a carry or a stretch gone at once: the copy under the finger, the page-turning edges, the
+   * classes that style the snapped outline, and the listeners that move them. A stretch left behind used to
+   * keep a frozen copy of the entry on screen, moving with every later touch while the grid scrolled under it.
+   */
+  function dragReset() {
+    edgeNavStop();
+    floatStop();
+    stretchStop();
+    document.body.classList.remove('dragging-entry', 'carrying', 'stretching');
+  }
+  /** Something of a drag is still about though FullCalendar is not dragging anything: it was left behind. */
+  const dragLeftBehind = () => (dragging() || float.box || stretch.box)
+    && !document.querySelector('#calendar .fc-event-dragging, #calendar .fc-event-resizing');
+
   // A reload that waited for a drag runs once it is over.
   function afterDrag() {
     setTimeout(() => { if (refetch.later && !midDrag()) refetch(); }, 60);
@@ -1853,14 +1924,19 @@
   function touchDragWatchdog() {
     const last = { target: null, x: 0, y: 0 };
     const at = (e) => { const p = e.touches?.[0] || e.changedTouches?.[0]; if (p) { last.x = p.pageX; last.y = p.pageY; } };
-    document.addEventListener('touchstart', (e) => { if (e.touches.length === 1) last.target = e.target; at(e); }, { capture: true, passive: true });
+    document.addEventListener('touchstart', (e) => {
+      // A new touch never inherits a drag that was left behind (it would carry a frozen copy around).
+      if (e.touches.length === 1 && dragLeftBehind()) { dragReset(); refetch(true); }
+      if (e.touches.length === 1) last.target = e.target;
+      at(e);
+    }, { capture: true, passive: true });
     document.addEventListener('touchmove', at, { capture: true, passive: true });
     const lifted = (e) => {
       if (e.touches.length) return;
       at(e);
       const target = last.target;
       setTimeout(() => {
-        const stuck = midDrag() || document.querySelector('#calendar .fc-event-mirror:not(.fc-event-selected)');
+        const stuck = midDrag() || float.box || stretch.box || document.querySelector('#calendar .fc-event-mirror:not(.fc-event-selected)');
         if (!stuck || $('#popover:not([hidden])')) return;
         // The calendar listens for the end on the element the finger first touched.
         if (target) {
@@ -1869,10 +1945,9 @@
           target.dispatchEvent(end);
         }
         setTimeout(() => {
-          if (!midDrag() && !document.querySelector('#calendar .fc-event-mirror')) return;
-          // Still there: clear it and redraw from what is saved.
-          edgeNavStop(); floatStop();
-          document.body.classList.remove('dragging-entry', 'carrying');
+          if (!midDrag() && !float.box && !stretch.box && !document.querySelector('#calendar .fc-event-mirror')) return;
+          // Still there: clear it (a carry or a stretch) and redraw from what is saved.
+          dragReset();
           for (const m of document.querySelectorAll('#calendar .fc-event-mirror')) m.closest('.fc-timegrid-event-harness, .fc-daygrid-event-harness')?.remove();
           calendar.unselect();
           refetch(true);
@@ -2006,6 +2081,7 @@
 
     el.addEventListener('touchstart', (e) => {
       const p = e.touches[0];
+      if (e.touches.length > 1 && t?.horizontal) slide(0, 150); // a second finger (a pinch): the slide goes back
       t = e.touches.length === 1 && p.clientX > EDGE && p.clientX < innerWidth - EDGE && !busy()
         ? { x: p.clientX, y: p.clientY, at: Date.now(), dx: 0, horizontal: null }
         : null;
@@ -2198,6 +2274,7 @@
       pop.replaceChildren();
       calendar.unselect();
       if (onClose) onClose();
+      setTimeout(holdSelection, 0); // the highlighted entry's drag bars work again on the phone
     };
     if (MOBILE) return; // on a phone it is a sheet along the bottom (styles.css)
     // Placed beside what it is about, and kept inside the window: a panel that is taller than the window
@@ -2472,6 +2549,29 @@
       }
     };
 
+    const blockToBackburner = async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const minutes = Math.round((new Date(src.end) - new Date(src.start)) / 60000);
+        const keep = { title: src.title, notes: src.notes || src.memo || '', tags: src.tags || [], backburner: true };
+        let task = await onyx.createTask(keep);
+        if (!src.allDay && minutes >= 5) await onyx.resizeTask(task.id, { minutes }).catch(() => {}); // Magic add plans it at this length
+        await onyx.deleteEvent(src.id);
+        const copy = { title: src.title, notes: src.notes || '', location: src.location || '', start: src.start, end: src.end, allDay: !!src.allDay, calendarId: src.calendarId, tags: src.tags || [] };
+        let back = null;
+        recordAction(`"${src.title}" on the backburner`,
+          async () => { back = await onyx.createEvent(copy); await onyx.deleteTask(task.id); },
+          async () => { task = await onyx.createTask(keep); await onyx.deleteEvent(back.id); });
+        closePopover();
+        refetch();
+        loadTasks(true);
+      } catch (err) {
+        busy = false;
+        toast(err.message, 'error');
+      }
+    };
+
     // A repeat: "Delete" takes every day of it (after asking), "Skip this day" just this one.
     const remove = async (scope = 'all') => {
       if (src.seriesId && scope === 'all' && !confirm(`Delete every repeat of "${src.title}"?`)) return;
@@ -2520,6 +2620,12 @@
         src && !readOnly && h('button', { class: 'btn danger', title: src.seriesId ? 'Delete every repeat' : null, onclick: () => remove('all') }, icon('trash'), src.seriesId ? 'Delete all' : 'Delete'),
         src?.seriesId && !readOnly && h('button', { class: 'btn', title: 'Take just this day off; the others stay', onclick: () => remove('one') }, 'Skip this day'),
         src && !src.done && focusButton(src),
+        // The backburner: the block comes off the calendar and waits as a task with no date, its name, notes,
+        // tags and length kept. Undo puts the block back.
+        src && !readOnly && !src.seriesId && !src.done && h('button', {
+          class: 'btn burner-btn', title: 'Send it to the backburner: off the calendar, kept as a task for later (its notes, tags and length go with it)',
+          onclick: () => blockToBackburner(),
+        }, icon('stove'), 'Backburner'),
         // A new block: Hyperfocus adds it, then sets up the session on it.
         !src && h('button', { class: 'btn focus-btn', title: 'Add this block and start Hyperfocus on it',
           onclick: () => save((made) => openFocusSetup(focusEntry(made))) }, icon('target'), 'Hyperfocus'),
@@ -3153,6 +3259,22 @@
     try { return new Set(JSON.parse(localStorage.getItem('onyx.task-groups-shut') || '[]')); } catch { return new Set(); }
   }
 
+  /** A task to the backburner: its date (and a time written in its name) comes off, and it waits at the foot of the list. */
+  async function taskToBackburner(t) {
+    const dated = !!(t.date || t.time);
+    const before = { title: t.title, due: t.date || null };
+    const patch = t.dateInName || t.time ? { title: t.label, due: null } : { due: null };
+    if (dated) await onyx.updateTask(t.id, patch);
+    await onyx.setBackburner(t.id, true);
+    recordAction(`"${t.label || t.title}" on the backburner`,
+      async () => { await onyx.setBackburner(t.id, false); if (dated) await onyx.updateTask(t.id, before); },
+      async () => { if (dated) await onyx.updateTask(t.id, patch); await onyx.setBackburner(t.id, true); });
+  }
+  async function offBackburner(t) {
+    await onyx.setBackburner(t.id, false);
+    recordAction(`"${t.label || t.title}" off the backburner`, () => onyx.setBackburner(t.id, true), () => onyx.setBackburner(t.id, false));
+  }
+
   function openTask(t, anchor) {
     const name = h('input', { type: 'text', class: 'pop-title', value: t.title, spellcheck: false });
     const tags = tagField(t.tags);
@@ -3250,6 +3372,12 @@
           recordAction(`Deleted "${t.label || t.title}"`, async () => { back = await onyx.createTask(copy); }, () => onyx.deleteTask(back.id));
         }); } }, icon('trash'), 'Delete'),
         !t.mirror && focusButton(t),
+        // The backburner: no date, kept at the foot of the task list for later. Undo puts it back as it was.
+        !t.mirror && !t.done && t.provider && h('button', {
+          class: `btn burner-btn${t.backburner ? ' on' : ''}`,
+          title: t.backburner ? 'Take it off the backburner: it goes back to the tasks with no date' : 'Send it to the backburner: its date comes off, and it waits at the foot of your tasks for later',
+          onclick: () => run(() => (t.backburner ? offBackburner(t) : taskToBackburner(t))),
+        }, icon('stove'), t.backburner ? 'Off the backburner' : 'Backburner'),
         h('div', { class: 'grow' }),
         h('button', { class: 'btn primary', onclick: save }, 'Save')),
     ]);
@@ -6047,6 +6175,9 @@
     });
     graph.view.setData(data);
     const clusters = data.nodes.filter((n) => n.hub).length;
+    graph.clusterCount = clusters;
+    const shown = $('#graph-clusters .count.n');
+    if (shown) shown.textContent = clusters ? String(clusters) : '';
     $('#graph-stats').textContent = items.length ? `${items.length} ${items.length === 1 ? 'item' : 'items'}  ·  ${clusters} ${clusters === 1 ? 'cluster' : 'clusters'}` : '';
     $('#graph-empty').hidden = items.length > 0 || graph.inbox.length > 0;
   }
@@ -6091,7 +6222,9 @@
       drawGraph(); // straight away: no Save
     };
     const head = h('button', { class: 'clusters-tab', title: 'Pick which tag clusters the globe shows', onclick: () => { graph.clustersOpen = !graph.clustersOpen; renderClusters(); } },
-      icon('tag'), 'Clusters', graph.hidden.size > 0 && h('span', { class: 'count' }, `${graph.hidden.size} off`));
+      icon('tag'), 'Clusters', graph.hidden.size > 0
+        ? h('span', { class: 'count' }, `${graph.hidden.size} off`)
+        : h('span', { class: 'count n', title: 'Clusters on the globe' }, graph.clusterCount ? String(graph.clusterCount) : ''));
     if (!graph.clustersOpen) { box.replaceChildren(head); box.classList.remove('open'); return; }
     box.classList.add('open');
     const row = (key, label, color, count) => h('label', { class: 'cluster-row', css: { '--t': color } },
@@ -6533,7 +6666,7 @@
     if (!graph.view || !graph.on) return;
     const canvas = $('#graph-canvas').getBoundingClientRect();
     const bar = $('#graph-bar').getBoundingClientRect();
-    const foot = $('#graph-foot')?.getBoundingClientRect();
+    const foot = (MOBILE ? $('#fab') : $('#graph-foot'))?.getBoundingClientRect();
     const top = bar.height ? bar.bottom - canvas.top + 8 : 0;
     const bottom = foot?.height ? canvas.bottom - foot.top + 8 : 0;
     graph.view.setInsets(top, bottom);
@@ -6880,6 +7013,12 @@
     $('#update-btn').onclick = () => checkForUpdate(true);
     $('#update-btn').hidden = !onyx.checkUpdate;
     $('#graph-reset').append(icon('target'));
+    if (MOBILE) {
+      // The globe's tabs side by side along the bottom, beside the + button (styles.css: the globe on the phone).
+      const dock = h('div', { id: 'graph-dock' });
+      $('#graph-clusters').before(dock);
+      dock.append($('#graph-clusters'), $('#graph-inbox'));
+    }
     $('#graph-reset').onclick = () => graph.view?.resetCamera();
     $('#today').onclick = () => nav(0);
     $('#prev').onclick = () => nav(-1);
@@ -6903,6 +7042,12 @@
     };
     for (const b of document.querySelectorAll('[data-view]')) b.onclick = () => pickView(b.dataset.view);
     setupPinch();
+    touchSelection();
+    $('#calendar').addEventListener('click', (e) => {
+      if (!e.target.closest?.('.fc-col-header .axis-month')) return;
+      e.preventDefault();
+      pickView('dayGridMonth', calendar.getDate());
+    });
 
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {

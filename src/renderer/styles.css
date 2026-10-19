@@ -1832,8 +1832,6 @@ body.mobile #popover > .pop-actions:has(> .btn.primary) > .btn.ghost:not(.focus-
 
 /* ------------------------------------------------------------ a pomodoro during Hyperfocus */
 .focus-screen { --pomo-rest: color-mix(in srgb, var(--c) 38%, #101116); }
-.fs-disc-breaks { position: absolute; inset: 0; border-radius: 50%; pointer-events: none; }
-.fs-disc-in { position: relative; z-index: 1; }
 .fs-pomo { display: grid; gap: 9px; margin-top: 10px; max-width: 520px; padding: 12px 14px 13px; border-radius: 16px; background: #0b0c10; border: 1px solid var(--line); }
 .fs-pomo-head { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); min-width: 0; }
 .fs-pomo-kind {
@@ -1850,8 +1848,6 @@ body.mobile #popover > .pop-actions:has(> .btn.primary) > .btn.ghost:not(.focus-
 .fs-pomo-track i.cur { box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 45%, transparent), 0 0 14px color-mix(in srgb, var(--c) 30%, transparent); }
 .fs-pomo-idea { font-size: 14px; color: var(--soft); }
 .fs-pomo-idea[hidden] { display: none; }
-/* On a break the ring rests too: a softer glow. */
-.focus-screen.pomo-rest .fs-disc { box-shadow: 0 0 60px color-mix(in srgb, var(--c) 10%, transparent); }
 body.mobile .fs-pomo { max-width: none; }
 body.mobile .fs-pomo-head { flex-wrap: wrap; row-gap: 6px; }
 

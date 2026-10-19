@@ -174,7 +174,7 @@ async function planWith(text, date, o, arrived) {
     for (const k of ['preferred', 'after', 'before']) if (a.limits?.[k]) t[k] = a.limits[k];
   }
   if (!tasks.length) throw new Error('No tasks found in that. Put one on each line.');
-  const result = plan.schedule(busy, tasks, { day, from, to, core, home: opts.home || 'Home', travel, lunch: opts.lunch });
+  const result = plan.schedule(busy, tasks, { day, from, to, core, home: opts.home || 'Home', travel, lunch: opts.lunch, focusPart: require('./focus').bestFocusPart() });
   return present(result, { tasks, travel, source, warning });
 }
 
@@ -184,7 +184,7 @@ async function replan(tasks, travel, date, o) {
   const list = plan.normalizeTasks(tasks);
   const { day, from, to, core } = windowOf(date, opts, list);
   const busy = await busyOf(day);
-  const result = plan.schedule(busy, list, { day, from, to, core, home: opts.home || 'Home', travel, lunch: opts.lunch });
+  const result = plan.schedule(busy, list, { day, from, to, core, home: opts.home || 'Home', travel, lunch: opts.lunch, focusPart: require('./focus').bestFocusPart() });
   return present(result, { tasks: list, travel: Array.isArray(travel) ? travel : [], source: 'edited' });
 }
 

@@ -266,6 +266,7 @@
   };
   const addTask = (d) => {
     const t = { id: `g1/tl~main/${seq++}`, listId: 'g1/tl~main', listName: 'My Tasks', color: '#f5b83d', provider: 'google', title: d.title, label: d.title, notes: d.notes || '', due: d.due || null, date: d.due || null, time: null, start: null, done: false, mirror: false, call: null, backburner: !!d.backburner && !d.due };
+    if (d.inbox) Object.assign(t, { arrived: true, from: String(d.inbox) }); // made for Magic add (a Hyperfocus "Not now", the MCP server)
     tasks.push(t);
     if (d.tags) setTags(t.id, d.tags);
     return t;
@@ -558,6 +559,24 @@
       return all.slice(0, [3, 4, 6, 9, 12][(opts.level || 3) - 1]);
     },
     setAiKey: async () => snapshot(),
+    // Hyperfocus sessions (focus.js on the PC), kept for this visit.
+    logFocus: async (s) => { (window.focusLog ||= []).push(s); return s; },
+    focusSessions: async () => window.focusLog || [],
+    focusStart: async (s) => { window.focusActive = s; return { id: 'f1', reach: s.escalate ? 'push' : null, warning: null }; },
+    focusEnd: async () => { const had = !!window.focusActive; window.focusActive = null; return had; },
+    // Hermes asking for a session (start_focus): in the preview, window.onyxAskFocus({ title, minutes }).
+    onFocusRequest: (fn) => { window.onyxAskFocus = (req) => { window.focusAsk = { taskId: null, minutes: null, ...req }; fn(); }; },
+    takeFocusRequest: async () => { const r = window.focusAsk || null; window.focusAsk = null; return r; },
+    focusInsights: async () => {
+      const F = window.OnyxFocus, list = window.focusLog || [];
+      return { best: F.bestWindow(list), hours: F.focusHours(list).filter((h) => h.count), now: F.hourScore(list, new Date().getHours()), rated: list.filter((s) => s.rating).length, needed: F.BEST_MIN_RATED };
+    },
+    focusNext: async ({ current = {}, rating = null, minutes = 0 } = {}) => {
+      if (!window.OnyxMagicPlan) await magicRun('x', ymd(new Date()), {}).catch(() => {}); // loads the real planner
+      const kindOf = (t) => window.OnyxMagicPlan?.estimateLocal(t)[0]?.kind || 'other';
+      return window.OnyxFocus.rotation(tasks.map(withTags), { current, today: ymd(new Date()), kindOf, rating, minutes })
+        .map((x) => ({ ...x, task: { id: x.task.id, title: x.task.label || x.task.title, minutes: x.task.minutes || null } }));
+    },
     // Magic add: the same planner the PC uses (src/main/magic-plan.js), with the offline estimate.
     magicPlan: async (text, date, o = {}, inboxIds = []) => magicRun(text, date, o, null, null, inboxIds),
     magicReplan: async (tasks, travel, date, o = {}) => magicRun(null, date, o, tasks, travel),

@@ -128,6 +128,7 @@ final class LauncherData {
             o.put("notifications", notificationsAllowed(ctx));
             o.put("overlay", overlayAllowed(ctx));
             o.put("fullScreen", fullScreenAllowed(ctx));
+            o.put("notiflist", OnyxNotificationListener.allowed(ctx));
             o.put("alarm", prefs(ctx).getBoolean("alarm", false));
         } catch (Exception ignored) {
             // a JSON key can't fail here
@@ -172,6 +173,14 @@ final class LauncherData {
                     ? new Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:" + pkg))
                     : new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, pkg);
                 break;
+            case "notiflist":
+                if (Build.VERSION.SDK_INT >= 30) {
+                    intent = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
+                        .putExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME, OnyxNotificationListener.component(activity).flattenToString());
+                } else {
+                    intent = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
+                }
+                break;
             case "appinfo":
                 intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + pkg));
                 break;
@@ -210,8 +219,15 @@ final class LauncherData {
             } catch (Exception ignored) {
                 // an older PC without goals: the rest still shows
             }
+            Object focus = null;
+            try {
+                focus = WidgetData.rpc(ctx, "focus:active", new JSONArray());
+            } catch (Exception ignored) {
+                // an older PC: no Hyperfocus card from it
+            }
             JSONObject data = new JSONObject();
             data.put("day", today.toString());
+            if (focus instanceof JSONObject) data.put("focus", focus);
             data.put("events", events != null ? events : new JSONArray());
             data.put("goals", goals != null ? goals : new JSONArray());
             prefs(ctx).edit()
@@ -222,6 +238,46 @@ final class LauncherData {
         } catch (Exception e) {
             prefs(ctx).edit().putString("error", e.getMessage() == null ? "Can't reach the PC" : e.getMessage()).apply();
         }
+    }
+
+    // ------------------------------------------------------------ Hyperfocus
+
+    /** A Hyperfocus session running now: its goal, start and hard stop. */
+    static final class Focus {
+        String goal;
+        long start, end;
+    }
+
+    /** This phone's session (from the app), or none: the launcher shows it at once, PC or not. */
+    static void setFocus(Context ctx, String goal, long start, long end) {
+        SharedPreferences.Editor e = prefs(ctx).edit();
+        if (goal == null || end <= System.currentTimeMillis()) {
+            e.remove("focusGoal").remove("focusStart").remove("focusEnd").putLong("focusClearedAt", System.currentTimeMillis());
+        } else {
+            e.putString("focusGoal", goal).putLong("focusStart", start).putLong("focusEnd", end);
+        }
+        e.apply();
+    }
+
+    /** The session to show: this phone's own, else the PC's (from the last fetch). Null when none is on. */
+    static Focus focus(Context ctx) {
+        long t = System.currentTimeMillis();
+        SharedPreferences p = prefs(ctx);
+        Focus f = new Focus();
+        if (p.getLong("focusEnd", 0) > t) {
+            f.goal = p.getString("focusGoal", "Hyperfocus");
+            f.start = p.getLong("focusStart", t);
+            f.end = p.getLong("focusEnd", 0);
+            return f;
+        }
+        JSONObject o = cached(ctx).optJSONObject("focus");
+        if (o == null) return null;
+        f.end = o.optLong("plannedEnd", 0);
+        f.start = o.optLong("startedAt", t);
+        // Over, or ended on this phone since that fetch.
+        if (f.end <= t || p.getLong("focusClearedAt", 0) > updated(ctx) && p.getLong("focusClearedAt", 0) > f.start) return null;
+        f.goal = o.optString("goal", "Hyperfocus");
+        return f;
     }
 
     static long updated(Context ctx) {

@@ -130,10 +130,18 @@ function setPomodoro(id, cfg) {
       if (!Number.isFinite(n) || n < lo || n > hi) throw new Error(`${name} must be between ${lo} and ${hi} minutes.`);
       return n;
     };
+    // What to do on a break, in turn (written by the user): at most 12 short ones.
+    const ideas = [];
+    for (const raw of Array.isArray(cfg.activities) ? cfg.activities : String(cfg.activities || '').split(/[\n,;]+/)) {
+      const t = String(raw).replace(/\s+/g, ' ').trim().slice(0, 60);
+      if (t && !ideas.some((x) => x.toLowerCase() === t.toLowerCase())) ideas.push(t);
+      if (ideas.length >= 12) break;
+    }
     store.data.pomodoro[id] = {
       work: num(cfg.work ?? 25, 5, 180, 'Work'),
       rest: num(cfg.rest ?? 5, 1, 60, 'Rest'),
       ...(cfg.minutes != null ? { minutes: num(cfg.minutes, 10, 720, 'The length') } : {}),
+      ...(ideas.length ? { activities: ideas } : {}),
     };
   }
   store.save();
@@ -208,7 +216,7 @@ function taskAsEvent(t) {
     leaveBy: t.leaveBy,
     piCall: !!(t.call && !t.call.quiet && !t.call.past), ...(t.call && !t.call.quiet && !t.call.past ? { callAt: t.call.at } : {}), done: t.done, goal: t.goal, repeat: t.repeat, madeHere: t.madeHere,
     provider: t.provider, mirror: t.mirror,
-    movable: !t.mirror && !t.done, // dragged to another day in the calendar (see moveTask)
+    movable: !t.mirror, // dragged to another day in the calendar (see moveTask); a ticked-off one too
   };
   if (t.start) {
     // A task with a pomodoro split has a real length; others are drawn as a short block.
@@ -771,7 +779,8 @@ async function updateTask(id, patch) {
 async function moveTask(id, to) {
   const { calendarId } = parseId(id);
   const cal = findCalendar(calendarId);
-  const task = (await listTasks(cal, true)).find((t) => t.id === id);
+  // A ticked-off task is not in the open list: it is read on its own and keeps its tick.
+  const task = (await listTasks(cal, true)).find((t) => t.id === id) || await fetchTask(id).catch(() => null);
   if (!task) throw Object.assign(new Error('That task no longer exists.'), { status: 404 });
   if (task.mirror) throw new Error('This task follows a calendar entry for the Pi. Move the entry instead.');
   const named = parseName(task.title);
@@ -814,7 +823,7 @@ async function planTask(id, { start, minutes, leaveBy } = {}) {
 async function resizeTask(id, { start, minutes } = {}) {
   const { calendarId } = parseId(id);
   const cal = findCalendar(calendarId);
-  const task = (await listTasks(cal, true)).find((t) => t.id === id);
+  const task = (await listTasks(cal, true)).find((t) => t.id === id) || await fetchTask(id).catch(() => null);
   if (!task) throw Object.assign(new Error('That task no longer exists.'), { status: 404 });
   if (task.mirror) throw new Error('This task follows a calendar entry for the Pi. Resize the entry instead.');
   let out = task;
@@ -1242,4 +1251,5 @@ module.exports = {
   calendars, refreshCalendars, invalidate, getEvents, setBackburner, setEventDone, createEvent, updateEvent, deleteEvent, setLeaveBy, ackPiCall, piAlerts,
   getTasks, archivedTasks, fetchTask, createTask, updateTask, moveTask, resizeTask, receiveTask, queueTask, planTask, unplanTask, dismissInbox, deleteTask, setRepeat, setPomodoro, setPiCall, freeTime, addLocalCalendar, removeLocalCalendar,
   setTags, allTags, setTagColor, renameTag, deleteTag, setMemo, MAX_NOTE,
+  callNotes, piTaskList, // Hyperfocus gives the Pi its stop the same way (focus.js)
 };

@@ -15,6 +15,7 @@ const PARTS = { morning: [8, 12], midday: [11, 14], afternoon: [13, 17], evening
 const KIND_PART = { focus: [9, 12], call: [9, 17], errand: [10, 17] };
 const KINDS = ['focus', 'errand', 'call', 'chore', 'exercise', 'meal', 'admin', 'other'];
 
+const validPart = (p) => (Array.isArray(p) && Number.isInteger(p[0]) && Number.isInteger(p[1]) && p[0] >= 0 && p[1] <= 24 && p[1] - p[0] >= 1 ? [p[0], p[1]] : null);
 const ceilTo = (ms, unit) => Math.ceil(ms / unit) * unit;
 const placeKey = (p) => String(p || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 const clock = (hm, day) => {
@@ -193,9 +194,11 @@ function gapsOf({ busy, from, to, home }) {
   return gaps;
 }
 
-const partOf = (t) => {
+// Focus work goes in your own best hours when Hyperfocus has learned them (opts.focusPart, focus.js).
+const partOf = (t, ctx) => {
   if (t.preferred) return null; // a time of its own beats a time of day
   if (t.when !== 'any') return PARTS[t.when];
+  if (t.kind === 'focus' && ctx?.focusPart) return ctx.focusPart;
   return KIND_PART[t.kind] || null;
 };
 
@@ -215,7 +218,7 @@ function layoutGap(gap, seq, ctx, delay) {
     if (hardAfter != null) start = Math.max(start, hardAfter - tr * 60000);
     // A window widened for what another app timed (anchorSpan): everything else keeps to the chosen hours.
     if (ctx.core && !pinned) start = Math.max(start, ctx.core.from - tr * 60000);
-    const part = partOf(task);
+    const part = partOf(task, ctx);
     const preferred = task.preferred ? clock(task.preferred, ctx.day) : null;
     if (delay && (part || preferred != null)) {
       const wanted = (preferred ?? clock(`${part[0]}:00`, ctx.day)) - tr * 60000;
@@ -273,6 +276,7 @@ function schedule(busy, tasks, opts) {
     day: day.getTime(), from, travel: travelBetween(opts.travel),
     lunch: opts.lunch === false ? null : [clock('12:30', day), clock('13:15', day)],
     core: opts.core || null, // the chosen hours, when the window was widened (empty once they are over today)
+    focusPart: validPart(opts.focusPart),
   };
   const gaps = gapsOf({ busy, from, to, home: opts.home });
   for (const g of gaps) g.layout = { ok: true, cost: 0, items: [] };

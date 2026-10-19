@@ -98,6 +98,21 @@
   // The home-screen widgets fetch from the PC themselves: they get its address and token
   // from here, and a nudge to refresh after anything is changed in the app.
   const Widget = window.Capacitor?.Plugins?.OnyxWidget;
+  // The status and navigation bars: how far they really cover the page, measured by the app
+  // (env(safe-area-inset-*) can be wrong when Android already keeps the page clear of them).
+  const fitBars = () => {
+    const ask = Widget?.insets?.();
+    ask?.then?.((r) => {
+      if (!r?.known) return;
+      const root = document.documentElement.style;
+      root.setProperty('--safe-top', `${Math.round(r.top)}px`);
+      root.setProperty('--safe-bottom', `${Math.round(r.bottom)}px`);
+    }).catch?.(() => {});
+  };
+  if (Widget) {
+    fitBars();
+    addEventListener('resize', () => setTimeout(fitBars, 150));
+  }
   function syncWidget() {
     if (!Widget) return;
     const ask = conn ? Widget.configure({ addresses: conn.addresses, last: conn.last || '', token: conn.token }) : Widget.configure({ clear: true });
@@ -269,6 +284,13 @@
     },
     syncDesktops: () => call('desktops:sync'),
     breakdown: (title, opts) => call('ai:breakdown', title, opts),
+    logFocus: (session) => call('focus:log', session),
+    focusSessions: (range) => call('focus:sessions', range),
+    focusInsights: () => call('focus:insights'),
+    // A session run on the phone tells the PC it is on (assistants hold their messages) and when it ends.
+    focusStart: (session) => call('focus:start', session),
+    focusEnd: () => call('focus:end'),
+    focusNext: (info) => call('focus:next', info),
     setAiKey: (key) => call('ai:key', key),
     magicPlan: (text, date, opts, inboxIds) => call('magic:plan', text, date, opts, inboxIds),
     magicReplan: (tasks, travel, date, opts) => call('magic:replan', tasks, travel, date, opts),
@@ -279,6 +301,8 @@
       set: (show) => Widget.setLauncher({ show }),
       setAlarm: (alarm) => Widget.setLauncher({ alarm }),
       open: (what) => Widget.launcherOpen({ what }),
+      // A Hyperfocus session on this phone, shown on Onyx Home and the lock screen (null: it is over).
+      focus: (s) => Widget.setFocus?.(s ? { goal: s.goal, startedAt: s.startedAt, plannedEnd: s.plannedEnd } : { clear: true })?.catch?.(() => {}),
     } : null,
     // Tamkeen on this phone (not on the PC): checked and opened through the app's own plugin.
     tamkeen: {

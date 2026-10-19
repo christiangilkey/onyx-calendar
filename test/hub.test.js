@@ -290,7 +290,7 @@ test('a task ticked off stays on the calendar, marked done', async () => {
   const shown = events.filter((e) => e.id === t.id);
   assert.equal(shown.length, 1, 'once, not as both open and done');
   assert.equal(shown[0].done, true);
-  assert.equal(shown[0].movable, false);
+  assert.equal(shown[0].movable, true, 'a ticked-off task can still be moved on the calendar');
   const { tasks } = await hub.getTasks({ force: true });
   assert.equal(tasks.some((x) => x.id === t.id), false, 'not in the open list');
   delete google.completedTasks;

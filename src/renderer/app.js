@@ -1356,24 +1356,15 @@
     if (!p || arg.event.allDay || !arg.view.type.startsWith('timeGrid') || !arg.event.end) return;
     const total = (arg.event.end - arg.event.start) / 60000;
     if (total <= 0) return;
-    // The block keeps its own colour. A slim rail down its right edge shows the rounds (work in coral,
-    // breaks in mint; the one you are in now is the brightest), and each break is a soft mint hatch
-    // inside the block, like the "Transition" hatching.
+    // The block keeps its colour; each break is a different (lighter) shade of it, where it really falls.
+    // The break you are in now is a touch lighter still.
     const now = (Date.now() - arg.event.start) / 60000;
-    const chunks = pomodoroChunks(total, p);
-    if (!chunks.length) return;
-    const stops = chunks.map((c) => {
-      const live = now >= c.from && now < c.to;
-      const col = c.kind === 'work' ? `rgba(255,122,102,${live ? 1 : 0.9})` : `rgba(72,224,172,${live ? 1 : 0.9})`;
-      return `${col} ${(c.from / total) * 100}%, ${col} ${(c.to / total) * 100}%`;
-    });
-    const rail = h('div', { class: 'pomo-rail' });
-    rail.style.backgroundImage = `linear-gradient(to bottom, ${stops.join(', ')})`;
-    const bands = h('div', { class: 'pomo-bands' }, chunks.filter((c) => c.kind === 'rest').map((c) =>
+    const rests = pomodoroChunks(total, p).filter((c) => c.kind === 'rest');
+    if (!rests.length) return;
+    const bands = h('div', { class: 'pomo-bands' }, rests.map((c) =>
       h('i', { class: now >= c.from && now < c.to ? 'live' : '', css: { top: `${(c.from / total) * 100}%`, height: `${((c.to - c.from) / total) * 100}%` } })));
     arg.el.classList.add('pomo');
     arg.el.prepend(bands);
-    arg.el.append(rail);
   }
 
   async function onMove(info) {

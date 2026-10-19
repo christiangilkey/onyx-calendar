@@ -3729,8 +3729,17 @@
           p.hook,
           p.list, addStep)),
       h('div', { class: 'fs-capture' }, capture, p.parked),
-      p.ceiling, p.body);
+      p.ceiling, p.body,
+      // A way straight out: a small grey X in the top right corner, shown as the pointer comes near (always on a phone).
+      h('div', { class: 'fs-corner' },
+        h('button', { class: 'fs-close', title: 'Leave Hyperfocus now', 'aria-label': 'Leave Hyperfocus', onclick: () => endFocus() }, icon('x'))));
     focus.parts = p;
+    const corner = focus.el.querySelector('.fs-corner');
+    focus.el.addEventListener('pointermove', (e) => {
+      if (e.pointerType !== 'mouse') return;
+      corner.classList.toggle('near', e.clientX > innerWidth - 180 && e.clientY < 120);
+    });
+    focus.el.addEventListener('pointerleave', () => corner.classList.remove('near'));
     drawFocusSteps();
     drawSoundButton();
     document.body.append(focus.el);

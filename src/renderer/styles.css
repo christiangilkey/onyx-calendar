@@ -955,7 +955,7 @@ body.dragging-task #graph { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(-
 .cluster-row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--soft); }
 .cluster-row:has(input:not(:checked)) .name { color: var(--faint); text-decoration: line-through; }
 .cluster-row .n { font-size: 10.5px; color: var(--faint); }
-body.mobile #graph-clusters { bottom: calc(86px + env(safe-area-inset-bottom, 0px)); left: 8px; }
+body.mobile #graph-clusters { bottom: calc(86px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); left: 8px; }
 /* The Inbox: bottom right, above the footer, opening upward like the Clusters tab. Waiting items
    give its count a soft amber pulse, a nudge to clear it; empty, it says so in green. */
 #graph-inbox {
@@ -981,7 +981,7 @@ body.mobile #graph-clusters { bottom: calc(86px + env(safe-area-inset-bottom, 0p
 .inbox-row .ico { width: 13px; height: 13px; color: var(--muted); flex: none; }
 .inbox-row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
 .inbox-row .when { font-size: 11px; color: var(--muted); white-space: nowrap; flex: none; }
-body.mobile #graph-inbox { right: 8px; bottom: calc(126px + env(safe-area-inset-bottom, 0px)); width: calc(100vw - 16px); }
+body.mobile #graph-inbox { right: 8px; bottom: calc(126px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); width: calc(100vw - 16px); }
 body.mobile #graph-inbox:not(.open) { width: auto; }
 @media (prefers-reduced-motion: reduce) { .inbox-tab.has .count { animation: none; } }
 #graph-hint { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); color: var(--faint); font-size: 11px; pointer-events: none; white-space: nowrap; }
@@ -1022,9 +1022,9 @@ html.offline #titlebar::after {
   font-size: 10.5px; color: #000; background: var(--warn); padding: 1px 8px; border-radius: 8px; z-index: 30;
 }
 
-body.mobile { --bar: calc(52px + env(safe-area-inset-top, 0px)); }
+body.mobile { --bar: calc(52px + var(--safe-top, env(safe-area-inset-top, 0px))); }
 body.mobile .mobile-only { display: inline-flex; }
-body.mobile #titlebar { padding: env(safe-area-inset-top, 0px) 8px 0 6px; gap: 2px; position: relative; -webkit-app-region: no-drag; }
+body.mobile #titlebar { padding: var(--safe-top, env(safe-area-inset-top, 0px)) 8px 0 6px; gap: 2px; position: relative; -webkit-app-region: no-drag; }
 body.mobile .brand, body.mobile #views, body.mobile #today, body.mobile #refresh { display: none; }
 body.mobile .nav { gap: 0; min-width: 0; flex: 1; }
 body.mobile .nav h1 { font-size: 15px; margin-left: 4px; overflow: hidden; text-overflow: ellipsis; }
@@ -1036,7 +1036,7 @@ body.mobile #undo-btn:disabled { display: none; }
 body.mobile .nav h1 { white-space: nowrap; }
 body.mobile #layout { grid-template-columns: minmax(0, 1fr); }
 body.mobile #news {
-  position: fixed; z-index: 45; top: 0; bottom: 0; right: 0; width: min(420px, 100vw); padding-top: env(safe-area-inset-top, 0px);
+  position: fixed; z-index: 45; top: 0; bottom: 0; right: 0; width: min(420px, 100vw); padding-top: var(--safe-top, env(safe-area-inset-top, 0px));
   transform: translateX(102%); transition: transform .22s ease; box-shadow: -20px 0 60px rgba(0,0,0,.6); border-left: 0;
 }
 body.mobile #news #news-body { display: flex; }
@@ -1054,11 +1054,11 @@ body.mobile.drawer-news #news-tab, body.mobile.drawer-left #news-tab, body.mobil
 body.mobile .news-row { grid-template-columns: 128px minmax(0, 1fr); }
 
 body.mobile #sidebar {
-  position: fixed; z-index: 45; top: 0; bottom: 0; left: 0; width: min(310px, 86vw); padding-top: calc(16px + env(safe-area-inset-top, 0px));
+  position: fixed; z-index: 45; top: 0; bottom: 0; left: 0; width: min(310px, 86vw); padding-top: calc(16px + var(--safe-top, env(safe-area-inset-top, 0px)));
   transform: translateX(-102%); transition: transform .22s ease; box-shadow: 20px 0 60px rgba(0,0,0,.6);
 }
 body.mobile #tasks {
-  display: flex !important; position: fixed; z-index: 45; top: 0; bottom: 0; right: 0; width: min(380px, 92vw); padding-top: env(safe-area-inset-top, 0px);
+  display: flex !important; position: fixed; z-index: 45; top: 0; bottom: 0; right: 0; width: min(380px, 92vw); padding-top: var(--safe-top, env(safe-area-inset-top, 0px));
   transform: translateX(102%); transition: transform .22s ease; box-shadow: -20px 0 60px rgba(0,0,0,.6);
 }
 body.drawer-left #sidebar, body.drawer-right #tasks { transform: none; }
@@ -1072,7 +1072,7 @@ body.mobile .task .row-del { opacity: 1; width: 32px; height: 32px; }
 body.mobile .task { padding: 10px 8px; }
 
 body.mobile #fab {
-  display: grid; place-items: center; position: fixed; right: 18px; bottom: calc(22px + env(safe-area-inset-bottom, 0px)); z-index: 20;
+  display: grid; place-items: center; position: fixed; right: 18px; bottom: calc(22px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); z-index: 20;
   width: 56px; height: 56px; border-radius: 18px; border: 0; background: var(--text); color: #000; box-shadow: 0 10px 30px rgba(0,0,0,.7);
 }
 body.mobile #fab .ico { width: 24px; height: 24px; }
@@ -1080,7 +1080,7 @@ body.mobile #fab .ico svg { stroke-width: 2.2; }
 
 body.mobile #popover {
   left: 0 !important; right: 0; top: auto !important; bottom: 0; width: auto; max-height: 88vh; overflow-y: auto;
-  border-radius: 18px 18px 0 0; padding: 16px 16px calc(18px + env(safe-area-inset-bottom, 0px)); animation: sheet .18s ease-out;
+  border-radius: 18px 18px 0 0; padding: 16px 16px calc(18px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); animation: sheet .18s ease-out;
 }
 @keyframes sheet { from { transform: translateY(30%); opacity: 0; } }
 body.mobile #popover input, body.mobile #popover select { height: 40px; font-size: 15px; }
@@ -1106,11 +1106,11 @@ body.mobile .goal-step .pomo-btn { order: 5; width: 32px; height: 32px; }
 
 body.mobile #modal { place-items: stretch; }
 body.mobile .sheet { width: 100vw; height: 100vh; border-radius: 0; grid-template-columns: 1fr; grid-template-rows: auto 1fr; border: 0; }
-body.mobile .sheet nav { flex-direction: row; overflow-x: auto; padding: calc(10px + env(safe-area-inset-top, 0px)) 10px 10px; border-right: 0; border-bottom: 1px solid var(--line); align-items: center; }
+body.mobile .sheet nav { flex-direction: row; overflow-x: auto; padding: calc(10px + var(--safe-top, env(safe-area-inset-top, 0px))) 10px 10px; border-right: 0; border-bottom: 1px solid var(--line); align-items: center; }
 body.mobile .sheet nav h2, body.mobile .sheet nav .ver { display: none; }
 body.mobile .sheet nav button { white-space: nowrap; height: 36px; }
 body.mobile .pane { padding: 18px 16px 40px; }
-body.mobile .pane > .icon-btn.close { position: fixed; top: calc(8px + env(safe-area-inset-top, 0px)); right: 8px; z-index: 2; }
+body.mobile .pane > .icon-btn.close { position: fixed; top: calc(8px + var(--safe-top, env(safe-area-inset-top, 0px))); right: 8px; z-index: 2; }
 /* the tabs stop short of the close button instead of scrolling under it */
 body.mobile .sheet nav { margin-right: 48px; border-bottom: 0; }
 body.mobile .sheet .pane { border-top: 1px solid var(--line); }
@@ -1119,8 +1119,8 @@ body.mobile #graph-bar { top: 8px; left: 8px; right: 8px; gap: 6px; padding: 6px
 body.mobile #graph-bar .bar-label:not(#graph-stats) { display: none; }
 body.mobile #graph-bar.folded { right: auto; }
 body.mobile #graph-hint { display: none; }
-body.mobile.mobile #toasts { bottom: calc(92px + env(safe-area-inset-bottom, 0px)); width: calc(100vw - 32px); }#graph-bar .bar-row { display: contents; }#graph-foot { position: absolute; right: 12px; bottom: 10px; display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11.5px; }
-body.mobile #graph-foot { bottom: calc(86px + env(safe-area-inset-bottom, 0px)); }#sidebar > * { flex-shrink: 0; }
+body.mobile.mobile #toasts { bottom: calc(92px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); width: calc(100vw - 32px); }#graph-bar .bar-row { display: contents; }#graph-foot { position: absolute; right: 12px; bottom: 10px; display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11.5px; }
+body.mobile #graph-foot { bottom: calc(86px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); }#sidebar > * { flex-shrink: 0; }
 #views-mobile .ico { display: none !important; }body:has(#popover:not([hidden])) #fab, body:has(#modal:not([hidden])) #fab { display: none; }body.mobile .connect-card .brand { display: flex; }.connect-card .scan-btn { height: 54px !important; font-size: 16px !important; gap: 10px; }
 .connect-card .scan-btn .ico { width: 22px; height: 22px; }
 /* ------------------------------------------------------------ globe: button, notes, pinned documents */
@@ -1325,7 +1325,7 @@ body.mobile.carrying .fc .fc-event-mirror { outline-width: 1px; }
 .steps { margin: 4px 0 10px 18px; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); }
 
 /* The due screen (the phone): takes over as something comes due, more urgent as it nears. */
-.due-screen { --c: #5fd38d; position: fixed; inset: 0; z-index: 400; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 32px 22px calc(28px + env(safe-area-inset-bottom, 0px)); background: radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--c) 22%, #07080b), #07080b 70%); color: #fff; text-align: center; transition: background .6s; }
+.due-screen { --c: #5fd38d; position: fixed; inset: 0; z-index: 400; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 32px 22px calc(28px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); background: radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--c) 22%, #07080b), #07080b 70%); color: #fff; text-align: center; transition: background .6s; }
 .due-screen[data-tone=near] { --c: #f5b83d; }
 .due-screen[data-tone=urgent] { --c: #ff5b5b; animation: due-pulse 1.2s ease-in-out infinite; }
 @keyframes due-pulse { 50% { background: radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--c) 38%, #07080b), #07080b 72%); } }
@@ -1455,13 +1455,13 @@ body.mobile #popover textarea, body.mobile #popover .pop-title { width: 100%; }
 .undo-bar .ub-close .ico { width: 15px; height: 15px; }
 body:has(.undo-bar.show) #toasts { bottom: 76px; }
 body.mobile .undo-bar {
-  left: 16px; right: 86px; max-width: none; bottom: calc(22px + env(safe-area-inset-bottom, 0px)); min-height: 56px;
+  left: 16px; right: 86px; max-width: none; bottom: calc(22px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); min-height: 56px;
   transform: translateY(calc(100% + 40px)); border-radius: 18px;
 }
 body.mobile .undo-bar.show { transform: none; }
 body.mobile .undo-bar button { width: 44px; height: 44px; border-radius: 12px; }
 body.mobile .undo-bar .ub-close { width: 32px; }
-body.mobile:has(.undo-bar.show) #toasts { bottom: calc(92px + env(safe-area-inset-bottom, 0px)); }
+body.mobile:has(.undo-bar.show) #toasts { bottom: calc(92px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); }
 body:has(#popover:not([hidden])) .undo-bar, body:has(#modal:not([hidden])) .undo-bar { display: none; }
 
 body.mobile #undo-btn { display: none !important; } /* the bar along the bottom does it on a phone */
@@ -1489,7 +1489,7 @@ body.mobile #undo-btn { display: none !important; } /* the bar along the bottom 
 .magic-btn .ico { color: #c9b8ff; }
 #magic-fab { display: none; }
 body.mobile #magic-fab {
-  display: grid; place-items: center; position: fixed; right: 26px; bottom: calc(90px + env(safe-area-inset-bottom, 0px)); z-index: 20;
+  display: grid; place-items: center; position: fixed; right: 26px; bottom: calc(90px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); z-index: 20;
   width: 40px; height: 40px; border-radius: 14px; border: 1px solid var(--line-2); background: #17171b; color: #c9b8ff; box-shadow: 0 8px 22px rgba(0,0,0,.6);
 }
 body.mobile #magic-fab .ico { width: 20px; height: 20px; }
@@ -1538,7 +1538,7 @@ body.mobile .sheet.magic { width: 100vw; height: 100vh; grid-template-rows: 1fr;
 .magic-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; position: sticky; bottom: -26px; padding: 12px 0 4px; background: linear-gradient(to top, #0b0b0d 70%, transparent); }
 .magic-total { color: var(--muted); font-size: 12.5px; }
 body.mobile .magic-grid { grid-template-columns: 1fr; }
-body.mobile .sheet.magic .pane { padding: calc(20px + env(safe-area-inset-top, 0px)) 16px calc(20px + env(safe-area-inset-bottom, 0px)); }
+body.mobile .sheet.magic .pane { padding: calc(20px + var(--safe-top, env(safe-area-inset-top, 0px))) 16px calc(20px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); }
 body.mobile .magic-row { grid-template-columns: 58px 1fr auto; gap: 10px; padding: 10px; }
 body.mobile .mr-ctl { flex-direction: column; } body.mobile .mr-ctl .icon-btn { width: 30px; height: 30px; }
 body.mobile .magic-row.slim { grid-template-columns: 1fr auto; }
@@ -1548,7 +1548,7 @@ body.mobile .magic-row.slim { grid-template-columns: 1fr auto; }
 .magic-opts summary::before { content: '▸'; display: inline-block; width: 14px; transition: transform .15s; }
 .magic-opts[open] summary::before { transform: rotate(90deg); }
 .magic-total { white-space: nowrap; }
-body.mobile .magic-foot { bottom: calc(-20px - env(safe-area-inset-bottom, 0px)); }
+body.mobile .magic-foot { bottom: calc(-20px - var(--safe-bottom, env(safe-area-inset-bottom, 0px))); }
 body.mobile .magic-foot .btn { flex: 1; justify-content: center; }
 body.mobile .magic-grid { gap: 12px; }
 
@@ -1618,8 +1618,8 @@ body.mobile #magic-fab .magic-count { position: absolute; top: -6px; right: -6px
   background: linear-gradient(to bottom, transparent, #0e0e10);
 }
 body.mobile #popover > .pop-actions {
-  bottom: calc(-18px - env(safe-area-inset-bottom, 0px)); margin: 2px -16px calc(-18px - env(safe-area-inset-bottom, 0px));
-  padding: 10px 16px calc(18px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(-18px - var(--safe-bottom, env(safe-area-inset-bottom, 0px))); margin: 2px -16px calc(-18px - var(--safe-bottom, env(safe-area-inset-bottom, 0px)));
+  padding: 10px 16px calc(18px + var(--safe-bottom, env(safe-area-inset-bottom, 0px)));
 }
 
 /* ------------------------------------------------------------ phone polish */
@@ -1640,8 +1640,8 @@ body.mobile .nav h1 { min-width: 3.4em; flex: 1 1 auto; }
 /* The round buttons are not on the screen behind an open drawer, and a message sits above both of them. */
 body.mobile.drawer-left #fab, body.mobile.drawer-right #fab, body.mobile.drawer-news #fab,
 body.mobile.drawer-left #magic-fab, body.mobile.drawer-right #magic-fab, body.mobile.drawer-news #magic-fab { display: none; }
-body.mobile.mobile #toasts { bottom: calc(146px + env(safe-area-inset-bottom, 0px)); }
-body.mobile:has(.undo-bar.show) #toasts { bottom: calc(146px + env(safe-area-inset-bottom, 0px)); }
+body.mobile.mobile #toasts { bottom: calc(146px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); }
+body.mobile:has(.undo-bar.show) #toasts { bottom: calc(146px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); }
 /* The News handle: slimmer, so it covers less of the day. */
 body.mobile #news-tab { width: 20px; height: 66px; opacity: .92; }
 body.mobile #news-tab .news-tab-label { font-size: 9px; letter-spacing: 1.2px; }
@@ -1809,7 +1809,7 @@ body.mobile #next-bar .next-stop .ico { width: 15px; height: 15px; }
 
 /* ------------------------------------------------------------ Hyperfocus on the phone */
 body.mobile #popover > .pop-actions .focus-btn { order: -1; flex: 1 1 100%; justify-content: center; height: 42px; }
-body.mobile .focus-screen { padding: calc(12px + env(safe-area-inset-top, 0px)) 16px calc(14px + env(safe-area-inset-bottom, 0px)); gap: 12px; }
+body.mobile .focus-screen { padding: calc(12px + var(--safe-top, env(safe-area-inset-top, 0px))) 16px calc(14px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); gap: 12px; }
 body.mobile .fs-top { font-size: 13px; flex-wrap: wrap; row-gap: 4px; }
 body.mobile .fs-main { overflow-y: auto; align-content: start; justify-items: stretch; gap: 16px; padding-bottom: 6px; }
 body.mobile .fs-side { align-items: center; }
@@ -1822,7 +1822,7 @@ body.mobile .fs-ticks li { padding: 12px; font-size: 15px; }
 body.mobile .fs-capture { gap: 8px; flex-wrap: wrap; }
 body.mobile .fs-capture-in { flex: 1 1 100%; height: 44px; }
 body.mobile .fs-capture .btn { flex: 1; height: 42px; }
-body.mobile .fs-body, body.mobile .fs-ceiling { left: 16px; right: 16px; width: auto; top: auto; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
+body.mobile .fs-body, body.mobile .fs-ceiling { left: 16px; right: 16px; width: auto; top: auto; bottom: calc(80px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); }
 body.mobile .sheet.focus-setup .magic-grid { grid-template-columns: 1fr; }
 body.mobile .fs-start { flex: 1; }
 /* A tap leaves no grey highlight stuck on a top-bar button (phones have no hover). */
@@ -1854,3 +1854,21 @@ body.mobile #popover > .pop-actions > .btn.ghost:not(.focus-btn) { display: none
 .focus-screen.pomo-rest .fs-disc { box-shadow: 0 0 60px color-mix(in srgb, var(--c) 10%, transparent); }
 body.mobile .fs-pomo { max-width: none; }
 body.mobile .fs-pomo-head { flex-wrap: wrap; row-gap: 6px; }
+
+/* ------------------------------------------------------------ leaving Hyperfocus: the X in the corner */
+.focus-screen .fs-top { padding-right: 34px; }
+.fs-corner { position: absolute; top: 0; right: 0; width: 160px; height: 110px; z-index: 5; pointer-events: none; display: flex; justify-content: flex-end; align-items: flex-start; padding: 12px 10px 0 0; }
+.fs-close {
+  pointer-events: auto; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; padding: 0; cursor: pointer;
+  background: transparent; border: 0; color: #8a8d98; opacity: 0; transition: opacity .2s ease, background-color .15s ease, color .15s ease;
+}
+.fs-close .ico { width: 16px; height: 16px; }
+.fs-close:hover { background: rgba(255, 255, 255, .08); color: #c9ccd6; }
+.fs-close:focus-visible { opacity: 1; outline: 2px solid color-mix(in srgb, var(--c) 60%, transparent); }
+/* The pointer near the corner wakes it (app.js sets .near); the corner itself takes no clicks, so Stop now stays reachable. */
+.fs-corner.near .fs-close { opacity: 1; }
+/* Phones (no hover): always there. */
+@media (hover: none) { .fs-close { opacity: 1; } }
+body.mobile .fs-close { opacity: 1; width: 40px; height: 40px; background: rgba(255, 255, 255, .06); }
+body.mobile .fs-corner { width: auto; height: auto; padding: calc(8px + var(--safe-top, env(safe-area-inset-top, 0px))) 8px 0 0; }
+body.mobile .focus-screen .fs-top { padding-right: 46px; }

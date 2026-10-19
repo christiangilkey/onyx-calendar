@@ -98,6 +98,21 @@
   // The home-screen widgets fetch from the PC themselves: they get its address and token
   // from here, and a nudge to refresh after anything is changed in the app.
   const Widget = window.Capacitor?.Plugins?.OnyxWidget;
+  // The status and navigation bars: how far they really cover the page, measured by the app
+  // (env(safe-area-inset-*) can be wrong when Android already keeps the page clear of them).
+  const fitBars = () => {
+    const ask = Widget?.insets?.();
+    ask?.then?.((r) => {
+      if (!r?.known) return;
+      const root = document.documentElement.style;
+      root.setProperty('--safe-top', `${Math.round(r.top)}px`);
+      root.setProperty('--safe-bottom', `${Math.round(r.bottom)}px`);
+    }).catch?.(() => {});
+  };
+  if (Widget) {
+    fitBars();
+    addEventListener('resize', () => setTimeout(fitBars, 150));
+  }
   function syncWidget() {
     if (!Widget) return;
     const ask = conn ? Widget.configure({ addresses: conn.addresses, last: conn.last || '', token: conn.token }) : Widget.configure({ clear: true });

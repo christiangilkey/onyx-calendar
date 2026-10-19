@@ -4,6 +4,11 @@ import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.webkit.WebView;
+
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
@@ -61,6 +66,39 @@ public class OnyxWidgetPlugin extends Plugin {
     }
 
     /** Where Onyx shows (home, lock, both, off), whether Onyx Home is the home app, and Android's switches for it. */
+    /**
+     * How far the status bar (top) and the navigation bar (bottom) really cover the page, in CSS
+     * pixels. Android may already keep the page clear of them, and the WebView's own
+     * env(safe-area-inset-*) does not always know, which left an empty band under the top bar.
+     */
+    @PluginMethod
+    public void insets(PluginCall call) {
+        WebView wv = getBridge().getWebView();
+        wv.post(() -> {
+            JSObject o = new JSObject();
+            try {
+                WindowInsetsCompat w = ViewCompat.getRootWindowInsets(wv);
+                if (w == null) {
+                    o.put("known", false);
+                } else {
+                    Insets bars = w.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+                    int[] at = new int[2];
+                    wv.getLocationInWindow(at);
+                    int windowH = wv.getRootView().getHeight();
+                    float d = wv.getResources().getDisplayMetrics().density;
+                    int top = Math.max(0, bars.top - at[1]);
+                    int bottom = Math.max(0, (at[1] + wv.getHeight()) - (windowH - bars.bottom));
+                    o.put("known", true);
+                    o.put("top", top / d);
+                    o.put("bottom", bottom / d);
+                }
+            } catch (Exception e) {
+                o.put("known", false);
+            }
+            call.resolve(o);
+        });
+    }
+
     @PluginMethod
     public void launcherInfo(PluginCall call) {
         call.resolve(launcherState());

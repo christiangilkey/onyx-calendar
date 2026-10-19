@@ -392,6 +392,13 @@
     } catch { /* the toast is enough */ }
   }
 
+  function stopPomodoroTimer(block) {
+    if (!block) return;
+    pomoRun.dismissed.add(block);
+    tickPomodoro();
+    tickNext();
+  }
+
   function tickPomodoro() {
     const box = $('#pomo-timer');
     const now = new Date();
@@ -523,8 +530,12 @@
           gauge: h('span', { class: 'next-gauge', 'aria-hidden': 'true' }, h('i')),
         };
         q.when = h('span', { class: 'next-when' });
+        // Stops the timer for the pomodoro block it shows (the pill is a button, so this is a span acting as one).
+        q.stop = h('span', { class: 'next-stop', role: 'button', tabindex: '0', title: 'Stop the timer for this block', hidden: true,
+          onclick: (ev) => { ev.preventDefault(); ev.stopPropagation(); stopPomodoroTimer(q.stopKey); },
+          onkeydown: (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); stopPomodoroTimer(q.stopKey); } } }, icon('x'));
         q.el.append(q.kindIcon, h('span', { class: 'next-text' }, h('span', { class: 'next-top' }, q.kind, q.when), q.what), q.leave,
-          h('span', { class: 'next-sep', 'aria-hidden': 'true' }), q.live, q.count, q.gauge);
+          h('span', { class: 'next-sep', 'aria-hidden': 'true' }), q.live, q.count, q.stop, q.gauge);
         q.el.addEventListener('click', (ev) => q.item && openNextItem(q.item, ev.currentTarget.getBoundingClientRect()));
         return q;
       };
@@ -552,6 +563,7 @@
     const p = nextRun.parts;
     let tone = 'calm';
     p.main.el.classList.remove('pomo-on'); // set again below while a pomodoro block is on
+    p.main.stop.hidden = true;
 
     // What comes next: its countdown, leave-by, and how urgent it is. The state: calm (green)
     // over 30 minutes, amber 10 to 30, escalate (red) under 10, counted to the leave-by time
@@ -621,9 +633,12 @@
       m.el.disabled = false;
       m.el.classList.remove('empty');
       // A pomodoro block: the pill is the timer, red for work and green for a break, counting down the chunk.
-      const ph = current.e.pomodoro ? pomodoroPhase(current.e, new Date(now)) : null;
+      const pomoBlock = `${current.e.id}|${current.e.start}`;
+      const ph = current.e.pomodoro && !pomoRun.dismissed.has(pomoBlock) ? pomodoroPhase(current.e, new Date(now)) : null;
       m.el.classList.toggle('pomo-on', !!ph);
       if (ph) {
+        m.stop.hidden = false;
+        m.stopKey = pomoBlock;
         m.el.dataset.tone = ph.kind === 'work' ? 'work' : 'rest';
         m.kindIcon.replaceChildren(icon('clock'));
         m.kind.textContent = ph.kind === 'work' ? 'Work' : 'Break';
@@ -1341,17 +1356,24 @@
     if (!p || arg.event.allDay || !arg.view.type.startsWith('timeGrid') || !arg.event.end) return;
     const total = (arg.event.end - arg.event.start) / 60000;
     if (total <= 0) return;
-    // Colour-coded: work in red, breaks in green, each band where it really falls; the one
-    // you are in now is brighter.
+    // The block keeps its own colour. A slim rail down its right edge shows the rounds (work in coral,
+    // breaks in mint; the one you are in now is the brightest), and each break is a soft mint hatch
+    // inside the block, like the "Transition" hatching.
     const now = (Date.now() - arg.event.start) / 60000;
-    const bands = pomodoroChunks(total, p).map((c) => {
+    const chunks = pomodoroChunks(total, p);
+    if (!chunks.length) return;
+    const stops = chunks.map((c) => {
       const live = now >= c.from && now < c.to;
-      const col = c.kind === 'work' ? `rgba(255,99,82,${live ? 0.78 : 0.58})` : `rgba(62,214,160,${live ? 0.85 : 0.68})`;
+      const col = c.kind === 'work' ? `rgba(255,122,102,${live ? 1 : 0.9})` : `rgba(72,224,172,${live ? 1 : 0.9})`;
       return `${col} ${(c.from / total) * 100}%, ${col} ${(c.to / total) * 100}%`;
     });
-    if (!bands.length) return;
+    const rail = h('div', { class: 'pomo-rail' });
+    rail.style.backgroundImage = `linear-gradient(to bottom, ${stops.join(', ')})`;
+    const bands = h('div', { class: 'pomo-bands' }, chunks.filter((c) => c.kind === 'rest').map((c) =>
+      h('i', { class: now >= c.from && now < c.to ? 'live' : '', css: { top: `${(c.from / total) * 100}%`, height: `${((c.to - c.from) / total) * 100}%` } })));
     arg.el.classList.add('pomo');
-    arg.el.style.backgroundImage = `linear-gradient(to bottom, ${bands.join(', ')})`;
+    arg.el.prepend(bands);
+    arg.el.append(rail);
   }
 
   async function onMove(info) {
@@ -1403,6 +1425,36 @@
       info.revert();
       toast(err.message, 'error');
     }
+  }
+
+  /** Why a block cannot be moved (null when nothing is known): said when someone tries to drag it. */
+  const lockedWhy = (src) => (src?.kind === 'task' && src.mirror ? 'This task follows a calendar entry for the Pi. Move the entry instead.'
+    : src?.kind === 'event' && !src.writable ? `"${src.calendarName}" is read-only here, so this cannot be moved.` : null);
+
+  // A block that cannot be moved says why, instead of just not budging (a drag with the mouse; a long press on a phone).
+  function explainLocked() {
+    let press = null, timer = 0;
+    const say = () => {
+      if (!press) return;
+      const why = lockedWhy(calendar.getEventById(press.id)?.extendedProps.src);
+      press = null;
+      clearTimeout(timer);
+      if (why) toast(why, 'warn');
+    };
+    $('#calendar').addEventListener('pointerdown', (e) => {
+      const el = e.target.closest?.('.fc-event[data-eid]');
+      if (!el || el.classList.contains('fc-event-draggable') || e.button) { press = null; return; }
+      press = { x: e.clientX, y: e.clientY, id: el.dataset.eid, touch: e.pointerType === 'touch' };
+      clearTimeout(timer);
+      if (press.touch) timer = setTimeout(say, 600);
+    });
+    document.addEventListener('pointermove', (e) => {
+      if (!press) return;
+      if (Math.hypot(e.clientX - press.x, e.clientY - press.y) < (press.touch ? 8 : 10)) return;
+      if (press.touch) { press = null; clearTimeout(timer); return; } // a swipe is scrolling, not a drag
+      say();
+    });
+    for (const type of ['pointerup', 'pointercancel']) document.addEventListener(type, () => { press = null; clearTimeout(timer); });
   }
 
   /** A task's block stretched by an edge: its new start and length are kept; undo puts both back. */
@@ -1551,6 +1603,7 @@
       },
     });
     calendar.render();
+    explainLocked();
     swipeToChangeDates($('#calendar'));
     touchDragWatchdog();
     if (!MOBILE) {

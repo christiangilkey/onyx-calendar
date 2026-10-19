@@ -277,3 +277,17 @@ test('too many links at once are held back', async () => {
   }
   assert.ok(failed >= 6, `held back ${failed}`);
 });
+
+test('a ticked-off task can be moved on the calendar and keeps its tick', async () => {
+  reset();
+  await inbox();
+  const t = await hub.createTask({ title: 'Check UA time', due: ymd(day(0)) });
+  await hub.updateTask(t.id, { done: true });
+  const moved = await hub.moveTask(t.id, { start: day(1, 10, 0).toISOString() });
+  assert.equal(moved.done, true, 'still ticked off');
+  assert.equal(moved.date, ymd(day(1)));
+  assert.match(moved.title, /10(:00)? ?am|10:00/i);
+  const again = await hub.moveTask(t.id, { date: ymd(day(2)) });
+  assert.equal(again.date, ymd(day(2)));
+  assert.equal(again.done, true);
+});

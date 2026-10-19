@@ -3688,6 +3688,8 @@
       body: h('div', { class: 'fs-body', hidden: true, role: 'status' }),
       buddy: bodyDouble(),
       sound: h('button', { class: 'icon-btn', onclick: () => toggleSound() }),
+      pomo: h('div', { class: 'fs-pomo', hidden: true }),
+      breaks: h('div', { class: 'fs-disc-breaks' }),
     };
     const capture = h('input', { type: 'text', class: 'fs-capture-in', spellcheck: true, placeholder: 'Not now: park a stray thought for later, and press Enter' });
     capture.addEventListener('keydown', async (e) => {
@@ -3711,7 +3713,7 @@
       addStep.value = '';
       drawFocusSteps();
     });
-    p.disc.append(h('div', { class: 'fs-disc-in' }, p.left, p.until));
+    p.disc.append(p.breaks, h('div', { class: 'fs-disc-in' }, p.left, p.until));
     focus.el = h('div', { class: 'focus-screen', role: 'dialog', 'aria-label': 'Hyperfocus', css: { '--c': s.entry.color || 'var(--accent)' } },
       h('div', { class: 'fs-top' }, icon('target'), h('b', null, 'Hyperfocus'),
         h('span', { class: 'fs-top-stop' }, `Hard stop ${fmtTime(new Date(s.plannedEnd))}${s.escalate ? ' · your phone too' : ''}`),
@@ -3723,6 +3725,7 @@
           h('div', { class: 'fs-label' }, 'Goal'), p.goal,
           p.now, p.step,
           s.ifThen && h('div', { class: 'fs-ifthen' }, s.ifThen),
+          p.pomo,
           p.hook,
           p.list, addStep)),
       h('div', { class: 'fs-capture' }, capture, p.parked),
@@ -3807,6 +3810,7 @@
     p.disc.style.setProperty('--timer-p', Math.max(0, Math.min(1, left / (s.plannedEnd - s.startedAt))).toFixed(4));
     p.left.textContent = left >= 3600000 ? shortCount(left) : countdown(left).replace(/^00m /, '');
     p.until.textContent = `until ${fmtTime(new Date(s.plannedEnd))}`;
+    drawFocusPomodoro(now);
     if (s.hook === 'race') {
       const raceLeft = s.stepSince + FOCUS_RACE_MIN * 60000 - now;
       p.hook.textContent = raceLeft > 0 ? `Race the clock: ${countdown(raceLeft)} to beat for this step` : `Past the ${FOCUS_RACE_MIN} minutes by ${countdown(-raceLeft)}. Tick it off and race the next one`;
@@ -3824,6 +3828,71 @@
       if (s.plannedEnd - now < 3 * 60000) s.body.over = true; // no more this session
       else if (p.ceiling.hidden && p.body.hidden) showBodyCheck();
     }
+  }
+
+  /**
+   * A pomodoro during Hyperfocus: the session's own block when it has one, else whichever pomodoro
+   * is running now. A bar under the step (work or break, the round, the time to the next switch,
+   * and every round as a segment) and its breaks marked on the ring, in a deeper shade of the colour.
+   */
+  function drawFocusPomodoro(now) {
+    const s = focus.s, p = focus.parts;
+    const at = new Date(now);
+    const running = pomoRun.blocks.filter((e) => !pomoRun.dismissed.has(`${e.id}|${e.start}`) && pomodoroPhase(e, at));
+    const ids = [s.entry.id, s.entry.src?.seriesId].filter(Boolean);
+    const e = running.find((x) => ids.includes(x.id) || ids.includes(x.seriesId)) || running[0];
+    const ph = e && pomodoroPhase(e, at);
+    p.pomo.hidden = !ph;
+    focus.el.classList.toggle('pomo-rest', ph?.kind === 'rest');
+    if (!ph) { p.breaks.style.background = ''; p.pomoKey = ''; return; }
+    const start = Date.parse(e.start), total = (Date.parse(e.end) - start) / 60000;
+    const chunks = pomodoroChunks(total, e.pomodoro);
+
+    // The breaks still ahead, on the ring: angle 0 is the hard stop, the ring's edge is now.
+    const span = s.plannedEnd - s.startedAt, turn = (t) => Math.max(0, Math.min(1, (s.plannedEnd - t) / span));
+    const rest = getComputedStyle(focus.el).getPropertyValue('--pomo-rest').trim() || 'rgba(0,0,0,.45)';
+    const wedges = chunks.filter((c) => c.kind === 'rest')
+      .map((c) => [turn(Math.min(s.plannedEnd, start + c.to * 60000)), turn(Math.max(now, start + c.from * 60000))])
+      .filter(([a, b]) => b - a > 0.001)
+      .sort((x, y) => x[0] - y[0]);
+    let grad = [], from = 0;
+    for (const [a, b] of wedges) {
+      grad.push(`transparent ${from}turn ${a}turn`, `${rest} ${a}turn ${b}turn`);
+      from = b;
+    }
+    p.breaks.style.background = wedges.length ? `conic-gradient(${grad.join(', ')}, transparent ${from}turn 1turn)` : '';
+
+    // The bar: built once for each block, then only its numbers change.
+    const key = `${e.id}|${e.start}|${e.pomodoro.work}|${e.pomodoro.rest}`;
+    if (p.pomoKey !== key) {
+      p.pomoKey = key;
+      p.pomoParts = {
+        kind: h('span', { class: 'fs-pomo-kind' }), round: h('span', { class: 'fs-pomo-round' }), left: h('span', { class: 'fs-pomo-left' }),
+        segs: chunks.map((c) => h('i', { class: c.kind, css: { 'flex-grow': String(c.to - c.from) } }, h('b'))),
+        idea: h('div', { class: 'fs-pomo-idea' }),
+      };
+      const q = p.pomoParts;
+      p.pomo.replaceChildren(
+        h('div', { class: 'fs-pomo-head' }, q.kind, q.round, q.left),
+        h('div', { class: 'fs-pomo-track', 'aria-hidden': 'true' }, ...q.segs),
+        q.idea);
+    }
+    const q = p.pomoParts, t = (now - start) / 60000;
+    const next = chunks[ph.index + 1];
+    p.pomo.className = `fs-pomo ${ph.kind}`;
+    q.kind.textContent = ph.kind === 'work' ? 'Work' : 'Break';
+    q.round.textContent = `Round ${ph.round} of ${ph.rounds}`;
+    const secs = Math.max(0, Math.ceil(ph.left / 1000));
+    const clock = `${Math.floor(secs / 60)}:${pad(secs % 60)}`;
+    q.left.textContent = !next ? `${clock} to the end of the block` : next.kind === 'rest' ? `break in ${clock}` : `back to work in ${clock}`;
+    chunks.forEach((c, i) => {
+      const done = Math.max(0, Math.min(1, (t - c.from) / (c.to - c.from)));
+      q.segs[i].style.setProperty('--fill', `${(done * 100).toFixed(2)}%`);
+      q.segs[i].classList.toggle('cur', i === ph.index);
+    });
+    const idea = ph.kind === 'rest' ? (OnyxFocus.breakIdea(e.pomodoro.activities, ph.round) || OnyxFocus.breakIdea(s.breakIdeas, ph.round)) : '';
+    q.idea.hidden = !idea;
+    q.idea.textContent = idea ? `Try: ${idea}` : '';
   }
 
   /** A quiet nudge for the body: a soft note and a small card that goes by itself. */

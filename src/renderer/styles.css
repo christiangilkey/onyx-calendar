@@ -1829,3 +1829,28 @@ body.mobile .fs-start { flex: 1; }
 @media (hover: none) { .icon-btn:hover:not(.on) { background: transparent; } }
 /* On a phone the sheet closes with back or a tap outside: no Cancel button taking a row of its own. */
 body.mobile #popover > .pop-actions > .btn.ghost:not(.focus-btn) { display: none; }
+
+/* ------------------------------------------------------------ a pomodoro during Hyperfocus */
+.focus-screen { --pomo-rest: color-mix(in srgb, var(--c) 38%, #101116); }
+.fs-disc-breaks { position: absolute; inset: 0; border-radius: 50%; pointer-events: none; }
+.fs-disc-in { position: relative; z-index: 1; }
+.fs-pomo { display: grid; gap: 9px; margin-top: 10px; max-width: 520px; padding: 12px 14px 13px; border-radius: 16px; background: #0b0c10; border: 1px solid var(--line); }
+.fs-pomo-head { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); min-width: 0; }
+.fs-pomo-kind {
+  font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding: 3px 9px; border-radius: 999px;
+  color: color-mix(in srgb, var(--c) 70%, #fff); background: color-mix(in srgb, var(--c) 18%, transparent);
+}
+.fs-pomo.rest .fs-pomo-kind { color: color-mix(in srgb, var(--c) 40%, #fff); background: var(--pomo-rest); }
+.fs-pomo-left { margin-left: auto; color: var(--soft); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fs-pomo-track { display: flex; gap: 4px; height: 8px; }
+.fs-pomo-track i { position: relative; flex-basis: 0; min-width: 4px; border-radius: 999px; overflow: hidden; background: color-mix(in srgb, var(--c) 14%, #15161b); }
+.fs-pomo-track i.rest { background: color-mix(in srgb, var(--c) 7%, #121318); }
+.fs-pomo-track i b { position: absolute; inset: 0 auto 0 0; width: var(--fill, 0%); border-radius: inherit; background: color-mix(in srgb, var(--c) 55%, #fff); transition: width 1s linear; }
+.fs-pomo-track i.rest b { background: var(--pomo-rest); }
+.fs-pomo-track i.cur { box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 45%, transparent), 0 0 14px color-mix(in srgb, var(--c) 30%, transparent); }
+.fs-pomo-idea { font-size: 14px; color: var(--soft); }
+.fs-pomo-idea[hidden] { display: none; }
+/* On a break the ring rests too: a softer glow. */
+.focus-screen.pomo-rest .fs-disc { box-shadow: 0 0 60px color-mix(in srgb, var(--c) 10%, transparent); }
+body.mobile .fs-pomo { max-width: none; }
+body.mobile .fs-pomo-head { flex-wrap: wrap; row-gap: 6px; }

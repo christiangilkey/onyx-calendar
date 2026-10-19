@@ -1607,6 +1607,8 @@ body.mobile #magic-fab .magic-count { position: absolute; top: -6px; right: -6px
 /* ------------------------------------------------------------ panels always fit the window */
 /* A panel never runs off the screen: taller than the window, it scrolls, and its buttons stay pinned at its bottom. */
 #popover { max-height: calc(100vh - 68px); overflow-y: auto; overscroll-behavior: contain; }
+/* Taller than the window, it scrolls: its rows keep their own height (a column of flex items would otherwise be squeezed, the name box down to a sliver). */
+#popover > * { flex-shrink: 0; }
 #popover > .pop-actions {
   position: sticky; bottom: -14px; z-index: 3; margin: 2px -14px -14px; padding: 10px 14px 14px;
   background: #0e0e10; border-radius: 0 0 14px 14px;

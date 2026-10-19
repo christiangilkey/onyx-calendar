@@ -164,6 +164,15 @@ const handlers = {
   // Breakdown (the hammer): a task split into steps, 1 (broad) to 5 (micro-steps).
   'ai:breakdown': (title, opts) => ai.breakdown(title, opts),
   'ai:key': withState((key) => ai.setKey(key)),
+  // Hyperfocus: a finished session goes in the log (focus.js); the log is read back by date.
+  'focus:log': (session) => require('./focus').logSession(session),
+  'focus:sessions': (range) => require('./focus').sessions(range),
+  // The session running now: its stop can reach the phone until it is answered.
+  'focus:start': (session) => require('./focus').startActive(session),
+  'focus:end': () => require('./focus').endActive(),
+  // What the log shows (the best hours), and what to do next for a change of pace.
+  'focus:insights': () => require('./focus').insights(),
+  'focus:next': (info) => require('./focus').suggestions(info),
   // Magic add: describe the day's tasks, get them placed in the free time (replan: the same tasks, changed).
   'magic:plan': (text, date, opts, inboxIds) => require('./magic').planDay(text, date, opts, inboxIds),
   'magic:replan': (tasks, travel, date, opts) => require('./magic').replan(tasks, travel, date, opts),
@@ -178,6 +187,11 @@ const handlers = {
 const PHONE_SETTINGS = ['hidden', 'hour12', 'weekStart', 'defaultCalendar', 'pi', 'magic'];
 const PC_ONLY = new Set(['pairing', 'desktops', 'desktops:invite', 'desktops:cancel', 'desktops:join', 'desktops:leave', 'desktops:forget']);
 const remote = Object.fromEntries(Object.entries(handlers).filter(([name]) => !PC_ONLY.has(name)));
+remote.events = async (start, end, force) => {
+  const res = await handlers.events(start, end, force);
+  const extra = require('./focus').phoneItems(start, end);
+  return extra.length ? { ...res, events: [...res.events, ...extra] } : res;
+};
 remote.settings = (patch) => changeSettings(Object.fromEntries(Object.entries(patch || {}).filter(([k]) => PHONE_SETTINGS.includes(k))));
 
 module.exports = { handlers, remote, state, setGoogleClient, afterAccountChange, onSettingsChanged: (fn) => { afterSettings = fn; } };

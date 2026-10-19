@@ -381,6 +381,7 @@
   }
 
   function announce(e, p, first) {
+    if (focusHold()) { holdFor(e.title); return; }
     chime(p.kind);
     const title = first ? `Pomodoro: ${e.title}` : p.kind === 'work' ? `Back to work: ${e.title}` : `Rest: ${e.title}`;
     const body = `${p.kind === 'work' ? 'Work' : 'Rest'} for ${Math.round(p.length)} min (round ${p.round} of ${p.rounds})`;
@@ -462,6 +463,7 @@
   }
 
   function cue(e, starting) {
+    if (focusHold()) { holdFor(e.title); return; }
     const title = starting ? `Starting now: ${e.title}` : `In ${NEXT_WARN_MIN} minutes: ${e.title}`;
     if (nextSoundOn()) (starting ? chime('work') : warnTone());
     toast(title);
@@ -738,6 +740,7 @@
   }
 
   function showPopup(a) {
+    if (focusHold()) { holdFor(a.title); return; } // a Hyperfocus session: only its own exits sound
     if (onyx.alert && !onyx.isPhone) onyx.alert(a).catch(() => showAlertOverlay(a));
     else showAlertOverlay(a);
   }
@@ -853,6 +856,7 @@
     const leave = h('div', { class: 'ac-leave' });
     const draw = () => {
       const now = Date.now();
+      if (a.whenText) { when.textContent = a.whenText; return; }
       when.textContent = `${start - now > 30000 ? `Starts in ${untilText(start - now)} · ` : ''}${fmtTime(start)}${a.calendar ? ` · ${a.calendar}` : ''}`;
       if (leaveAt) {
         const left = leaveAt - now;
@@ -862,13 +866,14 @@
     draw();
     const timer = setInterval(draw, 1000);
     let stepsTimer = null;
-    const close = (action) => {
+    const close = (action, detail) => {
       clearInterval(timer);
       clearInterval(stepsTimer);
       if (overlayRing) { clearInterval(overlayRing); overlayRing = null; }
       shade.classList.add('leaving');
       setTimeout(() => shade.remove(), 220);
-      if (action !== 'dismiss') popupAction({ action, alert: a });
+      if (a.onAction) a.onAction(action, detail);
+      else if (action !== 'dismiss') popupAction({ action, alert: a });
     };
     const actions = h('div', { class: 'ac-actions' },
       h('button', { class: 'ac-btn go', onclick: () => close('leaving') }, h('span', { class: 'e' }, '🚀'), 'Leaving now'),
@@ -897,14 +902,55 @@
       tick();
       stepsTimer = setInterval(tick, 1000);
     };
-    const KIND = { call: ['phone', 'Reminder call'], push: ['bell', 'Heads up'], leave: ['leave', 'Time to get going'] };
+    // The end of a Hyperfocus session: where you are and the next step, saved into the entry's notes.
+    const exitBox = a.kind === 'focus' && (() => {
+      let present = false;
+      const quiet = () => {
+        if (overlayRing) { clearInterval(overlayRing); overlayRing = null; }
+        if (!present) { present = true; a.onPresent?.(); }
+      };
+      const where = notesField('', 'What is done, what is half-done, what you were thinking');
+      const next = notesField(a.nextStep || '', 'The very first thing to do when you come back');
+      for (const box of [where, next]) box.addEventListener('input', quiet);
+      // How deep it went (1 to 5), for the log: later it shows the hours you focus best.
+      let rating = null;
+      const rate = h('div', { class: 'ac-rate', role: 'radiogroup', 'aria-label': 'How deep did you get?' }, RATINGS.map((label, i) => h('button', {
+        type: 'button', class: 'ac-rate-btn', role: 'radio', 'aria-checked': 'false', title: label,
+        onclick: (ev) => {
+          quiet();
+          rating = rating === i + 1 ? null : i + 1;
+          for (const b of rate.children) { const on = b === ev.currentTarget && rating; b.classList.toggle('on', !!on); b.setAttribute('aria-checked', String(!!on)); }
+          rateLabel.textContent = rating ? RATINGS[rating - 1] : '';
+        },
+      }, String(i + 1))));
+      const rateLabel = h('small', { class: 'ac-rate-label' });
+      const save = () => close('save', { where: where.value, next: next.value, rating });
+      next.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) save(); });
+      setTimeout(() => where.focus(), 80);
+      return h('div', { class: 'ac-exit' },
+        h('label', null, h('span', null, 'Where I am'), where),
+        h('label', null, h('span', null, 'Next step'), next),
+        h('div', { class: 'ac-rate-row' }, h('span', null, 'How deep did you get?'), rate, rateLabel),
+        h('div', { class: 'ac-actions' },
+          h('button', { class: 'ac-btn go', onclick: () => { quiet(); save(); } }, h('span', { class: 'e' }, '📝'), 'Save to the notes and wind down'),
+          h('button', { class: 'ac-btn', onclick: () => { quiet(); close('skip', { rating }); } }, 'Skip the note')));
+    })();
+    const KIND = { call: ['phone', 'Reminder call'], push: ['bell', 'Heads up'], leave: ['leave', 'Time to get going'], focus: ['target', a.early ? 'Stopping here' : 'Hard stop: time is up'] };
     const [ico, label] = KIND[a.kind] || KIND.leave;
     const card = h('div', { class: `action-card ${a.kind}`, 'data-key': a.key, css: { '--c': a.color || 'var(--accent)' } },
       h('div', { class: 'alert-head' }, icon(ico), h('span', null, a.snoozed ? 'Reminder (snoozed)' : label), h('span', { class: 'grow' }),
-        h('button', { class: 'icon-btn', title: 'Close', onclick: () => close('dismiss') }, icon('x'))),
-      h('div', { class: 'ac-title' }, a.title), when, leaveAt && leave, actions, stepsBox);
+        !exitBox && h('button', { class: 'icon-btn', title: 'Close', onclick: () => close('dismiss') }, icon('x'))),
+      h('div', { class: 'ac-title' }, a.title), when, leaveAt && leave, exitBox || [actions, stepsBox]);
     const shade = h('div', { class: 'action-shade' }, card);
     document.body.append(shade);
+    if (exitBox) {
+      // The exit is meant to be heard: the bell, again every 20 seconds until something is written or pressed.
+      clearInterval(overlayRing);
+      let rings = 0;
+      focusBell();
+      overlayRing = setInterval(() => { if (++rings >= 8) { clearInterval(overlayRing); overlayRing = null; } else focusBell(); }, 20000);
+      return;
+    }
     if (a.sound !== false) {
       if (a.kind === 'call') {
         clearInterval(overlayRing);
@@ -1593,6 +1639,7 @@
     const item = (label, run, off) => h('button', { class: 'ctx-item', disabled: !!off, onclick: () => { closeMenu(); run(); } }, label);
     const menu = h('div', { class: 'ctx-menu', role: 'menu' },
       src && item('Open', () => (src.kind === 'task' ? openTask(tasks.find((t) => t.id === src.id) || { id: src.id, title: src.title, label: src.title, listName: src.calendarName }, pointRect(e)) : openEditor({ src, start: toDate(src.start), end: toDate(src.end), allDay: src.allDay }, pointRect(e)))),
+      src && !MOBILE && !src.mirror && item('Hyperfocus…', () => openFocusSetup(focusEntry(src))),
       src && item('Copy   Ctrl+C', () => copyEntry(src)),
       src && item('Duplicate', () => { clip.entry = src; const d = toDate(src.start); pasteEntry({ day: ymd(addDays(d, src.allDay ? 1 : 0)), time: src.allDay ? null : hm(new Date(d.getTime() + Math.max(15 * 60000, toDate(src.end) - d))) }); }),
       item(`Paste here   Ctrl+V${clip.entry ? `: ${clip.entry.title}` : ''}`, () => pasteEntry(slot), !clip.entry || !slot));
@@ -2375,6 +2422,7 @@
       repeatField && h('div', { class: 'row top recur-row' }, icon('repeat'), repeatField.el),
       notes && h('div', { class: 'row top' }, icon('note'), notes),
       readOnly && src.notes && h('div', { class: 'row top pop-meta' }, icon('note'), h('div', { class: 'note-text' }, src.notes)),
+      !readOnly && src?.memo && h('div', { class: 'row top pop-meta', title: 'Your notes, kept in Onyx' }, icon('note'), h('div', { class: 'note-text' }, src.memo)),
       memo && h('div', { class: 'row top' }, icon('note'), memo),
       h('div', { class: 'row' }, icon('tag'), tags.el),
       // The hammer, as on a task: its steps go into the notes (yours, on a read-only calendar) or become tasks that day.
@@ -2394,6 +2442,7 @@
           icon('check'), src.done ? 'Not done' : 'Complete'),
         src && !readOnly && h('button', { class: 'btn danger', title: src.seriesId ? 'Delete every repeat' : null, onclick: () => remove('all') }, icon('trash'), src.seriesId ? 'Delete all' : 'Delete'),
         src?.seriesId && !readOnly && h('button', { class: 'btn', title: 'Take just this day off; the others stay', onclick: () => remove('one') }, 'Skip this day'),
+        src && !src.done && focusButton(src),
         h('div', { class: 'grow' }),
         h('button', { class: 'btn ghost', onclick: () => closePopover() }, 'Cancel'),
         h('button', { class: 'btn primary', onclick: save }, src ? 'Save' : 'Add block')),
@@ -3120,6 +3169,7 @@
           let back = null;
           recordAction(`Deleted "${t.label || t.title}"`, async () => { back = await onyx.createTask(copy); }, () => onyx.deleteTask(back.id));
         }); } }, icon('trash'), 'Delete'),
+        !t.mirror && focusButton(t),
         h('div', { class: 'grow' }),
         h('button', { class: 'btn primary', onclick: save }, 'Save')),
     ]);
@@ -3178,6 +3228,700 @@
     };
     return h('div', { class: 'row top breakdown-row' }, icon('hammer'),
       h('div', { class: 'txt' }, h('div', { class: 'breakdown-head' }, h('b', null, 'Breakdown'), hammers, go), out));
+  }
+
+  // ------------------------------------------------------------ hyperfocus
+  // A session on one thing, set up in advance: one goal, a tiny first step, an if-then plan,
+  // a hard stop picked before starting, a sound, and a clear way out. While it runs, Onyx's own
+  // popups and chimes are held; only the exits sound (the soft check-in, the hard stop). At the
+  // end, "where I am / next step" goes into the entry's notes, then a short wind-down.
+  // The planning half (stop times, quick tasks, the note) is focus-plan.js.
+
+  const FOCUS_WIND_MIN = 5;
+  const FOCUS_RACE_MIN = 10;   // "race the clock": minutes to beat for each step
+  const FOCUS_CEILINGS = [30, 45, 60, 90, 0];
+  const PREFLIGHT = [['water', '💧', 'Water'], ['snack', '🍎', 'Snack'], ['bathroom', '🚻', 'Bathroom'], ['phone', '📵', 'Phone away']];
+  const FOCUS_BODY = [20, 30, 45, 60, 0];
+  const SOUNDS = [['brown', 'Brown noise'], ['pink', 'Pink noise'], ['white', 'White noise'], ['rain', 'Rainforest rain'], ['waves', 'Beach waves'], ['spotify', 'Spotify playlist'], ['none', 'None']];
+  const RATINGS = ['Couldn\'t settle', 'On and off', 'Steady', 'Deep', 'Lost in it'];
+  const focus = { s: null, el: null, parts: null, timer: 0, held: [] };
+  const focusHold = () => !!focus.s;
+  const readFocusPrefs = () => {
+    const base = { sound: 'pink', volume: 35, hook: 'none', ceiling: 45, length: 90, body: 30, escalate: true, spotify: '' };
+    try { return { ...base, ...JSON.parse(localStorage.getItem('onyx.hyperfocus') || '{}') }; } catch { return base; }
+  };
+  const saveFocusPrefs = (p) => { try { localStorage.setItem('onyx.hyperfocus', JSON.stringify(p)); } catch { /* this visit only */ } };
+
+  /** A popup, chime or toast that came while focusing: not shown, but listed in the wind-down. */
+  function holdFor(title) {
+    if (title && !focus.held.includes(title)) focus.held.push(title);
+  }
+
+  // ---- the sound: noise, rain or waves made here (WebAudio, focus-plan.js), looped, faded in
+  // and out. A Spotify playlist plays in Spotify instead.
+
+  const noise = { src: null, gain: null, kind: 'none', buffers: {} };
+  function playNoise(kind, volume) {
+    if (kind === 'none' || kind === 'spotify' || !volume) { stopNoise(); return; }
+    try {
+      const ctx = chime.ctx || (chime.ctx = new AudioContext());
+      ctx.resume?.();
+      if (noise.kind !== kind || !noise.src) {
+        stopNoise(true);
+        let buf = noise.buffers[kind];
+        if (!buf) {
+          const data = OnyxFocus.soundBuffer(kind, ctx.sampleRate);
+          buf = noise.buffers[kind] = ctx.createBuffer(1, data.length, ctx.sampleRate);
+          buf.getChannelData(0).set(data);
+        }
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        src.loop = true;
+        const gain = ctx.createGain();
+        gain.gain.value = 0.0001;
+        src.connect(gain).connect(ctx.destination);
+        src.start();
+        Object.assign(noise, { src, gain, kind });
+      }
+      noise.gain.gain.setTargetAtTime(OnyxFocus.noiseGain(volume), ctx.currentTime, 0.25);
+    } catch { /* no sound: the session still runs */ }
+  }
+  function stopNoise(now) {
+    if (!noise.src) return;
+    const { src, gain } = noise;
+    Object.assign(noise, { src: null, gain: null, kind: 'none' });
+    try {
+      const t = chime.ctx.currentTime;
+      gain.gain.setTargetAtTime(0.0001, t, now ? 0.01 : 0.6);
+      src.stop(t + (now ? 0.05 : 3));
+    } catch { /* already stopped */ }
+  }
+
+  /** The exit bell: three soft, falling notes, clearly not one of the usual chimes. */
+  function focusBell() {
+    try {
+      const ctx = chime.ctx || (chime.ctx = new AudioContext());
+      ctx.resume?.();
+      [784, 659.25, 523.25].forEach((f, i) => {
+        for (const [mult, vol] of [[1, 0.24], [2, 0.05]]) {
+          const o = ctx.createOscillator(), g = ctx.createGain(), t0 = ctx.currentTime + i * 0.42;
+          o.type = 'sine';
+          o.frequency.value = f * mult;
+          g.gain.setValueAtTime(0.0001, t0);
+          g.gain.exponentialRampToValueAtTime(vol, t0 + 0.02);
+          g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.6);
+          o.connect(g).connect(ctx.destination);
+          o.start(t0);
+          o.stop(t0 + 1.65);
+        }
+      });
+    } catch { /* the card still shows */ }
+  }
+
+  /** A body check: one very soft low note, quieter than any other sound Onyx makes. */
+  function bodyTone() {
+    try {
+      const ctx = chime.ctx || (chime.ctx = new AudioContext());
+      ctx.resume?.();
+      const o = ctx.createOscillator(), g = ctx.createGain(), t0 = ctx.currentTime;
+      o.type = 'sine';
+      o.frequency.value = 440;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.07, t0 + 0.08);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.4);
+      o.connect(g).connect(ctx.destination);
+      o.start(t0);
+      o.stop(t0 + 1.45);
+    } catch { /* the card still shows */ }
+  }
+
+  /** How a stop reaches the phone, the way Settings → Calls & alerts is set: { ok, text }. */
+  function focusReach() {
+    const c = S.calls || {};
+    const m = c.method || 'alarm';
+    if (m === 'alarm') return { ok: true, text: 'Your phone rings a full-screen alarm at the hard stop (the Onyx app on your phone). Stop early and it is taken back within a few minutes.' };
+    if (m === 'ntfy') return c.ntfyTopic ? { ok: true, text: 'If the stop is not answered here within 2 minutes, an urgent push goes to your phone (ntfy).' } : { ok: false, text: 'Pick an ntfy topic first, in Settings → Calls & alerts.' };
+    if (m === 'twilio') return c.twilioSid && c.twilioToken && c.twilioFrom && c.callTo ? { ok: true, text: 'If the stop is not answered here within 2 minutes, your phone rings (a call from your Twilio number).' } : { ok: false, text: 'Finish the Twilio set-up first, in Settings → Calls & alerts.' };
+    const every = S.settings.pi?.checkEvery || 30;
+    return { ok: true, text: `If the stop is not answered here within 2 minutes, the Raspberry Pi phones you. It looks every ${every} minutes, so the call can come up to ${every} minutes later.` };
+  }
+
+  // ---- the setup sheet
+
+  /** What a session is about, from a task or a calendar entry. */
+  function focusEntry(x) {
+    if (x.kind === 'task' || 'listId' in x) {
+      const t = tasks.find((y) => y.id === x.id) || x;
+      const start = t.start ? new Date(t.start) : null;
+      return { id: t.id, kind: 'task', title: t.label || t.title, notes: t.notes || '', start: t.start || null,
+        end: start && t.minutes ? new Date(start.getTime() + t.minutes * 60000).toISOString() : null, color: t.color, task: t };
+    }
+    return { id: x.id, kind: 'event', title: x.title, notes: notesOf(x), start: x.start, end: x.end, allDay: !!x.allDay, color: x.color, src: x };
+  }
+
+  const focusButton = (x) => !MOBILE && h('button', { class: 'btn focus-btn', title: 'Hyperfocus: one goal, a hard stop, and Onyx goes quiet until then',
+    onclick: () => { closePopover(); openFocusSetup(focusEntry(x)); } }, icon('target'), 'Hyperfocus');
+
+  function openFocusSetup(entry, ask = {}) {
+    if (focus.s) { toast('A Hyperfocus session is already running.'); return; }
+    if (graph.on) closeGraph();
+    closeDrawers();
+    const prefs = readFocusPrefs();
+    const F = OnyxFocus;
+    const lastTime = F.lastLeftOff(entry.notes);
+    let steps = F.notesSteps(entry.notes);
+
+    const goal = h('input', { type: 'text', class: 'fs-in big', value: entry.title, spellcheck: true, placeholder: 'What this session is for' });
+    const first = h('input', { type: 'text', class: 'fs-in', spellcheck: true, placeholder: 'The smallest thing that starts it (open the file, write one line…)',
+      value: lastTime?.next || F.currentStep(steps)?.text || '' });
+    const ifThen = h('input', { type: 'text', class: 'fs-in', value: F.IF_THEN, spellcheck: true });
+    // Typing straight into the blank: the ___ is picked when the box is clicked.
+    ifThen.addEventListener('focus', () => { const i = ifThen.value.indexOf('___'); if (i >= 0) setTimeout(() => ifThen.setSelectionRange(i, i + 3), 0); });
+    const stepList = h('ol', { class: 'fs-steplist' });
+    const drawSteps = () => {
+      stepList.hidden = steps.length < 2;
+      stepList.replaceChildren(...steps.slice(0, 12).map((s) => h('li', { class: s.done ? 'done' : '' }, s.text)));
+    };
+    drawSteps();
+    const hammer = S.ai?.ready && h('button', { type: 'button', class: 'btn', title: 'Breakdown: Claude splits it into tiny micro-steps; the first one is the first step', onclick: () => breakItDown() }, icon('hammer'), 'Break it down');
+    const breakItDown = async () => {
+      hammer.disabled = true;
+      hammer.replaceChildren(icon('hammer'), 'Breaking it down…');
+      try {
+        const out = await onyx.breakdown(goal.value.trim() || entry.title, { level: 5, notes: entry.notes });
+        if (out.length) {
+          steps = out.map((text) => ({ text, done: false }));
+          if (!first.value.trim() || first.dataset.auto) { first.value = steps[0].text; first.dataset.auto = '1'; }
+          drawSteps();
+        }
+      } catch (err) {
+        toast(err.message, 'error');
+      } finally {
+        hammer.disabled = false;
+        hammer.replaceChildren(icon('hammer'), 'Again');
+      }
+    };
+    first.addEventListener('input', () => delete first.dataset.auto);
+
+    // The hard stop: picked now, so the way out is decided before going in.
+    const own = entry.kind === 'event' ? { id: entry.id, start: entry.start, end: entry.end, kind: 'event', allDay: entry.allDay } : null;
+    const band = S.settings.buffers === false ? 0 : BUFFER_MIN;
+    const plan = F.stopOptions({ now: Date.now(), items: nextRun.items, own, band, length: ask.minutes || prefs.length });
+    let stopKey = ask.minutes && plan.options.some((o) => o.key === `len${ask.minutes}`) ? `len${ask.minutes}` : plan.pick;
+    // What the log shows: the hours you focus best (or how many more rated sessions until it can say).
+    const bestLine = h('div', { class: 'fs-best', hidden: true });
+    onyx.focusInsights?.().then((ins) => {
+      const hr = (n) => fmtTime(new Date(2000, 0, 1, n)).replace(':00', '');
+      if (ins.best) {
+        const nowH = new Date().getHours();
+        const inside = nowH >= ins.best.from && nowH < ins.best.to;
+        bestLine.replaceChildren(icon('sparkles'), h('span', null,
+          h('b', null, `Your deepest focus: ${hr(ins.best.from)} to ${hr(ins.best.to)}`),
+          ` (${ins.best.avg.toFixed(1)} out of 5, ${ins.best.count} sessions).`,
+          inside ? ' That is now.' : ins.now ? ` Sessions around now average ${ins.now.avg.toFixed(1)}.` : '',
+          ' Magic add plans focus work into those hours.'));
+      } else {
+        const left = Math.max(1, ins.needed - ins.rated);
+        bestLine.replaceChildren(icon('sparkles'), h('span', null, `Rate how deep each session went at the end: after ${left} more, Onyx shows the hours you focus best and plans focus work into them.`));
+      }
+      bestLine.hidden = false;
+    }).catch(() => {});
+    const stopHint = h('small', { class: 'fs-hint' });
+    const stopChips = h('div', { class: 'fs-chips' }, plan.options.map((o) => h('button', {
+      type: 'button', class: `fs-chip${o.pastNext ? ' warn' : ''}`, 'data-key': o.key,
+      onclick: () => { stopKey = o.key; drawStop(); },
+    }, o.kind === 'block' ? 'When this block ends' : o.kind === 'next' ? `Before "${o.next.title}"` : untilText(o.minutes * 60000),
+    h('small', null, fmtTime(new Date(o.at))))));
+    const drawStop = () => {
+      for (const b of stopChips.children) b.classList.toggle('on', b.dataset.key === stopKey);
+      const o = plan.options.find((x) => x.key === stopKey);
+      stopHint.textContent = !o ? 'Nothing fits before what comes next.'
+        : o.pastNext ? `${o.at > Date.parse(plan.next.start) ? 'Runs past the start of' : 'Leaves no transition before'} "${plan.next.title}" at ${fmtTime(new Date(plan.next.start))}. Its reminders are held until you stop.`
+        : o.kind === 'next' && o.at < Date.parse(o.next.start) ? `Stops at ${fmtTime(new Date(o.at))}, leaving the ${band} min transition before "${o.next.title}" free.`
+        : `A hard stop at ${fmtTime(new Date(o.at))}: ${untilText(o.at - Date.now())} from now.`;
+      stopHint.classList.toggle('warn', !!o?.pastNext);
+      canStart();
+    };
+    const canStart = () => {
+      const o = plan.options.find((x) => x.key === stopKey);
+      start.disabled = !o || (sound === 'spotify' && !F.spotifyLink(spotify.value));
+    };
+
+    // Sound: made in Onyx and heard straight away so the volume can be set, or a Spotify playlist.
+    let sound = SOUNDS.some(([k]) => k === prefs.sound) ? prefs.sound : 'pink';
+    const volume = h('input', { type: 'range', min: 5, max: 100, step: 1, value: prefs.volume, class: 'fs-volume', title: 'Volume' });
+    const soundChips = h('div', { class: 'fs-chips' }, SOUNDS.map(([k, label]) =>
+      h('button', { type: 'button', class: 'fs-chip', 'data-k': k, onclick: () => { sound = k; drawSound(true); } }, label)));
+    const spotify = h('input', { type: 'text', class: 'fs-in', value: prefs.spotify || '', spellcheck: false, placeholder: 'Paste a playlist link: in Spotify, Share → Copy link to playlist' });
+    const soundHint = h('small', { class: 'fs-hint' });
+    const SOUND_HINT = {
+      brown: 'A deep, low rumble, like a distant waterfall.', pink: 'Soft and even, gentler than white noise.', white: 'A bright, even hiss.',
+      rain: 'Steady rain on rainforest leaves. No birds, animal calls or thunder.', waves: 'Slow, smooth swells on a beach. No gulls and no crashing break.',
+    };
+    const drawSound = (play) => {
+      for (const b of soundChips.children) b.classList.toggle('on', b.dataset.k === sound);
+      volume.hidden = sound === 'none' || sound === 'spotify';
+      spotify.hidden = sound !== 'spotify';
+      const bad = sound === 'spotify' && spotify.value.trim() && !F.spotifyLink(spotify.value);
+      soundHint.textContent = sound === 'spotify' ? (bad ? 'That is not a Spotify link. Use Share → Copy link in Spotify.' : 'Opens in Spotify as the session starts. Pause it there when you stop.')
+        : SOUND_HINT[sound] || 'No sound.';
+      soundHint.classList.toggle('warn', !!bad);
+      if (play) playNoise(sound, +volume.value);
+      canStart();
+    };
+    volume.addEventListener('input', () => playNoise(sound, +volume.value));
+    spotify.addEventListener('input', () => drawSound(false));
+
+    // One hook to make it more interesting.
+    let hook = prefs.hook;
+    const HOOKS = [['race', 'Race the clock', `Beat ${FOCUS_RACE_MIN} minutes for each step`], ['next', 'Next event', 'A countdown to what comes next on the calendar'], ['none', 'None', 'Just the timer']];
+    const hookHint = h('small', { class: 'fs-hint' });
+    const hookSeg = h('div', { class: 'segmented' }, HOOKS.map(([k, label]) => h('button', { type: 'button', 'data-k': k, onclick: () => { hook = k; drawHook(); } }, label)));
+    const drawHook = () => {
+      for (const b of hookSeg.children) b.classList.toggle('on', b.dataset.k === hook);
+      hookHint.textContent = HOOKS.find((x) => x[0] === hook)[2];
+    };
+
+    const ceiling = h('select', { title: 'A soft chime asks "keep going?" after this long. It never stops the session.' },
+      FOCUS_CEILINGS.map((m) => h('option', { value: m, selected: m === prefs.ceiling }, m ? `After ${m} min` : 'Off')));
+    // Body checks: deep focus forgets the body (water, shoulders, eyes).
+    const body = h('select', { title: 'A quiet nudge every so often: water, shoulders, eyes. It goes by itself.' },
+      FOCUS_BODY.map((m) => h('option', { value: m, selected: m === prefs.body }, m ? `Every ${m} min` : 'Off')));
+    // Reach my phone: the stop also goes out the way reminders do (Settings → Calls & alerts).
+    const reach = focusReach();
+    let escalate = reach.ok && prefs.escalate !== false;
+    const reachHint = h('small', { class: 'fs-hint' });
+    const reachSeg = h('div', { class: 'segmented' }, [[true, 'On'], [false, 'Off']].map(([v, label]) =>
+      h('button', { type: 'button', 'data-v': String(v), disabled: v && !reach.ok, onclick: () => { escalate = v; drawReach(); } }, label)));
+    const drawReach = () => {
+      for (const b of reachSeg.children) b.classList.toggle('on', b.dataset.v === String(escalate));
+      reachHint.textContent = !reach.ok ? reach.text : escalate ? reach.text : 'Only the PC rings at the stop.';
+      reachHint.classList.toggle('warn', !reach.ok);
+    };
+
+    // Pre-flight: what usually pulls you out, sorted before starting.
+    const ready = new Set();
+    const preflight = h('div', { class: 'fs-chips' }, PREFLIGHT.map(([k, e, label]) => h('button', {
+      type: 'button', class: 'fs-chip pre', onclick: (ev) => { if (ready.has(k)) ready.delete(k); else ready.add(k); ev.currentTarget.classList.toggle('on', ready.has(k)); },
+    }, h('span', { class: 'e' }, e), label)));
+    // Today's quick ones (10 minutes or less), to clear first so they don't nag.
+    const quick = F.quickTasks(tasks, ymd(new Date()), { skipId: entry.kind === 'task' ? entry.id : null });
+    const quickBox = quick.length > 0 && h('div', { class: 'fs-quick' },
+      h('div', { class: 'fs-label' }, `Do these first · ${quick.length === 1 ? 'one quick task' : `${quick.length} quick tasks`} (10 min or less)`),
+      quick.slice(0, 6).map((t) => {
+        const row = h('div', { class: 'fs-quick-row' },
+          h('button', { type: 'button', class: 'fs-tick', title: 'Done', onclick: () => completeTask(t, row) }),
+          h('span', null, t.label || t.title), h('small', null, `${t.minutes} min`));
+        return row;
+      }));
+
+    const start = h('button', { class: 'btn primary fs-start', onclick: () => {
+      const o = plan.options.find((x) => x.key === stopKey);
+      if (!o) return;
+      const at = o.kind === 'length' ? Date.now() + o.minutes * 60000 : o.at;
+      const link = F.spotifyLink(spotify.value);
+      saveFocusPrefs({ sound, volume: +volume.value, hook, ceiling: +ceiling.value, length: o.kind === 'length' ? o.minutes : prefs.length,
+        body: +body.value, escalate: reach.ok ? escalate : prefs.escalate, spotify: link || prefs.spotify || '' });
+      const firstStep = first.value.trim();
+      const list = steps.map((s) => ({ ...s }));
+      if (firstStep && !list.some((s) => !s.done && s.text === firstStep)) list.unshift({ text: firstStep, done: false });
+      closeSettings(true);
+      startFocus({
+        entry, goal: goal.value.trim() || entry.title, firstStep, ifThen: ifThen.value.trim() === F.IF_THEN ? '' : ifThen.value.trim(),
+        steps: list, plannedEnd: at, stopKind: o.kind, sound: { kind: sound, volume: +volume.value, link: sound === 'spotify' ? link : null }, hook,
+        ceiling: { minutes: +ceiling.value, asks: [] }, preflight: [...ready], escalate: reach.ok && escalate,
+        body: { every: +body.value, shown: 0 },
+      });
+    } }, icon('target'), 'Start hyperfocus');
+
+    const field = (label, ...kids) => h('div', { class: 'fs-field' }, h('span', { class: 'fs-label' }, label), ...kids);
+    const sheet = h('div', { class: 'sheet magic focus-setup', css: { '--c': entry.color || 'var(--accent)' } }, h('div', { class: 'pane' },
+      h('button', { class: 'icon-btn close', onclick: () => closeSettings() }, icon('x')),
+      h('h3', { class: 'magic-h' }, icon('target'), 'Hyperfocus'),
+      h('p', { class: 'hint' }, 'Decide it all now, so there is nothing to decide once you are in. Onyx goes quiet until the stop you pick; only the check-in and the stop make a sound.'),
+      lastTime && h('div', { class: 'fs-last' }, h('b', null, 'Last time you left off: '), [lastTime.where, lastTime.next && `next, ${lastTime.next}`].filter(Boolean).join(' · ')),
+      field('Session goal', goal),
+      field('Tiny first step', h('div', { class: 'fs-row' }, first, hammer), stepList),
+      field('If-then plan', ifThen),
+      field('Hard stop', stopChips, stopHint),
+      bestLine,
+      field('Sound', soundChips, volume, spotify, soundHint),
+      h('div', { class: 'magic-grid' },
+        field('Hook', hookSeg, hookHint),
+        field('Reach my phone at the stop', reachSeg, reachHint)),
+      h('div', { class: 'magic-grid' },
+        field('Soft check-in', ceiling, h('small', { class: 'fs-hint' }, 'A chime asks: keep going, or stop here?')),
+        field('Body check', body, h('small', { class: 'fs-hint' }, 'A quiet nudge: water, shoulders, eyes.'))),
+      field('Pre-flight', preflight),
+      quickBox,
+      h('div', { class: 'magic-foot' }, h('button', { class: 'btn ghost', onclick: () => closeSettings() }, 'Cancel'), start)));
+    $('#modal').replaceChildren(sheet);
+    $('#modal').hidden = false;
+    drawStop();
+    drawSound(false);
+    drawHook();
+    drawReach();
+    setTimeout(() => (first.value ? start : first).focus({ preventScroll: true }), 50);
+    if (hammer && !first.value.trim() && steps.length < 2) breakItDown();
+  }
+
+  // ---- the focus screen
+
+  function startFocus(cfg) {
+    const now = Date.now();
+    focus.s = { ...cfg, startedAt: now, nextAsk: OnyxFocus.nextCeiling(now, cfg.ceiling.minutes), captured: 0, stepSince: now, phase: 'focus' };
+    focus.held = [];
+    document.body.classList.add('focus-on');
+    closePopover();
+    playNoise(cfg.sound.kind, cfg.sound.volume);
+    if (cfg.sound.link) onyx.open(cfg.sound.link).catch(() => {});
+    onyx.focusStart?.({ startedAt: now, plannedEnd: cfg.plannedEnd, goal: cfg.goal, escalate: cfg.escalate })
+      .then((r) => { if (r?.warning) toast(r.warning, 'error'); })
+      .catch((err) => { if (cfg.escalate) toast(`Your phone will not be reached: ${err.message}`, 'error'); });
+    buildFocusScreen();
+    clearInterval(focus.timer);
+    focus.timer = setInterval(tickFocus, 1000);
+    tickFocus();
+  }
+
+  function buildFocusScreen() {
+    const s = focus.s;
+    const p = {
+      disc: h('div', { class: 'fs-disc', 'aria-hidden': 'true' }),
+      left: h('div', { class: 'fs-left' }),
+      until: h('div', { class: 'fs-until' }),
+      step: h('div', { class: 'fs-step' }),
+      now: h('div', { class: 'fs-label' }, 'Now'),
+      goal: h('div', { class: 'fs-goal' }, s.goal),
+      hook: h('div', { class: 'fs-hook' }),
+      list: h('ol', { class: 'fs-ticks' }),
+      parked: h('small', { class: 'fs-parked' }),
+      ceiling: h('div', { class: 'fs-ceiling', hidden: true }),
+      body: h('div', { class: 'fs-body', hidden: true, role: 'status' }),
+      buddy: bodyDouble(),
+      sound: h('button', { class: 'icon-btn', onclick: () => toggleSound() }),
+    };
+    const capture = h('input', { type: 'text', class: 'fs-capture-in', spellcheck: true, placeholder: 'Not now: park a stray thought for later, and press Enter' });
+    capture.addEventListener('keydown', async (e) => {
+      if (e.key !== 'Enter' || !capture.value.trim()) return;
+      const title = capture.value.trim();
+      capture.value = '';
+      try {
+        await onyx.createTask({ title, inbox: 'hyperfocus' });
+        s.captured++;
+        p.parked.textContent = `${s.captured} parked in Magic add for later`;
+        loadTasks(true);
+      } catch (err) {
+        capture.value = title;
+        p.parked.textContent = err.message;
+      }
+    });
+    const addStep = h('input', { type: 'text', class: 'fs-addstep', spellcheck: true, placeholder: '+ a step' });
+    addStep.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' || !addStep.value.trim()) return;
+      s.steps.push({ text: addStep.value.trim(), done: false });
+      addStep.value = '';
+      drawFocusSteps();
+    });
+    p.disc.append(h('div', { class: 'fs-disc-in' }, p.left, p.until));
+    focus.el = h('div', { class: 'focus-screen', role: 'dialog', 'aria-label': 'Hyperfocus', css: { '--c': s.entry.color || 'var(--accent)' } },
+      h('div', { class: 'fs-top' }, icon('target'), h('b', null, 'Hyperfocus'),
+        h('span', { class: 'fs-top-stop' }, `Hard stop ${fmtTime(new Date(s.plannedEnd))}${s.escalate ? ' · your phone too' : ''}`),
+        h('span', { class: 'grow' }), p.sound,
+        h('button', { class: 'btn', title: 'End the session now (you still leave a note of where you are)', onclick: () => exitFocus('early') }, 'Stop now')),
+      h('div', { class: 'fs-main' },
+        h('div', { class: 'fs-side' }, p.disc, p.buddy), // the timer, with the study companion working under it
+        h('div', { class: 'fs-text' },
+          h('div', { class: 'fs-label' }, 'Goal'), p.goal,
+          p.now, p.step,
+          s.ifThen && h('div', { class: 'fs-ifthen' }, s.ifThen),
+          p.hook,
+          p.list, addStep)),
+      h('div', { class: 'fs-capture' }, capture, p.parked),
+      p.ceiling, p.body);
+    focus.parts = p;
+    drawFocusSteps();
+    drawSoundButton();
+    document.body.append(focus.el);
+    syncBuddy();
+    setTimeout(() => capture.focus({ preventScroll: true }), 60);
+  }
+
+  /**
+   * Body doubling: a study companion (a cat in headphones at a laptop) working quietly in the
+   * corner the whole session, in a loop. Its wall is masked away (assets/bodydouble-mask.png),
+   * so it sits on the screen's own background. Always muted, never in the way of a click.
+   */
+  function bodyDouble() {
+    const v = h('video', {
+      class: 'bodydouble', src: 'assets/bodydouble.mp4', muted: true, loop: true, playsInline: true, preload: 'auto',
+      disablePictureInPicture: true, tabIndex: -1, 'aria-hidden': 'true',
+    });
+    v.muted = true;
+    v.setAttribute('muted', '');
+    v.addEventListener('loadeddata', syncBuddy);
+    return v;
+  }
+  const stillMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+  /** Plays the companion only while the session is on screen and the window can be seen; with reduced motion it keeps its first frame. */
+  function syncBuddy() {
+    const v = focus.parts?.buddy;
+    if (!v) return;
+    const show = focus.s?.phase === 'focus' || focus.s?.phase === 'exit';
+    v.hidden = !show;
+    const run = show && !stillMotion() && document.visibilityState === 'visible' && !window.onyxHidden;
+    if (run) v.play().catch(() => {}); // a refused play leaves it still
+    else { v.pause(); if (stillMotion()) v.currentTime = 0; }
+  }
+  document.addEventListener('visibilitychange', syncBuddy);
+  window.addEventListener('onyx-visibility', syncBuddy);
+  matchMedia('(prefers-reduced-motion: reduce)').addEventListener?.('change', syncBuddy);
+
+  function drawFocusSteps() {
+    const s = focus.s, p = focus.parts;
+    const cur = OnyxFocus.currentStep(s.steps);
+    // No steps at all: the goal is the one thing on screen, large.
+    p.now.hidden = p.step.hidden = !s.steps.length;
+    p.goal.classList.toggle('alone', !s.steps.length);
+    p.step.textContent = cur ? cur.text : 'Every step done. Keep going, or stop here.';
+    p.list.hidden = s.steps.length < 2;
+    p.list.replaceChildren(...s.steps.map((st) => h('li', { class: `${st.done ? 'done' : ''}${st === cur ? ' cur' : ''}`, onclick: () => {
+      st.done = !st.done;
+      if (st.done) doneSound();
+      s.stepSince = Date.now(); // a new step: the race starts again
+      drawFocusSteps();
+      tickFocus();
+    } }, h('span', { class: 'box' }), h('span', { class: 't' }, st.text))));
+  }
+
+  function drawSoundButton() {
+    const s = focus.s, on = !!noise.src;
+    const name = SOUNDS.find(([k]) => k === s.sound.kind)?.[1] || 'Sound';
+    focus.parts.sound.replaceChildren(icon(on ? 'bell' : 'bell-off'));
+    focus.parts.sound.title = s.sound.kind === 'none' ? 'No sound picked for this session' : s.sound.kind === 'spotify' ? 'Playing in Spotify: pause it there'
+      : on ? `${name} on. Click to pause it` : `${name} paused. Click to play it`;
+    focus.parts.sound.disabled = s.sound.kind === 'none' || s.sound.kind === 'spotify';
+  }
+  function toggleSound() {
+    const s = focus.s;
+    if (noise.src) stopNoise(); else playNoise(s.sound.kind, s.sound.volume);
+    drawSoundButton();
+  }
+
+  function tickFocus() {
+    const s = focus.s;
+    if (!s || !focus.parts) return;
+    const now = Date.now(), p = focus.parts;
+    if (s.phase === 'wind') return tickWindDown();
+    if (s.phase !== 'focus') return;
+    if (now >= s.plannedEnd) { exitFocus('hard'); return; }
+    const left = s.plannedEnd - now;
+    p.disc.style.setProperty('--timer-p', Math.max(0, Math.min(1, left / (s.plannedEnd - s.startedAt))).toFixed(4));
+    p.left.textContent = left >= 3600000 ? shortCount(left) : countdown(left).replace(/^00m /, '');
+    p.until.textContent = `until ${fmtTime(new Date(s.plannedEnd))}`;
+    if (s.hook === 'race') {
+      const raceLeft = s.stepSince + FOCUS_RACE_MIN * 60000 - now;
+      p.hook.textContent = raceLeft > 0 ? `Race the clock: ${countdown(raceLeft)} to beat for this step` : `Past the ${FOCUS_RACE_MIN} minutes by ${countdown(-raceLeft)}. Tick it off and race the next one`;
+      p.hook.dataset.tone = raceLeft > 0 ? (raceLeft < 60000 ? 'near' : 'calm') : 'over';
+    } else if (s.hook === 'next') {
+      const n = OnyxFocus.nextEntry(nextRun.items, now, s.entry.kind === 'event' ? { id: s.entry.id, start: s.entry.start } : null);
+      p.hook.textContent = n ? `Next: ${n.title} at ${fmtTime(new Date(n.start))}, in ${untilText(Date.parse(n.start) - now)}` : 'Nothing else on the calendar today';
+    }
+    p.hook.hidden = s.hook === 'none';
+    // The soft ceiling: a chime and a question, never a forced stop.
+    if (s.nextAsk && now >= s.nextAsk && p.ceiling.hidden && s.plannedEnd - now > 2 * 60000) askToContinue();
+    // A body check, when one is due (not with the check-in up, nor in the last three minutes).
+    const bodyAt = OnyxFocus.nextBodyCheck(s.startedAt, s.body.every, s.body.shown);
+    if (bodyAt && !s.body.over && now >= bodyAt) {
+      if (s.plannedEnd - now < 3 * 60000) s.body.over = true; // no more this session
+      else if (p.ceiling.hidden && p.body.hidden) showBodyCheck();
+    }
+  }
+
+  /** A quiet nudge for the body: a soft note and a small card that goes by itself. */
+  function showBodyCheck() {
+    const s = focus.s, p = focus.parts;
+    const [e, text] = OnyxFocus.bodyCheck(s.body.shown);
+    s.body.shown++;
+    bodyTone();
+    clearTimeout(p.bodyTimer);
+    const hide = () => { clearTimeout(p.bodyTimer); p.body.classList.add('leaving'); setTimeout(() => { p.body.hidden = true; p.body.classList.remove('leaving'); }, 400); };
+    p.body.replaceChildren(h('span', { class: 'e' }, e), h('span', { class: 't' }, h('small', null, 'Body check'), text),
+      h('button', { class: 'icon-btn', title: 'Done', onclick: hide }, icon('check')));
+    p.body.hidden = false;
+    p.bodyTimer = setTimeout(hide, 30000);
+  }
+
+  function askToContinue() {
+    const s = focus.s, p = focus.parts;
+    const mins = Math.round((Date.now() - s.startedAt) / 60000);
+    const answer = (choice) => {
+      s.ceiling.asks.push({ at: new Date().toISOString(), choice });
+      p.ceiling.hidden = true;
+      if (choice === 'stop') exitFocus('ceiling');
+      else s.nextAsk = OnyxFocus.nextCeiling(s.startedAt, s.ceiling.minutes, Date.now());
+    };
+    s.nextAsk = null;
+    warnTone();
+    p.ceiling.replaceChildren(
+      h('div', { class: 'fs-ceiling-q' }, `${untilText(mins * 60000)} in. How is it going?`),
+      h('small', null, `The hard stop is still ${fmtTime(new Date(s.plannedEnd))}.`),
+      h('div', { class: 'fs-ceiling-row' },
+        h('button', { class: 'btn primary', onclick: () => answer('keep') }, 'Keep going'),
+        h('button', { class: 'btn', onclick: () => answer('stop') }, 'Stop here')));
+    p.ceiling.hidden = false;
+  }
+
+  // ---- the way out: the action card with "where I am", then the wind-down
+
+  function exitFocus(stop) {
+    const s = focus.s;
+    if (!s || s.phase !== 'focus') return;
+    s.phase = 'exit';
+    s.stop = stop;
+    s.endedAt = Date.now();
+    focus.parts.ceiling.hidden = true;
+    focus.parts.body.hidden = true;
+    if (stop !== 'hard') onyx.focusEnd?.().catch(() => {}); // you are here: nothing goes to the phone
+    if (stop === 'hard') { focus.parts.disc.style.setProperty('--timer-p', '0'); focus.parts.left.textContent = countdown(0); }
+    stopNoise();
+    const cur = OnyxFocus.currentStep(s.steps);
+    showActionCard({
+      kind: 'focus', key: `focus|${s.startedAt}`, title: s.goal, color: s.entry.color, start: new Date(s.endedAt).toISOString(),
+      early: stop !== 'hard', nextStep: cur?.text || '',
+      whenText: `${untilText(s.endedAt - s.startedAt)} of focus, since ${fmtTime(new Date(s.startedAt))}${stop === 'hard' ? '' : ` · planned to ${fmtTime(new Date(s.plannedEnd))}`}`,
+      onPresent: () => onyx.focusEnd?.().catch(() => {}), // answered here: the phone is not reached
+      onAction: (action, note) => finishFocus(note || {}),
+    });
+  }
+
+  /** Writes "where I left off" into the entry's notes (its own notes where Onyx can, else your notes in Onyx). */
+  async function saveLeftOff(entry, note) {
+    const when = `${fmtDay(new Date())}, ${fmtTime(new Date())}`;
+    const write = (old) => OnyxFocus.leftOffNote(old, { ...note, when });
+    if (entry.kind === 'task') {
+      const t = tasks.find((x) => x.id === entry.id) || entry.task;
+      const before = t?.notes || '';
+      await onyx.updateTask(entry.id, { notes: write(before) });
+      recordAction(`Saved where you left off on "${entry.title}"`, () => onyx.updateTask(entry.id, { notes: before }), () => onyx.updateTask(entry.id, { notes: write(before) }));
+      await loadTasks(true);
+    } else {
+      const src = entry.src;
+      if (src.writable && !src.seriesId) {
+        const before = src.notes || '';
+        await onyx.updateEvent(src.id, { notes: write(before) });
+        recordAction(`Saved where you left off on "${entry.title}"`, () => onyx.updateEvent(src.id, { notes: before }), () => onyx.updateEvent(src.id, { notes: write(before) }));
+      } else {
+        // A read-only calendar, or a repeat (whose notes are every day's): kept in Onyx, on this one.
+        const key = src.seriesId || src.id, before = src.memo || '';
+        await onyx.setMemo(key, write(before));
+        recordAction(`Saved where you left off on "${entry.title}"`, () => onyx.setMemo(key, before), () => onyx.setMemo(key, write(before)));
+      }
+      refetch(true);
+    }
+  }
+
+  async function finishFocus(note) {
+    const s = focus.s;
+    if (!s) return;
+    onyx.focusEnd?.().catch(() => {});
+    const where = String(note.where || '').trim(), next = String(note.next || '').trim();
+    if (where || next) {
+      try { await saveLeftOff(s.entry, { where, next }); } catch (err) { toast(`The note could not be saved: ${err.message}`, 'error'); }
+    }
+    const done = s.steps.filter((x) => x.done).length;
+    onyx.logFocus?.({
+      entry: { id: s.entry.id, kind: s.entry.kind, title: s.entry.title }, goal: s.goal, firstStep: s.firstStep, ifThen: s.ifThen,
+      startedAt: s.startedAt, plannedEnd: s.plannedEnd, endedAt: s.endedAt, stop: s.stop, ceiling: s.ceiling, sound: s.sound, hook: s.hook,
+      preflight: s.preflight, steps: { total: s.steps.length, done }, captured: s.captured, where, next, windDown: FOCUS_WIND_MIN,
+      escalate: s.escalate, bodyChecks: s.body, rating: note.rating || null,
+    }).catch(() => {});
+    windDown(where || next, { rating: note.rating || null, minutes: (s.endedAt - s.startedAt) / 60000 });
+  }
+
+  function windDown(saved, how = {}) {
+    const s = focus.s, p = focus.parts;
+    s.phase = 'wind';
+    s.windEnd = Date.now() + FOCUS_WIND_MIN * 60000;
+    focus.el.classList.add('winding');
+    focus.el.style.setProperty('--c', '#5fd38d'); // calm green, whatever the entry's colour
+    const held = focus.held.length
+      ? h('div', { class: 'fs-held' }, h('b', null, `Held while you focused (${focus.held.length}): `), focus.held.slice(0, 6).join(' · '), focus.held.length > 6 ? ' …' : '')
+      : null;
+    p.windLeft = h('div', { class: 'fs-left' });
+    p.disc.replaceChildren(h('div', { class: 'fs-disc-in' }, p.windLeft, h('div', { class: 'fs-until' }, 'wind-down')));
+    focus.el.querySelector('.fs-text').replaceChildren(
+      h('div', { class: 'fs-label' }, saved ? 'Saved where you left off' : 'Session over'),
+      h('div', { class: 'fs-goal' }, 'Wind down for a few minutes'),
+      h('ul', { class: 'fs-wind' }, h('li', null, 'Stand up and stretch'), h('li', null, 'Drink some water'), h('li', null, 'Look at something far away')),
+      ...(held ? [held] : []),
+      nextBox(how),
+      h('button', { class: 'btn', onclick: () => endFocus() }, 'Back to the calendar now'));
+    focus.el.querySelector('.fs-capture').hidden = true;
+    focus.el.querySelector('.fs-top .btn').hidden = true;
+    syncBuddy();
+    p.sound.hidden = true;
+    focus.el.querySelector('.fs-top-stop').textContent = `Now / Next comes back at ${fmtTime(new Date(s.windEnd))}`;
+    tickWindDown();
+  }
+
+  /** "Up next, for a change": a few open tasks of a different kind, to start once the wind-down is over (focus.js suggestions). */
+  function nextBox({ rating, minutes }) {
+    const s = focus.s;
+    const box = h('div', { class: 'fs-next', hidden: true });
+    onyx.focusNext?.({ current: { id: s.entry.id, title: s.goal }, rating, minutes }).then((list) => {
+      if (!list?.length || !focus.s) return;
+      box.replaceChildren(h('div', { class: 'fs-label' }, rating && rating <= 2 ? 'Up next: something different' : 'Up next, for a change'),
+        ...list.map((x) => {
+          const t = tasks.find((y) => y.id === x.task.id) || { id: x.task.id, title: x.task.title, label: x.task.title, kind: 'task', listId: '' };
+          return h('div', { class: 'fs-next-row' },
+            h('span', { class: 'fs-next-t' }, h('b', null, x.task.title), h('small', null, x.why)),
+            h('button', { class: 'btn', title: 'Back to the calendar, with this task open', onclick: () => { endFocus(); openTask(t, new DOMRect(innerWidth / 2 - 1, 130, 2, 2)); } }, 'Open'),
+            h('button', { class: 'btn', title: 'End the wind-down and set up a Hyperfocus session on this', onclick: () => { endFocus(); openFocusSetup(focusEntry(t)); } }, icon('target'), 'Hyperfocus'));
+        }));
+      box.hidden = false;
+    }).catch(() => {});
+    return box;
+  }
+
+  /** Another app (Hermes) asked for a session: the setup opens, filled in, for you to start. */
+  async function openFocusRequest(req) {
+    if (!req || focus.s || MOBILE) return;
+    try {
+      let t = req.taskId && tasks.find((x) => x.id === req.taskId);
+      const same = (x) => (x.label || x.title || '').trim().toLowerCase() === String(req.title || '').trim().toLowerCase();
+      if (!t && req.title) t = tasks.find((x) => !x.done && same(x));
+      if (!t && req.title) {
+        await onyx.createTask({ title: req.title, due: ymd(new Date()) });
+        await loadTasks(true);
+        t = tasks.find((x) => !x.done && same(x));
+      }
+      if (!t) { toast('Another app asked for a Hyperfocus session on a task that is not here.', 'warn'); return; }
+      closePopover();
+      openFocusSetup(focusEntry(t), { minutes: req.minutes });
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  function tickWindDown() {
+    const s = focus.s, p = focus.parts;
+    const left = s.windEnd - Date.now();
+    if (left <= 0) { chime('work'); endFocus(); return; }
+    p.disc.style.setProperty('--timer-p', (left / (FOCUS_WIND_MIN * 60000)).toFixed(4));
+    p.windLeft.textContent = countdown(left).replace(/^00m /, '');
+  }
+
+  function endFocus() {
+    if (focus.s) onyx.focusEnd?.().catch(() => {});
+    const buddy = focus.parts?.buddy;
+    if (buddy) { buddy.pause(); buddy.removeAttribute('src'); buddy.load(); } // let the video go
+    clearInterval(focus.timer);
+    stopNoise();
+    focus.el?.remove();
+    Object.assign(focus, { s: null, el: null, parts: null });
+    document.body.classList.remove('focus-on');
+    refreshPomodoros(); // Now / Next carries on from here
   }
 
   /**
@@ -4555,7 +5299,11 @@
     modal.hidden = false;
     pane.scrollTop = scroll;
   }
-  function closeSettings() { $('#modal').hidden = true; $('#modal').replaceChildren(); }
+  function closeSettings(keepSound) {
+    $('#modal').hidden = true;
+    $('#modal').replaceChildren();
+    if (keepSound !== true && !focus.s) stopNoise(); // the Hyperfocus sheet's sound preview
+  }
   $('#modal').addEventListener('mousedown', (e) => { if (e.target === $('#modal')) closeSettings(); });
 
   // ------------------------------------------------------------ magic add
@@ -5830,7 +6578,7 @@
         if (k === 'z' && !e.shiftKey && history.past.length) { e.preventDefault(); stepHistory(true); return; }
         if ((k === 'y' || (k === 'z' && e.shiftKey)) && history.future.length) { e.preventDefault(); stepHistory(false); return; }
       }
-      if (e.target.closest('input, textarea, select') || e.ctrlKey || e.altKey || e.metaKey || !$('#modal').hidden || !$('#popover').hidden) return;
+      if (e.target.closest('input, textarea, select') || e.ctrlKey || e.altKey || e.metaKey || !$('#modal').hidden || !$('#popover').hidden || focus.el) return;
       const views = { d: 'timeGridDay', w: 'timeGridWeek', m: 'dayGridMonth', a: 'listWeek', g: 'graph' };
       const key = e.key.toLowerCase();
       if (views[key]) pickView(views[key]);
@@ -5845,6 +6593,7 @@
 
   // Escape on the desktop, the back button on Android: close the top-most thing.
   window.onyxBack = () => {
+    if (focus.el && $('#modal').hidden) return true; // a Hyperfocus session ends with Stop now, not Escape
     if (!$('#update-dialog').hidden) { if (!$('.upd-bar') && !$('.upd-icon.spin')) closeUpdateDialog(); }
     else if (!$('#popover').hidden) closePopover();
     else if (!$('#modal').hidden) closeSettings();
@@ -5951,6 +6700,8 @@
     window.addEventListener('onyx:magic', (e) => openMagicFromLink(e.detail));
     openMagicFromLink(window.onyxPendingMagic);
     onyx.onMagicLink?.(() => onyx.takeMagicLink().then(openMagicFromLink));
+    onyx.onFocusRequest?.(() => onyx.takeFocusRequest().then(openFocusRequest));
+    onyx.takeFocusRequest?.().then(openFocusRequest).catch(() => {});
     onyx.takeMagicLink?.().then(openMagicFromLink).catch(() => {});
     renderSidebar();
     loadTasks();

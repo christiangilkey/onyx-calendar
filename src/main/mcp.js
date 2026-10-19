@@ -240,6 +240,40 @@ const TOOLS = [
     run: async (a) => { await hub.updateTask(a.id, { done: true }); return { completed: a.id }; },
   },
   {
+    name: 'focus_status',
+    description: 'Whether the user is in a Hyperfocus session right now: what on, and its hard stop. While one runs, hold anything that is not urgent until the hard stop.',
+    inputSchema: { type: 'object', properties: {} },
+    run: async () => require('./focus').status(),
+  },
+  {
+    name: 'focus_history',
+    description: 'Past Hyperfocus sessions (newest first) with how each ended and how deep the user rated it (1 couldn\'t settle, 5 lost in it), and the hours of the day the user focuses best, once there are enough rated sessions.',
+    inputSchema: { type: 'object', properties: { limit: { type: 'number', description: 'How many sessions (1-100). Default 20.' } } },
+    run: async (a) => {
+      const focus = require('./focus');
+      const n = Math.max(1, Math.min(100, Math.round(Number(a.limit) || 20)));
+      const list = focus.sessions().slice(-n).reverse().map((s) => ({
+        goal: s.goal, started: s.startedAt, ended: s.endedAt, planned_stop: s.plannedEnd, stop: s.stop, rating: s.rating,
+        minutes: Math.round((Date.parse(s.endedAt) - Date.parse(s.startedAt)) / 60000), steps_done: s.steps?.done ?? 0, steps: s.steps?.total ?? 0, left_off: s.where || null, next_step: s.next || null,
+      }));
+      const { best, rated, needed } = focus.insights();
+      return { sessions: list, best_hours: best ? { from: `${best.from}:00`, to: `${best.to}:00`, average_rating: Math.round(best.avg * 10) / 10, sessions: best.count } : null, rated_sessions: rated, needed_for_best_hours: needed };
+    },
+  },
+  {
+    name: 'start_focus',
+    description: 'Open the Hyperfocus setup on the PC for a task, filled in, for the user to start there (it never starts by itself). Name the task by id (from list_tasks) or title; a title with no matching open task becomes a new task.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task_id: { type: 'string', description: 'Task id from list_tasks.' },
+        title: { type: 'string', description: 'What the session is for, when there is no task id.' },
+        minutes: { type: 'number', description: 'Suggested length in minutes (10-240). Default: up to the next entry.' },
+      },
+    },
+    run: async (a) => require('./focus').request(a),
+  },
+  {
     name: 'list_goals',
     description: "The user's long-term goals: each with its time frame, progress, and steps (each step is a task, with its due date and whether it is done).",
     inputSchema: { type: 'object', properties: {} },

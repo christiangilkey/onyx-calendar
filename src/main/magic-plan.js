@@ -14,6 +14,7 @@ const PARTS = { morning: [8, 12], midday: [11, 14], afternoon: [13, 17], evening
 // What each kind of thing is usually best at, when nobody said (the estimate's "when" is "any").
 const KIND_PART = { focus: [9, 12], call: [9, 17], errand: [10, 17] };
 
+const validPart = (p) => (Array.isArray(p) && Number.isInteger(p[0]) && Number.isInteger(p[1]) && p[0] >= 0 && p[1] <= 24 && p[1] - p[0] >= 1 ? [p[0], p[1]] : null);
 const ceilTo = (ms, unit) => Math.ceil(ms / unit) * unit;
 const placeKey = (p) => String(p || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 const clock = (hm, day) => {
@@ -164,8 +165,10 @@ function gapsOf({ busy, from, to, home }) {
   return gaps;
 }
 
-const partOf = (t) => {
+// Focus work goes in your own best hours when Hyperfocus has learned them (opts.focusPart, focus.js).
+const partOf = (t, ctx) => {
   if (t.when !== 'any') return PARTS[t.when];
+  if (t.kind === 'focus' && ctx?.focusPart) return ctx.focusPart;
   return KIND_PART[t.kind] || null;
 };
 
@@ -182,7 +185,7 @@ function layoutGap(gap, seq, ctx, delay) {
     const hardAfter = task.after ? clock(task.after, ctx.day) : null;
     let start = t;
     if (hardAfter != null) start = Math.max(start, hardAfter - tr * 60000);
-    const part = partOf(task);
+    const part = partOf(task, ctx);
     if (delay && part) {
       const wanted = clock(`${part[0]}:00`, ctx.day) - tr * 60000;
       if (start < wanted) start = wanted;
@@ -236,6 +239,7 @@ function schedule(busy, tasks, opts) {
   const ctx = {
     day: day.getTime(), from, travel: travelBetween(opts.travel),
     lunch: opts.lunch === false ? null : [clock('12:30', day), clock('13:15', day)],
+    focusPart: validPart(opts.focusPart),
   };
   const gaps = gapsOf({ busy, from, to, home: opts.home });
   for (const g of gaps) g.layout = { ok: true, cost: 0, items: [] };

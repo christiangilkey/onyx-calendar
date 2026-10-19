@@ -85,6 +85,14 @@ test('tasks made in Onyx, ones with a time already, and Pi copies are not for th
   assert.deepEqual(ids, [viaMcp.id]);
 });
 
+test('a thought parked with "Not now" in Hyperfocus waits in the Magic add inbox, saying where it came from', async () => {
+  reset();
+  await inbox();
+  const parked = await hub.createTask({ title: 'Look up the landlord\'s email', inbox: 'hyperfocus' });
+  assert.deepEqual(await inbox(), [parked.id]);
+  assert.equal(store.data.inboxItems[parked.id].from, 'hyperfocus');
+});
+
 test('dismissing leaves the inbox for good, and finishing or deleting a task tidies it away', async () => {
   reset();
   await inbox();

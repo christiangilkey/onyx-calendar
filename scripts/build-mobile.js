@@ -11,10 +11,12 @@ const out = path.join(root, 'mobile/www');
 fs.rmSync(out, { recursive: true, force: true });
 fs.mkdirSync(path.join(out, 'vendor'), { recursive: true });
 
-for (const file of ['app.js', 'graph.js', 'remote.js', 'styles.css']) {
+for (const file of ['app.js', 'graph.js', 'focus-plan.js', 'remote.js', 'styles.css']) {
   fs.copyFileSync(path.join(src, file), path.join(out, file));
 }
 fs.copyFileSync(path.join(root, 'node_modules/fullcalendar/index.global.min.js'), path.join(out, 'vendor/fullcalendar.js'));
+// Pictures and video the window uses (the Hyperfocus study companion).
+fs.cpSync(path.join(src, 'assets'), path.join(out, 'assets'), { recursive: true });
 
 let html = fs.readFileSync(path.join(src, 'index.html'), 'utf8');
 const swap = (from, to) => {

@@ -229,6 +229,10 @@ async function boot() {
   // Onyx opens onyx:// links (a task from Tamkeen, say); an installed copy tells Windows each start.
   if (app.isPackaged) app.setAsDefaultProtocolClient('onyx');
   ipcMain.handle('magic-link:take', () => { const d = pendingLink; pendingLink = null; return d; });
+  // Another app (Hermes, through the MCP server) asks for a Hyperfocus session: the setup opens here.
+  const focus = require('./focus');
+  focus.setRequestHandler(() => { showWindow(); win?.webContents.send('focus-request'); });
+  ipcMain.handle('focus-request:take', () => focus.takeRequest());
   createWindow();
   const first = linkIn(process.argv);
   if (first) receiveLink(first);
@@ -243,6 +247,7 @@ async function boot() {
   hub.refreshCalendars().then(() => win?.webContents.send('changed')).catch(() => {});
   updater.start((s) => win?.webContents.send('update', s));
   require('./caller').start(hub); // reminders by push (ntfy) or call (Twilio), when set up
+  require('./focus').start(hub); // a Hyperfocus stop left unanswered reaches the phone
 }
 
 app.on('before-quit', () => { quitting = true; store.flush(); });

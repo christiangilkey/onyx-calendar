@@ -154,7 +154,7 @@ async function planDay(text, date, o, inboxIds = []) {
     if (given) { t.minutes = plan.clampMinutes(given); t.why ||= 'Length given by the app that sent it'; }
   }
   if (!tasks.length) throw new Error('No tasks found in that. Put one on each line.');
-  const result = plan.schedule(busy, tasks, { day, from, to, home: opts.home || 'Home', travel, lunch: opts.lunch });
+  const result = plan.schedule(busy, tasks, { day, from, to, home: opts.home || 'Home', travel, lunch: opts.lunch, focusPart: require('./focus').bestFocusPart() });
   return present(result, { tasks, travel, source, warning });
 }
 
@@ -164,7 +164,7 @@ async function replan(tasks, travel, date, o) {
   const { day, from, to } = windowOf(date, opts);
   const busy = await busyOf(day);
   const list = plan.normalizeTasks(tasks);
-  const result = plan.schedule(busy, list, { day, from, to, home: opts.home || 'Home', travel, lunch: opts.lunch });
+  const result = plan.schedule(busy, list, { day, from, to, home: opts.home || 'Home', travel, lunch: opts.lunch, focusPart: require('./focus').bestFocusPart() });
   return present(result, { tasks: list, travel: Array.isArray(travel) ? travel : [], source: 'edited' });
 }
 

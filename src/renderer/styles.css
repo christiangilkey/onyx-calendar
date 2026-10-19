@@ -1661,3 +1661,124 @@ body.mobile .sheet nav { -webkit-mask-image: linear-gradient(to right, #000 calc
 body.due-on #fab, body.due-on #magic-fab, body.due-on #news-tab, body.due-on .undo-bar { display: none !important; }
 
 .due-actions .btn { padding: 0 6px; font-size: 15px; white-space: nowrap; min-width: 0; }
+
+/* ------------------------------------------------------------ hyperfocus (app.js, openFocusSetup / startFocus) */
+
+.focus-btn .ico { color: #c9b8ff; }
+.sheet.focus-setup .pane { gap: 14px; }
+.sheet.focus-setup .magic-h .ico { color: color-mix(in srgb, var(--c) 60%, #fff); }
+.fs-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.fs-label { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.fs-in { width: 100%; }
+.fs-in.big { height: 40px; font-size: 16px; font-weight: 600; }
+.fs-row { display: flex; gap: 8px; align-items: center; } .fs-row .fs-in { flex: 1; } .fs-row .btn { flex: none; }
+.fs-steplist { margin: 0; padding-left: 20px; color: var(--muted); font-size: 12px; line-height: 1.6; max-height: 120px; overflow-y: auto; }
+.fs-steplist li.done { text-decoration: line-through; opacity: .6; }
+.fs-hint { color: var(--muted); font-size: 11.5px; line-height: 1.45; }
+.fs-hint.warn { color: var(--warn); }
+.fs-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.fs-chip { display: inline-flex; align-items: baseline; gap: 6px; min-height: 30px; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line-2); background: transparent; color: var(--soft); font: inherit; cursor: pointer; }
+.fs-chip small { color: var(--faint); font-variant-numeric: tabular-nums; }
+.fs-chip:hover { color: var(--text); background: var(--raise-2); }
+.fs-chip.on { background: color-mix(in srgb, var(--c) 22%, #15151a); border-color: color-mix(in srgb, var(--c) 60%, var(--line-2)); color: var(--text); }
+.fs-chip.on small { color: var(--soft); }
+.fs-chip.warn small::after { content: " \26A0"; color: var(--warn); }
+.fs-chip.pre { align-items: center; } .fs-chip.pre .e { font-size: 14px; }
+.fs-volume { width: 100%; accent-color: var(--c); }
+.fs-last { padding: 9px 12px; border-radius: 10px; background: #101013; border: 1px solid var(--line); color: var(--soft); font-size: 12.5px; line-height: 1.5; }
+.fs-quick { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; background: #101013; border: 1px solid var(--line); }
+.fs-quick-row { display: flex; align-items: center; gap: 10px; }
+.fs-quick-row span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.fs-quick-row small { color: var(--muted); font-variant-numeric: tabular-nums; }
+.fs-quick-row.done { opacity: .45; } .fs-quick-row.done span { text-decoration: line-through; }
+.fs-tick { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--muted); background: transparent; cursor: pointer; flex: none; padding: 0; }
+.fs-tick:hover, .fs-quick-row.done .fs-tick { border-color: #fff; background: #fff; }
+.fs-start { min-width: 190px; height: 40px; font-size: 14px; gap: 8px; }
+
+/* The focus screen: the whole window, calm and dark, the goal and the step large, the disc draining. */
+body.focus-on #toasts .toast:not(.error) { display: none; }
+.focus-screen {
+  --c: var(--accent); position: fixed; inset: 0; z-index: 400; display: flex; flex-direction: column; padding: 18px 28px 22px; gap: 18px;
+  background: radial-gradient(circle at 30% 45%, color-mix(in srgb, var(--c) 10%, #050507), #020203 70%); color: var(--text); animation: alert-in .4s ease-out;
+}
+.fs-top { display: flex; align-items: center; gap: 10px; color: var(--muted); }
+.fs-top > .ico { color: color-mix(in srgb, var(--c) 60%, #fff); }
+.fs-top b { color: var(--soft); font-weight: 600; }
+.fs-top-stop { font-variant-numeric: tabular-nums; }
+.fs-main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(220px, 34vh) minmax(0, 720px); justify-content: center; align-items: center; gap: clamp(28px, 6vw, 90px); }
+.fs-disc {
+  aspect-ratio: 1; width: 100%; border-radius: 50%; position: relative; display: grid; place-items: center;
+  background: conic-gradient(from 0deg, color-mix(in srgb, var(--c) 55%, #fff) calc(var(--timer-p, 1) * 1turn), #15161b 0);
+  box-shadow: 0 0 80px color-mix(in srgb, var(--c) 20%, transparent); transition: --timer-p 1s linear;
+}
+.fs-disc-in { width: 74%; aspect-ratio: 1; border-radius: 50%; background: #060608; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
+.fs-left { font: 700 clamp(26px, 4.6vh, 44px)/1 "Cascadia Mono", "SF Mono", ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+.fs-until { color: var(--muted); font-size: 13px; }
+.fs-text { display: flex; flex-direction: column; gap: 8px; min-width: 0; max-height: 100%; overflow-y: auto; padding-right: 6px; }
+.fs-text .fs-label { margin-top: 10px; }
+.fs-goal { font-size: clamp(20px, 3vh, 28px); font-weight: 650; line-height: 1.25; color: var(--soft); overflow-wrap: anywhere; }
+.fs-step { font-size: clamp(28px, 5vh, 46px); font-weight: 750; line-height: 1.15; overflow-wrap: anywhere; }
+.fs-goal.alone { font-size: clamp(28px, 5vh, 46px); font-weight: 750; line-height: 1.15; color: var(--text); }
+.fs-ifthen { color: var(--muted); font-style: italic; line-height: 1.5; }
+.fs-hook { align-self: flex-start; margin-top: 6px; padding: 6px 12px; border-radius: 999px; background: #121318; border: 1px solid var(--line-2); color: var(--soft); font-variant-numeric: tabular-nums; }
+.fs-hook[data-tone=near] { border-color: color-mix(in srgb, var(--warn) 60%, var(--line-2)); }
+.fs-hook[data-tone=over] { color: var(--muted); }
+.fs-ticks { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.fs-ticks li { display: flex; align-items: center; gap: 12px; padding: 9px 12px; border-radius: 12px; background: #0d0e12; border: 1px solid var(--line); font-size: 14px; cursor: pointer; }
+.fs-ticks li:hover { border-color: var(--line-2); }
+.fs-ticks li .box { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--c); flex: none; }
+.fs-ticks li.cur { border-color: color-mix(in srgb, var(--c) 50%, var(--line-2)); }
+.fs-ticks li.done { opacity: .5; } .fs-ticks li.done .t { text-decoration: line-through; } .fs-ticks li.done .box { background: #fff; border-color: #fff; }
+.fs-addstep { margin-top: 4px; background: transparent !important; border-color: transparent !important; color: var(--muted); }
+.fs-addstep:focus { border-color: var(--line-2) !important; color: var(--text); }
+.fs-capture { display: flex; align-items: center; gap: 14px; max-width: 760px; width: 100%; margin: 0 auto; }
+.fs-capture-in { flex: 1; height: 42px; border-radius: 12px; background: #0b0c0f !important; }
+.fs-parked { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.fs-ceiling { position: absolute; right: 28px; bottom: 84px; width: min(340px, calc(100vw - 56px)); padding: 16px 18px; border-radius: 16px; background: #121318; border: 1px solid var(--line-2); border-top: 3px solid var(--c); box-shadow: 0 30px 80px rgba(0,0,0,.8); display: flex; flex-direction: column; gap: 6px; animation: pop .2s ease-out; }
+.fs-ceiling-q { font-size: 16px; font-weight: 650; }
+.fs-ceiling small { color: var(--muted); }
+.fs-ceiling-row { display: flex; gap: 8px; margin-top: 8px; } .fs-ceiling-row .btn { flex: 1; height: 36px; }
+
+.fs-wind { margin: 4px 0 8px; padding-left: 20px; color: var(--soft); font-size: 16px; line-height: 1.9; }
+.fs-held { color: var(--muted); font-size: 12.5px; line-height: 1.5; margin-bottom: 10px; }
+.fs-held b { color: var(--soft); font-weight: 600; }
+.fs-text > .btn { align-self: flex-start; }
+.ac-exit { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+.ac-exit label { display: flex; flex-direction: column; gap: 5px; }
+.ac-exit label > span { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.ac-exit .notes-field { min-height: 52px; font-size: 14px; }
+.ac-exit .ac-actions { margin-top: 6px; grid-template-columns: 1fr; }
+.ac-exit .ac-actions .ac-btn:not(.go) { min-height: 42px; background: transparent; color: var(--muted); }
+@media (max-width: 860px) { .fs-main { grid-template-columns: 1fr; justify-items: center; } .fs-disc { width: min(240px, 50vw); } }
+/* Hyperfocus, phase 2: body checks (a quiet card that goes by itself) and how deep it went. */
+.fs-body { position: absolute; top: 64px; right: 28px; width: min(320px, calc(100vw - 56px)); display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 14px; background: #101116; border: 1px solid var(--line-2); box-shadow: 0 20px 60px rgba(0,0,0,.7); animation: alert-in .5s ease-out; transition: opacity .4s; }
+.fs-body.leaving { opacity: 0; }
+.fs-body .e { font-size: 22px; }
+.fs-body .t { flex: 1; display: flex; flex-direction: column; gap: 2px; font-size: 14px; color: var(--soft); line-height: 1.35; }
+.fs-body .t small { font-size: 10.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.ac-rate-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ac-rate-row > span { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.ac-rate { display: flex; gap: 5px; }
+.ac-rate-btn { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line-2); background: #1b1c22; color: var(--soft); font: inherit; font-weight: 650; cursor: pointer; }
+.ac-rate-btn:hover { background: #24252c; }
+.ac-rate-btn.on { background: var(--c); border-color: var(--c); color: #000; }
+.ac-rate-label { color: var(--soft); font-size: 12.5px; }
+/* Hyperfocus, phase 3: the hours you focus best, and what to do next for a change. */
+.fs-best { display: flex; align-items: flex-start; gap: 9px; padding: 9px 12px; border-radius: 10px; background: #101013; border: 1px solid var(--line); color: var(--soft); font-size: 12.5px; line-height: 1.5; }
+.fs-best .ico { width: 15px; height: 15px; margin-top: 2px; color: #c9b8ff; flex: none; }
+.fs-best b { color: var(--text); font-weight: 600; }
+.fs-next { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 12px; }
+.fs-next-row { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 12px; background: #0d0e12; border: 1px solid var(--line); }
+.fs-next-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.fs-next-t b { font-weight: 600; overflow-wrap: anywhere; }
+.fs-next-t small { color: var(--muted); font-size: 11.5px; }
+.fs-next-row .btn { flex: none; gap: 6px; }
+/* Body doubling: the study companion in the corner, its wall masked away so it sits on the screen's own background. */
+.bodydouble {
+  display: block; aspect-ratio: 16 / 9; width: 100%; max-width: 400px; height: auto; margin-top: -2px;
+  pointer-events: none; user-select: none; background: transparent; object-fit: cover;
+  -webkit-mask-image: url(assets/bodydouble-mask.png); mask-image: url(assets/bodydouble-mask.png);
+  -webkit-mask-size: 100% 100%; mask-size: 100% 100%; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+}
+.fs-side { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+@media (max-width: 860px) { .bodydouble { width: min(260px, 60vw); } }

@@ -2013,3 +2013,7 @@ body.mobile #graph-reset {
 body.mobile #graph-reset .ico { width: 18px; height: 18px; }
 body.mobile:has(#graph-dock > .open) #graph-foot { display: none; }
 body.mobile #graph-dock > #graph-clusters.open, body.mobile #graph-dock > #graph-inbox.open { flex: 1 1 auto; min-width: 0; width: auto !important; }
+
+/* ------------------------------------------------------------ a carried entry shows the time it would land on */
+.drag-float { width: max-content; }
+.drag-float .drag-chip { z-index: 1; }

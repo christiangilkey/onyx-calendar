@@ -1397,9 +1397,31 @@
     arg.el.prepend(bands);
   }
 
+  /**
+   * Carried to just under another entry, it starts where that one ends (not at the next 15 minutes), so
+   * entries fit together: the nearest end on the same day less than 15 minutes from its start. Null otherwise.
+   */
+  const MAGNET_MS = 15 * 60000;
+  function magnetFor(dragged, start, end) {
+    if (!start || !end || dragged.allDay) return null;
+    let best = null;
+    for (const o of calendar.getEvents()) {
+      if (o.id === dragged.id || o.allDay || o.display === 'background' || !o.end || !o.extendedProps?.src) continue;
+      if (!sameDay(o.end, start)) continue;
+      const gap = Math.abs(o.end - start);
+      if (gap > 0 && gap < MAGNET_MS && (!best || gap < Math.abs(best - start))) best = o.end;
+    }
+    return best ? { start: new Date(best), end: new Date(+best + (end - start)) } : null;
+  }
+
   async function onMove(info) {
     const e = info.event;
     const src = e.extendedProps.src;
+    // A drop just under another entry: it starts where that one ends.
+    if (info.delta && !e.allDay) {
+      const m = magnetFor(e, e.start, e.end || new Date(e.start.getTime() + 3600000));
+      if (m) e.setDates(m.start, m.end);
+    }
     if (src.kind === 'task') return moveTaskTo(info);
     const end = e.end || (e.allDay ? addDays(e.start, 1) : new Date(e.start.getTime() + 3600000));
     try {
@@ -1631,6 +1653,8 @@
         else openEditor({ src, start: toDate(src.start), end: toDate(src.end), allDay: src.allDay }, anchor);
       },
       eventDrop: onMove,
+      // While carried: where it would land, pulled to the end of an entry just above it (shown live).
+      eventAllow: (drop, dragged) => { carryAt(dragged, drop); return true; },
       eventResize: onMove,
       // Held at the right (or left) edge while dragging, the calendar turns to the next (or
       // previous) week, so an entry can be carried there and dropped.
@@ -2029,7 +2053,15 @@
   }
 
   // ---- the carried entry: a copy that follows the pointer exactly
-  const float = { box: null, dx: 0, dy: 0 };
+  const float = { box: null, dx: 0, dy: 0, time: null, chip: null, last: '', magnet: null, shift: 0 };
+
+  /** Where a carried entry would land, with the pull to an entry's end (the outline moves to it in floatMove). */
+  function carryAt(dragged, drop) {
+    if (!float.box) return;
+    const m = drop.allDay ? null : magnetFor(dragged, drop.start, drop.end);
+    float.magnet = m;
+    float.shift = m ? (m.start - drop.start) / 60000 : 0;
+  }
 
   function floatStart(info) {
     floatStop();
@@ -2044,14 +2076,37 @@
     copy.style.width = `${r.width}px`;
     copy.style.height = `${r.height}px`;
     // Inside an element with the "fc" class, so it keeps the calendar's look.
-    float.box = h('div', { class: 'fc drag-float' }, copy);
+    // The time it would land on, live: its own time line, and a label above it (a finger covers the entry on a phone).
+    float.time = copy.querySelector('.ev-time');
+    float.chip = h('div', { class: 'stretch-chip start drag-chip' });
+    float.last = '';
+    float.magnet = null;
+    float.shift = 0;
+    float.box = h('div', { class: 'fc drag-float' }, copy, float.chip);
     float.box.style.transform = `translate3d(${r.left}px, ${r.top}px, 0)`;
     document.body.append(float.box);
     document.body.classList.add('carrying');
   }
 
   function floatMove(x, y) {
-    if (float.box) float.box.style.transform = `translate3d(${x - float.dx}px, ${y - float.dy}px, 0)`;
+    if (!float.box) return;
+    float.box.style.transform = `translate3d(${x - float.dx}px, ${y - float.dy}px, 0)`;
+    // The snapped outline holds the time it would land on (it keeps the last one while over no day); pulled to
+    // the end of an entry just above, the outline moves there and the time says so.
+    const mirror = $('#calendar .fc-event-mirror');
+    if (mirror) {
+      const slot = $('#calendar .fc-timegrid-slot-lane') || $('#calendar .fc-timegrid-slot');
+      const perMin = (slot?.getBoundingClientRect().height || 28) / 30;
+      mirror.style.transform = float.shift ? `translateY(${(float.shift * perMin).toFixed(1)}px)` : '';
+    }
+    const t = float.magnet
+      ? calendar.formatRange(float.magnet.start, float.magnet.end, { ...timeFormats().eventTimeFormat, separator: ' - ' })
+      : mirror?.querySelector('.ev-time')?.textContent?.trim();
+    if (t && t !== float.last) {
+      float.last = t;
+      if (float.time) float.time.textContent = t;
+      float.chip.textContent = t;
+    }
   }
 
   function floatStop() {
@@ -3687,6 +3742,20 @@
     volume.addEventListener('input', () => playNoise(sound, +volume.value));
     spotify.addEventListener('input', () => drawSound(false));
 
+    // Pomodoro: work and break rounds through the session, from its start to the hard stop (or the block's own).
+    const ownPomo = entry.src?.pomodoro || entry.task?.pomodoro || null;
+    const POMOS = [['off', 'Off'], ...(ownPomo ? [['own', `This block's ${ownPomo.work} / ${ownPomo.rest}`]] : []), ['25/5', '25 / 5'], ['50/10', '50 / 10']];
+    let pomoPick = ownPomo ? 'own' : POMOS.some(([k]) => k === prefs.pomodoro) ? prefs.pomodoro : 'off';
+    const pomoHint = h('small', { class: 'fs-hint' });
+    const pomoChips = h('div', { class: 'fs-chips' }, POMOS.map(([k, label]) =>
+      h('button', { type: 'button', class: 'fs-chip', 'data-k': k, onclick: () => { pomoPick = k; drawPomo(); } }, label)));
+    const drawPomo = () => {
+      for (const b of pomoChips.children) b.classList.toggle('on', b.dataset.k === pomoPick);
+      pomoHint.textContent = pomoPick === 'off' ? 'One stretch of focus to the hard stop.'
+        : pomoPick === 'own' ? 'The rounds already set on this block, as the calendar shows them.'
+        : `${pomoPick.split('/')[0]} minutes of work, then ${pomoPick.split('/')[1]} of break, from the start to the hard stop. A soft chime at each switch; your break ideas on the breaks.`;
+    };
+
     // One hook to make it more interesting.
     let hook = prefs.hook;
     const HOOKS = [['race', 'Race the clock', `Beat ${FOCUS_RACE_MIN} minutes for each step`], ['next', 'Next event', 'A countdown to what comes next on the calendar'], ['none', 'None', 'Just the timer']];
@@ -3738,7 +3807,8 @@
       const at = o.kind === 'length' ? Date.now() + o.minutes * 60000 : o.at;
       const link = F.spotifyLink(spotify.value);
       saveFocusPrefs({ sound, volume: +volume.value, hook, ceiling: +ceiling.value, length: o.kind === 'length' ? o.minutes : prefs.length,
-        body: +body.value, escalate: reach.ok ? escalate : prefs.escalate, spotify: link || prefs.spotify || '', breaks: breakIn.value });
+        body: +body.value, escalate: reach.ok ? escalate : prefs.escalate, spotify: link || prefs.spotify || '', breaks: breakIn.value,
+        pomodoro: pomoPick === 'own' ? prefs.pomodoro : pomoPick });
       const firstStep = first.value.trim();
       const list = steps.map((s) => ({ ...s }));
       if (firstStep && !list.some((s) => !s.done && s.text === firstStep)) list.unshift({ text: firstStep, done: false });
@@ -3748,6 +3818,7 @@
         steps: list, plannedEnd: at, stopKind: o.kind, sound: { kind: sound, volume: +volume.value, link: sound === 'spotify' ? link : null }, hook,
         ceiling: { minutes: +ceiling.value, asks: [] }, preflight: [...ready], escalate: !onyx.isPhone && reach.ok && escalate,
         body: { every: +body.value, shown: 0 }, breakIdeas: OnyxFocus.parseActivities(breakIn.value),
+        pomodoro: pomoPick === 'off' || pomoPick === 'own' ? null : { work: +pomoPick.split('/')[0], rest: +pomoPick.split('/')[1] },
       });
     } }, icon('target'), 'Start hyperfocus');
 
@@ -3761,6 +3832,7 @@
       field('Tiny first step', h('div', { class: 'fs-row' }, first, hammer), stepList),
       field('If-then plan', ifThen),
       field('Hard stop', stopChips, stopHint),
+      field('Pomodoro', pomoChips, pomoHint),
       bestLine,
       field('Sound', soundChips, volume, spotify, soundHint),
       h('div', { class: 'magic-grid' },
@@ -3777,6 +3849,7 @@
     $('#modal').replaceChildren(sheet);
     $('#modal').hidden = false;
     drawStop();
+    drawPomo();
     drawSound(false);
     drawHook();
     drawReach();
@@ -4059,8 +4132,14 @@
     const at = new Date(now);
     const running = pomoRun.blocks.filter((e) => !pomoRun.dismissed.has(`${e.id}|${e.start}`) && pomodoroPhase(e, at));
     const ids = [s.entry.id, s.entry.src?.seriesId].filter(Boolean);
-    const e = running.find((x) => ids.includes(x.id) || ids.includes(x.seriesId)) || running[0];
+    // Rounds picked for the session itself (from its start to the hard stop) come first, then the block's own.
+    const own = s.pomodoro && { id: 'hyperfocus', title: s.goal, pomodoro: s.pomodoro,
+      start: new Date(s.startedAt).toISOString(), end: new Date(s.plannedEnd).toISOString() };
+    const e = own || running.find((x) => ids.includes(x.id) || ids.includes(x.seriesId)) || running[0];
     const ph = e && pomodoroPhase(e, at);
+    // A switch (work to break, or back): a soft chime, the only sound besides the check-in and the stop.
+    if (ph && p.pomoIndex != null && p.pomoIndex !== ph.index && p.pomoKey) bodyTone();
+    p.pomoIndex = ph ? ph.index : null;
     p.pomo.hidden = !ph;
     if (!ph) { p.pomoKey = ''; return; }
     const start = Date.parse(e.start), total = (Date.parse(e.end) - start) / 60000;
@@ -4088,7 +4167,7 @@
     q.round.textContent = `Round ${ph.round} of ${ph.rounds}`;
     const secs = Math.max(0, Math.ceil(ph.left / 1000));
     const clock = `${Math.floor(secs / 60)}:${pad(secs % 60)}`;
-    q.left.textContent = !next ? `${clock} to the end of the block` : next.kind === 'rest' ? `break in ${clock}` : `back to work in ${clock}`;
+    q.left.textContent = !next ? `${clock} to ${e.id === 'hyperfocus' ? 'the hard stop' : 'the end of the block'}` : next.kind === 'rest' ? `break in ${clock}` : `back to work in ${clock}`;
     chunks.forEach((c, i) => {
       const done = Math.max(0, Math.min(1, (t - c.from) / (c.to - c.from)));
       q.segs[i].style.setProperty('--fill', `${(done * 100).toFixed(2)}%`);

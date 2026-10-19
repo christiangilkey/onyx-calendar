@@ -2402,7 +2402,8 @@
     for (const el of [date, startTime, endTime, endDate, allDay]) el.addEventListener('input', sync);
     call.addEventListener('change', sync);
 
-    const save = async () => {
+    // `then` (Hyperfocus on a new block) gets the saved entry once the window is closed.
+    const save = async (then) => {
       if (busy) return;
       busy = true;
       const r = range();
@@ -2452,6 +2453,7 @@
         refetch();
         refreshPomodoros();
         if (!sameTags(data.tags, src?.tags)) reloadTags();
+        if (typeof then === 'function') then({ ...src, ...data, ...saved });
       } catch (err) {
         busy = false;
         toast(err.message, 'error');
@@ -2506,9 +2508,12 @@
         src && !readOnly && h('button', { class: 'btn danger', title: src.seriesId ? 'Delete every repeat' : null, onclick: () => remove('all') }, icon('trash'), src.seriesId ? 'Delete all' : 'Delete'),
         src?.seriesId && !readOnly && h('button', { class: 'btn', title: 'Take just this day off; the others stay', onclick: () => remove('one') }, 'Skip this day'),
         src && !src.done && focusButton(src),
+        // A new block: Hyperfocus adds it, then sets up the session on it.
+        !src && h('button', { class: 'btn focus-btn', title: 'Add this block and start Hyperfocus on it',
+          onclick: () => save((made) => openFocusSetup(focusEntry(made))) }, icon('target'), 'Hyperfocus'),
         h('div', { class: 'grow' }),
         h('button', { class: 'btn ghost', onclick: () => closePopover() }, 'Cancel'),
-        h('button', { class: 'btn primary', onclick: save }, src ? 'Save' : 'Add block')),
+        h('button', { class: 'btn primary', onclick: () => save() }, src ? 'Save' : 'Add block')),
     ];
     showPopover(anchor, nodes);
     sync();

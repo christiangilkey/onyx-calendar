@@ -74,7 +74,7 @@ contextBridge.exposeInMainWorld('onyx', {
   alert: (a) => call('alert:show', a),
   onAlertAction: (fn) => ipcRenderer.on('alert-action', (_event, m) => fn(m)),
   // Tamkeen, the Arabic study app: open a news video in its player.
-  tamkeen: { info: () => call('tamkeen:info'), watch: (id, seconds) => call('tamkeen:watch', id, seconds) },
+  tamkeen: { info: () => call('tamkeen:info'), watch: (id, seconds) => call('tamkeen:watch', id, seconds), embed: (id, seconds) => call('tamkeen:embed', id, seconds) },
   // Other PCs running Onyx, kept in step with this one.
   desktops: () => call('desktops'),
   inviteDesktop: () => call('desktops:invite'),

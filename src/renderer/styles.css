@@ -2017,3 +2017,7 @@ body.mobile #graph-dock > #graph-clusters.open, body.mobile #graph-dock > #graph
 /* ------------------------------------------------------------ a carried entry shows the time it would land on */
 .drag-float { width: max-content; }
 .drag-float .drag-chip { z-index: 1; }
+
+/* ------------------------------------------------------------ Tamkeen's player in the News panel */
+/* The video, its clickable captions and the room a word's popup needs: Tamkeen asks for 520px or more. */
+.news-screen.tamkeen { aspect-ratio: auto; height: clamp(520px, 72vh, 720px); background: #000; }

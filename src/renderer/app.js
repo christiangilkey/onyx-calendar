@@ -4657,10 +4657,26 @@
     if (c.kind === 'live' ? !okChannel(c.channelId) : !okVideo(c.id)) return;
     if (tamkeen.on && tamkeen.installed && c.kind === 'video') {
       news.current = c;
+      if (!onyx.tamkeen?.embed) { renderNews(); openInTamkeen(c); return; } // the phone: Tamkeen's own app
+      // Tamkeen's player and clickable captions, here in the panel (Tamkeen starts hidden if it isn't running).
+      news.playing = false;
+      news.tamkeen = { id: c.id, url: '', note: 'Starting Tamkeen…' };
       renderNews();
-      openInTamkeen(c);
+      onyx.tamkeen.embed(c.id).then((r) => {
+        if (news.current !== c) return;
+        if (r?.url) { news.tamkeen = { id: c.id, url: r.url, note: '' }; renderNews(); return; }
+        news.tamkeen = null; // an older Tamkeen: open the video there, as before
+        renderNews();
+        openInTamkeen(c);
+      }).catch((err) => {
+        if (news.current !== c) return;
+        news.tamkeen = null;
+        renderNews();
+        toast(err.message, 'error');
+      });
       return;
     }
+    news.tamkeen = null;
     news.current = c;
     news.playing = true;
     renderNews();
@@ -4685,7 +4701,8 @@
 
   function renderPlayer() {
     const c = news.current;
-    const key = c ? `${c.kind}:${c.id || c.channelId}:${news.playing}` : `none:${news.loading}`;
+    const tk = c && news.tamkeen?.id === c.id ? news.tamkeen : null;
+    const key = c ? `${c.kind}:${c.id || c.channelId}:${news.playing}:${tk ? tk.url || tk.note : ''}` : `none:${news.loading}`;
     const box = $('#news-player');
     // Re-rendering must not reload a video that is already playing.
     if (key !== news.shown || !box.firstChild) {
@@ -4693,6 +4710,12 @@
       const screen = h('div', { class: 'news-screen' });
       if (!c) {
         screen.append(h('div', { class: 'news-empty-screen' }, news.loading ? 'Loading the news…' : 'No stories yet. Pick some channels with the button above.'));
+      } else if (tk) {
+        // Tamkeen's player: the video with its clickable captions under it, and room for a word's popup.
+        screen.classList.add('tamkeen');
+        screen.append(tk.url
+          ? h('iframe', { src: tk.url, title: `${c.title || 'Video'} in Tamkeen`, allow: 'autoplay; encrypted-media; fullscreen', allowFullscreen: true })
+          : h('div', { class: 'news-empty-screen' }, tk.note));
       } else if (news.playing) {
         const frame = h('iframe', {
           src: embedUrl(c), title: c.title || `${c.channel} live`, allow: 'autoplay; encrypted-media; picture-in-picture; fullscreen',

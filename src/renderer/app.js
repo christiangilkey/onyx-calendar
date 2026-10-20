@@ -3512,7 +3512,7 @@
   const FOCUS_CEILINGS = [30, 45, 60, 90, 0];
   const PREFLIGHT = [['water', '💧', 'Water'], ['snack', '🍎', 'Snack'], ['bathroom', '🚻', 'Bathroom'], ['phone', '📵', 'Phone away']];
   const FOCUS_BODY = [20, 30, 45, 60, 0];
-  const SOUNDS = [['brown', 'Brown noise'], ['pink', 'Pink noise'], ['white', 'White noise'], ['rain', 'Rainforest rain'], ['waves', 'Beach waves'], ['spotify', 'Spotify playlist'], ['none', 'Silence']];
+  const SOUNDS = [['brown', 'Brown noise'], ['pink', 'Pink noise'], ['white', 'White noise'], ['rain', 'Rainforest rain'], ['lightrain', 'Light rain'], ['waves', 'Beach waves'], ['spotify', 'Spotify playlist'], ['none', 'Silence']];
   const RATINGS = ['Couldn\'t settle', 'On and off', 'Steady', 'Deep', 'Lost in it'];
   const focus = { s: null, el: null, parts: null, timer: 0, held: [] };
   const focusHold = () => !!focus.s;
@@ -3527,36 +3527,69 @@
     if (title && !focus.held.includes(title)) focus.held.push(title);
   }
 
-  // ---- the sound: noise, rain or waves made here (WebAudio, focus-plan.js), looped, faded in
-  // and out. A Spotify playlist plays in Spotify instead.
+  // ---- the sound: real recordings of noise, rain and waves (assets/sounds; focus-plan.js lists
+  // them), each made into a seamless loop the first time it plays, faded in and out. Switching
+  // sounds blends one into the other. A Spotify playlist plays in Spotify instead.
 
-  const noise = { src: null, gain: null, kind: 'none', buffers: {} };
+  const noise = { src: null, gain: null, kind: 'none', buffers: {}, want: null };
+  /** A recording's loop (a promise of an AudioBuffer), loaded and decoded once. */
+  function noiseLoop(ctx, kind) {
+    const spec = OnyxFocus.SOUND_FILES[kind];
+    if (!spec) return Promise.reject(new Error(`No sound "${kind}"`));
+    if (!noise.buffers[kind]) {
+      noise.buffers[kind] = fetch(`assets/sounds/${spec.file}`)
+        .then((r) => { if (!r.ok) throw new Error(`${spec.file}: ${r.status}`); return r.arrayBuffer(); })
+        .then((bytes) => ctx.decodeAudioData(bytes))
+        .then((rec) => {
+          const loop = OnyxFocus.loopBuffer(Array.from({ length: rec.numberOfChannels }, (_, c) => rec.getChannelData(c)), rec.sampleRate, spec);
+          const buf = ctx.createBuffer(loop.length, loop[0].length, rec.sampleRate);
+          loop.forEach((data, c) => buf.getChannelData(c).set(data));
+          return buf;
+        });
+      noise.buffers[kind].catch(() => { delete noise.buffers[kind]; }); // tried again next time
+    }
+    return noise.buffers[kind];
+  }
   function playNoise(kind, volume) {
     if (kind === 'none' || kind === 'spotify' || !volume) { stopNoise(); return; }
+    noise.want = { kind, volume };
     try {
       const ctx = chime.ctx || (chime.ctx = new AudioContext());
       ctx.resume?.();
-      if (noise.kind !== kind || !noise.src) {
-        stopNoise(true);
-        let buf = noise.buffers[kind];
-        if (!buf) {
-          const data = OnyxFocus.soundBuffer(kind, ctx.sampleRate);
-          buf = noise.buffers[kind] = ctx.createBuffer(1, data.length, ctx.sampleRate);
-          buf.getChannelData(0).set(data);
-        }
+      if (noise.kind === kind && noise.src) {
+        noise.gain.gain.setTargetAtTime(OnyxFocus.soundLevel(kind, volume), ctx.currentTime, 0.25);
+        return;
+      }
+      noiseLoop(ctx, kind).then((buf) => {
+        const want = noise.want;
+        if (want?.kind !== kind) return; // switched or stopped while it loaded
+        if (noise.kind === kind && noise.src) return;
+        fadeNoise(false); // the last sound fades out under this one
         const src = ctx.createBufferSource();
         src.buffer = buf;
         src.loop = true;
         const gain = ctx.createGain();
         gain.gain.value = 0.0001;
-        src.connect(gain).connect(ctx.destination);
+        let head = src;
+        const cut = OnyxFocus.SOUND_FILES[kind].lowCut;
+        if (cut) {
+          const hp = ctx.createBiquadFilter();
+          hp.type = 'highpass';
+          hp.frequency.value = cut;
+          head = src.connect(hp);
+        }
+        head.connect(gain).connect(ctx.destination);
         src.start();
         Object.assign(noise, { src, gain, kind });
-      }
-      noise.gain.gain.setTargetAtTime(OnyxFocus.noiseGain(volume), ctx.currentTime, 0.25);
+        gain.gain.setTargetAtTime(OnyxFocus.soundLevel(kind, want.volume), ctx.currentTime, 0.25);
+      }).catch(() => { /* no sound: the session still runs */ });
     } catch { /* no sound: the session still runs */ }
   }
   function stopNoise(now) {
+    noise.want = null;
+    fadeNoise(now);
+  }
+  function fadeNoise(now) {
     if (!noise.src) return;
     const { src, gain } = noise;
     Object.assign(noise, { src: null, gain: null, kind: 'none' });
@@ -3717,7 +3750,7 @@
       start.disabled = !o || (sound === 'spotify' && !F.spotifyLink(spotify.value));
     };
 
-    // Sound: made in Onyx and heard straight away so the volume can be set, or a Spotify playlist.
+    // Sound: a recording, heard straight away so the volume can be set, or a Spotify playlist.
     let sound = SOUNDS.some(([k]) => k === prefs.sound) ? prefs.sound : 'pink';
     const volume = h('input', { type: 'range', min: 5, max: 100, step: 1, value: prefs.volume, class: 'fs-volume', title: 'Volume' });
     const soundChips = h('div', { class: 'fs-chips' }, SOUNDS.map(([k, label]) =>
@@ -3726,7 +3759,9 @@
     const soundHint = h('small', { class: 'fs-hint' });
     const SOUND_HINT = {
       brown: 'A deep, low rumble, like a distant waterfall.', pink: 'Soft and even, gentler than white noise.', white: 'A bright, even hiss.',
-      rain: 'Steady rain on rainforest leaves. No birds, animal calls or thunder.', waves: 'Slow, smooth swells on a beach. No gulls and no crashing break.',
+      rain: 'Heavy, steady rain in a forest. No birds, animal calls or thunder.',
+      lightrain: 'Soft, light rain, with now and then a drop close by. No thunder.',
+      waves: 'Calm surf lapping on a shore. No gulls and no crashing break.',
     };
     const drawSound = (play) => {
       for (const b of soundChips.children) b.classList.toggle('on', b.dataset.k === sound);

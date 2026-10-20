@@ -124,98 +124,48 @@
   }
 
   /**
-   * Fills `out` (a Float32Array) with white, pink or brown noise. Pink is white noise filtered
-   * so each octave has the same energy (Paul Kellet's filter), softer and less hissy; brown is
-   * deeper still, a low rumble like a distant waterfall. `rand` gives 0..1.
+   * The sounds: real recordings (from Freesound, CC0; credits in the README), in assets/sounds.
+   * Each is made into one seamless loop the first time it plays (loopBuffer): `start` and
+   * `length` (seconds) are the stretch that repeats, and the `fade` seconds that follow it in the
+   * recording are blended over its start. `db` levels it with the others, without a peak reaching
+   * full scale; `lowCut` (Hz) takes out a rumble under the recording. Nothing here is made up in code.
    */
-  function fillNoise(kind, out, rand = Math.random) {
-    let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
-    for (let i = 0; i < out.length; i++) {
-      const w = rand() * 2 - 1;
-      if (kind === 'brown') { b0 = (b0 + 0.02 * w) / 1.02; out[i] = b0 * 3.5; continue; }
-      if (kind !== 'pink') { out[i] = w * 0.35; continue; }
-      b0 = 0.99886 * b0 + w * 0.0555179;
-      b1 = 0.99332 * b1 + w * 0.0750759;
-      b2 = 0.969 * b2 + w * 0.153852;
-      b3 = 0.8665 * b3 + w * 0.3104856;
-      b4 = 0.55 * b4 + w * 0.5329522;
-      b5 = -0.7616 * b5 - w * 0.016898;
-      out[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.11;
-      b6 = w * 0.115926;
-    }
-    return out;
-  }
+  const SOUND_FILES = {
+    brown: { file: 'brown-noise.mp3', start: 0.2, length: 28.6, fade: 1, db: 4 },
+    pink: { file: 'pink-noise.mp3', start: 0.2, length: 40, fade: 1, db: -2 },
+    white: { file: 'white-noise.mp3', start: 0.2, length: 28.6, fade: 1, db: 5.9 },
+    rain: { file: 'rainforest-rain.mp3', start: 0.1, length: 18.7, fade: 2, db: 6.1 },
+    lightrain: { file: 'light-rain.mp3', start: 0.1, length: 20.2, fade: 2, db: 15.2, lowCut: 90 },
+    // The stretch of the surf that starts and ends alike, with a long blend for the swell.
+    waves: { file: 'beach-waves.mp3', start: 2, length: 51, fade: 4, db: 12.5 },
+  };
 
   /**
-   * Rain on rainforest leaves, and nothing else: a soft hiss with many tiny drops blended into
-   * it. No birds, animal calls or thunder, and no drop much louder than the rest, since anything
-   * sudden pulls attention away from the work.
+   * One seamless loop out of a recording (its channels, Float32Arrays at `rate` samples a second):
+   * the stretch from `start` for `length` seconds, with the `fade` seconds after it blended over
+   * its first `fade` (equal power, so the blend is no quieter). Played on repeat, the end runs
+   * straight on into the start just as the recording ran on, so there is no seam to hear.
+   * Shortened if the recording is shorter than asked.
    */
-  function fillRain(out, rate, rand = Math.random) {
-    const bed = fillNoise('pink', new Float32Array(out.length), rand);
-    const lowA = Math.exp(-2 * Math.PI * 180 / rate), highA = Math.exp(-2 * Math.PI * 5500 / rate);
-    let low = 0, soft = 0;
-    for (let i = 0; i < out.length; i++) {
-      low = low * lowA + bed[i] * (1 - lowA);       // the rumble, taken out: rain is a hiss
-      soft = soft * highA + (bed[i] - low) * (1 - highA); // and the harsh top, softened
-      out[i] = soft * 1.6;
-    }
-    // Drops: about 140 a second, each a few milliseconds of fading noise, all of them quiet.
-    const perSample = 140 / rate;
-    for (let i = 0; i < out.length; i++) {
-      if (rand() >= perSample) continue;
-      const amp = 0.025 + rand() * 0.05;
-      const tau = rate * (0.0008 + rand() * 0.0025);
-      for (let k = 0, len = Math.min(out.length - i, Math.round(tau * 5)); k < len; k++) out[i + k] += (rand() * 2 - 1) * amp * Math.exp(-k / tau);
-    }
-    return out;
-  }
-
-  /**
-   * Beach waves: slow, smooth swells of deep noise with a brighter wash at the top of each, two
-   * to a loop (the second a little smaller). No gulls and no crashing break.
-   */
-  function fillWaves(out, rate, rand = Math.random, period = out.length / 2) {
-    // The body of the water: brown noise, a low roar; the wash: pink noise, only near the top.
-    const deep = fillNoise('brown', new Float32Array(out.length), rand);
-    const wash = fillNoise('pink', new Float32Array(out.length), rand);
-    for (let i = 0; i < out.length; i++) {
-      const wave = Math.floor(i / period) % 2;
-      const s = 0.5 - 0.5 * Math.cos(2 * Math.PI * ((i % period) / period)); // 0 → 1 → 0, smoothly
-      const swell = (wave ? 0.8 : 1) * Math.pow(s, 1.4);
-      out[i] = deep[i] * (0.35 + 0.65 * swell) + wash[i] * 0.7 * swell * swell;
-    }
-    return out;
-  }
-
-  const SOUND_SECONDS = { white: 4, pink: 4, brown: 6, rain: 8, waves: 20 };
-  const SOUND_RMS = 0.12; // every sound as loud as the others at the same volume
-
-  /**
-   * One loop of a sound at `rate` samples a second: its end blended into its start so it
-   * repeats with no seam, and levelled so each sound is as loud as the others.
-   */
-  function soundBuffer(kind, rate, rand = Math.random) {
-    const n = Math.round(rate * (SOUND_SECONDS[kind] || 4));
-    const fade = Math.round(rate * 0.5);
-    const raw = new Float32Array(n + fade);
-    if (kind === 'rain') fillRain(raw, rate, rand);
-    else if (kind === 'waves') fillWaves(raw, rate, rand, (n) / 2);
-    else fillNoise(kind, raw, rand);
-    const out = raw.slice(0, n);
-    for (let i = 0; i < fade; i++) {
-      const t = i / fade; // equal-power, so the loop point is not quieter
-      out[i] = raw[i] * Math.sqrt(t) + raw[n + i] * Math.sqrt(1 - t);
-    }
-    let sum = 0;
-    for (let i = 0; i < n; i++) sum += out[i] * out[i];
-    const k = SOUND_RMS / Math.max(1e-6, Math.sqrt(sum / n));
-    for (let i = 0; i < n; i++) out[i] = Math.max(-1, Math.min(1, out[i] * k));
-    return out;
+  function loopBuffer(channels, rate, { start = 0, length, fade = 1 }) {
+    const total = channels[0].length;
+    const s = Math.min(Math.round(start * rate), Math.floor(total / 4));
+    const f = Math.max(1, Math.min(Math.round(fade * rate), Math.floor((total - s) / 3)));
+    const n = Math.min(Math.round(length * rate), total - s - f);
+    return channels.map((src) => {
+      const out = src.slice(s, s + n);
+      for (let i = 0; i < f; i++) {
+        const t = (i + 0.5) / f;
+        out[i] = src[s + i] * Math.sqrt(t) + src[s + n + i] * Math.sqrt(1 - t);
+      }
+      return out;
+    });
   }
 
   /** The slider (0-100) as a gain: a curve, so the low end is usable. */
   const noiseGain = (volume) => Math.pow(Math.max(0, Math.min(100, Number(volume) || 0)) / 100, 2) * 1.2;
+  /** A sound's gain at a slider setting: the slider's curve, and the recording's own level. */
+  const soundLevel = (kind, volume) => noiseGain(volume) * Math.pow(10, ((SOUND_FILES[kind] || {}).db || 0) / 20);
 
   /**
    * A Spotify playlist (or album, artist, track, show) as a link Onyx can open: from the link
@@ -353,8 +303,8 @@
     parseActivities, breakIdea,
     focusHours, bestWindow, hourScore, rotation, BEST_MIN_RATED,
     nextEntry, stopOptions, quickTasks, taskMinutes, notesSteps, currentStep, leftOffNote, lastLeftOff, nextCeiling,
-    fillNoise, fillRain, fillWaves, soundBuffer, noiseGain, spotifyLink, nextBodyCheck, bodyCheck,
-    BAND_MIN, LENGTHS, DEFAULT_LENGTH, QUICK_MIN, IF_THEN, LEFT_OFF, BODY_CHECKS, SOUND_SECONDS,
+    loopBuffer, noiseGain, soundLevel, spotifyLink, nextBodyCheck, bodyCheck,
+    BAND_MIN, LENGTHS, DEFAULT_LENGTH, QUICK_MIN, IF_THEN, LEFT_OFF, BODY_CHECKS, SOUND_FILES,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else globalThis.OnyxFocus = api;

@@ -3,6 +3,8 @@
 // sent by this PC when the stop goes unanswered, or a hidden task for the Pi.
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const path = require('path');
 const F = require('../src/renderer/focus-plan');
 const store = require('../src/main/store');
 const caller = require('../src/main/caller');
@@ -14,47 +16,66 @@ const MIN = 60000;
 const RATE = 16000;
 let seed = 11;
 const rand = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
-
-/** The loudness of each `secs` (50 ms) of a sound. */
-const windows = (b, secs = 0.05) => {
-  const w = Math.round(RATE * secs), out = [];
-  for (let i = 0; i + w <= b.length; i += w) { let s = 0; for (let j = i; j < i + w; j++) s += b[j] * b[j]; out.push(Math.sqrt(s / w)); }
-  return out;
-};
 const rms = (b) => Math.sqrt(b.reduce((s, v) => s + v * v, 0) / b.length);
 
-test('every sound loops for its length and is as loud as the others', () => {
-  for (const kind of ['brown', 'pink', 'white', 'rain', 'waves']) {
-    const b = F.soundBuffer(kind, RATE, rand);
-    assert.equal(b.length, RATE * F.SOUND_SECONDS[kind], kind);
-    assert.ok(Math.abs(rms(b) - 0.12) < 0.005, `${kind} is levelled`);
-    assert.ok(b.every((v) => Math.abs(v) <= 1), `${kind} stays in range`);
-    // No click where it loops: the step from the end back to the start is like any other step.
-    const steps = b.slice(1).map((v, i) => Math.abs(v - b[i])).sort((x, y) => x - y);
-    assert.ok(Math.abs(b[0] - b[b.length - 1]) <= steps[Math.floor(steps.length * 0.999)], `${kind} has no seam`);
+/** An MP3's length in seconds, from its frame headers (MPEG-1 Layer III, as the sounds are). */
+function mp3Seconds(file) {
+  const b = fs.readFileSync(file);
+  const BR = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320], SR = [44100, 48000, 32000];
+  let o = 0, secs = 0;
+  while (o + 4 <= b.length) {
+    if (b[o] !== 0xff || (b[o + 1] & 0xfe) !== 0xfa) { o++; continue; }
+    const br = BR[b[o + 2] >> 4] * 1000, sr = SR[(b[o + 2] >> 2) & 3];
+    if (!br || !sr) { o++; continue; }
+    o += Math.floor(144 * br / sr) + ((b[o + 2] >> 1) & 1);
+    secs += 1152 / sr;
+  }
+  return secs;
+}
+
+test('every sound is a recording in the app, long enough for its loop and its blend', () => {
+  for (const kind of ['brown', 'pink', 'white', 'rain', 'lightrain', 'waves']) {
+    const spec = F.SOUND_FILES[kind];
+    assert.ok(spec, kind);
+    const file = path.join(__dirname, '../src/renderer/assets/sounds', spec.file);
+    assert.ok(fs.existsSync(file), `${spec.file} is in assets/sounds`);
+    assert.ok(spec.start + spec.length + spec.fade <= mp3Seconds(file) - 0.1, `${kind}'s loop fits in the recording`);
+    assert.ok(spec.length >= 15, `${kind} loops no sooner than every 15 seconds`);
+    assert.ok(spec.fade >= 1, `${kind} blends for at least a second`);
   }
 });
 
-test('the rainforest rain is steady: no sudden loud moment (no birdsong, animal calls or thunder)', () => {
-  const w = windows(F.soundBuffer('rain', RATE, rand));
-  const sorted = [...w].sort((x, y) => x - y), median = sorted[sorted.length >> 1];
-  assert.ok(sorted[sorted.length - 1] < median * 1.5, 'no 50 ms is much louder than the rest');
-  for (let i = 1; i < w.length; i++) assert.ok(w[i] < w[i - 1] * 1.6, 'nothing jumps out');
+test('a recording becomes a loop with no seam and no dip where it joins', () => {
+  // Stands in for a decoded recording: two channels of steady, random sound.
+  const rec = [0, 1].map(() => Float32Array.from({ length: RATE * 12 }, () => rand() * 2 - 1));
+  const [left, right] = F.loopBuffer(rec, RATE, { start: 0.5, length: 10, fade: 1 });
+  assert.equal(left.length, RATE * 10);
+  assert.equal(right.length, RATE * 10);
+  const s = RATE * 0.5, n = RATE * 10, f = RATE;
+  // The join: the loop's last sample is the recording's, and its first is (almost all) the very next one.
+  assert.equal(left[n - 1], rec[0][s + n - 1]);
+  assert.ok(Math.abs(left[0] - rec[0][s + n]) < 0.02);
+  // After the blend it is the recording itself.
+  assert.equal(left[f + 5], rec[0][s + f + 5]);
+  // The blend is as loud as the rest (equal power), so there is no dip each time round.
+  const blend = rms(left.slice(0, f)), rest = rms(left.slice(f));
+  assert.ok(Math.abs(blend / rest - 1) < 0.08, `blend ${blend} vs ${rest}`);
+  assert.ok(left.every((v) => Math.abs(v) <= 1.5));
 });
 
-test('the beach waves swell and fall smoothly, with no crashing break', () => {
-  // A crash or a boom builds over a few hundred milliseconds: looked at in 200 ms, the waves
-  // rise no faster than plain pink noise flickers by itself.
-  const step = (w) => Math.max(...w.slice(1).map((v, i) => v / w[i]));
-  const w = windows(F.soundBuffer('waves', RATE, rand), 0.2);
-  const sorted = [...w].sort((x, y) => x - y);
-  assert.ok(sorted[sorted.length - 1] > sorted[Math.floor(sorted.length * 0.1)] * 1.8, 'they do rise and fall');
-  assert.ok(step(w) < Math.max(1.45, step(windows(F.soundBuffer('pink', RATE, rand), 0.2)) * 1.15), 'no sudden boom');
+test('a recording shorter than asked still makes a whole loop', () => {
+  const rec = [Float32Array.from({ length: RATE * 5 }, () => rand() - 0.5)];
+  const [loop] = F.loopBuffer(rec, RATE, { start: 0.2, length: 30, fade: 2 });
+  assert.ok(loop.length > RATE * 2 && loop.length < RATE * 5);
+  assert.ok(loop.every(Number.isFinite));
 });
 
-test('brown noise is deeper (smoother) than pink', () => {
-  const jitter = (b) => b.slice(1).reduce((s, v, i) => s + Math.abs(v - b[i]), 0) / b.length;
-  assert.ok(jitter(F.soundBuffer('brown', RATE, rand)) < jitter(F.soundBuffer('pink', RATE, rand)));
+test('each sound is levelled by its own gain, under the volume slider', () => {
+  assert.equal(F.soundLevel('pink', 0), 0);
+  assert.ok(F.soundLevel('waves', 50) > F.noiseGain(50), 'the quiet surf recording is lifted');
+  assert.ok(F.soundLevel('pink', 50) < F.noiseGain(50), 'the loud pink noise is brought down');
+  assert.ok(F.soundLevel('lightrain', 30) < F.soundLevel('lightrain', 60));
+  assert.equal(F.SOUND_FILES.lightrain.lowCut, 90, 'the rumble under the light rain is taken out');
 });
 
 test('a Spotify link is taken from Share → Copy link or a spotify: address, and nothing else', () => {

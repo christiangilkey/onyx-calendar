@@ -113,16 +113,7 @@ test('the soft check-in comes a set time after the start, then after each answer
   assert.equal(F.nextCeiling(now, 0), null);
 });
 
-test('white and pink noise stay within range, and pink is smoother than white', () => {
-  let seed = 7;
-  const rand = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
-  const white = F.fillNoise('white', new Float32Array(20000), rand);
-  const pink = F.fillNoise('pink', new Float32Array(20000), rand);
-  for (const buf of [white, pink]) assert.ok(buf.every((v) => Math.abs(v) <= 1));
-  // Sample-to-sample change: pink noise (more low end) moves less than white.
-  const jitter = (b) => b.slice(1).reduce((sum, v, i) => sum + Math.abs(v - b[i]), 0) / b.length;
-  assert.ok(jitter(pink) < jitter(white));
-  assert.ok(jitter(pink) > 0);
+test('the volume slider is a curve from silent to full', () => {
   assert.equal(F.noiseGain(0), 0);
   assert.ok(F.noiseGain(50) < F.noiseGain(100));
   assert.equal(F.noiseGain(500), F.noiseGain(100));

@@ -28,7 +28,7 @@ const GRACE_MS = 2 * 60000;      // the stop unanswered on the PC this long: the
 const STALE_MS = 3 * 3600000;    // a session left running (the window closed) is let go after this
 const TICK_MS = 15000;
 const STOPS = ['hard', 'early', 'ceiling'];
-const SOUNDS = ['brown', 'pink', 'white', 'rain', 'waves', 'spotify', 'none'];
+const SOUNDS = ['brown', 'pink', 'white', 'rain', 'lightrain', 'waves', 'spotify', 'none'];
 const HOOKS = ['race', 'next', 'none'];
 const PREFLIGHT = ['water', 'snack', 'bathroom', 'phone'];
 

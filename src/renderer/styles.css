@@ -2058,3 +2058,180 @@ body.mobile .fs-round .fs-in { grid-column: 1 / -1; height: 40px; }
   100% { box-shadow: 0 0 0 1px transparent, 0 0 0 transparent; }
 }
 @media (prefers-reduced-motion: reduce) { .fs-pomo.switched { animation: none; border-color: color-mix(in srgb, var(--c) 60%, var(--line)); } }
+
+/* ------------------------------------------------------------ Hyperfocus presence: the privacy card, the flame, the drops */
+/* The flame: filled, two-tone, glowing (the line icons are strokes only). */
+.flame-mark { display: inline-flex; width: 18px; height: 18px; flex: none; }
+.flame-mark svg { width: 100%; height: 100%; overflow: visible; }
+.flame-mark .o { fill: #ff7a1a; filter: drop-shadow(0 0 3px rgba(255, 122, 26, .55)); }
+.flame-mark .i { fill: #ffd75e; }
+
+/* In the setup: the streak so far, beside the switch. */
+.fs-pres-row { gap: 12px; flex-wrap: wrap; }
+.fs-streak { display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px 4px 8px; border-radius: 999px; background: color-mix(in srgb, #ff7a1a 12%, #121216); border: 1px solid color-mix(in srgb, #ff7a1a 30%, var(--line)); }
+.fs-streak[hidden] { display: none; }
+.fs-streak b { font-size: 14px; font-weight: 750; color: #ffd9a8; font-variant-numeric: tabular-nums; }
+.fs-streak small { color: var(--muted); font-size: 11.5px; }
+
+/* The privacy card: a badge, three promises, the path the picture takes; the live view beside it. */
+.privacy-card {
+  --ok: #5fd38d; display: grid; gap: 12px; padding: 14px; border-radius: 14px;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--ok) 7%, #0d0f10), #0b0c0f 60%);
+  border: 1px solid color-mix(in srgb, var(--ok) 26%, var(--line));
+}
+.privacy-card[hidden] { display: none; }
+.pc-main { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: start; }
+.pc-main > :only-child { grid-column: 1 / -1; }
+.pc-preview { position: relative; width: 168px; aspect-ratio: 4 / 3; border-radius: 11px; overflow: hidden; background: #050607; border: 1px solid var(--line-2); }
+.pc-preview.place { display: grid; place-items: center; aspect-ratio: auto; height: 96px; width: 132px; }
+.pc-place .ico { width: 30px; height: 30px; color: color-mix(in srgb, var(--ok) 70%, #fff); }
+.pc-preview .pres-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.pc-status {
+  position: absolute; left: 6px; right: 6px; bottom: 6px; padding: 4px 7px; border-radius: 7px; font-size: 11px; font-weight: 600; line-height: 1.3;
+  background: rgba(0, 0, 0, .66); color: var(--soft); backdrop-filter: blur(4px); z-index: 1;
+}
+.pc-preview:has(.pc-status[data-state=error]) .pres-frame { visibility: hidden; }
+.pc-status[data-state=seen] { color: var(--ok); }
+.pc-status[data-state=seen]::before { content: '\2713  '; }
+.pc-status[data-state=unseen] { color: #f5b83d; }
+.pc-status[data-state=error] { color: #ff8a80; top: 6px; bottom: auto; overflow: auto; max-height: calc(100% - 12px); }
+.pc-badge {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px 3px 6px; border-radius: 999px; width: max-content;
+  font-size: 10.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--ok); background: color-mix(in srgb, var(--ok) 13%, transparent);
+}
+.pc-badge .ico { width: 14px; height: 14px; }
+.pc-title { display: block; margin: 7px 0 6px; font-size: 15px; font-weight: 700; color: var(--text); }
+.pc-points { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
+.pc-points li { display: flex; gap: 8px; align-items: flex-start; }
+.pc-points li > .ico { width: 15px; height: 15px; margin-top: 1px; color: var(--ok); }
+.pc-points li > .ico svg { stroke-width: 2.4; }
+.pc-points b { display: block; font-size: 12.5px; font-weight: 650; color: var(--soft); }
+.pc-points small { display: block; font-size: 11.5px; line-height: 1.4; color: var(--muted); }
+.pc-flow { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding-top: 11px; border-top: 1px solid var(--line); font-size: 11.5px; }
+.pc-node { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: 8px; background: #131418; color: var(--soft); white-space: nowrap; }
+.pc-node .ico { width: 14px; height: 14px; }
+.pc-node.strong { color: var(--text); background: color-mix(in srgb, var(--ok) 14%, #131418); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 35%, transparent); }
+.pc-node.off { margin-left: auto; color: #ff9b8f; background: color-mix(in srgb, #ff5b5b 10%, #131418); }
+.pc-arrow { width: 16px; height: 1px; background: var(--muted); position: relative; flex: none; }
+.pc-arrow::after { content: ''; position: absolute; right: -1px; top: -3px; border: 3.5px solid transparent; border-left: 5px solid var(--muted); border-right: 0; }
+
+/* During the session the camera's page is there but unseen (1px, invisible, out of the way). */
+.pres-frame.hidden { position: fixed; left: -10px; top: -10px; width: 1px; height: 1px; opacity: 0; border: 0; pointer-events: none; }
+
+/* The top bar's chip: the camera is on, and only here. A soft live dot, never a hidden camera. */
+.fs-privacy {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 999px; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600;
+  color: #9fe3b9; background: color-mix(in srgb, #5fd38d 10%, transparent); border: 1px solid color-mix(in srgb, #5fd38d 32%, transparent);
+}
+.fs-privacy .ico { width: 14px; height: 14px; }
+.fs-privacy > .ico:last-child { opacity: .75; }
+.fs-privacy .dot { width: 7px; height: 7px; border-radius: 50%; background: #5fd38d; box-shadow: 0 0 0 0 rgba(95, 211, 141, .6); animation: next-live 2.2s ease-out infinite; }
+.fs-privacy:hover { background: color-mix(in srgb, #5fd38d 16%, transparent); }
+.fs-privacy.off { color: var(--muted); background: transparent; border-color: var(--line-2); }
+.fs-privacy.off .dot { background: var(--faint); animation: none; }
+.fs-privacy-pop {
+  position: fixed; z-index: 9; width: min(440px, calc(100vw - 24px)); display: grid; gap: 10px; padding: 12px; border-radius: 16px;
+  background: #0a0b0d; border: 1px solid var(--line-2); box-shadow: 0 22px 60px rgba(0, 0, 0, .7); animation: alert-in .2s ease-out;
+}
+.fs-privacy-pop .pop-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* The flame under the timer: the streak, and what this round needs. */
+.fs-flame {
+  display: flex; align-items: center; gap: 12px; margin-top: 10px; padding: 9px 14px 9px 10px; border-radius: 16px; max-width: 320px; position: relative;
+  background: #0b0c10; border: 1px solid var(--line); transition: border-color .4s, background .4s;
+}
+.fl-mark { position: relative; display: grid; place-items: center; width: 46px; height: 46px; flex: none; border-radius: 14px; background: color-mix(in srgb, #ff7a1a 14%, #101014); }
+.fl-mark .flame-mark { width: 30px; height: 30px; transform-origin: 50% 90%; }
+.fl-mark .n {
+  position: absolute; right: -6px; bottom: -6px; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; display: grid; place-items: center; box-sizing: border-box;
+  font-size: 12px; font-weight: 800; color: #1a0d00; background: linear-gradient(180deg, #ffd75e, #ff9a3c); box-shadow: 0 0 0 2px #0b0c10; font-variant-numeric: tabular-nums;
+}
+.fl-t { display: grid; gap: 2px; min-width: 0; }
+.fl-t small { font-size: 11px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; color: #ffb36b; }
+.fl-t span { font-size: 12.5px; line-height: 1.35; color: var(--soft); }
+.fs-flame[data-state=work] .fl-mark .flame-mark { animation: flicker 2.6s ease-in-out infinite; }
+.fs-flame[data-state=work] { border-color: color-mix(in srgb, #ff7a1a 28%, var(--line)); }
+.fs-flame[data-state=rest] .fl-t small { color: #4fd1a5; }
+.fs-flame[data-state=unsure] .fl-t small, .fs-flame[data-state=away] .fl-t small { color: #f5b83d; }
+.fs-flame:is([data-state=out], [data-state=off], [data-state=paused], [data-state=start]) .fl-mark .flame-mark { filter: grayscale(1) brightness(.7); opacity: .55; }
+.fs-flame:is([data-state=out], [data-state=off], [data-state=paused]) .fl-t small { color: var(--muted); }
+.fs-flame.bump .fl-mark { animation: flame-bump .9s cubic-bezier(.2, 1.6, .4, 1); }
+@keyframes flicker { 0%, 100% { transform: scale(1, 1); } 30% { transform: scale(1.03, .96); } 55% { transform: scale(.98, 1.05); } 80% { transform: scale(1.02, .99); } }
+@keyframes flame-bump { 0% { transform: scale(1); } 35% { transform: scale(1.35); box-shadow: 0 0 28px rgba(255, 140, 40, .65); } 100% { transform: scale(1); } }
+
+/* The drops. A common one rises small from the flame; an epic fills the middle in violet; a jackpot
+   takes the whole screen in gold, with sparks. All let clicks through: the work goes on. */
+.fs-drop { pointer-events: none; z-index: 8; }
+.fs-drop-card { display: grid; justify-items: center; gap: 4px; text-align: center; }
+.fs-drop-card b { font-weight: 850; letter-spacing: .02em; }
+.fs-drop-card small { color: var(--soft); font-size: 13px; }
+.fs-drop.common { position: absolute; left: 30px; bottom: 100%; animation: drop-rise 2.4s ease-out forwards; }
+.fs-drop.common .fs-drop-card { grid-auto-flow: column; align-items: center; gap: 5px; padding: 5px 11px 5px 8px; border-radius: 999px; background: #1a120a; border: 1px solid color-mix(in srgb, #ff9a3c 45%, transparent); box-shadow: 0 6px 22px rgba(255, 122, 26, .3); }
+.fs-drop.common .flame-mark { width: 18px; height: 18px; }
+.fs-drop.common b { font-size: 14px; color: #ffd9a8; }
+.fs-drop.common small { font-size: 12px; color: #ffb36b; }
+@keyframes drop-rise { 0% { opacity: 0; transform: translateY(14px) scale(.8); } 15% { opacity: 1; transform: translateY(0) scale(1.08); } 25% { transform: translateY(-4px) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; transform: translateY(-34px); } }
+
+.fs-drop.epic, .fs-drop.jackpot { position: fixed; inset: 0; display: grid; place-items: center; overflow: hidden; }
+.fs-drop.epic { --g: #a78bfa; animation: drop-fade 4.4s ease-out forwards; background: radial-gradient(circle at 50% 50%, rgba(139, 92, 246, .3), rgba(4, 3, 10, .62) 62%); }
+.fs-drop.jackpot { --g: #ffcc4d; animation: drop-fade 7.8s ease-out forwards; background: radial-gradient(circle at 50% 50%, rgba(255, 196, 61, .34), rgba(255, 140, 26, .12) 45%, rgba(0, 0, 0, .55) 100%); }
+.fs-drop-rays {
+  position: absolute; width: 150vmax; height: 150vmax; left: 50%; top: 50%; margin: -75vmax 0 0 -75vmax; opacity: .5;
+  background: repeating-conic-gradient(from 0deg, color-mix(in srgb, var(--g) 35%, transparent) 0deg 7deg, transparent 7deg 18deg);
+  -webkit-mask: radial-gradient(circle, #000 0 18%, transparent 52%); mask: radial-gradient(circle, #000 0 18%, transparent 52%); animation: rays-turn 9s linear infinite;
+}
+.fs-drop.jackpot .fs-drop-rays { opacity: .75; -webkit-mask: radial-gradient(circle, #000 0 26%, transparent 62%); mask: radial-gradient(circle, #000 0 26%, transparent 62%); animation-duration: 6s; }
+.fs-drop.epic .fs-drop-card, .fs-drop.jackpot .fs-drop-card { position: relative; animation: card-pop .8s cubic-bezier(.2, 1.5, .35, 1) both; }
+/* On a card of its own, the screen dimmed behind it: the win reads clearly over whatever is there. */
+.fs-drop.epic .fs-drop-card, .fs-drop.jackpot .fs-drop-card {
+  padding: 22px 40px 20px; border-radius: 26px; background: rgba(13, 10, 26, .9); backdrop-filter: blur(8px);
+  border: 1px solid color-mix(in srgb, var(--g) 50%, transparent); box-shadow: 0 0 70px color-mix(in srgb, var(--g) 38%, transparent), 0 26px 90px rgba(0, 0, 0, .75);
+}
+.fs-drop.jackpot .fs-drop-card { background: rgba(26, 16, 3, .92); padding: 26px 52px 24px; }
+.fs-drop.epic .flame-mark { width: 92px; height: 92px; filter: drop-shadow(0 0 22px rgba(167, 139, 250, .8)); }
+.fs-drop.epic .flame-mark .o { fill: #a78bfa; }
+.fs-drop.epic .flame-mark .i { fill: #f3e8ff; }
+.fs-drop.epic b { font-size: clamp(30px, 5vw, 46px); color: #ede4ff; text-shadow: 0 0 24px rgba(167, 139, 250, .85); text-transform: uppercase; }
+.fs-drop.jackpot .flame-mark { width: 132px; height: 132px; filter: drop-shadow(0 0 34px rgba(255, 196, 61, .95)); animation: flicker 1.2s ease-in-out infinite; }
+.fs-drop.jackpot .flame-mark .o { fill: #ffb627; }
+.fs-drop.jackpot .flame-mark .i { fill: #fff6c9; }
+.fs-drop.jackpot b {
+  font-size: clamp(44px, 9vw, 92px); text-transform: uppercase; letter-spacing: .06em;
+  background: linear-gradient(180deg, #fff6c9, #ffcc4d 45%, #ff9a1a); -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 0 22px rgba(255, 196, 61, .7));
+}
+/* The card pulses (a cheap transform), not the glowing word (which would be redrawn every frame). */
+.fs-drop.jackpot .fs-drop-card { animation: card-pop .8s cubic-bezier(.2, 1.5, .35, 1) both, jackpot-pulse .9s ease-in-out .8s 3; }
+.fs-drop.jackpot small, .fs-drop.epic small { font-size: 15px; font-weight: 600; color: #fff; opacity: .85; }
+.spark {
+  position: absolute; top: -20px; left: var(--x); width: calc(12px * var(--s)); height: calc(12px * var(--s)); border-radius: 3px;
+  background: hsl(var(--h) 100% 62%); box-shadow: 0 0 10px hsl(var(--h) 100% 60%); transform: rotate(45deg);
+  animation: spark-fall var(--t) cubic-bezier(.3, .1, .6, 1) var(--d) both;
+}
+@keyframes drop-fade { 0% { opacity: 0; } 8% { opacity: 1; } 80% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes card-pop { 0% { opacity: 0; transform: scale(.4); } 100% { opacity: 1; transform: scale(1); } }
+@keyframes rays-turn { to { transform: rotate(360deg); } }
+@keyframes jackpot-pulse { 50% { transform: scale(1.07); } }
+@keyframes spark-fall { 0% { opacity: 0; transform: translateY(0) rotate(45deg); } 10% { opacity: 1; } 100% { opacity: 0; transform: translateY(105vh) rotate(400deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .fs-flame[data-state=work] .fl-mark .flame-mark, .fs-flame.bump .fl-mark, .fs-drop-rays, .spark, .fs-drop.jackpot .flame-mark, .fs-drop.jackpot .fs-drop-card, .fs-privacy .dot { animation: none; }
+  .spark { display: none; }
+  .fs-drop.common { animation: drop-fade 2.4s linear forwards; }
+}
+
+/* In the wind-down: the flames this session, and that the camera is off. */
+.fs-flames-sum { display: flex; gap: 12px; align-items: flex-start; margin-top: 14px; padding: 12px 14px; border-radius: 14px; background: #0b0c10; border: 1px solid var(--line); max-width: 560px; }
+.fs-flames-sum > .flame-mark { width: 26px; height: 26px; margin-top: 2px; }
+.fs-flames-sum b { color: #ffd9a8; font-size: 15px; }
+.fs-flames-sum span { color: var(--soft); font-size: 14px; }
+.fs-flames-sum small { display: flex; align-items: center; gap: 5px; margin-top: 5px; color: #9fe3b9; font-size: 12px; }
+.fs-flames-sum small .ico { width: 13px; height: 13px; }
+
+/* The phone: the card's live box above its words; the chip shorter; the flame full width. */
+body.mobile .pc-main { grid-template-columns: 1fr; }
+body.mobile .pc-preview { width: 100%; max-width: 320px; justify-self: center; }
+body.mobile .pc-preview.place { height: 84px; width: 100%; max-width: none; }
+body.mobile .pc-node.off { margin-left: 0; }
+body.mobile .fs-privacy { height: 26px; font-size: 11px; padding: 0 8px; }
+body.mobile .fs-privacy > .ico:last-child { display: none; }
+body.mobile .fs-flame { max-width: none; width: 100%; box-sizing: border-box; }

@@ -44,6 +44,11 @@
     globe: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.6 2.3 3.9 5.1 3.9 8.5s-1.3 6.2-3.9 8.5c-2.6-2.3-3.9-5.1-3.9-8.5s1.3-6.2 3.9-8.5z"/>',
     link: '<path d="M14 5h5v5M19 5l-8 8M11 7H6v11h11v-5"/>',
     update: '<path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/><path d="M12 8v6M9.5 11.5L12 14l2.5-2.5"/>',
+    camera: '<path d="M4 8.5A2.5 2.5 0 0 1 6.5 6H8l1.5-2h5L16 6h1.5A2.5 2.5 0 0 1 20 8.5v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z"/><circle cx="12" cy="12.5" r="3.5"/>',
+    shield: '<path d="M12 3.5l7 2.8v5.2c0 4.3-2.9 7.6-7 9-4.1-1.4-7-4.7-7-9V6.3z"/><path d="M9 12.2l2.2 2.2 4-4.3"/>',
+    cloudoff: '<path d="M8 18.5h8.5a3.8 3.8 0 0 0 1.6-7.2M15.6 7.1A5.5 5.5 0 0 0 7.7 9a4.8 4.8 0 0 0-.4 9.4"/><path d="M4 4l16 16"/>',
+    pin: '<path d="M12 21s-6-5.4-6-10.5a6 6 0 0 1 12 0C18 15.6 12 21 12 21z"/><circle cx="12" cy="10.5" r="2.2"/>',
+    monitor: '<rect x="3.5" y="4.5" width="17" height="11.5" rx="2"/><path d="M9 20h6M12 16v4"/>',
     qr: '<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><rect x="8" y="8" width="3" height="3"/><rect x="13" y="8" width="3" height="3"/><rect x="8" y="13" width="3" height="3"/><path d="M13 13h3v3"/>',
   };
   const COLORS = ['#8b7cff', '#4aa8ff', '#3fd0c9', '#5fd38d', '#f5b83d', '#ff9f4a', '#ff6b6b', '#ff7eb6', '#b9b9c2'];
@@ -3704,6 +3709,8 @@
     // What the log shows: the hours you focus best (or how many more rated sessions until it can say).
     const bestLine = h('div', { class: 'fs-best', hidden: true });
     onyx.focusInsights?.().then((ins) => {
+      flamesBefore = ins.flames || flamesBefore;
+      drawStreak();
       const hr = (n) => fmtTime(new Date(2000, 0, 1, n)).replace(':00', '');
       if (ins.best) {
         const nowH = new Date().getHours();
@@ -3835,6 +3842,43 @@
       drawRounds();
     };
 
+    // Presence: the camera (on the PC) or the phone's place (on a phone) sees you stay with it. Each
+    // working period stayed with all the way through adds a flame to your streak; only leaving counts.
+    const presMode = onyx.isPhone ? 'location' : 'camera';
+    let presence = prefs.presence === true;
+    let winSound = prefs.winSound !== false;
+    let flamesBefore = { streak: 0, best: 0, flames: 0, epic: 0, jackpot: 0 };
+    const presStreak = h('span', { class: 'fs-streak', hidden: true });
+    const drawStreak = () => {
+      const f = flamesBefore;
+      presStreak.hidden = !f.flames;
+      presStreak.replaceChildren(flameMark(), h('b', null, String(f.streak)), h('small', null, `in a row · best ${f.best}${f.jackpot ? ` · ${f.jackpot} ${f.jackpot === 1 ? 'jackpot' : 'jackpots'}` : ''}`));
+    };
+    const presHint = h('small', { class: 'fs-hint' }, presMode === 'camera'
+      ? 'Each working period (a pomodoro round, or the whole session) you stay at your desk all the way through adds a flame to your streak. Fidget, stretch, look away: all fine. Only leaving counts (out of view for 90 seconds), and breaks are yours to walk away in.'
+      : 'Each working period (a pomodoro round, or the whole session) your phone stays where it is all the way through adds a flame to your streak. Moving around the room is fine: only leaving the place counts, and breaks are yours to walk away in.');
+    const presSeg = h('div', { class: 'segmented' }, [[false, 'Off'], [true, 'On']].map(([v, label]) =>
+      h('button', { type: 'button', 'data-v': String(v), onclick: () => { presence = v; drawPresence(); } }, label)));
+    const winSeg = h('div', { class: 'segmented' }, [[true, 'Sound'], [false, 'Silent']].map(([v, label]) =>
+      h('button', { type: 'button', 'data-v': String(v), onclick: () => { winSound = v; drawPresence(); if (v) playWin('common'); } }, label)));
+    const winRow = h('div', { class: 'fs-sub' }, h('span', { class: 'fs-sublabel' }, 'Win sounds'), winSeg,
+      h('small', { class: 'fs-hint' }, 'A rising chord for a flame; a fanfare for an epic; bells and coins for a jackpot.'));
+    const presCard = privacyCard(presMode, { preview: true });
+    let presFrame = null; // the camera's live view, while this sheet is open with presence on
+    const drawPresence = () => {
+      for (const b of presSeg.children) b.classList.toggle('on', b.dataset.v === String(presence));
+      for (const b of winSeg.children) b.classList.toggle('on', b.dataset.v === String(winSound));
+      presCard.el.hidden = !presence;
+      winRow.hidden = !presence;
+      if (presMode === 'camera') {
+        if (presence && !presFrame) presFrame = openPresenceFrame(presCard.box, true, (m) => presCard.show(m));
+        else if (!presence && presFrame) { presFrame.stop(); presFrame = null; presCard.show(null); }
+      } else if (presence) {
+        navigator.geolocation?.getCurrentPosition((pos) => presCard.show({ type: 'place', accuracy: pos.coords.accuracy }),
+          (err) => presCard.show({ type: 'error', what: err.code === 1 ? 'denied' : 'place' }), { enableHighAccuracy: true, timeout: 30000 });
+      }
+    };
+
     // One hook to make it more interesting.
     let hook = prefs.hook;
     const HOOKS = [['race', 'Race the clock', `Beat ${FOCUS_RACE_MIN} minutes for each step`], ['next', 'Next event', 'A countdown to what comes next on the calendar'], ['none', 'None', 'Just the timer']];
@@ -3887,8 +3931,9 @@
       const link = F.spotifyLink(spotify.value);
       saveFocusPrefs({ sound, volume: +volume.value, hook, ceiling: +ceiling.value, length: o.kind === 'length' ? o.minutes : prefs.length,
         body: +body.value, escalate: reach.ok ? escalate : prefs.escalate, spotify: link || prefs.spotify || '', breaks: breakIn.value,
-        pomodoro: pomoPick === 'own' ? prefs.pomodoro : pomoPick, warmup, pomoSilent: silent });
+        pomodoro: pomoPick === 'own' ? prefs.pomodoro : pomoPick, warmup, pomoSilent: silent, presence, winSound });
       keepRoundGoals();
+      presFrame?.stop();
       const firstStep = first.value.trim();
       const list = steps.map((s) => ({ ...s }));
       if (firstStep && !list.some((s) => !s.done && s.text === firstStep)) list.unshift({ text: firstStep, done: false });
@@ -3901,6 +3946,7 @@
         pomodoro: pomoPick === 'off' || pomoPick === 'own' ? null
           : { work: +pomoPick.split('/')[0], rest: +pomoPick.split('/')[1], ...(warmup ? { warmup } : {}) },
         rounds: pomoPick === 'off' ? null : { silent, goals: roundGoals.map((g) => String(g || '').trim()) },
+        presence: presence ? { mode: presMode, streak: flamesBefore.streak, best: flamesBefore.best, winSound } : null,
       });
     } }, icon('target'), 'Start hyperfocus');
 
@@ -3915,6 +3961,7 @@
       field('If-then plan', ifThen),
       field('Hard stop', stopChips, stopHint),
       field('Pomodoro', pomoChips, pomoHint, pomoMore),
+      field('Presence', h('div', { class: 'fs-row fs-pres-row' }, presSeg, presStreak), presHint, presCard.el, winRow),
       bestLine,
       field('Sound', soundChips, volume, spotify, soundHint),
       h('div', { class: 'magic-grid' },
@@ -3932,6 +3979,7 @@
     $('#modal').hidden = false;
     drawStop();
     drawPomo();
+    drawPresence();
     drawSound(false);
     drawHook();
     drawReach();
@@ -3954,6 +4002,7 @@
       .then((r) => { if (r?.warning) toast(r.warning, 'error'); })
       .catch((err) => { if (cfg.escalate) toast(`Your phone will not be reached: ${err.message}`, 'error'); });
     buildFocusScreen();
+    if (cfg.presence) startPresence();
     clearInterval(focus.timer);
     focus.timer = setInterval(tickFocus, 1000);
     tickFocus();
@@ -3975,6 +4024,299 @@
   }
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && wake.want) keepAwake(true); });
 
+  // ---- presence: the camera (on the PC) or the phone's place (on a phone) sees you stay with it.
+  // Each working period stayed with all the way through adds a flame to the streak; only leaving
+  // counts, never fidgeting (the rules are focus-plan.js's). The camera runs in its own sealed page,
+  // presence/presence.html, which cannot reach the internet: this window hears only "in view" or not.
+
+  /** The streak's flame: a filled two-tone mark (the line icons are strokes only). */
+  function flameMark(cls = '') {
+    const el = h('span', { class: `flame-mark${cls ? ` ${cls}` : ''}`, 'aria-hidden': 'true' });
+    el.innerHTML = '<svg viewBox="0 0 24 24"><path class="o" d="M12 2.3c.7 3-.6 4.9-2.1 6.5C8.4 10.4 6.8 12.3 6.8 15c0 3.2 2.3 5.8 5.2 5.8s5.2-2.6 5.2-5.8c0-2.6-1.3-4.5-2.5-5.8.1 1.8-.6 3-1.8 3.4.5-3.4-.1-7-.9-10.3z"/><path class="i" d="M12 12.4c.4 1.5-.4 2.4-1 3.1-.5.6-.9 1.2-.9 2 0 1.2.9 2.2 1.9 2.2s1.9-1 1.9-2.2c0-1.5-.9-2.7-1.9-5.1z"/></svg>'; // constant markup
+    return el;
+  }
+
+  /** What presence looks at, where, and what Onyx keeps: shown wherever it can be turned on. */
+  const PRIVACY_POINTS = {
+    camera: [
+      ['Checked right here, on this PC', 'Each frame is looked at for an instant, in memory, then thrown away.'],
+      ['Never recorded, saved or uploaded', 'The camera runs in a sealed part of Onyx that is blocked from the internet.'],
+      ['All Onyx keeps: here or away', 'No picture of you, ever. Only how each round went.'],
+    ],
+    location: [
+      ['Checked right here, on this phone', 'Onyx only compares where the phone is with where it was when you started.'],
+      ['Never saved or sent', 'No map, address or coordinates are kept, and none leave the phone.'],
+      ['All Onyx keeps: here or moved away', 'Only how each round went.'],
+    ],
+  };
+
+  function presenceErrorText(mode, what) {
+    if (mode === 'camera') {
+      return what === 'no-camera' ? 'No camera found on this PC.'
+        : what === 'model' ? 'The presence check could not start on this PC.'
+        : 'Onyx can\'t use the camera. In Windows: Settings → Privacy & security → Camera → let desktop apps use your camera.';
+    }
+    return what === 'denied' ? 'Location is off for Onyx: Settings → Apps → Onyx Calendar → Permissions → Location.'
+      : 'This phone can\'t tell where it is right now. Try near a window.';
+  }
+
+  /**
+   * The privacy card: a badge, three plain promises, and the path the picture takes (camera → this
+   * PC → "here or away", the internet sealed off). With `preview`, the camera's own live view sits
+   * beside it, so you see exactly what it sees. `show(message)` sets the status line.
+   */
+  function privacyCard(mode, { preview = false } = {}) {
+    const cam = mode === 'camera';
+    const status = h('div', { class: 'pc-status', 'data-state': 'start' });
+    const box = preview ? h('div', { class: `pc-preview${cam ? '' : ' place'}` }, cam ? null : h('div', { class: 'pc-place' }, icon('pin')), status) : null;
+    const el = h('div', { class: 'privacy-card' },
+      h('div', { class: 'pc-main' },
+        box,
+        h('div', { class: 'pc-text' },
+          h('div', { class: 'pc-badge' }, icon('shield'), 'Private by design'),
+          h('b', { class: 'pc-title' }, cam ? 'Your camera stays on this PC' : 'Your location stays on this phone'),
+          h('ul', { class: 'pc-points' }, PRIVACY_POINTS[mode].map(([t, d]) =>
+            h('li', null, icon('check'), h('span', null, h('b', null, t), h('small', null, d))))))),
+      h('div', { class: 'pc-flow', role: 'img', 'aria-label': cam ? 'Camera, to this PC, to here or away. The internet is sealed off.' : 'Location, to this phone, to here or moved away. Nothing is sent.' },
+        h('span', { class: 'pc-node' }, icon(cam ? 'camera' : 'pin'), cam ? 'Camera' : 'Location'),
+        h('i', { class: 'pc-arrow' }),
+        h('span', { class: 'pc-node strong' }, icon(cam ? 'monitor' : 'device'), cam ? 'This PC' : 'This phone'),
+        h('i', { class: 'pc-arrow' }),
+        h('span', { class: 'pc-node' }, cam ? '"here" or "away"' : '"here" or "moved"'),
+        h('span', { class: 'pc-node off' }, icon('cloudoff'), cam ? 'Internet: sealed off' : 'Nothing sent')));
+    const show = (m) => {
+      const state = !m ? 'start' : m.type === 'error' ? 'error' : m.type === 'look' ? (m.seen ? 'seen' : 'unseen') : m.type === 'place' ? 'seen' : 'start';
+      status.dataset.state = state;
+      status.textContent = state === 'error' ? presenceErrorText(mode, m.what)
+        : state === 'seen' ? (cam ? 'In view' : `This is your spot (to within ${Math.max(5, Math.round(m.accuracy || 0))} m)`)
+        : state === 'unseen' ? 'Not in view: sit where you work'
+        : cam ? 'Starting the camera…' : 'Finding this spot…';
+    };
+    show(null);
+    return { el, box, show };
+  }
+
+  /** The camera's sealed page in `container`, its messages to `onMsg`. `.stop()` turns the camera off. */
+  function openPresenceFrame(container, preview, onMsg) {
+    const frame = h('iframe', { class: `pres-frame${preview ? '' : ' hidden'}`, allow: 'camera *', tabindex: '-1', // '*': the page is Onyx's own, but a file:// origin never matches 'self'
+      title: 'Camera presence, checked on this PC only', src: `presence/presence.html${preview ? '?preview' : ''}` });
+    const listen = (e) => { if (e.source && e.source === frame.contentWindow && e.data?.source === 'onyx-presence') onMsg(e.data); };
+    addEventListener('message', listen);
+    container.append(frame);
+    return {
+      stop() {
+        removeEventListener('message', listen);
+        try { frame.contentWindow?.postMessage({ cmd: 'stop' }, '*'); } catch { /* gone already */ }
+        frame.remove(); // the page goes, and the camera with it
+      },
+    };
+  }
+
+  /** Where the phone is, as it changes: `onFix({ lat, lng, accuracy })`. Held in memory only. `.stop()` ends it. */
+  function watchPlace(onFix, onError) {
+    if (!navigator.geolocation) { onError?.({ code: 2 }); return { stop() {} }; }
+    const id = navigator.geolocation.watchPosition(
+      (pos) => onFix({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+      (err) => onError?.(err), { enableHighAccuracy: true, maximumAge: 10000, timeout: 60000 });
+    return { stop: () => navigator.geolocation.clearWatch(id) };
+  }
+
+  function startPresence() {
+    const s = focus.s, cfg = s.presence;
+    s.pres = OnyxFocus.presenceStart(cfg.mode, Date.now(), { streak: cfg.streak, best: cfg.best });
+    s.presLive = { seen: null, error: null, anchor: null, backAt: 0, off: false };
+    for (const tier of Object.keys(WIN_SOUNDS)) loadWin(tier); // ready the moment one is won
+    const look = (seen) => {
+      const ev = OnyxFocus.presenceSee(s.pres, Date.now(), seen);
+      if (ev === 'back') s.presLive.backAt = Date.now();
+      drawFlame();
+    };
+    if (cfg.mode === 'camera') {
+      focus.presFrame = openPresenceFrame(focus.el, false, (m) => {
+        if (focus.s !== s || s.presLive.off) return;
+        if (m.type === 'look') { s.presLive.seen = m.seen; s.presLive.error = null; look(m.seen); }
+        else if (m.type === 'error') { s.presLive.error = m.what; drawFlame(); }
+      });
+    } else {
+      focus.placeWatch = watchPlace((fix) => {
+        if (focus.s !== s || s.presLive.off) return;
+        const L = s.presLive;
+        // Where the session began: the surest fix of its first two minutes (one nearby, not a move).
+        if (fix.accuracy <= 150 && (!L.anchor || (Date.now() - s.startedAt < 2 * 60000 && fix.accuracy < L.anchor.accuracy && OnyxFocus.inPlace(L.anchor, fix)))) L.anchor = fix;
+        const here = OnyxFocus.inPlace(L.anchor, fix);
+        if (here == null) return;
+        L.seen = here;
+        L.error = null;
+        look(here);
+      }, (err) => {
+        if (focus.s !== s) return;
+        s.presLive.error = err.code === 1 ? 'denied' : 'place';
+        drawFlame();
+      });
+    }
+  }
+
+  function stopPresence() {
+    focus.presFrame?.stop();
+    focus.placeWatch?.stop();
+    focus.presFrame = focus.placeWatch = null;
+  }
+
+  /** The session's presence is over (once): the camera or the place check stops; the last round is judged if it ran to the stop. */
+  function finishPresence(complete) {
+    const s = focus.s;
+    if (!s?.pres || s.presDone) return null;
+    s.presDone = true;
+    stopPresence();
+    markPresenceOff();
+    return s.presLive.off ? null : OnyxFocus.presenceEnd(s.pres, Date.now(), complete);
+  }
+
+  function turnPresenceOff() {
+    const s = focus.s;
+    if (!s?.pres || s.presLive.off) return;
+    stopPresence();
+    s.presLive.off = true;
+    s.pres.period = null; // the round running is not judged, either way
+    markPresenceOff();
+    drawFlame();
+  }
+
+  /** The top bar's chip says so as soon as the camera (or the place check) is off. */
+  function markPresenceOff() {
+    const chip = focus.parts?.privacy;
+    if (!chip || !focus.s?.presence) return;
+    chip.classList.add('off');
+    chip.querySelector('.lbl').textContent = focus.s.presence.mode === 'camera' ? 'Camera off' : 'Place check off';
+  }
+
+  /** The top bar's reminder that the camera is on, and only here: it opens the privacy card. */
+  function presenceChip(mode) {
+    const cam = mode === 'camera';
+    return h('button', { class: 'fs-privacy', title: 'What presence looks at, and what Onyx keeps', onclick: (e) => togglePrivacyPop(e.currentTarget) },
+      h('i', { class: 'dot' }), icon(cam ? 'camera' : 'pin'), h('span', { class: 'lbl' }, cam ? 'Camera on · this PC only' : 'Place check · this phone only'), icon('lock'));
+  }
+
+  function togglePrivacyPop(chip) {
+    const s = focus.s;
+    const old = focus.el.querySelector('.fs-privacy-pop');
+    if (old) { old.remove(); return; }
+    const mode = s.presence.mode;
+    const pop = h('div', { class: 'fs-privacy-pop', role: 'dialog', 'aria-label': 'Presence and your privacy' },
+      privacyCard(mode).el,
+      h('div', { class: 'pop-actions' },
+        !s.presLive?.off && h('button', { class: 'btn', onclick: () => { turnPresenceOff(); pop.remove(); } }, mode === 'camera' ? 'Turn the camera off' : 'Stop checking my place'),
+        h('button', { class: 'btn primary', onclick: () => pop.remove() }, 'OK')));
+    const r = chip.getBoundingClientRect();
+    pop.style.top = `${Math.round(r.bottom + 8)}px`;
+    pop.style.right = `${Math.max(12, Math.round(innerWidth - r.right))}px`;
+    focus.el.append(pop);
+  }
+
+  /** The flame under the timer: the streak, and what this round needs (or that a break is free). */
+  function flameWidget() {
+    const q = { n: h('b', { class: 'n' }), small: h('small'), text: h('span') };
+    const el = h('div', { class: 'fs-flame', 'data-state': 'start' },
+      h('div', { class: 'fl-mark', title: 'Your streak: working periods in a row you stayed with all the way through' }, flameMark(), q.n),
+      h('div', { class: 'fl-t', role: 'status' }, q.small, q.text));
+    el.q = q;
+    return el;
+  }
+
+  function drawFlame(now = Date.now()) {
+    const s = focus.s, p = focus.parts;
+    if (!s?.pres || !p?.flame || s.phase !== 'focus') return;
+    const P = s.pres, L = s.presLive, q = p.flame.q, cam = s.presence.mode === 'camera';
+    const per = P.period, cur = p.period;
+    let state, small, text;
+    if (L.off) [state, small, text] = ['off', cam ? 'Camera off' : 'Place check off', 'No flames from here on this session. Your streak is kept.'];
+    else if (L.error) [state, small, text] = ['paused', 'Paused', presenceErrorText(s.presence.mode, L.error)];
+    else if (L.seen == null) [state, small, text] = ['start', 'Starting', cam ? 'Starting the camera…' : 'Finding this spot…'];
+    else if (!per) [state, small, text] = ['rest', 'Break', 'Walk away freely: breaks never count.'];
+    else if (per.ok === false) [state, small, text] = ['out', 'This round\'s flame is out', P.away ? 'You stepped away. The next round starts a new streak.' : 'Welcome back. The next round starts a new streak.'];
+    else if (P.away) [state, small, text] = ['away', 'Away', 'Come back now and this round still counts.'];
+    else if (P.outSince && now - P.outSince > 45000) [state, small, text] = ['unsure', cam ? 'Out of view' : 'On the move?', cam ? 'Still there? Stay in view to keep this round\'s flame.' : 'Stay put to keep this round\'s flame.'];
+    else [state, small, text] = ['work', L.backAt && now - L.backAt < 6000 ? 'Welcome back' : cam ? 'In view' : 'In place',
+      cur?.end ? `Stay with it to ${fmtTime(new Date(cur.end))} for a flame` : 'Stay with it for a flame'];
+    p.flame.dataset.state = state;
+    q.n.textContent = String(P.streak);
+    if (q.small.textContent !== small) q.small.textContent = small;
+    if (q.text.textContent !== text) q.text.textContent = text;
+  }
+
+  // The win sounds: real recordings, layered (assets/sounds; credits in the README). A common drop is
+  // a short rising chord; an epic, the cash register's cha-ching into a brass fanfare; a jackpot, the
+  // cha-ching into a slot machine's jackpot bells with coins pouring out. Levels: dB at playback.
+  const WIN_SOUNDS = { common: ['win-common.flac', -11], epic: ['win-epic.flac', -7.5], jackpot: ['win-jackpot.flac', -5.5] };
+  const winBufs = {};
+  function loadWin(tier) {
+    const [file] = WIN_SOUNDS[tier];
+    try {
+      const ctx = chime.ctx || (chime.ctx = new AudioContext());
+      winBufs[file] ||= fetch(`assets/sounds/${file}`).then((r) => r.arrayBuffer()).then((b) => ctx.decodeAudioData(b));
+      winBufs[file].catch(() => { delete winBufs[file]; });
+      return winBufs[file];
+    } catch { return Promise.reject(new Error('No sound')); }
+  }
+  function playWin(tier) {
+    const [, db] = WIN_SOUNDS[tier] || WIN_SOUNDS.common;
+    loadWin(tier).then((buf) => {
+      const ctx = chime.ctx;
+      ctx.resume?.();
+      const src = ctx.createBufferSource(), g = ctx.createGain();
+      src.buffer = buf;
+      g.gain.value = Math.pow(10, db / 20);
+      src.connect(g).connect(ctx.destination);
+      src.start();
+      // The noise steps back while a big win plays, then returns.
+      if (tier !== 'common' && noise.gain) {
+        const t = ctx.currentTime, gain = noise.gain.gain, level = gain.value;
+        gain.setTargetAtTime(level * 0.3, t, 0.08);
+        gain.setTargetAtTime(level, t + Math.max(0.5, buf.duration - 0.6), 0.5);
+      }
+    }).catch(() => { /* the flame still shows */ });
+  }
+
+  /**
+   * A flame won: the streak's count bumps, the win sounds, and the drop shows. A common drop rises
+   * small from the flame; an epic fills the middle of the screen in violet; a jackpot takes the
+   * whole screen in gold, with sparks. None of it stops you working (it lets clicks through).
+   */
+  function celebrate(ev) {
+    const s = focus.s, p = focus.parts;
+    const tier = ev.tier || 'common';
+    if (s?.presence?.winSound !== false) playWin(tier);
+    if (!p || !focus.el) return;
+    if (p.flame) {
+      p.flame.q.n.textContent = String(ev.streak);
+      p.flame.classList.remove('bump');
+      void p.flame.offsetWidth; // the bump plays again
+      p.flame.classList.add('bump');
+    }
+    const label = { common: 'Flame', epic: 'Epic flame', jackpot: 'Jackpot' }[tier];
+    const sub = `${ev.streak} in a row${ev.record ? ' · a new best' : ''}`;
+    const sparks = tier === 'jackpot' ? Array.from({ length: 30 }, (_, i) => h('i', { class: 'spark', css: {
+      '--x': `${Math.round(Math.random() * 100)}vw`, '--d': `${(Math.random() * 1.6).toFixed(2)}s`, '--t': `${(2.4 + Math.random() * 2.2).toFixed(2)}s`, '--s': (0.5 + Math.random() * 0.9).toFixed(2), '--h': String(38 + (i % 3) * 8) } })) : [];
+    const drop = h('div', { class: `fs-drop ${tier}`, role: 'status', 'aria-label': `${label}! ${sub}` },
+      tier !== 'common' && h('div', { class: 'fs-drop-rays' }), ...sparks,
+      h('div', { class: 'fs-drop-card' }, flameMark('big'), h('b', null, tier === 'common' ? '+1' : label), h('small', null, tier === 'common' ? 'Flame' : sub)));
+    (tier === 'common' && p.flame ? p.flame : focus.el).append(drop);
+    setTimeout(() => drop.remove(), { common: 2400, epic: 4400, jackpot: 7800 }[tier]);
+  }
+
+  /** In the wind-down: the flames this session, the streak, and that the camera (or place check) is off. */
+  function flameSummary(s) {
+    const P = s.pres, got = P.periods.filter((x) => x.ok === true);
+    const epic = got.filter((x) => x.tier === 'epic').length, jack = got.filter((x) => x.tier === 'jackpot').length;
+    const cam = s.presence.mode === 'camera';
+    const extras = [jack && `${jack} ${jack === 1 ? 'jackpot' : 'jackpots'}`, epic && `${epic} epic`].filter(Boolean).join(', ');
+    return h('div', { class: 'fs-flames-sum' }, flameMark(),
+      h('div', null,
+        h('b', null, got.length ? `+${got.length} ${got.length === 1 ? 'flame' : 'flames'}` : 'No flames this time'),
+        h('span', null, ` · streak ${P.streak}${P.best ? `, best ${P.best}` : ''}${extras ? ` · ${extras}` : ''}`),
+        h('small', null, icon('lock'), cam ? 'The camera is off. Nothing was recorded, saved or sent.' : 'The place check is off. No location was kept or sent.')));
+  }
+
   function buildFocusScreen() {
     const s = focus.s;
     const p = {
@@ -3993,6 +4335,8 @@
       sound: h('button', { class: 'icon-btn', onclick: () => (MOBILE ? openSoundMenu() : toggleSound()) }),
       sounds: h('div', { class: 'fs-sounds', role: 'menu', 'aria-label': 'Sound' }),
       pomo: h('div', { class: 'fs-pomo', hidden: true }),
+      flame: s.presence ? flameWidget() : null,
+      privacy: s.presence ? presenceChip(s.presence.mode) : null,
     };
     const capture = h('input', { type: 'text', class: 'fs-capture-in', spellcheck: true, placeholder: 'Not now: park a stray thought for later, and press Enter' });
     capture.addEventListener('keydown', async (e) => {
@@ -4020,10 +4364,10 @@
     focus.el = h('div', { class: 'focus-screen', role: 'dialog', 'aria-label': 'Hyperfocus', css: { '--c': s.entry.color || 'var(--accent)' } },
       h('div', { class: 'fs-top' }, icon('target'), h('b', null, 'Hyperfocus'),
         h('span', { class: 'fs-top-stop' }, `Hard stop ${fmtTime(new Date(s.plannedEnd))}${s.escalate ? ' · your phone too' : ''}`),
-        h('span', { class: 'grow' }), p.sound,
+        h('span', { class: 'grow' }), p.privacy, p.sound,
         h('button', { class: 'btn', title: 'End the session now (you still leave a note of where you are)', onclick: () => exitFocus('early') }, 'Stop now')),
       h('div', { class: 'fs-main' },
-        h('div', { class: 'fs-side' }, p.disc, p.buddy), // the timer, with the study companion working under it
+        h('div', { class: 'fs-side' }, p.disc, p.buddy, p.flame), // the timer, with the study companion working under it (and the streak)
         h('div', { class: 'fs-text' },
           h('div', { class: 'fs-label' }, 'Goal'), p.goal,
           p.now, p.step,
@@ -4185,6 +4529,12 @@
     p.left.textContent = left >= 3600000 ? shortCount(left) : countdown(left).replace(/^00m /, '');
     p.until.textContent = `until ${fmtTime(new Date(s.plannedEnd))}`;
     drawFocusPomodoro(now);
+    // Presence: the period running is followed; a flame when one is stayed with to its end.
+    if (s.pres && !s.presLive.off) {
+      const ev = OnyxFocus.presencePeriod(s.pres, now, p.period);
+      if (ev?.type === 'flame') celebrate(ev);
+      drawFlame(now);
+    }
     if (s.hook === 'race') {
       const raceLeft = s.stepSince + FOCUS_RACE_MIN * 60000 - now;
       p.hook.textContent = raceLeft > 0 ? `Race the clock: ${countdown(raceLeft)} to beat for this step` : `Past the ${FOCUS_RACE_MIN} minutes by ${countdown(-raceLeft)}. Tick it off and race the next one`;
@@ -4231,6 +4581,8 @@
     }
     p.pomoIndex = ph ? ph.index : null;
     p.pomo.hidden = !ph;
+    // The working period, for presence: this pomodoro chunk, or (with none) the whole session.
+    p.period = ph ? { key: `${e.id}|${e.start}|${ph.index}`, work: ph.kind === 'work', end: now + ph.left } : { key: 'session', work: true, end: s.plannedEnd };
     if (!ph) { p.pomoKey = ''; return; }
     const start = Date.parse(e.start), total = (Date.parse(e.end) - start) / 60000;
     const chunks = pomodoroChunks(total, e.pomodoro);
@@ -4328,6 +4680,10 @@
     handAlarms(nextRun.items); // the phone's own stop alarm is taken back (or, at the stop, has rung)
     if (stop === 'hard') { focus.parts.disc.style.setProperty('--timer-p', '0'); focus.parts.left.textContent = countdown(0); }
     stopNoise();
+    // Presence ends with the session: the camera goes off; a round that ran to the hard stop still wins its flame.
+    const last = finishPresence(stop === 'hard');
+    if (last?.type === 'flame') celebrate(last);
+    focus.el.querySelector('.fs-privacy-pop')?.remove();
     const cur = OnyxFocus.currentStep(s.steps);
     showActionCard({
       kind: 'focus', key: `focus|${s.startedAt}`, title: s.goal, color: s.entry.color, start: new Date(s.endedAt).toISOString(),
@@ -4378,12 +4734,13 @@
 
   /** A session into the log (focus.js): what it was on, how it went, and how it ended. */
   function logFocusSession(s, { where = '', next = '', rating = null } = {}) {
+    if (focus.s === s) finishPresence(false); // left by the X: the round running is let go
     const done = s.steps.filter((x) => x.done).length;
     onyx.logFocus?.({
       entry: { id: s.entry.id, kind: s.entry.kind, title: s.entry.title }, goal: s.goal, firstStep: s.firstStep, ifThen: s.ifThen,
       startedAt: s.startedAt, plannedEnd: s.plannedEnd, endedAt: s.endedAt || Date.now(), stop: s.stop || 'early', ceiling: s.ceiling, sound: s.sound, hook: s.hook,
       preflight: s.preflight, steps: { total: s.steps.length, done }, captured: s.captured, where, next, windDown: FOCUS_WIND_MIN,
-      escalate: s.escalate, bodyChecks: s.body, rating,
+      escalate: s.escalate, bodyChecks: s.body, rating, presence: s.pres ? OnyxFocus.presenceSummary(s.pres) : null,
     }).catch(() => {});
   }
 
@@ -4418,6 +4775,7 @@
       h('div', { class: 'fs-goal' }, 'Wind down for a few minutes'),
       h('ul', { class: 'fs-wind' }, h('li', null, 'Stand up and stretch'), h('li', null, 'Drink some water'), h('li', null, 'Look at something far away')),
       ...(held ? [held] : []),
+      ...(s.pres ? [flameSummary(s)] : []),
       nextBox(how),
       h('button', { class: 'btn', onclick: () => endFocus() }, 'Back to the calendar now'));
     focus.el.querySelector('.fs-capture').hidden = true;
@@ -4480,6 +4838,7 @@
     onyx.launcher?.focus?.(null);
     const buddy = focus.parts?.buddy;
     if (buddy) { buddy.pause(); buddy.removeAttribute('src'); buddy.load(); } // let the video go
+    finishPresence(false);
     clearInterval(focus.timer);
     stopNoise();
     focus.el?.remove();

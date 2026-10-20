@@ -324,11 +324,165 @@
   /** The goal written for work round `round` (1 on), or ''. */
   const roundGoal = (goals, round) => String((Array.isArray(goals) && goals[round - 1]) || '').trim();
 
+  // ---- presence: still with it? The camera on a PC (presence/presence.js), the phone's place on a phone.
+  // Each working period (a pomodoro work round, or the whole session) you stay with all the way
+  // through adds a flame to your streak. Only leaving counts: fidgeting, stretching, turning away or
+  // leaning out of view never last long enough to. Breaks are free: walk away all you like.
+
+  /** Out of view this long is leaving (the camera); for the phone, surely moved for this long. */
+  const PRESENCE_AWAY_MS = { camera: 90 * 1000, location: 2 * MIN };
+  /** A round's first two minutes (a quarter of a short one): back from the break a little late is fine. */
+  const PERIOD_GRACE_MS = 2 * MIN;
+  /** No look for this long (the camera stopped, the phone found no fix): the round is not judged either way. */
+  const PRESENCE_BLIND_MS = { camera: 60 * 1000, location: 5 * MIN };
+  /** The phone counts as moved once it is surely (its own error allowed for) this far from where it started. */
+  const PLACE_RADIUS_M = 60;
+  /** A fix less sure than this (metres) is no look at all. */
+  const PLACE_MAX_ERROR_M = 250;
+
+  /** A session's presence, from its start: `streak` and `best` carried on from earlier sessions. */
+  function presenceStart(mode, at, { streak = 0, best = 0 } = {}) {
+    return { mode, startedAt: at, lastSeen: at, lastLook: null, outSince: null, away: false, awayFrom: null, awayMs: 0, aways: 0,
+      period: null, periods: [], streak, best, startBest: best };
+  }
+
+  /**
+   * One look: a camera frame (`seen`: a person in view), or a fix of where the phone is (`seen`:
+   * still in its place). Away once every look has said "not there" for the mode's whole grace
+   * (90 seconds of camera, 2 minutes of the phone's place); back with the first look that sees you.
+   * Returns 'away', 'back' or null.
+   */
+  function presenceSee(p, at, seen) {
+    p.lastLook = at;
+    if (seen) {
+      p.lastSeen = at;
+      p.outSince = null;
+      if (!p.away) return null;
+      p.away = false;
+      p.awayMs += at - p.awayFrom;
+      p.awayFrom = null;
+      return 'back';
+    }
+    if (p.outSince == null) p.outSince = at;
+    if (p.away || at - p.outSince < PRESENCE_AWAY_MS[p.mode]) return null;
+    p.away = true;
+    p.awayFrom = p.outSince;
+    p.aways++;
+    return 'away';
+  }
+
+  /**
+   * How big a flame's win is: a jackpot every 25 in a row, an epic every 5 in a row or as you pass
+   * your best streak, and now and then one by luck (about 1 in 10 an epic, 1 in 50 a jackpot) so any
+   * round might be the big one. Otherwise a common drop.
+   */
+  function dropTier(streak, startBest = 0, rand = Math.random) {
+    const r = rand();
+    if (streak % 25 === 0 || r < 0.02) return 'jackpot';
+    if (streak % 5 === 0 || (startBest >= 3 && streak === startBest + 1) || r < 0.12) return 'epic';
+    return 'common';
+  }
+
+  function judgePeriod(p, rand) {
+    const per = p.period;
+    p.period = null;
+    if (per.unknown) { p.periods.push({ ok: null, tier: null }); return { ok: null, streak: p.streak, tier: null }; }
+    if (!per.ok) { p.periods.push({ ok: false, tier: null }); return { ok: false, streak: p.streak, tier: null }; }
+    p.streak++;
+    const tier = dropTier(p.streak, p.startBest, rand);
+    p.best = Math.max(p.best, p.streak);
+    p.periods.push({ ok: true, tier });
+    return { ok: true, streak: p.streak, tier, best: p.best, record: p.streak > p.startBest && p.startBest > 0 };
+  }
+
+  /**
+   * The working period the session is in now: `cur` = { key, work, end } (a pomodoro chunk, or the
+   * whole session), or null. When the period changes, the one that ended is judged: stayed with all
+   * the way through adds a flame (`{ type: 'flame', streak, tier }`). Leaving during one, after its
+   * first two minutes, puts the streak out at once (`{ type: 'broken' }`). With no look for a while (the camera quiet a minute, no fix of the phone in five)
+   * a minute (stopped or turned off), the round is not judged either way. Returns an event or null.
+   */
+  function presencePeriod(p, at, cur, rand = Math.random) {
+    let ev = null;
+    if (p.period && (!cur || cur.key !== p.period.key)) {
+      const r = judgePeriod(p, rand);
+      if (r.ok) ev = { type: 'flame', ...r };
+    }
+    if (cur && cur.work && !p.period) {
+      p.period = { key: cur.key, start: at, ok: true, unknown: false,
+        grace: Math.min(PERIOD_GRACE_MS, Math.max(0, (cur.end - at) / 4) || PERIOD_GRACE_MS) };
+    }
+    const per = p.period;
+    if (per && per.ok && !per.unknown && p.away && at - per.start > per.grace) {
+      per.ok = false;
+      if (p.streak > 0 || !ev) { p.streak = 0; ev = ev || { type: 'broken' }; }
+    }
+    if (per && at - Math.max(p.lastLook ?? -Infinity, per.start) > PRESENCE_BLIND_MS[p.mode]) per.unknown = true;
+    return ev;
+  }
+
+  /**
+   * The session is over. `complete` (it reached its hard stop): the period running is judged as if it
+   * ended there; stopped early, it is let go (no flame, and no harm to the streak). Returns the last
+   * flame's event, or null.
+   */
+  function presenceEnd(p, at, complete, rand = Math.random) {
+    let ev = null;
+    if (p.period) {
+      if (complete) { const r = judgePeriod(p, rand); if (r.ok) ev = { type: 'flame', ...r }; } else p.period = null;
+    }
+    if (p.away) { p.awayMs += at - p.awayFrom; p.away = false; p.awayFrom = null; }
+    return ev;
+  }
+
+  /** What the log keeps of a session's presence: no pictures and no places, just how it went. */
+  const presenceSummary = (p) => ({ mode: p.mode, periods: p.periods.map((x) => ({ ok: x.ok, tier: x.tier })), awayMin: Math.round(p.awayMs / MIN), aways: p.aways });
+
+  /**
+   * The streak across the log, oldest first: flames in a row (each working period stayed with all the
+   * way through), the best run, and how many flames, epics and jackpots in all. A period that was not
+   * judged (the camera off) and sessions without presence leave it as it was.
+   */
+  function flameStreak(sessions) {
+    let streak = 0, best = 0, flames = 0, epic = 0, jackpot = 0;
+    for (const s of sessions || []) {
+      for (const x of (s && s.presence && s.presence.periods) || []) {
+        if (x.ok === true) {
+          streak++;
+          flames++;
+          best = Math.max(best, streak);
+          if (x.tier === 'epic') epic++;
+          if (x.tier === 'jackpot') jackpot++;
+        } else if (x.ok === false) streak = 0;
+      }
+    }
+    return { streak, best, flames, epic, jackpot };
+  }
+
+  /** Metres between two places, { lat, lng }. */
+  function metres(a, b) {
+    const rad = Math.PI / 180, dLat = (b.lat - a.lat) * rad, dLng = (b.lng - a.lng) * rad;
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
+    return 2 * 6371000 * Math.asin(Math.min(1, Math.sqrt(h)));
+  }
+
+  /**
+   * A fix of where the phone is ({ lat, lng, accuracy } in metres), against where the session began:
+   * true (still there), false (surely moved: farther than the radius even allowing for its error), or
+   * null when the fix is too unsure to say.
+   */
+  function inPlace(anchor, fix) {
+    if (!anchor || !fix || !(fix.accuracy <= PLACE_MAX_ERROR_M)) return null;
+    return metres(anchor, fix) - fix.accuracy <= PLACE_RADIUS_M;
+  }
+
   /** The idea for break number `n` (1 on): each break takes the next one, round and round. '' when there are none. */
   const breakIdea = (list, n) => (Array.isArray(list) && list.length ? list[(Math.max(1, Math.round(n || 1)) - 1) % list.length] : '');
 
   const api = {
     parseActivities, breakIdea, pomodoroChunks, workRounds, roundGoal,
+    presenceStart, presenceSee, presencePeriod, presenceEnd, presenceSummary, dropTier, flameStreak, metres, inPlace,
+    PRESENCE_AWAY_MS, PERIOD_GRACE_MS, PLACE_RADIUS_M,
     focusHours, bestWindow, hourScore, rotation, BEST_MIN_RATED,
     nextEntry, stopOptions, quickTasks, taskMinutes, notesSteps, currentStep, leftOffNote, lastLeftOff, nextCeiling,
     loopBuffer, noiseGain, soundLevel, spotifyLink, nextBodyCheck, bodyCheck,

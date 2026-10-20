@@ -12,7 +12,9 @@
 //     ceiling: { minutes, asks: [{ at, choice: 'keep' | 'stop' }] },
 //     sound: { kind: SOUNDS, volume 0-100 }, hook: 'race' | 'next' | 'none',
 //     preflight: ['water', ...], steps: { total, done }, captured, where, next,
-//     windDown: minutes, escalate: bool, bodyChecks: { every, shown }, rating: 1-5 | null }
+//     windDown: minutes, escalate: bool, bodyChecks: { every, shown }, rating: 1-5 | null,
+//     presence?: { mode: 'camera' | 'location', periods: [{ ok: true | false | null, tier }], awayMin, aways } }
+//   presence keeps no pictures and no places: only whether each working period was stayed with.
 //
 // The way out, when "Reach my phone" is on (caller.js has the ways reminders go out):
 //   alarm   the phone rings a full-screen alarm at the hard stop: the session shows to the
@@ -31,6 +33,17 @@ const STOPS = ['hard', 'early', 'ceiling'];
 const SOUNDS = ['brown', 'pink', 'white', 'rain', 'lightrain', 'waves', 'spotify', 'none'];
 const HOOKS = ['race', 'next', 'none'];
 const PREFLIGHT = ['water', 'snack', 'bathroom', 'phone'];
+const TIERS = ['common', 'epic', 'jackpot'];
+
+/** A session's presence as kept: how each working period went, and time away. Null when it was off. */
+function cleanPresence(p) {
+  if (!p || !['camera', 'location'].includes(p.mode)) return null;
+  const periods = (Array.isArray(p.periods) ? p.periods : []).slice(0, 200).map((x) => {
+    const ok = x?.ok === true ? true : x?.ok === false ? false : null;
+    return { ok, tier: ok ? one(x.tier, TIERS, 'common') : null };
+  });
+  return { mode: p.mode, periods, awayMin: int(p.awayMin, 0, 1440), aways: int(p.aways, 0, 1000) };
+}
 
 let hub = null; // set by start(), to avoid a require cycle
 let timer = null;
@@ -193,6 +206,7 @@ function clean(s = {}) {
     escalate: !!s.escalate,
     bodyChecks: { every: int(s.bodyChecks?.every, 0, 240), shown: int(s.bodyChecks?.shown, 0, 100) },
     rating: Number.isInteger(rating) && rating >= 1 && rating <= 5 ? rating : null, // 1 (couldn't settle) to 5 (lost in it), or not given
+    ...(cleanPresence(s.presence) ? { presence: cleanPresence(s.presence) } : {}),
   };
 }
 
@@ -231,6 +245,7 @@ function insights(now = Date.now()) {
     now: plan().hourScore(list, new Date(now).getHours()),
     rated: list.filter((s) => s.rating).length,
     needed: plan().BEST_MIN_RATED,
+    flames: plan().flameStreak(list), // { streak, best, flames, epic, jackpot }
   };
 }
 

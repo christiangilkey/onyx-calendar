@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="color-scheme" content="dark">
+  <!-- The camera's own sealed page. It may load only Onyx's own files (the model and its engine):
+       no connection to any other address, no images or frames from anywhere else. Every frame
+       is looked at here, in memory, and dropped; only "in view" or not goes out, to Onyx's window. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; media-src 'self' blob: mediastream:; style-src 'unsafe-inline'; img-src 'none'; frame-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'">
+  <title>Camera presence (on this computer only)</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #050607; color-scheme: dark; overflow: hidden; }
+    canvas { display: block; width: 100%; height: 100%; }
+    video { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  </style>
+</head>
+<body>
+  <video id="cam" autoplay muted playsinline></video>
+  <canvas id="view" hidden></canvas>
+  <script src="vision/vision_bundle.js"></script>
+  <script src="presence.js"></script>
+</body>
+</html>

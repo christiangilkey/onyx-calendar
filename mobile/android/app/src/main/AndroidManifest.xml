@@ -175,6 +175,9 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Scanning the pairing QR code on the PC -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Hyperfocus presence on the phone: whether it stays in the place a session began (checked on the phone, never kept or sent). -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <!-- Onyx Home, the launcher: every app on the phone, swipe down for notifications, uninstalling -->

@@ -166,19 +166,9 @@
   // A block of time split into work and rest chunks (hub.js setPomodoro). The calendar
   // draws the chunks inside the block, and the top bar runs the timer while it is on.
 
-  /** The chunks of a block `total` minutes long: [{ kind: 'work'|'rest', from, to }] in minutes. */
+  /** The chunks of a block `total` minutes long: [{ kind: 'work'|'rest', from, to }] in minutes (focus-plan.js). */
   function pomodoroChunks(total, p) {
-    const out = [];
-    for (let t = 0; t < total;) {
-      const w = Math.min(p.work, total - t);
-      out.push({ kind: 'work', from: t, to: t + w });
-      t += w;
-      if (t >= total) break;
-      const r = Math.min(p.rest, total - t);
-      out.push({ kind: 'rest', from: t, to: t + r });
-      t += r;
-    }
-    return out;
+    return OnyxFocus.pomodoroChunks(total, p);
   }
   const chunkSummary = (total, p) => {
     const chunks = pomodoroChunks(total, p);
@@ -3517,7 +3507,7 @@
   const focus = { s: null, el: null, parts: null, timer: 0, held: [] };
   const focusHold = () => !!focus.s;
   const readFocusPrefs = () => {
-    const base = { sound: 'pink', volume: 35, hook: 'none', ceiling: 45, length: 90, body: 30, escalate: true, spotify: '', breaks: '' };
+    const base = { sound: 'pink', volume: 35, hook: 'none', ceiling: 45, length: 90, body: 30, escalate: true, spotify: '', breaks: '', warmup: 0, pomoSilent: false };
     try { return { ...base, ...JSON.parse(localStorage.getItem('onyx.hyperfocus') || '{}') }; } catch { return base; }
   };
   const saveFocusPrefs = (p) => { try { localStorage.setItem('onyx.hyperfocus', JSON.stringify(p)); } catch { /* this visit only */ } };
@@ -3744,6 +3734,7 @@
         : `A hard stop at ${fmtTime(new Date(o.at))}: ${untilText(o.at - Date.now())} from now.`;
       stopHint.classList.toggle('warn', !!o?.pastNext);
       canStart();
+      drawRounds();
     };
     const canStart = () => {
       const o = plan.options.find((x) => x.key === stopKey);
@@ -3784,11 +3775,64 @@
     const pomoHint = h('small', { class: 'fs-hint' });
     const pomoChips = h('div', { class: 'fs-chips' }, POMOS.map(([k, label]) =>
       h('button', { type: 'button', class: 'fs-chip', 'data-k': k, onclick: () => { pomoPick = k; drawPomo(); } }, label)));
+    // A warm-up: the first round shorter, an easy way in before the usual rounds.
+    const WARMUPS = [[0, 'Off'], [10, '10 min'], [15, '15 min']];
+    let warmup = WARMUPS.some(([m]) => m === prefs.warmup) ? prefs.warmup : 0;
+    const warmChips = h('div', { class: 'fs-chips' }, WARMUPS.map(([m, label]) =>
+      h('button', { type: 'button', class: 'fs-chip', 'data-m': m, onclick: () => { warmup = m; drawPomo(); } }, label)));
+    // The switch between work and break: a soft chime, or no sound at all (the bar still shows it).
+    let silent = !!prefs.pomoSilent;
+    const switchSeg = h('div', { class: 'segmented' }, [[false, 'Soft chime'], [true, 'Silent']].map(([v, label]) =>
+      h('button', { type: 'button', 'data-v': String(v), onclick: () => { silent = v; drawPomo(); } }, label)));
+    // A goal for each work round, shown on the focus screen while that round runs.
+    const roundGoals = []; // by round, kept as the rounds change with the stop or the warm-up
+    const roundList = h('div', { class: 'fs-rounds' });
+    const warmRow = h('div', { class: 'fs-sub' }, h('span', { class: 'fs-sublabel' }, 'Warm-up first'), warmChips);
+    const pomoMore = h('div', { class: 'fs-pomo-more' },
+      warmRow,
+      h('div', { class: 'fs-sub' }, h('span', { class: 'fs-sublabel' }, 'At each switch'), switchSeg),
+      h('div', { class: 'fs-sub col' }, h('span', { class: 'fs-sublabel' }, 'A goal for each round'), roundList));
+    /** The work rounds as the session would run them, from now: [{ round, at (ms), minutes, warm }]. */
+    const plannedRounds = () => {
+      const now = Date.now();
+      if (pomoPick === 'own') {
+        if (!entry.start || !entry.end) return [];
+        const s0 = Date.parse(entry.start), total = (Date.parse(entry.end) - s0) / 60000;
+        return F.workRounds(F.pomodoroChunks(total, ownPomo), ownPomo)
+          .map((r) => ({ ...r, at: s0 + r.from * 60000 })).filter((r) => s0 + r.to * 60000 > now);
+      }
+      const o = plan.options.find((x) => x.key === stopKey);
+      if (!o || pomoPick === 'off') return [];
+      const p = { work: +pomoPick.split('/')[0], rest: +pomoPick.split('/')[1], warmup };
+      const total = o.kind === 'length' ? o.minutes : (o.at - now) / 60000;
+      return F.workRounds(F.pomodoroChunks(total, p), p).map((r) => ({ ...r, at: now + r.from * 60000 }));
+    };
+    const keepRoundGoals = () => { for (const inp of roundList.querySelectorAll('input')) roundGoals[+inp.dataset.r - 1] = inp.value; };
+    const drawRounds = () => {
+      keepRoundGoals();
+      const rounds = pomoPick === 'off' ? [] : plannedRounds();
+      const shown = rounds.slice(0, 12);
+      roundList.replaceChildren(...[
+        ...shown.map((r) => h('label', { class: 'fs-round' },
+          h('span', { class: 'n' }, String(r.round)),
+          h('span', { class: 'when' }, fmtTime(new Date(r.at)), h('small', null, r.warm ? `${r.minutes} min warm-up` : `${r.minutes} min`)),
+          h('input', { type: 'text', class: 'fs-in', 'data-r': r.round, value: roundGoals[r.round - 1] || '', spellcheck: true,
+            placeholder: r.warm ? 'Something easy to get going' : 'What to get done in this round' }))),
+        rounds.length > shown.length && h('small', { class: 'fs-hint' }, `And ${rounds.length - shown.length} more after these, with no goal of their own.`),
+        !rounds.length && h('small', { class: 'fs-hint' }, 'No rounds left in this block.')].filter(Boolean));
+    };
     const drawPomo = () => {
       for (const b of pomoChips.children) b.classList.toggle('on', b.dataset.k === pomoPick);
+      for (const b of warmChips.children) b.classList.toggle('on', +b.dataset.m === warmup);
+      for (const b of switchSeg.children) b.classList.toggle('on', b.dataset.v === String(silent));
+      pomoMore.hidden = pomoPick === 'off';
+      warmRow.hidden = pomoPick === 'own'; // a block's own rounds stay as the calendar shows them
+      const [work, rest] = pomoPick.split('/');
       pomoHint.textContent = pomoPick === 'off' ? 'One stretch of focus to the hard stop.'
-        : pomoPick === 'own' ? 'The rounds already set on this block, as the calendar shows them.'
-        : `${pomoPick.split('/')[0]} minutes of work, then ${pomoPick.split('/')[1]} of break, from the start to the hard stop. A soft chime at each switch; your break ideas on the breaks.`;
+        : (pomoPick === 'own' ? 'The rounds already set on this block, as the calendar shows them.'
+          : `${warmup ? `A ${warmup}-minute warm-up, then ${work}` : work} minutes of work and ${rest} of break, from the start to the hard stop.`)
+          + (silent ? ' The switches make no sound: the bar glows instead.' : ' A soft chime at each switch.') + ' Your break ideas on the breaks.';
+      drawRounds();
     };
 
     // One hook to make it more interesting.
@@ -3843,7 +3887,8 @@
       const link = F.spotifyLink(spotify.value);
       saveFocusPrefs({ sound, volume: +volume.value, hook, ceiling: +ceiling.value, length: o.kind === 'length' ? o.minutes : prefs.length,
         body: +body.value, escalate: reach.ok ? escalate : prefs.escalate, spotify: link || prefs.spotify || '', breaks: breakIn.value,
-        pomodoro: pomoPick === 'own' ? prefs.pomodoro : pomoPick });
+        pomodoro: pomoPick === 'own' ? prefs.pomodoro : pomoPick, warmup, pomoSilent: silent });
+      keepRoundGoals();
       const firstStep = first.value.trim();
       const list = steps.map((s) => ({ ...s }));
       if (firstStep && !list.some((s) => !s.done && s.text === firstStep)) list.unshift({ text: firstStep, done: false });
@@ -3853,7 +3898,9 @@
         steps: list, plannedEnd: at, stopKind: o.kind, sound: { kind: sound, volume: +volume.value, link: sound === 'spotify' ? link : null }, hook,
         ceiling: { minutes: +ceiling.value, asks: [] }, preflight: [...ready], escalate: !onyx.isPhone && reach.ok && escalate,
         body: { every: +body.value, shown: 0 }, breakIdeas: OnyxFocus.parseActivities(breakIn.value),
-        pomodoro: pomoPick === 'off' || pomoPick === 'own' ? null : { work: +pomoPick.split('/')[0], rest: +pomoPick.split('/')[1] },
+        pomodoro: pomoPick === 'off' || pomoPick === 'own' ? null
+          : { work: +pomoPick.split('/')[0], rest: +pomoPick.split('/')[1], ...(warmup ? { warmup } : {}) },
+        rounds: pomoPick === 'off' ? null : { silent, goals: roundGoals.map((g) => String(g || '').trim()) },
       });
     } }, icon('target'), 'Start hyperfocus');
 
@@ -3867,7 +3914,7 @@
       field('Tiny first step', h('div', { class: 'fs-row' }, first, hammer), stepList),
       field('If-then plan', ifThen),
       field('Hard stop', stopChips, stopHint),
-      field('Pomodoro', pomoChips, pomoHint),
+      field('Pomodoro', pomoChips, pomoHint, pomoMore),
       bestLine,
       field('Sound', soundChips, volume, spotify, soundHint),
       h('div', { class: 'magic-grid' },
@@ -4172,8 +4219,16 @@
       start: new Date(s.startedAt).toISOString(), end: new Date(s.plannedEnd).toISOString() };
     const e = own || running.find((x) => ids.includes(x.id) || ids.includes(x.seriesId)) || running[0];
     const ph = e && pomodoroPhase(e, at);
-    // A switch (work to break, or back): a soft chime, the only sound besides the check-in and the stop.
-    if (ph && p.pomoIndex != null && p.pomoIndex !== ph.index && p.pomoKey) bodyTone();
+    // A switch (work to break, or back): a soft chime (the only sound besides the check-in and the
+    // stop), or none when the switches are set to be silent; the bar glows for a moment either way.
+    if (ph && p.pomoIndex != null && p.pomoIndex !== ph.index && p.pomoKey) {
+      if (!s.rounds?.silent) bodyTone();
+      p.pomo.classList.remove('switched');
+      void p.pomo.offsetWidth; // the glow plays again
+      p.pomo.classList.add('switched');
+      clearTimeout(p.pomoGlow);
+      p.pomoGlow = setTimeout(() => p.pomo.classList.remove('switched'), 3200);
+    }
     p.pomoIndex = ph ? ph.index : null;
     p.pomo.hidden = !ph;
     if (!ph) { p.pomoKey = ''; return; }
@@ -4181,24 +4236,26 @@
     const chunks = pomodoroChunks(total, e.pomodoro);
 
     // The bar: built once for each block, then only its numbers change.
-    const key = `${e.id}|${e.start}|${e.pomodoro.work}|${e.pomodoro.rest}`;
+    const key = `${e.id}|${e.start}|${e.pomodoro.work}|${e.pomodoro.rest}|${e.pomodoro.warmup || 0}`;
     if (p.pomoKey !== key) {
       p.pomoKey = key;
       p.pomoParts = {
         kind: h('span', { class: 'fs-pomo-kind' }), round: h('span', { class: 'fs-pomo-round' }), left: h('span', { class: 'fs-pomo-left' }),
         segs: chunks.map((c) => h('i', { class: c.kind, css: { 'flex-grow': String(c.to - c.from) } }, h('b'))),
+        goal: h('div', { class: 'fs-pomo-goal' }, h('small'), h('span')),
         idea: h('div', { class: 'fs-pomo-idea' }),
       };
       const q = p.pomoParts;
       p.pomo.replaceChildren(
         h('div', { class: 'fs-pomo-head' }, q.kind, q.round, q.left),
         h('div', { class: 'fs-pomo-track', 'aria-hidden': 'true' }, ...q.segs),
-        q.idea);
+        q.goal, q.idea);
     }
     const q = p.pomoParts, t = (now - start) / 60000;
     const next = chunks[ph.index + 1];
-    p.pomo.className = `fs-pomo ${ph.kind}`;
-    q.kind.textContent = ph.kind === 'work' ? 'Work' : 'Break';
+    p.pomo.className = `fs-pomo ${ph.kind}${p.pomo.classList.contains('switched') ? ' switched' : ''}`;
+    const warm = ph.kind === 'work' && ph.round === 1 && e.pomodoro.warmup > 0 && e.pomodoro.warmup < e.pomodoro.work;
+    q.kind.textContent = ph.kind === 'work' ? (warm ? 'Warm-up' : 'Work') : 'Break';
     q.round.textContent = `Round ${ph.round} of ${ph.rounds}`;
     const secs = Math.max(0, Math.ceil(ph.left / 1000));
     const clock = `${Math.floor(secs / 60)}:${pad(secs % 60)}`;
@@ -4211,6 +4268,13 @@
     const idea = ph.kind === 'rest' ? (OnyxFocus.breakIdea(e.pomodoro.activities, ph.round) || OnyxFocus.breakIdea(s.breakIdeas, ph.round)) : '';
     q.idea.hidden = !idea;
     q.idea.textContent = idea ? `Try: ${idea}` : '';
+    // The goal set for this round (on a break, the next one's), when the rounds are this session's own.
+    const mine = e === own || ids.includes(e.id) || ids.includes(e.seriesId);
+    const goal = mine ? OnyxFocus.roundGoal(s.rounds?.goals, ph.kind === 'work' ? ph.round : ph.round + 1) : '';
+    q.goal.hidden = !goal;
+    q.goal.classList.toggle('next', ph.kind !== 'work');
+    q.goal.firstChild.textContent = ph.kind === 'work' ? 'This round' : 'Next round';
+    q.goal.lastChild.textContent = goal;
   }
 
   /** A quiet nudge for the body: a soft note and a small card that goes by itself. */

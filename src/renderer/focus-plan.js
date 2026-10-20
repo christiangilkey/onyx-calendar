@@ -296,11 +296,39 @@
     }
     return out;
   };
+  /**
+   * A stretch of `total` minutes as pomodoro chunks: [{ kind: 'work'|'rest', from, to }] in minutes.
+   * With a `warmup` (minutes, shorter than a usual round), the first work round is that long, an
+   * easy way in; the usual rounds follow.
+   */
+  function pomodoroChunks(total, p) {
+    const out = [];
+    const warm = p.warmup > 0 && p.warmup < p.work ? p.warmup : 0;
+    for (let t = 0; t < total;) {
+      const w = Math.min(!out.length && warm ? warm : p.work, total - t);
+      out.push({ kind: 'work', from: t, to: t + w });
+      t += w;
+      if (t >= total) break;
+      const r = Math.min(p.rest, total - t);
+      out.push({ kind: 'rest', from: t, to: t + r });
+      t += r;
+    }
+    return out;
+  }
+
+  /** The work rounds among the chunks: [{ round (1 on), from, to, minutes, warm }]. */
+  const workRounds = (chunks, p = {}) => chunks.filter((c) => c.kind === 'work').map((c, i) => ({
+    round: i + 1, from: c.from, to: c.to, minutes: Math.round(c.to - c.from), warm: i === 0 && p.warmup > 0 && p.warmup < p.work,
+  }));
+
+  /** The goal written for work round `round` (1 on), or ''. */
+  const roundGoal = (goals, round) => String((Array.isArray(goals) && goals[round - 1]) || '').trim();
+
   /** The idea for break number `n` (1 on): each break takes the next one, round and round. '' when there are none. */
   const breakIdea = (list, n) => (Array.isArray(list) && list.length ? list[(Math.max(1, Math.round(n || 1)) - 1) % list.length] : '');
 
   const api = {
-    parseActivities, breakIdea,
+    parseActivities, breakIdea, pomodoroChunks, workRounds, roundGoal,
     focusHours, bestWindow, hourScore, rotation, BEST_MIN_RATED,
     nextEntry, stopOptions, quickTasks, taskMinutes, notesSteps, currentStep, leftOffNote, lastLeftOff, nextCeiling,
     loopBuffer, noiseGain, soundLevel, spotifyLink, nextBodyCheck, bodyCheck,

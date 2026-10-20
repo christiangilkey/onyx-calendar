@@ -237,6 +237,8 @@ async function boot() {
   const first = linkIn(process.argv);
   if (first) receiveLink(first);
   if (!SMOKE_SHOT) createTray();
+  // Tasks another app sent through magic_add that were placed at once: the window offers the undo.
+  require('./magic').onPlaced((d) => win?.webContents.send('magic-placed', d));
   await mcp.start(() => win?.webContents.send('changed'));
   // Another linked desktop changed something: show it. New sign-ins need their calendars read.
   sync.start((touched) => {

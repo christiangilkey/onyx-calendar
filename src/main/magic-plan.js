@@ -13,6 +13,7 @@ const MAX_MINUTES = 240;
 const PARTS = { morning: [8, 12], midday: [11, 14], afternoon: [13, 17], evening: [17, 21] };
 // What each kind of thing is usually best at, when nobody said (the estimate's "when" is "any").
 const KIND_PART = { focus: [9, 12], call: [9, 17], errand: [10, 17] };
+const KINDS = ['focus', 'errand', 'call', 'chore', 'exercise', 'meal', 'admin', 'other'];
 
 const validPart = (p) => (Array.isArray(p) && Number.isInteger(p[0]) && Number.isInteger(p[1]) && p[0] >= 0 && p[1] <= 24 && p[1] - p[0] >= 1 ? [p[0], p[1]] : null);
 const ceilTo = (ms, unit) => Math.ceil(ms / unit) * unit;
@@ -41,6 +42,11 @@ const GUESSES = [
   [/\b(haircut|barber|salon)\b/i, { minutes: 45, kind: 'errand', place: 'Salon' }],
   [/\b(car wash|gas|petrol|fuel|oil change|mechanic)\b/i, { minutes: 25, kind: 'errand', place: 'Garage' }],
   [/\b(laundry|dishes|clean|tidy|vacuum|mop|cook|meal prep|trash|bins?)\b/i, { minutes: 30, kind: 'chore', place: 'Home' }],
+  [/\b(breakfast|brunch)\b/i, { minutes: 30, kind: 'meal', place: null, when: 'morning' }],
+  [/\blunch\b/i, { minutes: 30, kind: 'meal', place: null, when: 'midday' }],
+  [/\b(dinner|supper)\b/i, { minutes: 45, kind: 'meal', place: null, when: 'evening' }],
+  [/\b(snack|smoothie|shake)\b/i, { minutes: 10, kind: 'meal', place: null }],
+  [/\b(bed ?time|go to bed|sleep|wind[- ]down|lights out|skincare)\b/i, { minutes: 20, kind: 'chore', place: 'Home', when: 'evening' }],
   [/\b(study|read|write|essay|report|draft|code|coding|homework|research|plan|design|practice|learn|revise|review|prepare|prep)\b/i, { minutes: 60, kind: 'focus', place: 'Home' }],
   [/\b(pick ?up|buy|get|return|drop ?off|collect|shop|errand)\b/i, { minutes: 30, kind: 'errand', place: 'Errands' }],
 ];
@@ -86,6 +92,25 @@ function takeLimit(line, words) {
   return at ? { at, rest: line.replace(m[0], ' ') } : { at: null, rest: line };
 }
 
+/** One task from one line: the length, limits and time of day it says, and a guess from its words for the rest. */
+function readLine(raw) {
+  let line = String(raw || '').replace(/^\s*(?:\d+[.)]|[-*•])\s*/, '');
+  const dur = takeDuration(line); line = dur.rest;
+  const by = takeLimit(line, 'by|before'); line = by.rest;
+  const after = takeLimit(line, 'after|from'); line = after.rest;
+  let when = null;
+  const day = /\b(in the |this )?(morning|afternoon|evening)\b|\btonight\b/i.exec(line);
+  if (day) { when = /tonight/i.test(day[0]) ? 'evening' : day[2].toLowerCase(); line = line.replace(day[0], ' '); }
+  const title = line.replace(/[()]/g, ' ').replace(/\s{2,}/g, ' ').replace(/\s+([,.])/g, '$1').trim().replace(/^[\s,.-]+|[\s,.-]+$/g, '');
+  const guess = (GUESSES.find(([re]) => re.test(raw)) || [null, { minutes: 30, kind: 'admin', place: null }])[1];
+  const minutes = clampMinutes(dur.minutes ?? guess.minutes);
+  return {
+    title: (title || String(raw).trim()).replace(/^./, (c) => c.toUpperCase()).slice(0, 120), minutes, place: guess.place, when: when || guess.when || 'any',
+    kind: guess.kind, before: by.at, after: after.at,
+    why: dur.minutes ? 'Length from what you wrote' : '',
+  };
+}
+
 /**
  * The offline estimate: one task per line (or per ";" or bullet), the length from what it says
  * ("30 min") or a guess from the words, a place and a best time of day from the same words.
@@ -93,23 +118,7 @@ function takeLimit(line, words) {
 function estimateLocal(text) {
   let parts = String(text || '').split(/\r?\n|;|•|(?:^|\s)[-*]\s+/).map((s) => s.trim()).filter(Boolean);
   if (parts.length === 1 && parts[0].includes(',')) parts = parts[0].split(/,\s*(?:and\s+)?/).map((s) => s.trim()).filter(Boolean);
-  return parts.slice(0, 30).map((raw) => {
-    let line = raw.replace(/^\s*(?:\d+[.)]|[-*•])\s*/, '');
-    const dur = takeDuration(line); line = dur.rest;
-    const by = takeLimit(line, 'by|before'); line = by.rest;
-    const after = takeLimit(line, 'after|from'); line = after.rest;
-    let when = 'any';
-    const day = /\b(in the |this )?(morning|afternoon|evening)\b|\btonight\b/i.exec(line);
-    if (day) { when = /tonight/i.test(day[0]) ? 'evening' : day[2].toLowerCase(); line = line.replace(day[0], ' '); }
-    const title = line.replace(/[()]/g, ' ').replace(/\s{2,}/g, ' ').replace(/\s+([,.])/g, '$1').trim().replace(/^[\s,.-]+|[\s,.-]+$/g, '');
-    const guess = (GUESSES.find(([re]) => re.test(raw)) || [null, { minutes: 30, kind: 'admin', place: null }])[1];
-    const minutes = clampMinutes(dur.minutes ?? guess.minutes);
-    return {
-      title: (title || raw).replace(/^./, (c) => c.toUpperCase()).slice(0, 120), minutes, place: guess.place, when,
-      kind: guess.kind, before: by.at, after: after.at,
-      why: dur.minutes ? 'Length from what you wrote' : '',
-    };
-  });
+  return parts.slice(0, 30).map(readLine);
 }
 
 function clampMinutes(n) {
@@ -119,7 +128,7 @@ function clampMinutes(n) {
 
 /** Tasks as the planner needs them, from anything an estimator (Claude or the offline one) produced. */
 function normalizeTasks(list) {
-  const kinds = new Set(['focus', 'errand', 'call', 'chore', 'exercise', 'admin', 'other']);
+  const kinds = new Set(KINDS);
   const hm = (v) => (/^([01]?\d|2[0-3]):[0-5]\d$/.test(String(v || '')) ? String(v).replace(/^(\d):/, '0$1:') : null);
   return (Array.isArray(list) ? list : []).slice(0, 40).map((t) => ({
     title: String(t?.title || '').trim().slice(0, 120),
@@ -128,6 +137,7 @@ function normalizeTasks(list) {
     when: t?.when in PARTS ? t.when : 'any',
     kind: kinds.has(t?.kind) ? t.kind : 'other',
     after: hm(t?.after), before: hm(t?.before),
+    ...(hm(t?.preferred) ? { preferred: hm(t.preferred) } : {}), // the time the sender planned it for: as near to it as fits
     why: String(t?.why || '').trim().slice(0, 160),
     ...(t?.ref ? { ref: String(t.ref).slice(0, 400) } : {}), // the task from another app this stands for
   })).filter((t) => t.title);
@@ -152,6 +162,25 @@ function travelBetween(table) {
 
 // ---------------------------------------------------------------- scheduling
 
+const anchored = (t) => !!(t.preferred || t.after || t.before);
+
+/**
+ * The stretch of the day the timed tasks from other apps need ([from, to] in ms), or null: a dinner at
+ * 21:30 or a bedtime routine sent by another app widens the window past the chosen hours, for itself only.
+ */
+function anchorSpan(tasks, day) {
+  let lo = Infinity, hi = -Infinity;
+  for (const t of Array.isArray(tasks) ? tasks : []) {
+    if (!t?.ref || !anchored(t)) continue;
+    const span = clampMinutes(t.minutes ?? 30) * 60000;
+    const p = clock(t.preferred, day), a = clock(t.after, day), b = clock(t.before, day);
+    if (p != null) { lo = Math.min(lo, p); hi = Math.max(hi, p + span); }
+    if (a != null) { lo = Math.min(lo, a); hi = Math.max(hi, a + span); }
+    if (b != null) { lo = Math.min(lo, b - span); hi = Math.max(hi, b); }
+  }
+  return lo < hi ? [lo, hi] : null;
+}
+
 /** The free stretches of the window between the fixed entries, each knowing where you are before and after it. */
 function gapsOf({ busy, from, to, home }) {
   const fixed = busy.filter((b) => b.end > from && b.start < to).map((b) => ({ ...b })).sort((a, b) => a.start - b.start);
@@ -167,6 +196,7 @@ function gapsOf({ busy, from, to, home }) {
 
 // Focus work goes in your own best hours when Hyperfocus has learned them (opts.focusPart, focus.js).
 const partOf = (t, ctx) => {
+  if (t.preferred) return null; // a time of its own beats a time of day
   if (t.when !== 'any') return PARTS[t.when];
   if (t.kind === 'focus' && ctx?.focusPart) return ctx.focusPart;
   return KIND_PART[t.kind] || null;
@@ -183,16 +213,21 @@ function layoutGap(gap, seq, ctx, delay) {
     const tr = ctx.travel(prev, task.place);
     const span = task.minutes * 60000;
     const hardAfter = task.after ? clock(task.after, ctx.day) : null;
+    const pinned = anchored(task);
     let start = t;
     if (hardAfter != null) start = Math.max(start, hardAfter - tr * 60000);
+    // A window widened for what another app timed (anchorSpan): everything else keeps to the chosen hours.
+    if (ctx.core && !pinned) start = Math.max(start, ctx.core.from - tr * 60000);
     const part = partOf(task, ctx);
-    if (delay && part) {
-      const wanted = clock(`${part[0]}:00`, ctx.day) - tr * 60000;
+    const preferred = task.preferred ? clock(task.preferred, ctx.day) : null;
+    if (delay && (part || preferred != null)) {
+      const wanted = (preferred ?? clock(`${part[0]}:00`, ctx.day)) - tr * 60000;
       if (start < wanted) start = wanted;
     }
     start = ceilTo(start, GRID);
     const taskStart = start + tr * 60000, end = ceilTo(taskStart + span, GRID);
     if (end > gap.to) return { ok: false };
+    if (ctx.core && !pinned && end > ctx.core.to) return { ok: false };
     const hardBefore = task.before ? clock(task.before, ctx.day) : null;
     if (hardBefore != null && taskStart + span > hardBefore) return { ok: false };
 
@@ -202,7 +237,8 @@ function layoutGap(gap, seq, ctx, delay) {
       const out = Math.max(0, a - taskStart) + Math.max(0, taskStart + span - b);
       cost += out / 60000;
     }
-    if (ctx.lunch) {
+    if (preferred != null) cost += Math.abs(taskStart - preferred) / 60000 * 1.5;
+    if (ctx.lunch && preferred == null && task.kind !== 'meal') {
       const over = Math.min(taskStart + span, ctx.lunch[1]) - Math.max(taskStart, ctx.lunch[0]);
       if (over > 0) cost += (over / 60000) * 1.5;
     }
@@ -239,15 +275,17 @@ function schedule(busy, tasks, opts) {
   const ctx = {
     day: day.getTime(), from, travel: travelBetween(opts.travel),
     lunch: opts.lunch === false ? null : [clock('12:30', day), clock('13:15', day)],
+    core: opts.core || null, // the chosen hours, when the window was widened (empty once they are over today)
     focusPart: validPart(opts.focusPart),
   };
   const gaps = gapsOf({ busy, from, to, home: opts.home });
   for (const g of gaps) g.layout = { ok: true, cost: 0, items: [] };
   const longest = gaps.reduce((m, g) => Math.max(m, g.to - g.from), 0);
 
-  // The ones with a hard time first, then the long ones: they are the hardest to fit.
+  // The ones with a hard time first, then the ones with a time of their own, then the long ones: they are the hardest to fit.
   const order = tasks.map((task, i) => ({ task, i }))
-    .sort((a, b) => (!!(b.task.before || b.task.after) - !!(a.task.before || a.task.after)) || b.task.minutes - a.task.minutes || a.i - b.i)
+    .sort((a, b) => (!!(b.task.before || b.task.after) - !!(a.task.before || a.task.after)) || (!!b.task.preferred - !!a.task.preferred)
+      || b.task.minutes - a.task.minutes || a.i - b.i)
     .map((x) => x.task);
 
   const tryPlace = (task) => {
@@ -295,6 +333,6 @@ function schedule(busy, tasks, opts) {
   return { blocks, unplaced };
 }
 
-const api = { estimateLocal, normalizeTasks, travelBetween, schedule, gapsOf, clampMinutes, placeKey, PARTS };
+const api = { estimateLocal, readLine, normalizeTasks, travelBetween, schedule, gapsOf, anchorSpan, clampMinutes, placeKey, PARTS, KINDS };
 if (typeof module !== 'undefined' && module.exports) module.exports = api;
 else globalThis.OnyxMagicPlan = api;

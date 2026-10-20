@@ -176,7 +176,7 @@
       .map((e) => ({ start: +new Date(e.start), end: +new Date(e.end), place: e.location || null, title: e.title }));
     // The tasks that arrived from other apps and were picked: each is one task, keeping its id.
     const arrived = inboxIds.map((id) => tasks.find((t) => t.id === id)).filter(Boolean)
-      .flatMap((t) => magicLib.estimateLocal(t.label).slice(0, 1).map((g) => ({ ...g, ref: t.id, ...(t.minutes ? { minutes: t.minutes, why: 'Length given by the app that sent it' } : {}) })));
+      .flatMap((t) => [magicLib.readLine(t.label)].map((g) => ({ ...g, ref: t.id, ...(t.minutes ? { minutes: t.minutes, why: 'Length given by the app that sent it' } : {}) })));
     const list = magicLib.normalizeTasks(given || [...arrived, ...(text && text.trim() ? magicLib.estimateLocal(text) : [])]);
     if (!list.length) throw new Error('No tasks found in that. Put one on each line.');
     const r = magicLib.schedule(busy, list, { day, from, to, home: home || 'Home', travel: travel || [], lunch: (o.lunch ?? m.lunch) !== false });

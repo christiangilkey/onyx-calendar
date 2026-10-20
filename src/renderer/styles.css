@@ -1420,6 +1420,8 @@ body.mobile #next-bar .next-pill.sub .next-kind-label { display: inline; }
 body.mobile #next-bar .next-pill.sub .next-leave, body.mobile #next-bar .next-pill.sub .next-sep { display: none; }
 body.mobile #next-bar .next-pill.sub .what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 body.mobile #next-bar .next-pill.main .next-text { text-align: left; align-items: flex-start; }
+/* Left-aligned, each line still stops at the separator: a long name ends in an ellipsis before the countdown. */
+body.mobile #next-bar .next-pill.main .next-text > * { max-width: 100%; min-width: 0; }
 
 /* The phone's window (a sheet along the bottom) never scrolls sideways: every row wraps, every
    field shrinks to fit, and Android's own time picker has AM/PM (no second picker beside it). */

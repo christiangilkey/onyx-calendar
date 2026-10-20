@@ -301,6 +301,9 @@
       set: (show) => Widget.setLauncher({ show }),
       setAlarm: (alarm) => Widget.setLauncher({ alarm }),
       open: (what) => Widget.launcherOpen({ what }),
+      // The doomscroll saver (DoomscrollService): on or off, after how many minutes, and a ten-second look at its card.
+      setDoomscroll: ({ on, minutes } = {}) => Widget.setLauncher({ ...(on != null ? { doomscroll: !!on } : {}), ...(minutes ? { doomMinutes: Math.round(minutes) } : {}) }),
+      previewDoomscroll: () => (Widget.doomscrollPreview ? Widget.doomscrollPreview() : Promise.resolve({ shown: false })),
       // A Hyperfocus session on this phone, shown on Onyx Home and the lock screen (null: it is over).
       focus: (s) => Widget.setFocus?.(s ? { goal: s.goal, startedAt: s.startedAt, plannedEnd: s.plannedEnd } : { clear: true })?.catch?.(() => {}),
     } : null,

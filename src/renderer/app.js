@@ -5940,6 +5940,71 @@
       ];
     },
 
+    // The doomscroll saver: after a while on social media, a card in the corner with the time spent,
+    // what is next, and a way back to Onyx. The Android app only (DoomscrollService).
+    doomscroll() {
+      const box = h('div', { class: 'card' }, h('p', null, 'Checking…'));
+      const MINUTES = [1, 2, 3, 5, 10, 15, 20, 30, 45, 60];
+      const APPS = ['Instagram', 'TikTok', 'YouTube', 'Facebook', 'X', 'Snapchat', 'Reddit', 'Threads', 'Pinterest', 'Bluesky', 'Tumblr', 'Twitch', 'LinkedIn'];
+      const privacy = h('div', { class: 'privacy-card' },
+        h('div', { class: 'pc-main' }, h('div', { class: 'pc-text' },
+          h('div', { class: 'pc-badge' }, icon('shield'), 'Private by design'),
+          h('b', { class: 'pc-title' }, 'What it looks at stays on this phone'),
+          h('ul', { class: 'pc-points' }, [
+            ['Checked right here, on this phone', 'Onyx only looks at which app is open and, in a browser, the name of the site in the address bar.'],
+            ['Nothing else is read', 'Not what is on the screen, not what you type, not your messages.'],
+            ['Never saved or sent', 'No list of the apps or sites you use is kept: only how long the stretch you are in has run, in memory.'],
+          ].map(([t, d]) => h('li', null, icon('check'), h('span', null, h('b', null, t), h('small', null, d))))))),
+        h('div', { class: 'pc-flow', role: 'img', 'aria-label': 'The app or site in front, checked on this phone, becomes only how long. Nothing is sent.' },
+          h('span', { class: 'pc-node' }, icon('device'), 'App or site'),
+          h('i', { class: 'pc-arrow' }),
+          h('span', { class: 'pc-node strong' }, icon('device'), 'This phone'),
+          h('i', { class: 'pc-arrow' }),
+          h('span', { class: 'pc-node' }, '"how long"'),
+          h('span', { class: 'pc-node off' }, icon('cloudoff'), 'Nothing sent')));
+      const draw = (info) => {
+        if (!('doomscroll' in info)) { box.replaceChildren(h('p', null, 'Update the Onyx app to use this.')); return; }
+        const set = (o) => onyx.launcher.setDoomscroll(o).then(draw).catch((err) => toast(err.message, 'error'));
+        const minutes = [...new Set([...MINUTES, info.doomMinutes])].sort((a, b) => a - b);
+        box.replaceChildren(...[
+          field('Doomscroll saver', 'After a while on social media, a small card comes up in the bottom right corner: how long it has been, and what is next on your calendar with a bar filling as it nears. Tap it to come back to Onyx; the × hides it for another stretch.',
+            toggle(info.doomscroll === true, (v) => set({ on: v }))),
+          field('Show it after', 'Minutes in a row on social media, in an app or a browser. Moving between them keeps counting; a minute or more away starts the count again.',
+            h('select', { onchange: (e) => set({ minutes: +e.target.value }) },
+              minutes.map((m) => h('option', { value: m, selected: m === info.doomMinutes }, m === 1 ? '1 minute' : `${m} minutes`)))),
+          field('Accessibility access', 'Android lets Onyx see which app is open (and, in a browser, the site\'s name) through Accessibility. In the list there, open "Onyx doomscroll saver" and turn it on.',
+            info.doomAllowed ? h('span', { class: 'badge ok' }, 'On') : h('button', { class: 'btn primary', onclick: () => onyx.launcher.open('accessibility') }, 'Allow')),
+          !info.doomAllowed && h('div', { class: 'restricted-guide' },
+            h('b', null, 'Switch greyed out?'),
+            h('p', null, 'Android locks Accessibility for apps installed from a download. To unlock it:'),
+            h('ol', null,
+              h('li', null, 'Tap App info below (Settings → Apps → Onyx Calendar).'),
+              h('li', null, 'Tap ⋮ at the top right, then Allow restricted settings, and confirm with your PIN or fingerprint.'),
+              h('li', null, 'If that option is missing, try the greyed-out switch once first, then look again.'),
+              h('li', null, 'Come back here and tap Allow: the switch turns on now.')),
+            h('button', { class: 'btn', onclick: () => onyx.launcher.open('appinfo') }, 'App info')),
+          info.doomAllowed && field('See the card', 'It shows for ten seconds, over whatever is on the screen.',
+            h('button', { class: 'btn', onclick: async () => {
+              const r = await onyx.launcher.previewDoomscroll().catch(() => null);
+              if (!r?.shown) toast('Turn on Accessibility access first.');
+            } }, 'Show me')),
+          h('div', { class: 'doom-apps' }, h('small', null, 'Counts as social media, in their apps and in your browser (Chrome, Samsung Internet, Firefox, Edge, Brave, Opera, DuckDuckGo):'),
+            h('div', { class: 'fs-chips' }, APPS.map((a) => h('span', { class: 'doom-app' }, a)))),
+          privacy,
+        ].filter(Boolean));
+      };
+      const load = () => onyx.launcher.info().then(draw).catch(() => box.replaceChildren(h('p', null, 'Update the Onyx app to use this.')));
+      load();
+      // Back from Android's Accessibility settings: show what changed.
+      const back = () => { if (!box.isConnected) document.removeEventListener('visibilitychange', back); else if (!document.hidden) load(); };
+      document.addEventListener('visibilitychange', back);
+      return [
+        h('h3', null, 'Doomscroll saver'),
+        h('p', { class: 'lead' }, 'A nudge back to your plan when a quick look at social media turns into a long one.'),
+        box,
+      ];
+    },
+
     // Onyx Home (the phone's launcher) and Onyx on the lock screen: the Android app only.
     launcher() {
       const box = h('div', { class: 'card' }, h('p', null, 'Checking…'));
@@ -6232,7 +6297,7 @@
   let settingsTab = onyx.isPhone ? 'connection' : 'calendars';
   function openSettings(tab = settingsTab) {
     const tabs = onyx.isPhone
-      ? [['connection', 'Connection'], ['keys', 'Keys & accounts'], ['pi', 'Calls & alerts'], ...(onyx.launcher ? [['launcher', 'Home & lock screen']] : []), ['general', 'General']]
+      ? [['connection', 'Connection'], ['keys', 'Keys & accounts'], ['pi', 'Calls & alerts'], ...(onyx.launcher ? [['launcher', 'Home & lock screen'], ['doomscroll', 'Doomscroll saver']] : []), ['general', 'General']]
       : [['calendars', 'Calendars'], ['connections', 'Notion, Drive & AI'], ['phone', 'Phone'], ['desktops', 'Desktops'], ['pi', 'Calls & alerts'], ['mcp', 'MCP server'], ['general', 'General']];
     if (!tabs.some(([id]) => id === tab)) tab = tabs[0][0];
     settingsTab = tab;

@@ -7,4 +7,7 @@
     <!-- The home-screen widget -->
     <string name="widget_calendar_label">Onyx Calendar</string>
     <string name="widget_calendar_description">Your month, with the day you pick below it and tasks to tick off. Resize it from one row to the whole screen.</string>
+    <string name="doomscroll_label">Onyx doomscroll saver</string>
+    <string name="doomscroll_summary">A nudge back to your plan after a while on social media</string>
+    <string name="doomscroll_description">After a stretch on a social media app or site (5 minutes, or what you set in Onyx), a small card in the corner shows how long it has been and what is next on your calendar. Tap it to go back to Onyx. It only looks at which app is open and, in a browser, the name of the site in the address bar. Nothing is saved or sent.</string>
 </resources>

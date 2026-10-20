@@ -98,6 +98,20 @@
             </intent-filter>
         </service>
 
+        <!-- The doomscroll saver: after a while on social media, a card in the corner with a way back to Onyx (Accessibility). -->
+        <service
+            android:name=".DoomscrollService"
+            android:exported="true"
+            android:label="@string/doomscroll_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/doomscroll_service" />
+        </service>
+
         <!-- The Onyx panel over the lock screen, as the screen turns on. -->
         <activity
             android:name=".LockPanelActivity"

@@ -108,7 +108,21 @@ public class OnyxWidgetPlugin extends Plugin {
     public void setLauncher(PluginCall call) {
         if (call.hasOption("show")) LauncherData.setShow(getContext(), call.getString("show", LauncherData.SHOW_HOME));
         if (call.hasOption("alarm")) LauncherData.setAlarm(getContext(), Boolean.TRUE.equals(call.getBoolean("alarm", true)));
+        // The doomscroll saver: on or off, and after how many minutes on social media.
+        if (call.hasOption("doomscroll") || call.hasOption("doomMinutes")) {
+            DoomscrollService.set(getContext(),
+                call.hasOption("doomscroll") ? Boolean.TRUE.equals(call.getBoolean("doomscroll", false)) : null,
+                call.hasOption("doomMinutes") ? Integer.valueOf(call.getData().optInt("doomMinutes", DoomscrollService.DEFAULT_MINUTES)) : null);
+        }
         call.resolve(launcherState());
+    }
+
+    /** Settings → Doomscroll saver → Show me: the corner card for ten seconds ({ shown: false } until Accessibility is on). */
+    @PluginMethod
+    public void doomscrollPreview(PluginCall call) {
+        JSObject o = new JSObject();
+        o.put("shown", DoomscrollService.preview());
+        call.resolve(o);
     }
 
     /** A Hyperfocus session on this phone (or { clear: true } when it is over), for Onyx Home and the lock screen. */

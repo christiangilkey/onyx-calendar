@@ -1,7 +1,8 @@
 // The Android app's link to Onyx on the PC. It provides the same window.onyx
 // commands as the desktop preload script, but runs them on the PC over the
 // network (POST /app/rpc), and keeps the last answers so the calendar can still
-// be read when the PC is off or out of reach.
+// be read when the PC is off or out of reach. Changes made then are not lost:
+// they wait in the outbox, show at once, and go to the PC when it is back.
 //
 // Active inside the Android app, or in a browser when the page is opened with
 // "?remote" (for development). Otherwise it does nothing.
@@ -33,14 +34,14 @@
     for (const fn of listeners) fn(online);
   }
 
-  async function post(address, name, args) {
+  async function post(address, name, args, op) {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
     try {
       const res = await fetch(`http://${address}/app/rpc`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${conn.token}` },
-        body: JSON.stringify({ name, args }),
+        body: JSON.stringify({ name, args, ...(op ? { op } : {}) }),
         signal: ctl.signal,
       });
       if (res.status === 401) {
@@ -125,40 +126,222 @@
     widgetTimer = setTimeout(() => Widget.refresh()?.catch?.(() => {}), 1500);
   }
 
-  async function call(name, ...args) {
-    if (!conn) throw new Error('This phone is not connected to Onyx on your PC yet.');
+  /** No PC (nor any PC linked to it) answered at any address. */
+  class Unreachable extends Error {}
+
+  /** Sends one command to whichever of the PC's addresses answers first; its raw answer ({ ok, value | error }). */
+  async function reach(name, args, op) {
     const order = [conn.last, ...conn.addresses.filter((a) => a !== conn.last)].filter(Boolean);
     for (const address of order) {
       let body;
       try {
-        body = await post(address, name, args);
+        body = await post(address, name, args, op);
       } catch (err) {
         if (err.final) throw err;
         continue; // that address is not answering: try the next one
       }
       setOnline(true);
       if (conn.last !== address) { conn.last = address; write(CONN, conn); }
-      if (!body.ok) {
-        // An older Onyx on the PC doesn't know the commands newer app builds send.
-        if (/^Unknown command/.test(body.error || '')) {
-          const pc = read(`${CACHE}state`, null)?.version;
-          throw Object.assign(new Error(`Onyx on your PC${pc ? ` (${pc})` : ''} is older than this app and can't do that yet. Update Onyx on the PC (Settings → Updates).`), { outdated: true });
-        }
-        throw new Error(body.error);
-      }
-      learnAddresses(body.value, address);
-      if (CACHED.has(name)) write(cacheKey(name, args), body.value);
-      if (name === 'events') rememberEvents(body.value.events);
-      nudgeWidget(name);
-      return body.value;
+      if (body.ok) learnAddresses(body.value, address);
+      return body;
     }
     setOnline(false);
-    const cached = CACHED.has(name) ? fromCache(name, args) : null;
-    if (cached) return cached;
-    throw new Error(conn.addresses.some(isTailscale)
+    throw new Unreachable(conn.addresses.some(isTailscale)
       ? 'Can\'t reach Onyx on your PC. Check that it is running, and that Tailscale is on, on both the PC and this phone.'
       : 'Can\'t reach Onyx on your PC. Check that it is running and that the phone is on the same wifi. To use Onyx away from home, set up Tailscale: Settings → Connection.');
   }
+
+  const outdated = () => {
+    const pc = read(`${CACHE}state`, null)?.version;
+    return Object.assign(new Error(`Onyx on your PC${pc ? ` (${pc})` : ''} is older than this app and can't do that yet. Update Onyx on the PC (Settings → Updates).`), { outdated: true });
+  };
+
+  async function call(name, ...args) {
+    if (!conn) throw new Error('This phone is not connected to Onyx on your PC yet.');
+    args = remap(args); // something made offline, since made on the PC: its real id
+    // A change while changes are still waiting goes after them, in order; offline, it waits too.
+    if (QUEUEABLE.has(name) && (outbox.length || !online)) return enqueue(name, args);
+    let body;
+    try {
+      body = await reach(name, args);
+    } catch (err) {
+      if (!(err instanceof Unreachable)) throw err;
+      if (QUEUEABLE.has(name)) return enqueue(name, args);
+      const cached = CACHED.has(name) ? fromCache(name, args) : null;
+      if (cached) return overlay(name, args, cached);
+      // Nothing kept from the PC yet, but changes made here: those at least.
+      if (outbox.length && name === 'tasks') return overlay(name, args, { tasks: [], errors: [] });
+      throw err;
+    }
+    if (!body.ok) {
+      // An older Onyx on the PC doesn't know the commands newer app builds send.
+      if (/^Unknown command/.test(body.error || '')) throw outdated();
+      throw new Error(body.error);
+    }
+    if (CACHED.has(name)) write(cacheKey(name, args), body.value);
+    if (name === 'events') rememberEvents(body.value.events);
+    nudgeWidget(name);
+    return overlay(name, args, body.value);
+  }
+
+  // ------------------------------------------------------------ changes made offline: the outbox
+  // With the PC out of reach, a change is not lost. It waits here (kept on the phone, through a
+  // restart), in the order it was made, and shows at once on what the phone shows (overlay). Once
+  // the PC, or any PC linked to it, answers, the outbox goes to it one change at a time, in order.
+  // Each change carries an id the PCs remember, so one sent twice (an answer lost on the way) is
+  // made once. Something made offline has a stand-in id; once the PC has made it, later changes to
+  // it are sent with its real one. A change the PC turns down is set aside and reported.
+  const OUTBOX = 'onyx.outbox', IDS = 'onyx.outbox.ids', FAILED = 'onyx.outbox.failed';
+  const QUEUEABLE = new Set([
+    'event:create', 'event:update', 'event:delete', 'event:done', 'event:leaveby', 'event:call', 'event:ack',
+    'task:create', 'task:update', 'task:move', 'task:resize', 'task:delete', 'task:backburner', 'task:repeat', 'inbox:dismiss',
+    'tags:set', 'memo:set', 'pomodoro:set', 'blockTasks:set', 'blockTasks:tick', 'eventColor:set',
+    'note:create', 'note:update', 'note:delete', 'goal:step', 'goal:update', 'pin:update', 'pin:remove', 'focus:log',
+  ]);
+  let outbox = read(OUTBOX, []);
+  const ids = read(IDS, {});
+  const outboxListeners = new Set();
+  const tellOutbox = (extra = {}) => { for (const fn of outboxListeners) { try { fn({ pending: outbox.length, online, ...extra }); } catch { /* one listener's problem */ } } };
+  const newOp = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 6)}`;
+  const realId = (v) => (typeof v === 'string' && ids[v]) || v;
+  function remap(v) {
+    if (Array.isArray(v)) return v.map(remap);
+    if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, remap(x)]));
+    return realId(v);
+  }
+  const isTemp = (v) => typeof v === 'string' && v.startsWith('offline-') && !ids[v];
+  const saveOutbox = () => { write(OUTBOX, outbox); tellOutbox(); };
+
+  const calOf = (id) => (read(`${CACHE}state`, null)?.calendars || []).find((c) => c.id === id);
+  function fakeEvent(o) {
+    const d = o.args[0] || {}, cal = calOf(d.calendarId);
+    return {
+      id: o.temp, kind: 'event', calendarId: d.calendarId, calendarName: cal?.name || '', color: cal?.color || '#8b7cff',
+      title: d.title || '(No title)', start: d.start, end: d.end || d.start, allDay: !!d.allDay, notes: d.notes || '', location: d.location || '',
+      tags: d.tags || [], writable: true, recur: d.recur || null, offline: true,
+    };
+  }
+  function fakeTask(o) {
+    const d = o.args[0] || {}, cal = calOf(d.listId);
+    return {
+      id: o.temp, listId: d.listId, listName: cal?.name || '', color: cal?.color || '#f5b83d', provider: cal?.provider || 'google',
+      title: d.title || '', label: d.title || '', notes: d.notes || '', due: d.due || null, date: d.due || null, time: null, start: null,
+      done: false, tags: d.tags || [], offline: true,
+    };
+  }
+  const dayAfter = (ymd) => { const d = new Date(`${ymd}T00:00:00`); d.setDate(d.getDate() + 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  const taskEntry = (t) => ({ id: t.id, kind: 'task', calendarId: t.listId, calendarName: t.listName, color: t.color, title: t.label || t.title,
+    start: t.date, end: dayAfter(t.date), allDay: true, done: !!t.done, tags: t.tags || [], writable: true, movable: false, offline: true });
+
+  /** What the PC's answer would be with the waiting changes already made: events and tasks show them. */
+  function overlay(name, args, value) {
+    if (!outbox.length || !value) return value;
+    if (name === 'events' && Array.isArray(value.events)) {
+      let list = value.events.slice();
+      const touch = (id, fn) => { list = list.map((e) => (e.id === id || e.seriesId === id ? fn({ ...e }) : e)); };
+      for (const o of outbox) {
+        const [a, b, c] = remap(o.args);
+        if (o.name === 'event:create') list.push(fakeEvent(o));
+        else if (o.name === 'event:update') touch(a, (e) => ({ ...e, ...Object.fromEntries(['title', 'start', 'end', 'allDay', 'notes', 'location', 'tags', 'calendarId'].filter((k) => b && k in b).map((k) => [k, b[k]])) }));
+        else if (o.name === 'event:delete') list = list.filter((e) => e.id !== a && !(b?.scope === 'all' && b.seriesId && e.seriesId === b.seriesId));
+        else if (o.name === 'event:done') touch(a, (e) => ({ ...e, done: !!b }));
+        else if (o.name === 'tags:set') touch(a, (e) => ({ ...e, tags: b || [] }));
+        else if (o.name === 'eventColor:set') touch(a, (e) => ({ ...e, color: b || e.calColor || e.color, ownColor: !!b }));
+        else if (o.name === 'blockTasks:set') touch(a, (e) => ({ ...e, taskList: (b || []).length ? b.map((t) => ({ id: t.id, text: t.text, done: !!e.taskList?.find((x) => x.id === t.id)?.done })) : null }));
+        else if (o.name === 'blockTasks:tick') list = list.map((e) => (e.id === a && e.taskList ? { ...e, taskList: e.taskList.map((t) => (t.id === b ? { ...t, done: !!c } : t)) } : e));
+        else if (o.name === 'task:create') { const t = fakeTask(o); if (t.date) list.push(taskEntry(t)); }
+        else if (o.name === 'task:update') touch(a, (e) => ({ ...e, ...(b?.title != null ? { title: b.title } : {}), ...(b && 'done' in b ? { done: !!b.done } : {}) }));
+        else if (o.name === 'task:delete') list = list.filter((e) => e.id !== a);
+      }
+      const [start, end] = args;
+      const inRange = (e) => !start || !end || (new Date(e.end || e.start) > new Date(start) && new Date(e.start) < new Date(end));
+      return { ...value, events: list.filter(inRange) };
+    }
+    if (name === 'tasks' && Array.isArray(value.tasks)) {
+      let list = value.tasks.slice();
+      const touch = (id, fn) => { list = list.map((t) => (t.id === id ? fn({ ...t }) : t)); };
+      for (const o of outbox) {
+        const [a, b] = remap(o.args);
+        if (o.name === 'task:create') list.push(fakeTask(o));
+        else if (o.name === 'task:update') {
+          touch(a, (t) => ({ ...t, ...(b?.title != null ? { title: b.title, label: b.title } : {}), ...(b && 'notes' in b ? { notes: b.notes } : {}),
+            ...(b && 'due' in b ? { due: b.due, date: b.due } : {}), ...(b && 'done' in b ? { done: !!b.done } : {}) }));
+          if (b?.done) list = list.filter((t) => t.id !== a); // done: off to the Archived tab, as the PC does
+        } else if (o.name === 'task:delete') list = list.filter((t) => t.id !== a);
+        else if (o.name === 'task:backburner') touch(a, (t) => ({ ...t, backburner: !!b }));
+        else if (o.name === 'tags:set') touch(a, (t) => ({ ...t, tags: b || [] }));
+      }
+      return { ...value, tasks: list };
+    }
+    return value;
+  }
+
+  /** Keeps a change for the PC; what the app gets back meanwhile is what it will look like. */
+  function enqueue(name, args) {
+    const o = { op: newOp(), name, args, at: Date.now() };
+    if (/:create$/.test(name)) o.temp = `offline-${o.op}`;
+    // Taken away before it ever reached the PC: its making and every change to it go, and nothing is sent.
+    if (/:delete$/.test(name) && isTemp(args[0])) {
+      const t = args[0];
+      outbox = outbox.filter((x) => x.temp !== t && !JSON.stringify(x.args).includes(t));
+      saveOutbox();
+      return true;
+    }
+    outbox.push(o);
+    saveOutbox();
+    setTimeout(flush, 0);
+    if (name === 'event:create') return fakeEvent(o);
+    if (name === 'task:create') return fakeTask(o);
+    if (/:create$/.test(name)) return { ...(args[0] || {}), id: o.temp, offline: true };
+    if (/:update$/.test(name)) return { id: args[0], ...(args[1] || {}), offline: true };
+    return args.length > 1 ? args[1] ?? true : true;
+  }
+
+  let flushing = false;
+  /** Sends the waiting changes, oldest first; stops (and keeps the rest) as soon as no PC answers. */
+  async function flush() {
+    if (flushing || !outbox.length || !conn) return;
+    flushing = true;
+    let sent = 0;
+    const failed = [];
+    let blocked = null;
+    tellOutbox({ syncing: true });
+    try {
+      while (outbox.length) {
+        const o = outbox[0];
+        let body;
+        try {
+          body = await reach(o.name, remap(o.args), o.op);
+        } catch (err) {
+          if (err.final) blocked = err.message;
+          break; // no PC in reach (or this phone is no longer let in): the rest wait
+        }
+        if (!body.ok && /^Unknown command/.test(body.error || '')) { blocked = outdated().message; break; } // kept until the PC is updated
+        if (body.ok) {
+          if (o.temp && body.value && typeof body.value === 'object' && body.value.id) {
+            ids[o.temp] = body.value.id;
+            const keys = Object.keys(ids);
+            for (const k of keys.slice(0, Math.max(0, keys.length - 500))) delete ids[k];
+            write(IDS, ids);
+          }
+          sent++;
+        } else if (!/no longer exists|not found|doesn't exist|does not exist|isn't there|\b404\b|\b410\b/i.test(body.error || '')) {
+          failed.push({ name: o.name, error: body.error || 'It could not be saved.', at: o.at }); // gone already on the PC: nothing to do
+        }
+        outbox.shift();
+        write(OUTBOX, outbox);
+      }
+    } finally {
+      flushing = false;
+    }
+    if (failed.length) write(FAILED, [...read(FAILED, []), ...failed].slice(-50));
+    tellOutbox({ sent, failed, blocked });
+    if (sent) nudgeWidget('outbox:sent');
+  }
+  // Tried again every 15 seconds while anything waits, and whenever the app comes back to the front.
+  setInterval(() => { if (outbox.length) flush(); }, 15000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && outbox.length) flush(); });
+  if (outbox.length) setTimeout(flush, 1500);
 
   const withLocal = (state) => (state ? { ...state, settings: { ...state.settings, ...local } } : state);
 
@@ -333,6 +516,10 @@
       for (const key of Object.keys(localStorage)) if (key.startsWith(CACHE)) localStorage.removeItem(key);
     },
     onOnline: (fn) => listeners.add(fn),
+    // The outbox: how many changes wait for the PC, and when they have gone (or one was turned down).
+    onOutbox: (fn) => { outboxListeners.add(fn); fn({ pending: outbox.length, online }); },
+    outbox: () => ({ pending: outbox.length, online, failed: read(FAILED, []) }),
+    syncNow: () => flush(),
 
     state: async () => withLocal(await call('state')),
     refresh: async () => withLocal(await call('refresh')),

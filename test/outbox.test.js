@@ -1,0 +1,163 @@
+// The phone's outbox: with the PC out of reach, changes are kept on the phone, shown at once, and
+// sent in order once a PC answers again, each made exactly once, even if sent twice. Runs the
+// real phone code (remote.js) against the PC's real command handler (mcp.js appCall).
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('fs');
+const path = require('path');
+const vm = require('node:vm');
+const store = require('../src/main/store');
+const mcp = require('../src/main/mcp');
+
+store.save = () => {};
+
+/** A PC with a calendar in memory, reached through a network that can be cut. */
+function makePC() {
+  const pc = { up: true, dropNextAnswer: false, events: [], tasks: [], seq: 0, calls: [] };
+  mcp.setAppApi({
+    state: async () => ({ version: 'test', calendars: [{ id: 'cal', name: 'Mine', color: '#4aa8ff', kind: 'calendar', writable: true }] }),
+    events: async () => ({ events: pc.events.map((e) => ({ ...e })), errors: [] }),
+    'event:create': async (d) => { const e = { kind: 'event', ...d, id: `cal/${++pc.seq}` }; pc.events.push(e); return e; },
+    'event:update': async (id, patch) => {
+      const e = pc.events.find((x) => x.id === id);
+      if (!e) throw new Error('That event no longer exists.');
+      return Object.assign(e, patch);
+    },
+    'event:delete': async (id) => { pc.events = pc.events.filter((x) => x.id !== id); return true; },
+    tasks: async () => ({ tasks: pc.tasks.filter((t) => !t.done).map((t) => ({ ...t })), errors: [] }),
+    'task:create': async (d) => { const t = { ...d, id: `list/${++pc.seq}`, label: d.title, date: d.due || null, done: false }; pc.tasks.push(t); return t; },
+    'task:update': async (id, patch) => { const t = pc.tasks.find((x) => x.id === id); if (!t) throw new Error('That task no longer exists.'); return Object.assign(t, patch); },
+    'tags:set': async (id, tags) => { if (tags.some((t) => t.includes('!'))) throw new Error('A tag is a word or two.'); return tags; },
+  });
+  pc.fetch = async (url, opts) => {
+    if (!pc.up) throw new TypeError('Failed to fetch');
+    const msg = JSON.parse(opts.body);
+    pc.calls.push(msg.name);
+    const body = await mcp.appCall(msg);
+    if (pc.dropNextAnswer) { pc.dropNextAnswer = false; throw new TypeError('The connection was reset'); } // made, but the answer never arrives
+    return { status: 200, json: async () => body };
+  };
+  return pc;
+}
+
+/** The phone app's onyx object (remote.js), paired with that PC, with its own storage. */
+function makePhone(pc) {
+  const kept = new Map([['onyx.connection', JSON.stringify({ addresses: ['192.168.1.20:4747'], token: 'token', last: '' })]]);
+  const localStorage = {
+    getItem: (k) => (kept.has(k) ? kept.get(k) : null), setItem: (k, v) => kept.set(k, String(v)), removeItem: (k) => kept.delete(k),
+    key: (i) => [...kept.keys()][i], get length() { return kept.size; },
+  };
+  const sandbox = {
+    console, URL, URLSearchParams, AbortController, setTimeout, clearTimeout, setInterval: () => 0, clearInterval: () => {},
+    location: { search: '?remote' }, localStorage, fetch: (...a) => pc.fetch(...a), addEventListener: () => {},
+    document: { documentElement: { classList: { toggle() {} }, style: { setProperty() {} }, dataset: {} }, addEventListener() {}, visibilityState: 'visible' },
+  };
+  sandbox.window = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/renderer/remote.js'), 'utf8'), sandbox);
+  const onyx = sandbox.window.onyx;
+  onyx.heard = [];
+  onyx.onOutbox((o) => onyx.heard.push(o));
+  return onyx;
+}
+
+const plain = (v) => JSON.parse(JSON.stringify(v)); // values made inside the phone's own context
+const settle = () => new Promise((r) => setTimeout(r, 20));
+const DAY = ['2026-10-22T00:00:00.000Z', '2026-10-23T00:00:00.000Z'];
+const block = (title) => ({ title, start: '2026-10-22T15:00:00.000Z', end: '2026-10-22T16:00:00.000Z', allDay: false, calendarId: 'cal' });
+
+test('offline, a change is kept and shown at once; back online, it goes to the PC, later changes to it with its real id', async () => {
+  const pc = makePC(), phone = makePhone(pc);
+  await phone.state(); // the calendars, kept for offline
+  pc.up = false;
+  const made = await phone.createEvent(block('Dentist'));
+  assert.match(made.id, /^offline-/);
+  assert.equal(made.offline, true);
+  assert.equal(made.color, '#4aa8ff', 'it wears its calendar\'s colour');
+  await phone.updateEvent(made.id, { title: 'Dentist (moved)' });
+  await phone.setTags(made.id, ['health']);
+  const shown = await phone.events(...DAY);
+  assert.deepEqual(plain(shown.events.map((e) => [e.title, e.tags])), [['Dentist (moved)', ['health']]]);
+  assert.equal(phone.outbox().pending, 3);
+  assert.equal(pc.events.length, 0);
+
+  pc.up = true;
+  await phone.syncNow();
+  assert.equal(phone.outbox().pending, 0);
+  assert.deepEqual(pc.events.map((e) => [e.id, e.title]), [['cal/1', 'Dentist (moved)']]);
+  assert.deepEqual(pc.calls.slice(-3), ['event:create', 'event:update', 'tags:set']);
+  assert.equal(phone.heard.at(-1).sent, 3, 'the app hears they went');
+  // Later, the stand-in id the app may still hold reaches the real entry.
+  await phone.updateEvent(made.id, { title: 'Dentist, 3pm' });
+  assert.equal(pc.events[0].title, 'Dentist, 3pm');
+});
+
+test('an answer lost on the way: sent again, made once', async () => {
+  const pc = makePC(), phone = makePhone(pc);
+  pc.up = false;
+  await phone.createEvent(block('Gym'));
+  pc.up = true;
+  pc.dropNextAnswer = true;
+  await phone.syncNow(); // the PC makes it, but the phone never hears so
+  assert.equal(phone.outbox().pending, 1, 'still waiting, as far as the phone knows');
+  await phone.syncNow();
+  assert.equal(phone.outbox().pending, 0);
+  assert.equal(pc.events.length, 1, 'not twice');
+});
+
+test('made and taken away again offline: nothing is sent at all', async () => {
+  const pc = makePC(), phone = makePhone(pc);
+  pc.up = false;
+  const made = await phone.createEvent(block('Oops'));
+  await phone.updateEvent(made.id, { title: 'Oops again' });
+  await phone.deleteEvent(made.id);
+  assert.equal(phone.outbox().pending, 0);
+  assert.deepEqual(plain((await phone.events(...DAY)).events), []);
+  pc.up = true;
+  await phone.syncNow();
+  assert.deepEqual(pc.calls, []);
+});
+
+test('a change to something deleted meanwhile is let go; one the PC turns down is reported', async () => {
+  const pc = makePC(), phone = makePhone(pc);
+  const kept = await phone.createEvent(block('Lunch'));
+  pc.up = false;
+  await phone.updateEvent(kept.id, { title: 'Lunch with Sam' });
+  await phone.setTags(kept.id, ['bad!']);
+  pc.events = []; // deleted on the PC (or in Google) while the phone was away
+  pc.up = true;
+  await phone.syncNow();
+  assert.equal(phone.outbox().pending, 0);
+  const last = phone.heard.at(-1);
+  assert.equal(last.failed.length, 1);
+  assert.match(last.failed[0].error, /a word or two/);
+  assert.equal(phone.outbox().failed.length, 1, 'kept to look at later');
+});
+
+test('changes go in the order they were made, and new ones queue behind waiting ones', async () => {
+  const pc = makePC(), phone = makePhone(pc);
+  pc.up = false;
+  const a = await phone.createEvent(block('First'));
+  pc.up = true;
+  // Online again, but the first still waits: this one goes after it, not ahead.
+  const b = await phone.createEvent(block('Second'));
+  assert.match(b.id, /^offline-/);
+  await settle();
+  await phone.syncNow();
+  assert.deepEqual(pc.events.map((e) => e.title), ['First', 'Second']);
+  assert.notEqual(a.id, b.id);
+});
+
+test('tasks too: one added offline shows in the list and on its day; ticked off, it leaves the list; both reach the PC', async () => {
+  const pc = makePC(), phone = makePhone(pc);
+  pc.up = false;
+  const t = await phone.createTask({ title: 'Buy stamps', listId: 'cal', due: '2026-10-22' });
+  assert.match(t.id, /^offline-/);
+  assert.deepEqual(plain((await phone.tasks()).tasks.map((x) => x.label)), ['Buy stamps']);
+  assert.deepEqual(plain((await phone.events(...DAY)).events.map((e) => [e.kind, e.title])), [['task', 'Buy stamps']]);
+  await phone.updateTask(t.id, { done: true });
+  assert.deepEqual(plain((await phone.tasks()).tasks), [], 'done: off to the Archived tab');
+  pc.up = true;
+  await phone.syncNow();
+  assert.deepEqual(pc.tasks.map((x) => [x.title, x.done]), [['Buy stamps', true]]);
+});

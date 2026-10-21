@@ -1381,7 +1381,7 @@
       editable: e.kind === 'task' ? !!e.movable : e.writable && e.kind === 'event',
       // An entry or a timed task can be stretched by its top or bottom edge.
       durationEditable: (e.kind === 'event' && e.writable) || (e.kind === 'task' && !!e.movable && !e.allDay),
-      classNames: [e.kind === 'task' ? 'is-task' : e.kind === 'goal' ? 'is-goal' : 'is-event', e.kind === 'goal' ? '' : 'can-tick', e.done ? 'is-done' : '', matchesFilter(e.tags) ? '' : 'is-dim'],
+      classNames: [e.kind === 'task' ? 'is-task' : e.kind === 'goal' ? 'is-goal' : 'is-event', e.kind === 'goal' ? '' : 'can-tick', e.done ? 'is-done' : '', matchesFilter(e.tags) ? '' : 'is-dim', e.offline ? 'is-offline' : ''],
       extendedProps: { src: e },
     };
   }
@@ -2997,7 +2997,7 @@
     const when = t.start ? `${fmtDay(new Date(t.start))}, ${fmtTime(new Date(t.start))}` : t.date ? fmtDay(fromYmd(t.date)) : '';
     // Draggable onto a cluster on the globe (see dropOnGlobe).
     const row = h('div', {
-      class: 'task', css: { '--c': t.color }, draggable: !MOBILE,
+      class: `task${t.offline ? ' offline' : ''}`, css: { '--c': t.color }, draggable: !MOBILE,
       ondragstart: (e) => taskDragStart(t, e), ondragend: taskDragEnd,
     },
       h('button', { class: 'tick', title: 'Mark done (moves it to Archived)', onclick: () => completeTask(t, row) }, icon('check')),
@@ -8062,8 +8062,26 @@
     });
     if (onyx.onOnline) {
       onyx.onOnline((ok) => {
-        toast(ok ? 'Connected to your PC again.' : 'Your PC is out of reach. Showing the last sync.', ok ? '' : 'warn');
+        toast(ok ? 'Connected to your PC again.' : 'Your PC is out of reach. Keep going: what you change here syncs when it is back.', ok ? '' : 'warn');
         if (ok) { refetch(true); loadTasks(true); }
+      });
+    }
+    // The phone's outbox: changes made while the PC was out of reach, waiting, then sent.
+    if (onyx.onOutbox) {
+      const label = (n, online, syncing) => (!n ? (online ? '' : 'Offline: showing last sync')
+        : syncing || online ? `Syncing ${n} ${n === 1 ? 'change' : 'changes'}…`
+        : `Offline · ${n} ${n === 1 ? 'change' : 'changes'} will sync`);
+      onyx.onOutbox((o) => {
+        const root = document.documentElement;
+        root.dataset.offlineLabel = label(o.pending, o.online, o.syncing) || 'Offline: showing last sync';
+        root.classList.toggle('syncing', o.pending > 0 && (o.online || o.syncing));
+        if (o.sent) {
+          toast(`Synced ${o.sent} ${o.sent === 1 ? 'change' : 'changes'} made while your PC was out of reach.`);
+          refetch(true);
+          loadTasks(true);
+        }
+        if (o.failed?.length) toast(`${o.failed.length === 1 ? 'A change' : `${o.failed.length} changes`} made offline couldn't be saved: ${o.failed[0].error}`, 'error');
+        if (o.blocked) toast(o.blocked, 'error');
       });
     }
     setInterval(() => { refetch(true); loadTasks(true); }, 5 * 60000);

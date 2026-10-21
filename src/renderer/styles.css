@@ -1025,8 +1025,8 @@ body.mobile #graph-inbox:not(.open) { width: auto; }
 /* ------------------------------------------------------------ phone layout */
 
 .mobile-only, #fab, #scrim { display: none; }
-html.offline #titlebar::after {
-  content: "Offline: showing last sync"; position: absolute; left: 50%; bottom: -1px; transform: translate(-50%, 50%);
+html.offline #titlebar::after, html.syncing #titlebar::after {
+  content: attr(data-offline-label); position: absolute; left: 50%; bottom: -1px; transform: translate(-50%, 50%);
   font-size: 10.5px; color: #000; background: var(--warn); padding: 1px 8px; border-radius: 8px; z-index: 30;
 }
 
@@ -2324,3 +2324,10 @@ body.mobile .bcolors { gap: 9px; }
 .ladder-opt:not([data-mode=off]) .lo-dot .ico { width: 11px; height: 11px; }
 .ladder-opt:not([data-mode=off]) .lo-dot .ico svg { stroke-width: 3.2; }
 .ladder-opt.on:not([data-mode=off]) .lo-dot { background: var(--lc); border-color: var(--lc); color: #000; }
+
+/* ------------------------------------------------------------ changes made offline (the phone's outbox) */
+html:not([data-offline-label]) #titlebar::after { content: "Offline: showing last sync"; }
+html.syncing:not(.offline) #titlebar::after { background: var(--accent); color: #fff; }
+/* Made here while the PC was out of reach, not on it yet: a dashed edge until it is. */
+.fc .fc-event.is-offline { outline: 1.5px dashed rgba(255, 255, 255, .55); outline-offset: -1.5px; }
+.task.offline { outline: 1.5px dashed rgba(255, 255, 255, .35); outline-offset: -2px; }

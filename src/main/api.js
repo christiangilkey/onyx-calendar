@@ -85,6 +85,7 @@ async function afterAccountChange() {
 }
 
 const handlers = {
+  ping: () => true, // the phone's quick "are you there?"
   state,
   refresh: async () => { hub.invalidate(); const { errors } = await hub.refreshCalendars(); return { ...state(), errors }; },
   events: (start, end, force) => hub.getEvents(start, end, { force: !!force }),

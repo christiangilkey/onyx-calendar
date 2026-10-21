@@ -34,9 +34,9 @@
     for (const fn of listeners) fn(online);
   }
 
-  async function post(address, name, args, op) {
+  async function post(address, name, args, op, timeout = TIMEOUT_MS) {
     const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
+    const timer = setTimeout(() => ctl.abort(), timeout);
     try {
       const res = await fetch(`http://${address}/app/rpc`, {
         method: 'POST',
@@ -128,28 +128,81 @@
 
   /** No PC (nor any PC linked to it) answered at any address. */
   class Unreachable extends Error {}
+  const unreachable = () => new Unreachable(conn.addresses.some(isTailscale)
+    ? 'Can\'t reach Onyx on your PC. Check that it is running, and that Tailscale is on, on both the PC and this phone.'
+    : 'Can\'t reach Onyx on your PC. Check that it is running and that the phone is on the same wifi. To use Onyx away from home, set up Tailscale: Settings → Connection.');
 
-  /** Sends one command to whichever of the PC's addresses answers first; its raw answer ({ ok, value | error }). */
-  async function reach(name, args, op) {
+  // Finding the PC quickly. Its addresses (wifi, Tailscale, linked PCs) are asked all at once with a
+  // short wait, not one by one with a long one: when none is in reach that costs one short wait,
+  // not seven seconds per address. The address that answered last is used straight away while it
+  // keeps answering. Once out of reach, the phone stops waiting on the network altogether (the
+  // calendar shows what it kept, changes go to the outbox) and looks for the PC in the background.
+  const PROBE_MS = 3000;     // how long the "are you there?" may take
+  const FRESH_MS = 30000;    // an address that answered this recently is used without asking first
+  let lastOk = 0;
+
+  /** An address that answers now: the one that answered last, while it is fresh; else the first of all to answer a quick ping. */
+  async function route() {
+    if (conn.last && Date.now() - lastOk < FRESH_MS) return conn.last;
     const order = [conn.last, ...conn.addresses.filter((a) => a !== conn.last)].filter(Boolean);
-    for (const address of order) {
-      let body;
-      try {
-        body = await post(address, name, args, op);
-      } catch (err) {
-        if (err.final) throw err;
-        continue; // that address is not answering: try the next one
-      }
-      setOnline(true);
-      if (conn.last !== address) { conn.last = address; write(CONN, conn); }
-      if (body.ok) learnAddresses(body.value, address);
-      return body;
+    let refused = null;
+    const tries = order.map((a) => post(a, 'ping', [], null, PROBE_MS).then(() => a, (err) => {
+      if (err.final) refused = err;
+      throw err;
+    }));
+    try {
+      return await Promise.any(tries);
+    } catch {
+      if (refused) throw refused; // in reach, but this phone is no longer let in
+      return null;
     }
-    setOnline(false);
-    throw new Unreachable(conn.addresses.some(isTailscale)
-      ? 'Can\'t reach Onyx on your PC. Check that it is running, and that Tailscale is on, on both the PC and this phone.'
-      : 'Can\'t reach Onyx on your PC. Check that it is running and that the phone is on the same wifi. To use Onyx away from home, set up Tailscale: Settings → Connection.');
   }
+
+  /** Sends one command to the PC (at whichever address answers); its raw answer ({ ok, value | error }). */
+  async function reach(name, args, op) {
+    if (!online) throw unreachable(); // known to be out of reach: no waiting (probe() looks in the background)
+    const address = await route();
+    if (!address) { setOnline(false); throw unreachable(); }
+    let body;
+    try {
+      body = await post(address, name, args, op);
+    } catch (err) {
+      if (err.final) throw err;
+      lastOk = 0;
+      setOnline(false);
+      throw unreachable();
+    }
+    lastOk = Date.now();
+    setOnline(true);
+    if (conn.last !== address) { conn.last = address; write(CONN, conn); }
+    if (body.ok) learnAddresses(body.value, address);
+    return body;
+  }
+
+  let probing = null;
+  /** Out of reach: looks for the PC in the background (a quick ping at every address); back, the outbox goes. */
+  function probe() {
+    if (probing || !conn) return probing || Promise.resolve();
+    probing = (async () => {
+      try {
+        lastOk = 0;
+        const address = await route();
+        if (!address) return;
+        lastOk = Date.now();
+        if (conn.last !== address) { conn.last = address; write(CONN, conn); }
+        setOnline(true);
+        await flush();
+      } catch { /* not in reach yet */ } finally {
+        probing = null;
+      }
+    })();
+    return probing;
+  }
+  setInterval(() => { if (!online && document.visibilityState === 'visible') probe(); }, 10000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && !online) probe(); });
+  // Android says when the phone has no network at all: out of reach at once, and back to looking when it has one.
+  addEventListener('offline', () => setOnline(false));
+  addEventListener('online', () => probe());
 
   const outdated = () => {
     const pc = read(`${CACHE}state`, null)?.version;
@@ -166,6 +219,7 @@
       body = await reach(name, args);
     } catch (err) {
       if (!(err instanceof Unreachable)) throw err;
+      probe(); // and keep looking for it in the background
       if (QUEUEABLE.has(name)) return enqueue(name, args);
       const cached = CACHED.has(name) ? fromCache(name, args) : null;
       if (cached) return overlay(name, args, cached);
@@ -252,6 +306,18 @@
         else if (o.name === 'task:create') { const t = fakeTask(o); if (t.date) list.push(taskEntry(t)); }
         else if (o.name === 'task:update') touch(a, (e) => ({ ...e, ...(b?.title != null ? { title: b.title } : {}), ...(b && 'done' in b ? { done: !!b.done } : {}) }));
         else if (o.name === 'task:delete') list = list.filter((e) => e.id !== a);
+        else if (o.name === 'task:move' && b) {
+          touch(a, (e) => {
+            const was = new Date(e.end) - new Date(e.start);
+            if (b.start) return { ...e, allDay: false, start: b.start, end: new Date(new Date(b.start).getTime() + (e.allDay ? 30 * 60000 : was)).toISOString() };
+            return b.date ? { ...e, allDay: true, start: b.date, end: dayAfter(b.date) } : e;
+          });
+        } else if (o.name === 'task:resize' && b) {
+          touch(a, (e) => {
+            const s = b.start || e.start;
+            return { ...e, start: s, ...(b.minutes ? { end: new Date(new Date(s).getTime() + b.minutes * 60000).toISOString() } : {}) };
+          });
+        }
       }
       const [start, end] = args;
       const inRange = (e) => !start || !end || (new Date(e.end || e.start) > new Date(start) && new Date(e.start) < new Date(end));
@@ -268,7 +334,10 @@
             ...(b && 'due' in b ? { due: b.due, date: b.due } : {}), ...(b && 'done' in b ? { done: !!b.done } : {}) }));
           if (b?.done) list = list.filter((t) => t.id !== a); // done: off to the Archived tab, as the PC does
         } else if (o.name === 'task:delete') list = list.filter((t) => t.id !== a);
-        else if (o.name === 'task:backburner') touch(a, (t) => ({ ...t, backburner: !!b }));
+        else if (o.name === 'task:move' && b) {
+          const local = (iso) => { const d = new Date(iso); return [`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`, `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`]; };
+          touch(a, (t) => (b.start ? { ...t, date: local(b.start)[0], time: local(b.start)[1], start: b.start } : b.date ? { ...t, date: b.date, due: b.date, time: null, start: null } : t));
+        } else if (o.name === 'task:backburner') touch(a, (t) => ({ ...t, backburner: !!b }));
         else if (o.name === 'tags:set') touch(a, (t) => ({ ...t, tags: b || [] }));
       }
       return { ...value, tasks: list };
@@ -301,6 +370,7 @@
   /** Sends the waiting changes, oldest first; stops (and keeps the rest) as soon as no PC answers. */
   async function flush() {
     if (flushing || !outbox.length || !conn) return;
+    if (!online) { probe(); return; } // the outbox goes once the PC is found
     flushing = true;
     let sent = 0;
     const failed = [];
@@ -519,7 +589,8 @@
     // The outbox: how many changes wait for the PC, and when they have gone (or one was turned down).
     onOutbox: (fn) => { outboxListeners.add(fn); fn({ pending: outbox.length, online }); },
     outbox: () => ({ pending: outbox.length, online, failed: read(FAILED, []) }),
-    syncNow: () => flush(),
+    // A look that was already under way may have started before the PC was back: then one more.
+    syncNow: async () => { if (!online) await probe(); if (!online) await probe(); return flush(); },
 
     state: async () => withLocal(await call('state')),
     refresh: async () => withLocal(await call('refresh')),

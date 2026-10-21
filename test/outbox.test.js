@@ -29,7 +29,9 @@ function makePC() {
     'task:update': async (id, patch) => { const t = pc.tasks.find((x) => x.id === id); if (!t) throw new Error('That task no longer exists.'); return Object.assign(t, patch); },
     'tags:set': async (id, tags) => { if (tags.some((t) => t.includes('!'))) throw new Error('A tag is a word or two.'); return tags; },
   });
+  pc.tries = 0;
   pc.fetch = async (url, opts) => {
+    pc.tries++;
     if (!pc.up) throw new TypeError('Failed to fetch');
     const msg = JSON.parse(opts.body);
     pc.calls.push(msg.name);
@@ -115,7 +117,7 @@ test('made and taken away again offline: nothing is sent at all', async () => {
   assert.deepEqual(plain((await phone.events(...DAY)).events), []);
   pc.up = true;
   await phone.syncNow();
-  assert.deepEqual(pc.calls, []);
+  assert.deepEqual(pc.calls.filter((c) => c !== 'ping'), []);
 });
 
 test('a change to something deleted meanwhile is let go; one the PC turns down is reported', async () => {
@@ -160,4 +162,40 @@ test('tasks too: one added offline shows in the list and on its day; ticked off,
   pc.up = true;
   await phone.syncNow();
   assert.deepEqual(pc.tasks.map((x) => [x.title, x.done]), [['Buy stamps', true]]);
+});
+
+test('out of reach, nothing waits on the network: changes and the calendar show at once', async () => {
+  const pc = makePC(), phone = makePhone(pc);
+  await phone.state();
+  await phone.events(...DAY); // the calendar kept for offline
+  pc.up = false;
+  await phone.createEvent(block('First, while finding out')); // the one look that finds the PC gone
+  const calls = pc.calls.length;
+  const t0 = Date.now();
+  const made = await phone.createEvent(block('Gym'));
+  await phone.updateEvent(made.id, { start: '2026-10-22T17:00:00.000Z', end: '2026-10-22T18:00:00.000Z' });
+  const shown = await phone.events(...DAY);
+  await phone.tasks().catch(() => null);
+  await phone.deleteEvent(made.id);
+  const after = await phone.events(...DAY);
+  assert.ok(Date.now() - t0 < 100, 'no waiting');
+  assert.deepEqual(pc.calls.slice(calls).filter((c) => c !== 'ping'), [], 'nothing waits on the PC (only quick looks for it, in the background)');
+  assert.deepEqual(plain(shown.events.map((e) => [e.title, e.start])), [['First, while finding out', '2026-10-22T15:00:00.000Z'], ['Gym', '2026-10-22T17:00:00.000Z']]);
+  assert.deepEqual(plain(after.events.map((e) => e.title)), ['First, while finding out']);
+  // Found again: the outbox goes.
+  pc.up = true;
+  await phone.syncNow();
+  assert.deepEqual(pc.events.map((e) => e.title), ['First, while finding out']);
+});
+
+test('a task moved offline shows at its new time', async () => {
+  const pc = makePC(), phone = makePhone(pc);
+  const t = await phone.createTask({ title: 'Call the bank', listId: 'cal', due: '2026-10-22' });
+  pc.events.push({ id: t.id, kind: 'task', title: 'Call the bank', start: '2026-10-22', end: '2026-10-23', allDay: true }); // the PC shows dated tasks on the calendar
+  await phone.events(...DAY); // kept for offline
+  pc.up = false;
+  await phone.moveTask(t.id, { start: '2026-10-22T14:00:00.000Z' });
+  const e = (await phone.events(...DAY)).events.find((x) => x.id === t.id);
+  assert.equal(e?.start, '2026-10-22T14:00:00.000Z');
+  assert.equal(e?.allDay, false);
 });

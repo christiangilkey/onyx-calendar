@@ -1817,9 +1817,15 @@
           });
           return;
         }
-        if (src.kind === 'task') openTask(tasks.find((t) => t.id === src.id) || { id: src.id, title: src.title, label: src.title, listName: src.calendarName }, anchor);
-        else if (src.kind === 'goal') openGoalById(src.id, anchor);
-        else openEditor({ src, start: toDate(src.start), end: toDate(src.end), allDay: src.allDay }, anchor);
+        // One tap (or click) highlights the entry, ready to drag, stretch or copy; a second tap on it opens it.
+        // A goal can't be highlighted or moved, so one tap opens it.
+        if (src.kind === 'event' || src.kind === 'task') {
+          const again = lastTap.id === src.id && Date.now() - lastTap.at < DOUBLE_TAP_MS;
+          lastTap.id = again ? null : src.id;
+          lastTap.at = Date.now();
+          if (!again) return;
+        }
+        openEntry(src, anchor);
       },
       eventDrop: onMove,
       // While carried: where it would land, pulled to the end of an entry just above it (shown live).
@@ -1855,6 +1861,15 @@
   // ---- copy and paste: a click highlights an entry; Ctrl+C (or right-click → Copy) copies it,
   // and Ctrl+V (or right-click → Paste here) makes a copy where the pointer is on the calendar.
   const clip = { selected: null, entry: null, x: 0, y: 0 };
+  const DOUBLE_TAP_MS = 450;
+  const lastTap = { id: null, at: 0 };
+
+  /** Opens an entry on the calendar: its editor (an event), its card (a task) or its goal. */
+  function openEntry(src, anchor) {
+    if (src.kind === 'task') openTask(tasks.find((t) => t.id === src.id) || { id: src.id, title: src.title, label: src.title, listName: src.calendarName }, anchor);
+    else if (src.kind === 'goal') openGoalById(src.id, anchor);
+    else openEditor({ src, start: toDate(src.start), end: toDate(src.end), allDay: src.allDay }, anchor);
+  }
   document.addEventListener('mousemove', (e) => { clip.x = e.clientX; clip.y = e.clientY; }, { passive: true });
 
   function selectEntry(src) {
@@ -1995,6 +2010,13 @@
   }
 
   document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && clip.selected
+      && !e.target.closest?.('input, textarea, select, button, [contenteditable]') && $('#popover').hidden && $('#modal').hidden) {
+      const src = calendar?.getEventById(clip.selected)?.extendedProps?.src;
+      const el = document.querySelector(`#calendar .fc-event[data-eid="${CSS.escape(clip.selected)}"]`);
+      if (src && el) { e.preventDefault(); hidePeek(); openEntry(src, el.getBoundingClientRect()); }
+      return;
+    }
     if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
     if (e.target.closest?.('input, textarea, select, [contenteditable]')) return;
     const k = e.key.toLowerCase();

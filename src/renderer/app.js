@@ -1337,13 +1337,31 @@
     };
   }
 
+  // A pasted entry shows at once, as it will look, while it is made (in Google or Outlook that takes a
+  // moment): a stand-in, not to be opened or moved, until a load of the calendar brings the real one.
+  const pending = new Set();
+  function showPending(e) {
+    const fc = toFc({ ...e, id: `pending:${Math.random().toString(36).slice(2)}`, pending: true, writable: false, movable: false });
+    const ev = calendar.addEvent({ ...fc, editable: false, durationEditable: false, classNames: [...fc.classNames, 'is-pending'] });
+    if (ev) pending.add(ev);
+    return ev;
+  }
+  function dropPending(ev) {
+    if (!ev) return;
+    pending.delete(ev);
+    ev.remove();
+  }
+
   async function source(info, ok) {
     try {
       const force = forceNext;
       forceNext = false;
+      const began = Date.now();
       const { events, errors } = await onyx.events(info.start.toISOString(), info.end.toISOString(), force);
       showProblems(errors);
       ok(events.filter((e) => e.kind !== 'goal' && visible(e.calendarId) && !carriedOver(e)).map(toFc).concat(transitionBuffers(events)));
+      // A stand-in goes once a load that started after its entry was made has brought the real one.
+      for (const ev of [...pending]) if (ev.extendedProps.madeAt && ev.extendedProps.madeAt <= began) dropPending(ev);
     } catch (err) {
       toast(err.message, 'error');
       ok([]);
@@ -1724,6 +1742,7 @@
         openEditor({ start: info.start, end: info.end, allDay: info.allDay }, anchor);
       },
       eventClick: (info) => {
+        if (info.event.extendedProps.src?.pending) return; // a pasted entry still being made
         info.jsEvent.preventDefault();
         hidePeek();
         const src = info.event.extendedProps.src;
@@ -1854,11 +1873,15 @@
     if (!slot) return toast('Point at a day or time on the calendar, then paste.');
     const start = toDate(src.start), end = toDate(src.end || src.start);
     const length = Math.max(15 * 60000, end - start);
+    let stand = null;
     try {
       if (src.kind === 'task') {
         const t = tasks.find((x) => x.id === src.id) || { label: src.title, listId: src.calendarId, notes: src.notes };
         const fields = { title: t.label || src.title, listId: t.listId || src.calendarId, notes: t.notes || '', due: slot.day, tags: src.tags || [] };
         const time = slot.time || (src.allDay ? null : hm(start));
+        const begin = time ? at(slot.day, time) : null;
+        stand = showPending({ ...src, title: fields.title, allDay: !begin, start: begin ? begin.toISOString() : slot.day,
+          end: begin ? new Date(begin.getTime() + length).toISOString() : ymd(addDays(fromYmd(slot.day), 1)), done: false });
         let made = null;
         const make = async () => {
           made = await onyx.createTask(fields);
@@ -1866,7 +1889,10 @@
         };
         await make();
         recordAction(`Pasted "${src.title}"`, () => onyx.deleteTask(made.id), make);
-        await loadTasks(true);
+        stand?.setExtendedProp('madeAt', Date.now());
+        loadTasks(true);
+        refetch(true); // a task moved to a time: its own read, to be sure of the time
+        return;
       } else {
         const allDay = !!src.allDay;
         let s, e;
@@ -1880,11 +1906,17 @@
         }
         const cal = S.calendars.find((c) => c.id === src.calendarId && c.kind === 'calendar' && c.writable) ? src.calendarId : undefined;
         const fields = { title: src.title, notes: src.notes || '', location: src.location || '', start: s, end: e, allDay, calendarId: cal, tags: src.tags || [] };
+        stand = showPending({ ...src, ...fields, calendarId: cal || src.calendarId, done: false });
         let made = await onyx.createEvent(fields);
         recordAction(`Pasted "${src.title}"`, () => onyx.deleteEvent(made.id), async () => { made = await onyx.createEvent(fields); });
+        // Its tasks go with it.
+        if (src.taskList?.length) await onyx.setBlockTasks(made.seriesId || made.id, src.taskList.map(({ id, text }) => ({ id, text }))).catch(() => {});
+        stand?.setExtendedProp('madeAt', Date.now());
       }
-      refetch(true);
+      // Making it marked its calendar changed, so this load reads just that one again, not every calendar.
+      refetch();
     } catch (err) {
+      dropPending(stand);
       toast(err.message, 'error');
     }
   }
@@ -2176,6 +2208,7 @@
     for (const extra of copy.querySelectorAll('.ev-timer')) extra.remove(); // the drain pie redraws every frame
     copy.style.width = `${r.width}px`;
     copy.style.height = `${r.height}px`;
+    copy.style.transformOrigin = `${float.dx}px ${float.dy}px`; // it shrinks toward the pointer, so it stays under it
     // Inside an element with the "fc" class, so it keeps the calendar's look.
     // The time it would land on, live: its own time line, and a label above it (a finger covers the entry on a phone).
     float.time = copy.querySelector('.ev-time');

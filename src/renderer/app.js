@@ -49,6 +49,7 @@
     cloudoff: '<path d="M8 18.5h8.5a3.8 3.8 0 0 0 1.6-7.2M15.6 7.1A5.5 5.5 0 0 0 7.7 9a4.8 4.8 0 0 0-.4 9.4"/><path d="M4 4l16 16"/>',
     pin: '<path d="M12 21s-6-5.4-6-10.5a6 6 0 0 1 12 0C18 15.6 12 21 12 21z"/><circle cx="12" cy="10.5" r="2.2"/>',
     monitor: '<rect x="3.5" y="4.5" width="17" height="11.5" rx="2"/><path d="M9 20h6M12 16v4"/>',
+    grip: '<path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"/>',
     qr: '<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><rect x="8" y="8" width="3" height="3"/><rect x="13" y="8" width="3" height="3"/><rect x="8" y="13" width="3" height="3"/><path d="M13 13h3v3"/>',
   };
   const COLORS = ['#8b7cff', '#4aa8ff', '#3fd0c9', '#5fd38d', '#f5b83d', '#ff9f4a', '#ff6b6b', '#ff7eb6', '#b9b9c2'];
@@ -1101,6 +1102,108 @@
   const cleanNote = (s) => String(s || '').replace(/\s+$/, '');
 
   /** A notes box that grows with what is written in it. */
+  /**
+   * A block's tasks, in its window: a "Tasks" box that, ticked, opens the list of what to get done
+   * within the block. Each task can be ticked off (for that day of the block), dragged by its handle
+   * to a new place (or moved with Alt+Up / Alt+Down), and taken off with ×; + (or Enter) adds another.
+   * `onTick(id, done)` saves a tick at once, on a block already saved. get() gives { on, items } in order.
+   */
+  function blockTaskField(initial = [], { onTick } = {}) {
+    const newId = () => Math.random().toString(36).slice(2, 10);
+    const on = h('input', { type: 'checkbox', checked: initial.length > 0 });
+    const list = h('ol', { class: 'btask-list' });
+    const count = h('span', { class: 'btask-count' });
+    const note = h('small', { class: 'btask-note', hidden: true }, 'Unticked, the list comes off this block when you save.');
+    const rows = () => [...list.children];
+    const drawCount = () => {
+      const filled = rows().filter((li) => li.q.input.value.trim());
+      count.textContent = filled.length ? `${filled.filter((li) => li.q.done).length}/${filled.length}` : '';
+    };
+    const addRow = (t, { focus = false, after = null } = {}) => {
+      const input = h('input', { type: 'text', class: 'btask-in', value: t?.text || '', placeholder: 'A task for this block', spellcheck: true, 'aria-label': 'Task' });
+      const tick = h('button', { type: 'button', class: 'btask-tick', title: 'Done' }, icon('check'));
+      const grip = h('span', { class: 'btask-grip', title: 'Drag to move it' }, icon('grip'));
+      const x = h('button', { type: 'button', class: 'btask-x', title: 'Take this one off', 'aria-label': 'Take this task off' }, icon('x'));
+      const li = h('li', { class: 'btask' }, grip, tick, input, x);
+      li.q = { id: t?.id || newId(), done: !!t?.done, saved: !!t?.id, input };
+      const drawTick = () => { li.classList.toggle('done', li.q.done); tick.setAttribute('aria-pressed', String(li.q.done)); };
+      tick.addEventListener('click', () => {
+        li.q.done = !li.q.done;
+        drawTick();
+        drawCount();
+        if (li.q.done) doneSound();
+        if (li.q.saved && input.value.trim()) onTick?.(li.q.id, li.q.done);
+      });
+      x.addEventListener('click', () => {
+        const near = li.nextElementSibling || li.previousElementSibling;
+        li.remove();
+        drawCount();
+        near?.q.input.focus();
+      });
+      input.addEventListener('input', drawCount);
+      input.addEventListener('keydown', (e) => {
+        e.stopPropagation(); // Enter here is a new task, not "save the block"
+        if (e.key === 'Enter') { e.preventDefault(); addRow(null, { focus: true, after: li }); }
+        else if (e.key === 'Backspace' && !input.value && list.children.length > 1) {
+          e.preventDefault();
+          const near = li.previousElementSibling || li.nextElementSibling;
+          li.remove();
+          drawCount();
+          near?.q.input.focus();
+        } else if (e.altKey && e.key === 'ArrowUp' && li.previousElementSibling) {
+          e.preventDefault();
+          li.previousElementSibling.before(li);
+          input.focus();
+        } else if (e.altKey && e.key === 'ArrowDown' && li.nextElementSibling) {
+          e.preventDefault();
+          li.nextElementSibling.after(li);
+          input.focus();
+        }
+      });
+      // Dragged by its handle, with a mouse, a pen or a finger: it takes the place of the row it passes.
+      grip.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        try { grip.setPointerCapture(e.pointerId); } catch { /* a pointer the page made up: it moves without the capture */ }
+        li.classList.add('dragging');
+        const move = (ev) => {
+          const before = rows().find((r) => r !== li && ev.clientY < r.getBoundingClientRect().top + r.getBoundingClientRect().height / 2);
+          if (before) { if (li.nextElementSibling !== before) before.before(li); } else if (list.lastElementChild !== li) list.append(li);
+        };
+        const up = () => {
+          li.classList.remove('dragging');
+          grip.removeEventListener('pointermove', move);
+          grip.removeEventListener('pointerup', up);
+          grip.removeEventListener('pointercancel', up);
+        };
+        grip.addEventListener('pointermove', move);
+        grip.addEventListener('pointerup', up);
+        grip.addEventListener('pointercancel', up);
+      });
+      drawTick();
+      if (after) after.after(li); else list.append(li);
+      if (focus) input.focus();
+      drawCount();
+      return li;
+    };
+    const add = h('button', { type: 'button', class: 'btask-add', onclick: () => addRow(null, { focus: true }) }, icon('plus'), 'Add a task');
+    const panel = h('div', { class: 'btask-panel' }, list, add);
+    for (const t of initial) addRow(t);
+    const sync = () => {
+      panel.hidden = !on.checked;
+      note.hidden = on.checked || !initial.length;
+      if (on.checked && !list.children.length) addRow(null, { focus: !MOBILE });
+    };
+    on.addEventListener('change', sync);
+    sync();
+    return {
+      el: h('div', { class: 'btask-field' }, h('label', { class: 'check' }, on, 'Tasks', count), panel, note),
+      get: () => ({
+        on: on.checked,
+        items: on.checked ? rows().map((li) => ({ id: li.q.id, text: li.q.input.value.trim(), done: li.q.done })).filter((t) => t.text) : [],
+      }),
+    };
+  }
+
   function notesField(value, placeholder = 'Notes: anything you want to remember about this') {
     const box = h('textarea', { class: 'notes-field', rows: 2, placeholder, value: value || '', spellcheck: true });
     const fit = () => { box.style.height = 'auto'; box.style.height = `${Math.min(box.scrollHeight + 2, 260)}px`; };
@@ -1310,6 +1413,9 @@
       // A repeating block wears its repeat as a tag.
       src.kind === 'event' && (src.recur || src.seriesId) && h('span', { class: 'ev-recur', title: recurText(src.recur) }, icon('repeat')),
       src.pomodoro && h('span', { class: 'ev-pomo', title: `Pomodoro: ${src.pomodoro.work} min work, ${src.pomodoro.rest} min rest` }, icon('clock')),
+      src.taskList?.length > 0 && h('span', { class: `ev-tasks${src.taskList.every((t) => t.done) ? ' all' : ''}`,
+        title: src.taskList.map((t) => `${t.done ? '✓' : '○'} ${t.text}`).join('\n') },
+        icon('tasks'), `${src.taskList.filter((t) => t.done).length}/${src.taskList.length}`),
       src.piCall && icon('phone'),
       notes && icon('note'),
       src.kind === 'event' && !src.writable && icon('lock'),
@@ -2516,6 +2622,10 @@
     const blockMinutes = () => { const r = range(); return r.allDay ? 0 : Math.round((new Date(r.end) - new Date(r.start)) / 60000); };
     const pomo = pomodoroField(src?.pomodoro, { duration: blockMinutes });
     const pomoRow = h('div', { class: 'row top' }, icon('clock'), pomo.el);
+    // What to get done within the block: kept in Onyx (on a read-only calendar too); a tick on a saved block saves at once.
+    const tasksField = blockTaskField(src?.taskList || [], {
+      onTick: src ? (taskId, done) => onyx.tickBlockTask(src.id, taskId, done).then(() => refetch()).catch((err) => toast(err.message, 'error')) : null,
+    });
 
     const sync = () => {
       const r = range();
@@ -2595,11 +2705,18 @@
         const split = r.allDay ? null : pomo.get();
         const id = src?.seriesId || saved?.seriesId || saved?.id || src?.id; // a repeat's split is the series'
         if (id && !samePomodoro(split, saved?.pomodoro ?? src?.pomodoro)) await savePomodoro(id, split);
+        // The block's tasks: kept by the block (a repeat's by its series, the same every day).
+        const list = tasksField.get(), had = src?.taskList || [];
+        const shape = (items) => items.map((t) => `${t.id}\t${t.text}`).join('\n');
+        if (id && shape(list.items) !== shape(had)) await onyx.setBlockTasks(id, list.items);
+        // Ticks on tasks new in this window (the others were saved as they were ticked), on this day of the block.
+        const day = saved?.id || src?.id;
+        for (const t of list.items) if (day && t.done && !had.some((x) => x.id === t.id)) await onyx.tickBlockTask(day, t.id, true);
         closePopover();
         refetch();
         refreshPomodoros();
         if (!sameTags(data.tags, src?.tags)) reloadTags();
-        if (typeof then === 'function') then({ ...src, ...data, ...saved });
+        if (typeof then === 'function') then({ ...src, ...data, ...saved, taskList: tasksField.get().items });
       } catch (err) {
         busy = false;
         toast(err.message, 'error');
@@ -2629,16 +2746,20 @@
       }
     };
 
-    // A repeat: "Delete" takes every day of it (after asking), "Skip this day" just this one.
+    // A repeat: "Delete" takes every day of it, "Skip this day" just this one. No asking first:
+    // Undo brings a deleted block back (a repeat from this day on), with its tasks.
     const remove = async (scope = 'all') => {
-      if (src.seriesId && scope === 'all' && !confirm(`Delete every repeat of "${src.title}"?`)) return;
       try {
         await onyx.deleteEvent(src.id, src.seriesId ? { scope, seriesId: src.seriesId } : undefined);
-        // A one-off can be brought back (as a new entry with the same details).
-        if (!src.seriesId) {
-          const copy = { title: src.title, notes: src.notes || '', location: src.location || '', start: src.start, end: src.end, allDay: !!src.allDay, calendarId: src.calendarId, tags: src.tags || [] };
+        if (!src.seriesId || scope === 'all') {
+          const copy = { title: src.title, notes: src.notes || '', location: src.location || '', start: src.start, end: src.end, allDay: !!src.allDay, calendarId: src.calendarId, tags: src.tags || [],
+            ...(src.seriesId && src.recur ? { recur: src.recur } : {}) };
+          const list = src.taskList || [];
           let back = null;
-          recordAction(`Deleted "${src.title}"`, async () => { back = await onyx.createEvent(copy); }, () => onyx.deleteEvent(back.id));
+          recordAction(src.seriesId ? `Deleted every repeat of "${src.title}"` : `Deleted "${src.title}"`, async () => {
+            back = await onyx.createEvent(copy);
+            if (list.length) await onyx.setBlockTasks(back.seriesId || back.id, list).catch(() => {});
+          }, () => onyx.deleteEvent(back.id, back.seriesId ? { scope: 'all', seriesId: back.seriesId } : undefined));
         }
         closePopover();
         refetch();
@@ -2654,6 +2775,7 @@
       untilRow,
       h('div', { class: 'row' }, icon('calendar'), calendarPick, h('label', { class: 'check' }, allDay, 'All day')),
       repeatField && h('div', { class: 'row top recur-row' }, icon('repeat'), repeatField.el),
+      h('div', { class: 'row top btask-row' }, icon('tasks'), tasksField.el),
       notes && h('div', { class: 'row top' }, icon('note'), notes),
       readOnly && src.notes && h('div', { class: 'row top pop-meta' }, icon('note'), h('div', { class: 'note-text' }, src.notes)),
       !readOnly && src?.memo && h('div', { class: 'row top pop-meta', title: 'Your notes, kept in Onyx' }, icon('note'), h('div', { class: 'note-text' }, src.memo)),
@@ -3422,12 +3544,12 @@
         h('div', { class: 'txt' }, h('b', null, 'Phone reminder'), h('small', { class: st.tone }, st.text))),
       h('div', { class: 'pop-actions' },
         h('button', { class: 'btn complete', title: 'Mark it done: it moves to the Archived tab (Undo brings it back)', onclick: () => { closePopover(); completeTask(t); } }, icon('check'), 'Complete'),
-        !t.mirror && h('button', { class: 'btn danger', title: 'Delete it from your tasks', onclick: () => { if (confirm(`Delete "${t.label || t.title}"?`)) run(async () => {
+        !t.mirror && h('button', { class: 'btn danger', title: 'Delete it from your tasks', onclick: () => run(async () => {
           await onyx.deleteTask(t.id);
           const copy = { title: t.title, notes: t.notes || '', listId: t.listId, ...(t.date ? { due: t.date } : {}), tags: t.tags || [] };
           let back = null;
           recordAction(`Deleted "${t.label || t.title}"`, async () => { back = await onyx.createTask(copy); }, () => onyx.deleteTask(back.id));
-        }); } }, icon('trash'), 'Delete'),
+        }) }, icon('trash'), 'Delete'),
         !t.mirror && focusButton(t),
         // The backburner: no date, kept at the foot of the task list for later. Undo puts it back as it was.
         !t.mirror && !t.done && t.provider && h('button', {
@@ -3667,7 +3789,8 @@
     const prefs = readFocusPrefs();
     const F = OnyxFocus;
     const lastTime = F.lastLeftOff(entry.notes);
-    let steps = F.notesSteps(entry.notes);
+    const blockSteps = (entry.src?.taskList || []).map((t) => ({ text: t.text, done: !!t.done, blockTask: t.id }));
+    let steps = [...blockSteps, ...F.notesSteps(entry.notes).filter((x) => !blockSteps.some((o) => o.text === x.text))]; // the block's tasks first, then a checklist in its notes
 
     const goal = h('input', { type: 'text', class: 'fs-in big', value: entry.title, spellcheck: true, placeholder: 'What this session is for' });
     const first = h('input', { type: 'text', class: 'fs-in', spellcheck: true, placeholder: 'The smallest thing that starts it (open the file, write one line…)',
@@ -4444,6 +4567,7 @@
     p.list.replaceChildren(...s.steps.map((st) => h('li', { class: `${st.done ? 'done' : ''}${st === cur ? ' cur' : ''}`, onclick: () => {
       st.done = !st.done;
       if (st.done) doneSound();
+      if (st.blockTask && s.entry.src) onyx.tickBlockTask?.(s.entry.src.id, st.blockTask, st.done).catch(() => {}); // ticked in the block too
       s.stepSince = Date.now(); // a new step: the race starts again
       drawFocusSteps();
       tickFocus();

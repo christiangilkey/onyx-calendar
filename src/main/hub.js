@@ -148,6 +148,53 @@ function setPomodoro(id, cfg) {
   return pomodoroOf(id);
 }
 
+// ---------------------------------------------------------------- a block's tasks
+// What to get done within a block of time, in order: a list kept in Onyx by the block (a repeat's
+// list is the series', the same every day), with what is ticked off kept for each day on its own.
+
+const MAX_BLOCK_TASKS = 50;
+const MAX_TICKED_DAYS = 3000;
+
+/** A block's tasks as the window and the calendar show them: [{ id, text, done }], or null for none. */
+function taskListOf(e) {
+  const items = store.data.blockTasks[keyOf(e)];
+  if (!items?.length) return null;
+  const ticked = new Set(store.data.blockTicks[e.id] || []);
+  return items.map((t) => ({ id: t.id, text: t.text, done: ticked.has(t.id) }));
+}
+
+/** Sets a block's tasks, in order (an empty list takes it off). Ticks of tasks no longer there go too. */
+function setBlockTasks(key, items) {
+  if (!key) throw new Error('Nothing to set it on.');
+  const clean = [];
+  for (const it of Array.isArray(items) ? items : []) {
+    const text = String(it?.text ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
+    if (!text) continue;
+    let id = typeof it?.id === 'string' && /^[\w-]{1,40}$/.test(it.id) ? it.id : '';
+    if (!id || clean.some((x) => x.id === id)) id = Math.random().toString(36).slice(2, 10);
+    clean.push({ id, text });
+    if (clean.length >= MAX_BLOCK_TASKS) break;
+  }
+  if (clean.length) store.data.blockTasks[key] = clean;
+  else delete store.data.blockTasks[key];
+  // Ticks of tasks taken off are simply no longer shown (taskListOf keeps only the tasks there).
+  store.save();
+  return clean;
+}
+
+/** Ticks one of a block's tasks off (or, with `done` false, back on), on this day of it (`id`). */
+function tickBlockTask(id, taskId, done = true) {
+  if (!id || !taskId) throw new Error('Nothing to tick.');
+  const set = new Set(store.data.blockTicks[id] || []);
+  if (done) set.add(String(taskId)); else set.delete(String(taskId));
+  delete store.data.blockTicks[id]; // re-added last: the oldest days go first when the list is long
+  if (set.size) store.data.blockTicks[id] = [...set];
+  const days = Object.keys(store.data.blockTicks);
+  for (const d of days.slice(0, Math.max(0, days.length - MAX_TICKED_DAYS))) delete store.data.blockTicks[d];
+  store.save();
+  return [...set];
+}
+
 function unify(cal, e) {
   const id = `${cal.id}/${enc(e.rawId)}`;
   // A day of a repeat belongs to its series: tags, notes kept in Onyx and the like are the series'.
@@ -272,6 +319,7 @@ async function getEvents(start, end, { includeHidden = false, force = false } = 
   const events = lists.flat()
     .map((e) => ({
       ...e, tags: tagsOf(keyOf(e)), memo: memoOf(keyOf(e)), pomodoro: pomodoroOf(keyOf(e)),
+      ...(e.kind === 'event' ? { taskList: taskListOf(e) } : {}),
       // A calendar entry or block ticked off, like a task (kept in Onyx: each day of a repeat on its own).
       ...(e.kind === 'event' ? { done: !!store.data.doneEvents?.[e.id] } : {}),
     }))
@@ -462,6 +510,8 @@ async function updateEvent(id, patch) {
     });
     setLeaveBy(id, null);
     if (pomodoroOf(id)) store.data.pomodoro[created.id] = pomodoroOf(id); // the split goes with it
+    if (store.data.blockTasks[id]) store.data.blockTasks[created.id] = store.data.blockTasks[id]; // and the tasks, ticks and all
+    if (store.data.blockTicks[id]) store.data.blockTicks[created.id] = store.data.blockTicks[id];
     await deleteEvent(id);
     return { ...created, pomodoro: pomodoroOf(created.id) };
   }
@@ -523,6 +573,8 @@ async function deleteEvent(id, { scope = 'all', seriesId = null } = {}) {
   dropTags(id);
   setMemo(id, '');
   delete store.data.pomodoro[id];
+  delete store.data.blockTasks[id];
+  delete store.data.blockTicks[id];
   await setPiCall({ id }, false).catch((err) => console.error('onyx: could not remove the Pi reminder:', err.message));
 }
 
@@ -1230,7 +1282,7 @@ function removeLocalCalendar(id) {
 
 module.exports = {
   calendars, refreshCalendars, invalidate, getEvents, setBackburner, setEventDone, createEvent, updateEvent, deleteEvent, setLeaveBy, ackPiCall, piAlerts,
-  getTasks, archivedTasks, fetchTask, createTask, updateTask, moveTask, resizeTask, receiveTask, planTask, unplanTask, dismissInbox, deleteTask, setRepeat, setPomodoro, setPiCall, freeTime, addLocalCalendar, removeLocalCalendar,
+  getTasks, archivedTasks, fetchTask, createTask, updateTask, moveTask, resizeTask, receiveTask, planTask, unplanTask, dismissInbox, deleteTask, setRepeat, setPomodoro, setBlockTasks, tickBlockTask, setPiCall, freeTime, addLocalCalendar, removeLocalCalendar,
   setTags, allTags, setTagColor, renameTag, deleteTag, setMemo, MAX_NOTE,
   callNotes, piTaskList, // Hyperfocus gives the Pi its stop the same way (focus.js)
 };

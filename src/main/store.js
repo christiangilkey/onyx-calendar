@@ -49,6 +49,8 @@ const DEFAULTS = {
   repeats: {},           // task id -> { rule, day } for tasks that repeat; Onyx adds the next one when it is done (repeat.js)
   repeatSpawned: {},
   pomodoro: {},          // event or task id -> { work, rest, minutes? }: split into work and rest chunks (hub.js)
+  blockTasks: {},        // event id (a repeat's: the series') -> [{ id, text }]: what to get done within the block (hub.js)
+  blockTicks: {},        // event id (each day of a repeat on its own) -> [task id, ...]: which of them are ticked off
   inboxItems: {},        // task id -> { at, state, from? }: tasks that arrived from outside, waiting for Magic add (inbox.js)
   inboxLists: {},        // task list id -> true once read, so its first read only learns what is there
   linkedTasks: {},       // "app:id" from an onyx://task link -> the task it made, so a second send updates it

@@ -233,7 +233,10 @@ body.mobile #calendar, body.mobile #calendar .fc-scroller { touch-action: pan-y;
 .fc .fc-timegrid-slot-label-cushion { font-size: 10.5px; color: var(--faint); padding: 0 10px 0 6px; transform: translateY(-50%); display: block; }
 .fc .fc-timegrid-axis-cushion { font-size: 10.5px; color: var(--faint); }
 .fc .fc-timegrid-divider { padding: 0; border-color: var(--line); background: var(--line); }
-.fc .fc-timegrid-col.fc-day-today { background: rgba(255,255,255,.022); }
+/* Today's column, ever so slightly brighter than the rest, from its name at the top to the bottom of the day. */
+.fc .fc-timegrid-col.fc-day-today { background: rgba(255,255,255,.048); }
+.fc .fc-col-header-cell.fc-day-today { background: rgba(255,255,255,.048); }
+.fc .fc-daygrid-day.fc-day-today { background: rgba(255,255,255,.04); }
 .fc .fc-timegrid-now-indicator-line { border-width: 1.5px 0 0; }
 .fc .fc-timegrid-now-indicator-arrow { border: 0; width: 8px; height: 8px; border-radius: 50%; background: var(--fc-now-indicator-color); margin-top: -4px; left: auto; right: 2px; }
 .fc .fc-highlight { border-radius: 6px; outline: 1px dashed color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: -1px; }
@@ -2240,3 +2243,45 @@ body.mobile .fs-flame { max-width: none; width: 100%; box-sizing: border-box; }
 .doom-apps { display: grid; gap: 8px; margin: 4px 0 2px; }
 .doom-apps small { color: var(--muted); font-size: 12px; line-height: 1.45; }
 .doom-app { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 999px; font-size: 12px; color: var(--soft); background: #121317; border: 1px solid var(--line); }
+
+/* ------------------------------------------------------------ a block's tasks, in its window */
+.btask-field { display: grid; gap: 8px; flex: 1; min-width: 0; }
+.btask-field > .check { width: max-content; }
+.btask-count { margin-left: 4px; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.btask-panel { display: grid; gap: 6px; }
+.btask-panel[hidden] { display: none; }
+.btask-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.btask { display: flex; align-items: center; gap: 4px; min-width: 0; padding: 2px 3px 2px 0; border-radius: 10px; background: #0b0b0d; border: 1px solid var(--line); transition: border-color .15s; }
+.btask:focus-within { border-color: var(--line-2); }
+.btask.dragging { position: relative; z-index: 2; background: #141418; border-color: color-mix(in srgb, var(--accent) 60%, var(--line-2)); box-shadow: 0 10px 26px rgba(0, 0, 0, .65); }
+.btask-grip { display: grid; place-items: center; width: 22px; height: 30px; flex: none; color: var(--faint); cursor: grab; touch-action: none; user-select: none; }
+.btask-grip .ico { width: 14px; height: 14px; }
+.btask-grip .ico svg { stroke-width: 3.2; }
+.btask-grip:hover { color: var(--soft); }
+.btask.dragging .btask-grip { cursor: grabbing; color: var(--text); }
+.btask-tick { width: 18px; height: 18px; flex: none; padding: 0; display: grid; place-items: center; border-radius: 50%; border: 1.5px solid var(--line-2); background: transparent; color: transparent; cursor: pointer; }
+.btask-tick .ico { width: 11px; height: 11px; }
+.btask-tick .ico svg { stroke-width: 3.2; }
+.btask-tick:hover { border-color: var(--muted); }
+.btask.done .btask-tick { background: #fff; border-color: #fff; color: #000; }
+.btask-in { flex: 1; min-width: 0; height: 30px; padding: 0 6px; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 13px; }
+.btask-in:focus { outline: none; }
+.btask.done .btask-in { color: var(--muted); text-decoration: line-through; }
+.btask-x { width: 26px; height: 26px; flex: none; display: grid; place-items: center; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--faint); cursor: pointer; opacity: .7; }
+.btask:hover .btask-x, .btask:focus-within .btask-x { opacity: 1; }
+.btask-x:hover { color: var(--text); background: rgba(255, 255, 255, .07); }
+.btask-x .ico { width: 13px; height: 13px; }
+.btask-add { display: inline-flex; align-items: center; gap: 6px; width: max-content; height: 30px; padding: 0 11px; border-radius: 9px; border: 1px dashed var(--line-2); background: transparent; color: var(--soft); font: inherit; font-size: 12.5px; cursor: pointer; }
+.btask-add:hover { color: var(--text); border-color: var(--muted); }
+.btask-add .ico { width: 13px; height: 13px; }
+.btask-note { color: var(--warn); font-size: 11.5px; }
+/* On the calendar: how far through its tasks a block is. */
+.ev-tasks { display: inline-flex; align-items: center; gap: 2px; flex: none; font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums; opacity: .9; }
+.ev-tasks .ico { width: 10px; height: 10px; }
+.ev-tasks.all { opacity: .6; }
+/* The phone: bigger targets. */
+body.mobile .btask-in { height: 40px; font-size: 15px; }
+body.mobile .btask-grip { width: 30px; height: 40px; }
+body.mobile .btask-tick { width: 22px; height: 22px; }
+body.mobile .btask-x { width: 36px; height: 36px; opacity: 1; }
+body.mobile .btask-add { height: 40px; font-size: 14px; }

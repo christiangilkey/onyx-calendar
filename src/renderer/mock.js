@@ -197,6 +197,7 @@
   const repeats = {};      // task id -> rule
   // Pomodoro splits (hub.js setPomodoro), with a study block that is on right now for the timer.
   const pomodoros = {};
+  const blockTasks = {}, blockTicks = {}; // a block's tasks (hub.js setBlockTasks), and each day's ticks
   {
     const now = Date.now();
     events.push({
@@ -205,6 +206,8 @@
       writable: true, location: '', notes: '', link: '',
     });
     pomodoros['local/blocks/pomo'] = { work: 25, rest: 5 };
+    blockTasks['local/blocks/pomo'] = [{ id: 'a1', text: 'Review last week\'s flashcards' }, { id: 'a2', text: 'Read chapter 4' }, { id: 'a3', text: 'Write 10 new sentences' }];
+    blockTicks['local/blocks/pomo'] = ['a1'];
   }
   const spawned = {};      // done task id -> the one added after it
   let goals = [{
@@ -307,10 +310,13 @@
         }))]
         .filter((e) => new Date(e.end) > new Date(start) && new Date(e.start) < new Date(end))
         .filter((e) => !state.settings.hidden[e.calendarId])
-        .map((e) => ({ ...withTags(e), pomodoro: pomodoros[e.id] || null })),
+        .map((e) => ({ ...withTags(e), pomodoro: pomodoros[e.id] || null,
+          ...(e.kind === 'event' && blockTasks[e.id]?.length ? { taskList: blockTasks[e.id].map((t) => ({ ...t, done: (blockTicks[e.id] || []).includes(t.id) })) } : {}) })),
       errors: [],
     }),
     setPomodoro: async (id, cfg) => { if (cfg) pomodoros[id] = cfg; else delete pomodoros[id]; return pomodoros[id] || null; },
+    setBlockTasks: async (key, items) => { const list = (items || []).filter((t) => t.text?.trim()).map((t) => ({ id: t.id || Math.random().toString(36).slice(2, 10), text: t.text.trim() })); if (list.length) blockTasks[key] = list; else delete blockTasks[key]; return list; },
+    tickBlockTask: async (id, taskId, done) => { const s = new Set(blockTicks[id] || []); if (done) s.add(taskId); else s.delete(taskId); blockTicks[id] = [...s]; return blockTicks[id]; },
     goals: async () => goals.map(goalOut),
     createGoal: async (d) => {
       if (!d.title) throw new Error('A goal needs a name.');

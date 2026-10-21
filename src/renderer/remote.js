@@ -373,6 +373,8 @@
     setTags: (id, tags) => call('tags:set', id, tags),
     setMemo: (id, text) => call('memo:set', id, text),
     setPomodoro: (id, cfg) => call('pomodoro:set', id, cfg),
+    setBlockTasks: (key, items) => call('blockTasks:set', key, items),
+    tickBlockTask: (id, taskId, done) => call('blockTasks:tick', id, taskId, done),
     news: (force, mode) => call('news', force, mode),
     addNewsChannel: (input) => call('news:add', input),
     setNewsChannel: (id, on) => call('news:set', id, on),

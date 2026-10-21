@@ -242,8 +242,12 @@
       const start = new Date(e.start).getTime();
       const base = { id: e.id, title: e.title, start, kind: e.kind };
       if (start > now) list.push({ ...base, at: start, why: 'start' });
-      if (e.callMode === 'alarm' && !e.callAck) {
-        for (const a of e.piAlerts || []) { const at = new Date(a.at).getTime(); if (at > now) list.push({ ...base, at, why: 'alarm' }); }
+      if (!e.callAck) {
+        for (const a of e.piAlerts || []) {
+          if (a.kind !== 'alarm') continue; // an alarm among its escalation's modes: the phone rings for it
+          const at = new Date(a.at).getTime();
+          if (at > now) list.push({ ...base, at, why: 'alarm' });
+        }
       }
     }
     const f = focus.s;
@@ -1321,27 +1325,30 @@
   const hasGoogleTasks = () => S.calendars.some((c) => c.kind === 'tasklist' && c.provider === 'google');
 
   /** When the Pi reaches out (mirrors piAlerts in hub.js): the last look before the leave-by or picked time. */
-  function ladderTimes(start, before, leaveBy, mode) {
+  /** When an escalation reaches out (hub.js piAlerts): the first time, and critical's three calls, 10 minutes apart. */
+  function ladderTimes(start, before, leaveBy, modes) {
     const base = before != null ? start.getTime() - before * 60000 : leaveBy ? start.getTime() : null;
-    if (base == null) return [];
-    const there = start.getTime() + (before == null && leaveBy ? leaveBy * 60000 : 0);
+    if (base == null || !modes.length) return [];
     const grid = ((S.settings.calls?.method || S.calls?.method || 'pi') === 'pi' ? Math.max(1, Number(S.settings.pi?.checkEvery) || 30) : 1) * 60000;
     const first = Math.floor(base / grid) * grid;
-    const out = [new Date(first)];
-    if (mode === 'critical' && first + Math.max(grid, 600000) < there) out.push(new Date(first + Math.max(grid, 600000)));
-    return out;
+    if (!modes.includes('critical')) return [new Date(first)];
+    return [0, 1, 2].map((i) => new Date(first + i * Math.max(grid, 600000)));
   }
 
-  function ladderText(times, mode) {
+  /** What the window says each chosen mode will do, in order, said the way reminders go out (Settings → Calls & alerts). */
+  function ladderText(times, modes) {
     const t = times.map((d) => fmtTime(d));
-    // Said the way reminders go out (Settings → Calls & alerts).
     const how = S.settings.calls?.method || S.calls?.method || 'pi';
     const caller = { pi: 'The Pi phones you', twilio: 'Onyx phones you', ntfy: 'Onyx sends a loud push', alarm: 'Your phone rings an alarm' }[how];
     const pusher = { pi: 'The Pi sends a push alert', twilio: S.calls?.ntfyTopic ? 'Onyx sends a push' : 'Onyx phones you', ntfy: 'Onyx sends a push', alarm: 'Your phone rings an alarm' }[how];
-    if (mode === 'push') return `${pusher} at ${t[0]}.`;
-    if (mode === 'alarm') return `Your phone rings an alarm at ${t[0]}, until you press a button.`;
-    if (mode === 'critical') return t.length > 1 ? `${caller} at ${t[0]}, and again at ${t[1]} unless you tap Leaving now.` : `${caller} at ${t[0]}.`;
-    return `${caller} at ${t[0]}.`;
+    const list = (xs) => (xs.length < 2 ? xs[0] : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`);
+    const out = [];
+    if (modes.includes('push')) out.push(`${pusher} at ${t[0]}.`);
+    if (modes.includes('call')) out.push(`${caller} at ${t[0]}.`);
+    // Twilio can tell an answered call (a person, not voicemail): the rest stop. Otherwise "Leaving now" stops them.
+    if (modes.includes('critical')) out.push(`${caller} at ${list(t)}, ${how === 'twilio' ? 'stopping once you answer (or tap Leaving now)' : 'unless you tap Leaving now'}.`);
+    if (modes.includes('alarm')) out.push(`Your phone rings an alarm at ${t[0]}, until you press a button.`);
+    return out.join(' ');
   }
 
   /** The Pi's looks it could phone at for something starting at `start` (at least 15 minutes apart): from the day before up to the start. */
@@ -2643,24 +2650,31 @@
     // Notes are saved with the entry; on a read-only calendar yours are kept in Onyx instead.
     const notes = !readOnly && notesField(src ? src.notes : '');
     const memo = readOnly && notesField(src.memo, 'Your notes: kept in Onyx, since this calendar is read-only');
-    // The escalation ladder: how the Pi reaches out (off, a push alert, a call, or calls that
-    // keep coming until "Leaving now"), at the leave-by time when there is one.
-    let mode = src?.piCall ? src.callMode || 'call' : 'off';
-    const call = h('input', { type: 'checkbox', checked: mode !== 'off', hidden: true });
+    // The escalation: how you are reached (none, or any of a push, a call, critical calls that stop
+    // once one is answered, and the phone's alarm), at the leave-by time when there is one.
+    let modes = src?.piCall ? [...(src.callModes?.length ? src.callModes : [src.callMode || 'call'])] : [];
+    const call = h('input', { type: 'checkbox', checked: modes.length > 0, hidden: true });
     // Each says what it really does, with the way reminders go out (Settings → Calls & alerts).
     const via = { pi: 'the Pi', twilio: 'Onyx (Twilio)', ntfy: 'ntfy', alarm: 'your phone' }[S.settings.calls?.method || S.calls?.method || 'pi'];
     const LADDER = [
       ['off', 'bell-off', 'Off', 'No reminder'],
       ['push', 'bell', 'Push only', 'A notification on your phone, no ringing'],
       ['call', 'phone', 'Voice call', `One phone call from ${via}`],
-      ['critical', 'phone', 'Critical', 'A call, then a second one 10 minutes later unless you tap Leaving now'],
+      ['critical', 'phone', 'Critical', 'A call every 10 minutes, up to 3 times, until you answer'],
       ['alarm', 'clock', 'Alarm', 'Your phone rings and vibrates full screen until you press a button'],
     ];
-    const ladder = h('div', { class: 'ladder-list', role: 'radiogroup', 'aria-label': 'Escalation' },
+    // One or more: each tap adds or takes away one; Off clears them. Critical's calls take the place of a single call.
+    const ladder = h('div', { class: 'ladder-list', role: 'group', 'aria-label': 'Escalation: pick one or more' },
       LADDER.map(([value, ico, label, hint]) => h('button', {
-        type: 'button', class: 'ladder-opt', 'data-mode': value, role: 'radio',
-        onclick: () => { mode = value; call.checked = value !== 'off'; sync(); },
-      }, h('span', { class: 'lo-ico' }, icon(ico)), h('span', { class: 'lo-txt' }, h('b', null, label), h('small', null, hint)), h('span', { class: 'lo-dot' }))));
+        type: 'button', class: 'ladder-opt', 'data-mode': value, role: value === 'off' ? 'radio' : 'checkbox',
+        onclick: () => {
+          if (value === 'off') modes = [];
+          else if (modes.includes(value)) modes = modes.filter((m) => m !== value);
+          else modes = [...modes.filter((m) => !(value === 'critical' && m === 'call') && !(value === 'call' && m === 'critical')), value];
+          call.checked = modes.length > 0;
+          sync();
+        },
+      }, h('span', { class: 'lo-ico' }, icon(ico)), h('span', { class: 'lo-txt' }, h('b', null, label), h('small', null, hint)), h('span', { class: 'lo-dot' }, value === 'off' ? null : icon('check')))));
     // Travel time: the first part of the block is getting there. It shows as its own band on the
     // calendar, and the call to set off comes as the block starts.
     let leaveBy = src?.leaveBy ?? null;
@@ -2720,19 +2734,22 @@
         : '';
       leaveHint.classList.toggle('warn', !!leaveBy && !r.allDay && there >= new Date(r.end).getTime());
       for (const b of ladder.children) {
-        b.classList.toggle('on', b.dataset.mode === mode);
-        b.setAttribute('aria-checked', String(b.dataset.mode === mode));
+        const on = b.dataset.mode === 'off' ? !modes.length : modes.includes(b.dataset.mode);
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-checked', String(on));
       }
+      const off = !modes.length;
       const st = piStatus(r.at, r.allDay, callBefore);
-      const times = mode === 'off' ? [] : ladderTimes(r.at, callBefore, leaveBy, mode);
-      callHint.textContent = mode === 'off' ? 'No reminder from the Pi.'
+      const times = off ? [] : ladderTimes(r.at, callBefore, leaveBy, modes);
+      const only = modes.length === 1 ? modes[0] : '';
+      callHint.textContent = off ? 'No reminder.'
         : !st.allowed ? st.text
-        : times.length ? ladderText(times, mode)
-        : st.text.replace('The Pi phones you', mode === 'push' ? 'The Pi sends a push alert' : mode === 'alarm' ? 'Your phone rings an alarm' : 'The Pi phones you');
-      callHint.className = mode === 'off' ? '' : st.tone;
-      ladder.classList.toggle('disabled', !st.allowed && mode === 'off');
+        : times.length ? ladderText(times, modes)
+        : st.text.replace('The Pi phones you', only === 'push' ? 'The Pi sends a push alert' : only === 'alarm' ? 'Your phone rings an alarm' : 'The Pi phones you');
+      callHint.className = off ? '' : st.tone;
+      ladder.classList.toggle('disabled', !st.allowed && off);
       // With a leave-by time, that is when it reaches out; otherwise a time can be picked.
-      callWhen.hidden = mode === 'off' || !st.allowed || !!leaveBy;
+      callWhen.hidden = off || !st.allowed || !!leaveBy;
       // Any time of day, kept as minutes before the start (after it, too); not while it's being typed.
       if (!callWhen.hidden && document.activeElement !== callWhen) callWhen.value = hm(new Date(r.at.getTime() - (callBefore ?? 0) * 60000));
     };
@@ -2748,11 +2765,12 @@
         title: title.value.trim(), start: r.start, end: r.end, allDay: r.allDay, calendarId: calendarPick.value,
         ...(notes ? { notes: cleanNote(notes.value) } : {}), piCall: call.checked && !r.allDay, tags: tags.get(),
       };
-      data.piCall = mode !== 'off' && !r.allDay;
+      data.piCall = modes.length > 0 && !r.allDay;
       const leaveChanged = (leaveBy || null) !== (src?.leaveBy ?? null);
       if (leaveChanged) data.leaveBy = leaveBy;
-      const modeChanged = data.piCall && mode !== (src?.callMode || 'call');
-      if (data.piCall) data.callMode = mode;
+      const had = src?.callModes?.length ? src.callModes : [src?.callMode || 'call'];
+      const modeChanged = data.piCall && [...modes].sort().join('+') !== [...had].sort().join('+');
+      if (data.piCall) data.callMode = modes;
       const callChanged = data.piCall && (callBefore !== (src?.callBefore ?? null) || modeChanged || leaveChanged);
       if (callChanged) data.callBefore = callBefore;
       const rule = repeatField ? repeatField.get() : undefined;
@@ -2768,7 +2786,7 @@
         } else if (readOnly) {
           // A read-only calendar can still carry tags and a phone reminder: both live in Onyx.
           if (leaveChanged) await onyx.setLeaveBy(src.id, leaveBy);
-          if (data.piCall !== !!src.piCall || callChanged) await onyx.setCall({ id: src.id, title: src.title, start: src.start, allDay: src.allDay }, data.piCall, data.piCall ? callBefore : null, data.piCall ? mode : undefined);
+          if (data.piCall !== !!src.piCall || callChanged) await onyx.setCall({ id: src.id, title: src.title, start: src.start, allDay: src.allDay }, data.piCall, data.piCall ? callBefore : null, data.piCall ? modes : undefined);
           if (!sameTags(data.tags, src.tags)) await onyx.setTags(src.seriesId || src.id, data.tags);
           if (cleanNote(memo.value) !== (src.memo || '')) await onyx.setMemo(src.seriesId || src.id, memo.value);
         } else {
@@ -2874,8 +2892,8 @@
       pomoRow,
       src?.location && h('div', { class: 'row pop-meta' }, icon('pin'), src.location),
       h('div', { class: 'row leave-row' }, icon('car'), h('span', { class: 'dash' }, 'Travel'), leaveSel, leaveHint),
-      S.settings.pi.enabled && h('div', { class: 'row pi-row' }, icon('phone'),
-        h('div', { class: 'txt' }, h('b', null, 'Escalation'), ladder, callHint, callWhen, call)),
+      S.settings.pi.enabled && h('div', { class: 'row pi-row' },
+        h('div', { class: 'txt' }, h('b', { class: 'pi-head' }, icon('phone'), 'Escalation', h('small', null, 'pick one or more')), ladder, callHint, callWhen, call)),
       readOnly && h('div', { class: 'pop-meta' }, 'This calendar is read-only here. ',
         src.link && h('a', { href: '#', onclick: (e) => { e.preventDefault(); onyx.open(src.link); } }, 'Open it in the browser')),
       h('div', { class: 'pop-actions' },

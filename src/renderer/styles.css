@@ -2314,3 +2314,13 @@ body.mobile .btask-add { height: 40px; font-size: 14px; }
 .ctx-colors .bcolor { width: 17px; height: 17px; }
 body.mobile .bcolor { width: 28px; height: 28px; }
 body.mobile .bcolors { gap: 9px; }
+
+/* ------------------------------------------------------------ the escalation: one or more */
+.pi-row .txt .pi-head { display: flex; align-items: center; gap: 7px; }
+.pi-row .txt .pi-head .ico { width: 15px; height: 15px; color: var(--muted); }
+.pi-row .txt .pi-head small { display: inline; margin: 0 0 0 auto; font-weight: 500; color: var(--faint); font-size: 11px; }
+/* Ticked like a checkbox (several at once); Off keeps its round dot. */
+.ladder-opt:not([data-mode=off]) .lo-dot { border-radius: 5px; display: grid; place-items: center; color: transparent; }
+.ladder-opt:not([data-mode=off]) .lo-dot .ico { width: 11px; height: 11px; }
+.ladder-opt:not([data-mode=off]) .lo-dot .ico svg { stroke-width: 3.2; }
+.ladder-opt.on:not([data-mode=off]) .lo-dot { background: var(--lc); border-color: var(--lc); color: #000; }

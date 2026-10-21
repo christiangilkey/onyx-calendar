@@ -1103,14 +1103,27 @@ function cleanBefore(before) {
 
 // ---- leave-by times and the escalation ladder
 // Travel time ("leaveBy"): the first minutes of an entry's block, spent getting there. You set
-// off when the block starts and are there when the travel part ends. Kept in Onyx, by entry. The ladder is how the Pi reaches out at that time:
-// 'push' (an ntfy alert, no call), 'call' (a phone call), or 'critical' (a call, then
-// another a little later unless you said you were leaving). "Leaving now" stops the rest.
-
-// alarm: the phone rings a full-screen alarm at the call time (Onyx on Android), and the Pi stays quiet.
+// off when the block starts and are there when the travel part ends. Kept in Onyx, by entry.
+// The escalation is how you are reached at that time, one or more of: 'push' (an alert, no
+// ringing), 'call' (a phone call), 'critical' (a call every 10 minutes, up to three, until one
+// is answered or you tap "Leaving now"), and 'alarm' (the phone rings a full-screen alarm,
+// Onyx on Android). "Leaving now", or a call answered, stops the rest.
 const MODES = ['push', 'call', 'critical', 'alarm'];
+const CRITICAL_CALLS = 3;
+const CRITICAL_GAP_MS = 10 * 60000;
 const leaveByOf = (id) => store.data.leaveBy?.[id] ?? null;
-const modeOf = (id) => (store.data.piLinks[id] ? store.data.piLinks[id].mode || 'call' : 'off');
+
+/** An escalation as a set, in a fixed order: from a list, one mode, or "push+alarm". Critical includes the call. */
+function cleanModes(m) {
+  const asked = Array.isArray(m) ? m : String(m || '').split(/[+,\s]+/);
+  const set = new Set(asked.filter((x) => MODES.includes(x)));
+  if (set.has('critical')) set.delete('call');
+  return MODES.filter((x) => set.has(x));
+}
+const modesOf = (id) => { const l = store.data.piLinks[id]; return l ? (cleanModes(l.modes || l.mode || 'call').length ? cleanModes(l.modes || l.mode || 'call') : ['call']) : []; };
+/** The strongest of an entry's modes ('off' for none), for what reads one mode (older desktops, the Pi's notes). */
+const primaryMode = (modes) => (modes.includes('critical') ? 'critical' : modes.includes('call') ? 'call' : modes.includes('alarm') ? 'alarm' : modes.includes('push') ? 'push' : 'off');
+const modeOf = (id) => primaryMode(modesOf(id));
 
 function setLeaveBy(id, minutes) {
   store.data.leaveBy ??= {};
@@ -1130,20 +1143,23 @@ function setLeaveBy(id, minutes) {
  * uses its own usual time (lead_minutes) or the call was acknowledged. The Pi looks every
  * settings.pi.checkEvery minutes, so a call comes at the last look before the time asked.
  */
-function piAlerts(start, { before = null, leaveBy = null, mode = 'call', ack = false } = {}) {
+function piAlerts(start, { before = null, leaveBy = null, mode = 'call', modes = null, ack = false } = {}) {
   if (ack) return [];
+  const set = cleanModes(modes || mode);
   // With travel time the call is to set off: at the block's start (the trip is inside it).
   const base = before != null ? start.getTime() - before * 60000 : leaveBy ? start.getTime() : null;
-  if (base == null) return [];
-  const there = start.getTime() + (before == null && leaveBy ? leaveBy * 60000 : 0);
+  if (base == null || !set.length) return [];
   // The Pi looks every few minutes (a call comes at its last look before the time); this PC and the phone keep the minute.
   const grid = (require('./caller').method() === 'pi' ? Math.max(1, Number(store.data.settings.pi?.checkEvery) || 30) : 1) * 60000;
   const first = new Date(Math.floor(base / grid) * grid);
-  const out = [{ at: first, kind: mode === 'push' ? 'push' : mode === 'alarm' ? 'alarm' : 'call' }];
-  if (mode === 'critical') {
-    const again = new Date(first.getTime() + Math.max(grid, 10 * 60000));
-    if (again.getTime() < there) out.push({ at: again, kind: 'call' });
+  const out = [];
+  if (set.includes('push')) out.push({ at: first, kind: 'push' });
+  if (set.includes('call')) out.push({ at: first, kind: 'call' });
+  // Critical: a call every 10 minutes (or at each of the Pi's looks, if further apart), up to three.
+  if (set.includes('critical')) {
+    for (let i = 0; i < CRITICAL_CALLS; i++) out.push({ at: new Date(first.getTime() + i * Math.max(grid, CRITICAL_GAP_MS)), kind: 'call', critical: i + 1 });
   }
+  if (set.includes('alarm')) out.push({ at: first, kind: 'alarm' });
   return out;
 }
 
@@ -1154,10 +1170,15 @@ function callNotes(start, opts) {
   if (opts.ack) {
     lines.push('Acknowledged: yes'); // "Leaving now" was pressed: no more calls about this one
   } else {
-    if (opts.mode === 'push') lines.push('Alert: push only');
-    if (opts.mode === 'critical') lines.push('Escalation: critical');
-    if (opts.mode === 'alarm') lines.push('Alert: phone alarm'); // the phone rings; the Pi neither calls nor pushes
-    for (const a of piAlerts(start, opts)) lines.push(`Call at: ${stamp(a.at)}`);
+    // The Pi reads one way of reaching you per entry: its calls when there are any, else a push, else
+    // nothing at all (an alarm is the phone's own).
+    const set = cleanModes(opts.modes || opts.mode);
+    const alerts = piAlerts(start, opts);
+    const calls = alerts.filter((a) => a.kind === 'call');
+    if (!calls.length && set.includes('push')) lines.push('Alert: push only');
+    if (set.includes('critical')) lines.push('Escalation: critical');
+    if (!calls.length && !set.includes('push') && set.includes('alarm')) lines.push('Alert: phone alarm'); // the phone rings; the Pi neither calls nor pushes
+    for (const a of calls.length ? calls : alerts.slice(0, 1)) lines.push(`Call at: ${stamp(a.at)}`);
   }
   return lines.join('\n');
 }
@@ -1166,10 +1187,10 @@ function callNotes(start, opts) {
 function callInfo(id, start) {
   const link = store.data.piLinks[id];
   const s = start ? new Date(start) : null;
-  const opts = link && s && !Number.isNaN(+s) ? { before: link.before ?? null, leaveBy: leaveByOf(id), mode: link.mode || 'call', ack: !!link.ack && link.start === s.toISOString() } : null;
+  const opts = link && s && !Number.isNaN(+s) ? { before: link.before ?? null, leaveBy: leaveByOf(id), modes: modesOf(id), ack: !!link.ack && link.start === s.toISOString() } : null;
   return {
-    piCall: !!link, callBefore: callBeforeOf(id), callMode: modeOf(id), leaveBy: leaveByOf(id), callAck: !!opts?.ack,
-    piAlerts: opts ? piAlerts(s, opts).map((a) => ({ at: a.at.toISOString(), kind: a.kind })) : [],
+    piCall: !!link, callBefore: callBeforeOf(id), callMode: modeOf(id), callModes: modesOf(id), leaveBy: leaveByOf(id), callAck: !!opts?.ack,
+    piAlerts: opts ? piAlerts(s, opts).map((a) => ({ at: a.at.toISOString(), kind: a.kind, ...(a.critical ? { critical: a.critical } : {}) })) : [],
   };
 }
 
@@ -1185,13 +1206,16 @@ async function ackPiCall(id) {
 
 /**
  * Switches the Pi call for an entry on or off. `before`: minutes before the start to call
- * (null: at leave-by, or the usual lead; undefined: keep). `mode`: 'push' | 'call' | 'critical' (undefined: keep).
+ * (null: at leave-by, or the usual lead; undefined: keep). `mode`: one or more of push, call, critical,
+ * alarm (a list, or one; undefined: keep).
  */
 async function setPiCall(event, on, before, mode) {
   const links = store.data.piLinks;
   const link = links[event.id];
   const keep = before === undefined ? link?.before ?? null : cleanBefore(before);
-  const keepMode = mode === undefined ? link?.mode || 'call' : MODES.includes(mode) ? mode : 'call';
+  const asked = mode === undefined ? null : cleanModes(mode);
+  const keepModes = asked?.length ? asked : link ? modesOf(event.id) : ['call'];
+  const keepMode = primaryMode(keepModes);
   // The Pi needs a time of day, so an all-day entry can't have a call.
   if (!on || event.allDay) {
     if (link) {
@@ -1204,10 +1228,11 @@ async function setPiCall(event, on, before, mode) {
   const start = new Date(event.start);
   // An acknowledgement only holds for the same start: moved, it can ring again.
   const ack = !!link?.ack && link.start === start.toISOString();
-  const fields = { title: mirrorName(event.title, start), due: localDate(start), notes: callNotes(start, { before: keep, leaveBy: leaveByOf(event.id), mode: keepMode, ack }) };
+  const fields = { title: mirrorName(event.title, start), due: localDate(start), notes: callNotes(start, { before: keep, leaveBy: leaveByOf(event.id), modes: keepModes, ack }) };
   const saved = (task) => ({
     task, start: start.toISOString(), title: event.title, ...(keep != null ? { before: keep } : {}),
-    ...(keepMode !== 'call' ? { mode: keepMode } : {}), ...(ack ? { ack: true } : {}),
+    // `mode` (the strongest) for desktops from before several could be picked; `modes`, all of them.
+    ...(keepMode !== 'call' ? { mode: keepMode } : {}), ...(keepModes.length > 1 || keepModes[0] !== keepMode ? { modes: keepModes } : {}), ...(ack ? { ack: true } : {}),
   });
   // Without the Pi there is no task for it to read: the reminder is kept here, and this PC
   // (ntfy, Twilio) or the phone (an alarm) acts on it.

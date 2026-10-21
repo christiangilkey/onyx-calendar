@@ -375,6 +375,7 @@
     setPomodoro: (id, cfg) => call('pomodoro:set', id, cfg),
     setBlockTasks: (key, items) => call('blockTasks:set', key, items),
     tickBlockTask: (id, taskId, done) => call('blockTasks:tick', id, taskId, done),
+    setEventColor: (key, color) => call('eventColor:set', key, color),
     news: (force, mode) => call('news', force, mode),
     addNewsChannel: (input) => call('news:add', input),
     setNewsChannel: (id, on) => call('news:set', id, on),

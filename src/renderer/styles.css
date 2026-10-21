@@ -2295,3 +2295,22 @@ body.mobile .btask-add { height: 40px; font-size: 14px; }
 .fc .fc-event.is-pending { animation: pending-pulse 1.1s ease-in-out infinite; pointer-events: none; }
 @keyframes pending-pulse { 0%, 100% { opacity: .95; } 50% { opacity: .6; } }
 @media (prefers-reduced-motion: reduce) { .fc .fc-event.is-pending { animation: none; opacity: .75; } .drag-float > .fc-event { animation: none; } }
+
+/* ------------------------------------------------------------ a block's own colour */
+.bcolors { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.bcolor {
+  width: 20px; height: 20px; padding: 0; border-radius: 50%; border: 0; cursor: pointer; flex: none;
+  background: var(--s); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14); transition: transform .12s;
+}
+.bcolor:hover { transform: scale(1.15); }
+.bcolor.on { box-shadow: 0 0 0 2px var(--panel, #070708), 0 0 0 4px var(--s); }
+/* The calendar's own colour: a ring with a slash, "none of its own". */
+.bcolor.cal { background: transparent; box-shadow: inset 0 0 0 2px var(--s); position: relative; }
+.bcolor.cal::after { content: ''; position: absolute; left: 50%; top: 3px; bottom: 3px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--s); transform: rotate(45deg); }
+.bcolor.cal.on { box-shadow: inset 0 0 0 2px var(--s), 0 0 0 2px var(--panel, #070708), 0 0 0 4px var(--s); }
+.color-row .bcolors { flex: 1; }
+.ctx-colors { padding: 6px 7px 8px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+.ctx-colors .bcolors { gap: 5px; }
+.ctx-colors .bcolor { width: 17px; height: 17px; }
+body.mobile .bcolor { width: 28px; height: 28px; }
+body.mobile .bcolors { gap: 9px; }

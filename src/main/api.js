@@ -123,6 +123,7 @@ const handlers = {
   'pomodoro:set': (id, cfg) => hub.setPomodoro(id, cfg),
   'blockTasks:set': (key, items) => hub.setBlockTasks(key, items),
   'blockTasks:tick': (id, taskId, done) => hub.tickBlockTask(id, taskId, done),
+  'eventColor:set': (key, color) => hub.setEventColor(key, color),
   'tag:color': withState((tag, color) => hub.setTagColor(tag, color)),
   'tag:rename': withState((from, to) => hub.renameTag(from, to)),
   'tag:delete': withState((tag) => hub.deleteTag(tag)),

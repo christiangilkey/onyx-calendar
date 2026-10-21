@@ -50,6 +50,7 @@ const DEFAULTS = {
   repeatSpawned: {},
   pomodoro: {},          // event or task id -> { work, rest, minutes? }: split into work and rest chunks (hub.js)
   blockTasks: {},        // event id (a repeat's: the series') -> [{ id, text }]: what to get done within the block (hub.js)
+  eventColors: {},       // event id (a repeat's: the series') -> '#rrggbb': a colour of its own, in place of its calendar's
   blockTicks: {},        // event id (each day of a repeat on its own) -> [task id, ...]: which of them are ticked off
   inboxItems: {},        // task id -> { at, state, from? }: tasks that arrived from outside, waiting for Magic add (inbox.js)
   inboxLists: {},        // task list id -> true once read, so its first read only learns what is there

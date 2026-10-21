@@ -31,3 +31,12 @@ test('ticks are kept for each day of a block on its own', () => {
   assert.equal(store.data.blockTicks['cal/series_day2'], undefined);
   assert.throws(() => hub.tickBlockTask('', 't1'), /Nothing to tick/);
 });
+
+test('a block can wear a colour of its own, kept in Onyx; null gives it its calendar\'s again', () => {
+  store.data.eventColors = {};
+  assert.equal(hub.setEventColor('cal/series', '#FF7EB6'), '#ff7eb6');
+  assert.equal(store.data.eventColors['cal/series'], '#ff7eb6');
+  assert.throws(() => hub.setEventColor('cal/series', 'pink'), /like #4aa8ff/);
+  assert.equal(hub.setEventColor('cal/series', null), null);
+  assert.equal(store.data.eventColors['cal/series'], undefined);
+});

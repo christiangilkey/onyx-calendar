@@ -50,6 +50,7 @@
     pin: '<path d="M12 21s-6-5.4-6-10.5a6 6 0 0 1 12 0C18 15.6 12 21 12 21z"/><circle cx="12" cy="10.5" r="2.2"/>',
     monitor: '<rect x="3.5" y="4.5" width="17" height="11.5" rx="2"/><path d="M9 20h6M12 16v4"/>',
     grip: '<path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"/>',
+    drop: '<path d="M12 3.5s-6 6.6-6 11a6 6 0 0 0 12 0c0-4.4-6-11-6-11z"/>',
     qr: '<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><rect x="8" y="8" width="3" height="3"/><rect x="13" y="8" width="3" height="3"/><rect x="8" y="13" width="3" height="3"/><path d="M13 13h3v3"/>',
   };
   const COLORS = ['#8b7cff', '#4aa8ff', '#3fd0c9', '#5fd38d', '#f5b83d', '#ff9f4a', '#ff6b6b', '#ff7eb6', '#b9b9c2'];
@@ -1108,6 +1109,47 @@
    * to a new place (or moved with Alt+Up / Alt+Down), and taken off with ×; + (or Enter) adds another.
    * `onTick(id, done)` saves a tick at once, on a block already saved. get() gives { on, items } in order.
    */
+  /** Colours a block can wear in place of its calendar's: bright enough on the dark grid, apart from each other. */
+  const BLOCK_COLORS = [
+    ['#8b7cff', 'Violet'], ['#4aa8ff', 'Blue'], ['#3fd0c9', 'Teal'], ['#5fd38d', 'Green'], ['#c3e35a', 'Lime'],
+    ['#f5d04a', 'Yellow'], ['#ff9f4a', 'Orange'], ['#ff6b6b', 'Red'], ['#ff7eb6', 'Pink'], ['#c69a6d', 'Brown'], ['#9aa0a8', 'Grey'],
+  ];
+
+  /**
+   * A row of colour swatches: the calendar's own colour first (a block with none of its own), then the
+   * palette. `pick(color | null)` is told each choice; get() gives the one chosen.
+   */
+  function colorSwatches(current, calColor, pick) {
+    let chosen = current || null;
+    const sw = (color, name) => h('button', { type: 'button', class: `bcolor${color ? '' : ' cal'}`, title: name, 'aria-label': name,
+      css: { '--s': color || calColor || 'var(--accent)' }, onclick: (e) => { e.stopPropagation(); chosen = color; draw(); pick?.(color); } });
+    const row = h('div', { class: 'bcolors', role: 'radiogroup', 'aria-label': 'Colour' },
+      sw(null, 'The calendar\'s colour'), BLOCK_COLORS.map(([c, n]) => sw(c, n)));
+    const draw = () => {
+      [...row.children].forEach((b, i) => {
+        const on = i === 0 ? !chosen : chosen === BLOCK_COLORS[i - 1][0];
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-checked', String(on));
+        b.setAttribute('role', 'radio');
+      });
+    };
+    draw();
+    return { el: row, get: () => chosen };
+  }
+
+  /** Gives a block its own colour (or its calendar's again), from the right-click menu: undoable. */
+  async function colorBlock(src, color) {
+    const key = src.seriesId || src.id, before = src.ownColor ? src.color : null;
+    if ((color || null) === before) return;
+    try {
+      await onyx.setEventColor(key, color);
+      recordAction(color ? `Coloured "${src.title}"` : `"${src.title}" in its calendar's colour`, () => onyx.setEventColor(key, before), () => onyx.setEventColor(key, color));
+      refetch();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
   function blockTaskField(initial = [], { onTick } = {}) {
     const newId = () => Math.random().toString(36).slice(2, 10);
     const on = h('input', { type: 'checkbox', checked: initial.length > 0 });
@@ -1929,6 +1971,8 @@
     const menu = h('div', { class: 'ctx-menu', role: 'menu' },
       src && item('Open', () => (src.kind === 'task' ? openTask(tasks.find((t) => t.id === src.id) || { id: src.id, title: src.title, label: src.title, listName: src.calendarName }, pointRect(e)) : openEditor({ src, start: toDate(src.start), end: toDate(src.end), allDay: src.allDay }, pointRect(e)))),
       src && !MOBILE && !src.mirror && item('Hyperfocus…', () => openFocusSetup(focusEntry(src))),
+      src?.kind === 'event' && h('div', { class: 'ctx-colors' },
+        colorSwatches(src.ownColor ? src.color : null, src.calColor || src.color, (c) => { closeMenu(); colorBlock(src, c); }).el),
       src && item('Copy   Ctrl+C', () => copyEntry(src)),
       src && item('Duplicate', () => { clip.entry = src; const d = toDate(src.start); pasteEntry({ day: ymd(addDays(d, src.allDay ? 1 : 0)), time: src.allDay ? null : hm(new Date(d.getTime() + Math.max(15 * 60000, toDate(src.end) - d))) }); }),
       item(`Paste here   Ctrl+V${clip.entry ? `: ${clip.entry.title}` : ''}`, () => pasteEntry(slot), !clip.entry || !slot));
@@ -2655,6 +2699,10 @@
     const blockMinutes = () => { const r = range(); return r.allDay ? 0 : Math.round((new Date(r.end) - new Date(r.start)) / 60000); };
     const pomo = pomodoroField(src?.pomodoro, { duration: blockMinutes });
     const pomoRow = h('div', { class: 'row top' }, icon('clock'), pomo.el);
+    // Its colour: the calendar's, or one of its own (kept in Onyx, so read-only calendars too; a repeat's for every day).
+    const calColor = () => S.calendars.find((c) => c.id === (calendarPick?.value || src?.calendarId))?.color || src?.calColor || src?.color;
+    const colorPick = colorSwatches(src?.ownColor ? src.color : null, src?.calColor || calColor(), null);
+    calendarPick.addEventListener('change', () => colorPick.el.firstChild.style.setProperty('--s', calColor() || 'var(--accent)')); // the calendar's colour, as picked
     // What to get done within the block: kept in Onyx (on a read-only calendar too); a tick on a saved block saves at once.
     const tasksField = blockTaskField(src?.taskList || [], {
       onTick: src ? (taskId, done) => onyx.tickBlockTask(src.id, taskId, done).then(() => refetch()).catch((err) => toast(err.message, 'error')) : null,
@@ -2738,6 +2786,9 @@
         const split = r.allDay ? null : pomo.get();
         const id = src?.seriesId || saved?.seriesId || saved?.id || src?.id; // a repeat's split is the series'
         if (id && !samePomodoro(split, saved?.pomodoro ?? src?.pomodoro)) await savePomodoro(id, split);
+        // Its colour, kept in Onyx by the block (a repeat's by its series).
+        const color = colorPick.get();
+        if (id && color !== (src?.ownColor ? src.color : null)) await onyx.setEventColor(id, color);
         // The block's tasks: kept by the block (a repeat's by its series, the same every day).
         const list = tasksField.get(), had = src?.taskList || [];
         const shape = (items) => items.map((t) => `${t.id}\t${t.text}`).join('\n');
@@ -2807,6 +2858,7 @@
       h('div', { class: 'row' }, icon('clock'), date, startTime, dash, endTime),
       untilRow,
       h('div', { class: 'row' }, icon('calendar'), calendarPick, h('label', { class: 'check' }, allDay, 'All day')),
+      h('div', { class: 'row color-row' }, icon('drop'), colorPick.el),
       repeatField && h('div', { class: 'row top recur-row' }, icon('repeat'), repeatField.el),
       h('div', { class: 'row top btask-row' }, icon('tasks'), tasksField.el),
       notes && h('div', { class: 'row top' }, icon('note'), notes),

@@ -155,6 +155,16 @@ function setPomodoro(id, cfg) {
 const MAX_BLOCK_TASKS = 50;
 const MAX_TICKED_DAYS = 3000;
 
+/** Gives a block (a repeat: every day of it) a colour of its own, '#rrggbb', or with null its calendar's again. */
+function setEventColor(key, color) {
+  if (!key) throw new Error('Nothing to colour.');
+  if (color == null || color === '') delete store.data.eventColors[key];
+  else if (/^#[0-9a-f]{6}$/i.test(color)) store.data.eventColors[key] = color.toLowerCase();
+  else throw new Error('A colour is written like #4aa8ff.');
+  store.save();
+  return store.data.eventColors[key] || null;
+}
+
 /** A block's tasks as the window and the calendar show them: [{ id, text, done }], or null for none. */
 function taskListOf(e) {
   const items = store.data.blockTasks[keyOf(e)];
@@ -320,6 +330,8 @@ async function getEvents(start, end, { includeHidden = false, force = false } = 
     .map((e) => ({
       ...e, tags: tagsOf(keyOf(e)), memo: memoOf(keyOf(e)), pomodoro: pomodoroOf(keyOf(e)),
       ...(e.kind === 'event' ? { taskList: taskListOf(e) } : {}),
+      // A block given a colour of its own wears it; its calendar's stays known for "Calendar colour".
+      ...(e.kind === 'event' && store.data.eventColors[keyOf(e)] ? { color: store.data.eventColors[keyOf(e)], calColor: e.color, ownColor: true } : {}),
       // A calendar entry or block ticked off, like a task (kept in Onyx: each day of a repeat on its own).
       ...(e.kind === 'event' ? { done: !!store.data.doneEvents?.[e.id] } : {}),
     }))
@@ -512,6 +524,7 @@ async function updateEvent(id, patch) {
     if (pomodoroOf(id)) store.data.pomodoro[created.id] = pomodoroOf(id); // the split goes with it
     if (store.data.blockTasks[id]) store.data.blockTasks[created.id] = store.data.blockTasks[id]; // and the tasks, ticks and all
     if (store.data.blockTicks[id]) store.data.blockTicks[created.id] = store.data.blockTicks[id];
+    if (store.data.eventColors[id]) store.data.eventColors[created.id] = store.data.eventColors[id]; // and its colour
     await deleteEvent(id);
     return { ...created, pomodoro: pomodoroOf(created.id) };
   }
@@ -575,6 +588,7 @@ async function deleteEvent(id, { scope = 'all', seriesId = null } = {}) {
   delete store.data.pomodoro[id];
   delete store.data.blockTasks[id];
   delete store.data.blockTicks[id];
+  delete store.data.eventColors[id];
   await setPiCall({ id }, false).catch((err) => console.error('onyx: could not remove the Pi reminder:', err.message));
 }
 
@@ -1282,7 +1296,7 @@ function removeLocalCalendar(id) {
 
 module.exports = {
   calendars, refreshCalendars, invalidate, getEvents, setBackburner, setEventDone, createEvent, updateEvent, deleteEvent, setLeaveBy, ackPiCall, piAlerts,
-  getTasks, archivedTasks, fetchTask, createTask, updateTask, moveTask, resizeTask, receiveTask, planTask, unplanTask, dismissInbox, deleteTask, setRepeat, setPomodoro, setBlockTasks, tickBlockTask, setPiCall, freeTime, addLocalCalendar, removeLocalCalendar,
+  getTasks, archivedTasks, fetchTask, createTask, updateTask, moveTask, resizeTask, receiveTask, planTask, unplanTask, dismissInbox, deleteTask, setRepeat, setPomodoro, setBlockTasks, tickBlockTask, setEventColor, setPiCall, freeTime, addLocalCalendar, removeLocalCalendar,
   setTags, allTags, setTagColor, renameTag, deleteTag, setMemo, MAX_NOTE,
   callNotes, piTaskList, // Hyperfocus gives the Pi its stop the same way (focus.js)
 };

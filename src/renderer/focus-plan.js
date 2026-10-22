@@ -7,7 +7,7 @@
 
 (() => {
   const MIN = 60000;
-  const BAND_MIN = 15;              // the striped transition band before the next entry (app.js BUFFER_MIN)
+  const BAND_MIN = 15;              // time to get to the next entry: a hard stop before it leaves this free
   const LENGTHS = [25, 45, 60, 90, 120];
   const DEFAULT_LENGTH = 90;
   const SHORTEST = 10;              // less than this before the next thing is no time to sink in
@@ -34,7 +34,7 @@
 
   /**
    * The hard stops to pick from: the end of the block it was started from, the next entry
-   * minus its transition band, and set lengths. `pick` is the one picked to start with: the
+   * minus the time to get to it (`band` minutes), and set lengths. `pick` is the one picked to start with: the
    * earliest natural stop (within a few hours), else `length` minutes.
    * Each option: { key, kind: 'block'|'next'|'length', at, minutes, next?, pastNext }.
    */
@@ -45,12 +45,12 @@
     const add = (o) => {
       const at = o.kind === 'length' ? o.at : floorMin(o.at); // a set length is exactly that long
       if (at - now < SHORTEST * MIN || (o.kind !== 'length' && at - now > OFFER_WITHIN * MIN)) return;
-      // Flagged: a stop after the next entry starts, or inside the transition before it.
+      // Flagged: a stop after the next entry starts, or inside the time to get to it.
       out.push({ minutes: Math.round((at - now) / MIN), ...o, at, pastNext: o.kind !== 'next' && at > nextAt - band * MIN });
     };
     if (own && own.kind === 'event' && !own.allDay && own.end && ms(own.end) > now) add({ key: 'block', kind: 'block', at: ms(own.end) });
     if (next) {
-      // Leave the transition band free; with too little time for it, stop right at the start.
+      // Leave the time to get there free; with too little time for it, stop right at the start.
       const withBand = nextAt - band * MIN;
       add({ key: 'next', kind: 'next', at: withBand - now >= SHORTEST * MIN ? withBand : nextAt, next });
     }

@@ -17,7 +17,7 @@
   const CACHE = 'onyx.cache.';
   const TIMEOUT_MS = 7000;
   // Settings that belong to this phone rather than to the shared calendar.
-  const PHONE_ONLY = ['view', 'tasksPanel', 'newsPanel', 'nextBar', 'popups', 'buffers'];
+  const PHONE_ONLY = ['view', 'tasksPanel', 'newsPanel', 'nextBar', 'popups'];
 
   const read = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } };
   const write = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage full: the cache is optional */ } };

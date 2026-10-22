@@ -1454,7 +1454,7 @@
       const began = Date.now();
       const { events, errors } = await onyx.events(info.start.toISOString(), info.end.toISOString(), force);
       showProblems(errors);
-      ok(events.filter((e) => e.kind !== 'goal' && visible(e.calendarId) && !carriedOver(e)).map(toFc).concat(transitionBuffers(events)));
+      ok(events.filter((e) => e.kind !== 'goal' && visible(e.calendarId) && !carriedOver(e)).map(toFc));
       // A stand-in goes once a load that started after its entry was made has brought the real one.
       for (const ev of [...pending]) if (ev.extendedProps.madeAt && ev.extendedProps.madeAt <= began) dropPending(ev);
     } catch (err) {
@@ -1477,36 +1477,10 @@
   }
 
 
-  // ---- transition buffers: the only stripes on the calendar
-  // 15 minutes after a meeting that another meeting follows (within two hours, the same day),
-  // drawn behind the grid as a striped band: time to get from one to the next. When the next
-  // one starts sooner, the band runs into it and says so.
-  const BUFFER_MIN = 15;
-  function transitionBuffers(events) {
-    if (S.settings.buffers === false) return [];
-    const hard = events.filter((e) => e.kind === 'event' && !e.allDay && e.end && visible(e.calendarId))
-      .map((e) => ({ e, s: new Date(e.start).getTime(), f: new Date(e.end).getTime() })).sort((a, b) => a.s - b.s);
-    const out = [];
-    for (const a of hard) {
-      const b = hard.find((x) => x !== a && x.s >= a.f && x.s - a.f < 2 * 3600000 && sameDay(new Date(x.s), new Date(a.f)));
-      if (!b) continue;
-      const tight = b.s - a.f < BUFFER_MIN * 60000;
-      out.push({
-        id: `buffer|${a.e.id}|${a.e.start}`, start: new Date(a.f).toISOString(), end: new Date(a.f + BUFFER_MIN * 60000).toISOString(),
-        display: 'background', classNames: ['transition-buffer', tight ? 'tight' : ''], extendedProps: { buffer: true, tight, next: b.e.title },
-      });
-    }
-    return out;
-  }
-
   /** An open task from an earlier day: it waits in the Rollover tray, not on the timeline. */
   const carriedOver = (e) => e.kind === 'task' && !e.done && !!e.start && (e.allDay ? e.start : ymd(new Date(e.start))) < ymd(new Date());
 
   function eventContent(arg) {
-    if (arg.event.extendedProps.buffer) {
-      const p = arg.event.extendedProps;
-      return { domNodes: [h('span', { class: 'buffer-label', title: `Time to get to "${p.next}"` }, p.tight ? 'Transition · tight' : 'Transition')] };
-    }
     const src = arg.event.extendedProps.src;
     // The block being dragged out has no entry behind it yet: show just its times.
     if (!src) return { domNodes: [h('div', { class: 'ev' }, h('div', { class: 'ev-title' }, h('span', { class: 't' }, arg.timeText || 'New block')))] };
@@ -4000,8 +3974,7 @@
 
     // The hard stop: picked now, so the way out is decided before going in.
     const own = entry.kind === 'event' ? { id: entry.id, start: entry.start, end: entry.end, kind: 'event', allDay: entry.allDay } : null;
-    const band = S.settings.buffers === false ? 0 : BUFFER_MIN;
-    const plan = F.stopOptions({ now: Date.now(), items: nextRun.items, own, band, length: ask.minutes || prefs.length });
+    const plan = F.stopOptions({ now: Date.now(), items: nextRun.items, own, length: ask.minutes || prefs.length });
     let stopKey = ask.minutes && plan.options.some((o) => o.key === `len${ask.minutes}`) ? `len${ask.minutes}` : plan.pick;
     // What the log shows: the hours you focus best (or how many more rated sessions until it can say).
     const bestLine = h('div', { class: 'fs-best', hidden: true });
@@ -6473,8 +6446,6 @@
             h('button', { class: 'btn', onclick: () => checkForUpdate(true) }, icon('update'), 'Check now')),
           field('Now / Next bar', 'A strip under the top bar: what you are doing now, what is next, and how much time is left before it. It chimes 5 minutes before and as it starts (the bell on the bar mutes it).',
             toggle(s.nextBar !== false, (v) => saveSettings({ nextBar: v }).then(tickNext))),
-          field('Transition buffers', 'A striped 15 minutes after a meeting that another one follows: time to get from one to the next. The only stripes on the calendar.',
-            toggle(s.buffers !== false, (v) => saveSettings({ buffers: v }).then(() => refetch()))),
           field('Popups', 'A popup over everything, ringing, when the Pi phones you about something, and another as it starts. Snooze brings it back in 5 minutes.',
             toggle(s.popups !== false, (v) => saveSettings({ popups: v }))),
           field('24-hour time', null, toggle(!s.hour12, (v) => saveSettings({ hour12: !v }))),

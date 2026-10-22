@@ -6708,36 +6708,75 @@
     closePopover();
     closeDrawers();
     const m = { home: '', mode: 'drive', start: '08:00', end: '21:00', lunch: true, ...(S.settings.magic || {}) };
+    const dayName = (d) => (d === ymd(new Date()) ? 'today' : d === ymd(addDays(new Date(), 1)) ? 'tomorrow' : fmtDay(fromYmd(d)));
+    const mins = (n) => (n >= 60 ? `${Math.floor(n / 60)} h${n % 60 ? ` ${n % 60} min` : ''}` : `${n} min`);
     const writable = S.calendars.filter((c) => c.kind === 'calendar' && c.writable);
     let view = null; // { date, tasks, travel, result }
     let working = false;
     let timer = 0;
 
-    // Tasks that arrived from other apps: planned along with what is typed. Ones due after the day wait unticked.
+    // Tasks to plan in along with what is typed, picked from three lists in tabs: the backburner, what other
+    // apps sent, and tasks with no date. A tick stays ticked whatever tab is showing, and everything ticked, in
+    // any of the three, is planned together. Ones sent from apps are ticked to start with (not those due later).
     const planDate = preset.date || ymd(new Date());
     const picked = new Set(inboxTasks().filter((t) => !t.date || t.date <= planDate).map((t) => t.id));
-    const arrivedBox = h('div', { class: 'magic-inbox' });
-    function paintArrived() {
-      const list = inboxTasks();
-      arrivedBox.hidden = !list.length;
-      arrivedBox.replaceChildren(
-        h('div', { class: 'mi-head' }, icon('tasks'), `From your other apps (${list.length})`,
-          h('small', null, 'They are planned into the day with the rest.')),
-        ...list.map((t) => h('label', { class: 'mi-row' },
-          h('input', { type: 'checkbox', checked: picked.has(t.id), onchange: (e) => { if (e.target.checked) picked.add(t.id); else picked.delete(t.id); } }),
-          h('span', { class: 'mi-main' }, h('b', null, t.label || t.title),
-            h('small', null, [sourceName(t), t.listName && t.listName !== sourceName(t) ? t.listName : null, t.date ? `due ${dayName(t.date)}` : null].filter(Boolean).join(' · '))),
-          h('button', { type: 'button', class: 'icon-btn', title: 'Not now: leave it out of Magic add', onclick: async (e) => {
-            e.preventDefault();
-            picked.delete(t.id);
-            try { await onyx.dismissInbox(t.id); } catch (err) { fail(err); return; }
-            inboxIds = inboxIds.filter((id) => id !== t.id);
-            paintInboxBadge();
-            paintArrived();
-          } }, icon('x')))));
+    const open = (t) => !t.done && !t.mirror;
+    const PICK_TABS = [
+      { key: 'burner', label: 'Backburner', empty: 'Nothing on the backburner.', list: () => tasks.filter((t) => open(t) && t.backburner && !t.date) },
+      { key: 'apps', label: 'From apps', empty: 'Nothing sent from your other apps.', list: () => inboxTasks().filter(open) },
+      { key: 'nodate', label: 'No date', empty: 'Every task has a day.', list: () => {
+        const sent = new Set(inboxIds);
+        return tasks.filter((t) => open(t) && !t.date && !t.backburner && !sent.has(t.id));
+      } },
+    ];
+    let pickTab = preset.tab || (inboxTasks().length ? 'apps' : PICK_TABS[0].list().length ? 'burner' : 'nodate');
+    const pickBox = h('div', { class: 'magic-inbox magic-pick' });
+    const pickMeta = (t, key) => [
+      key === 'apps' ? sourceName(t) : null,
+      t.listName && (key !== 'apps' || t.listName !== sourceName(t)) ? t.listName : null,
+      t.minutes ? mins(t.minutes) : null,
+      t.date ? `due ${dayName(t.date)}` : null,
+    ].filter(Boolean).join(' · ');
+    function pickRow(t, key) {
+      return h('label', { class: 'mi-row' },
+        h('input', { type: 'checkbox', checked: picked.has(t.id), onchange: (e) => { if (e.target.checked) picked.add(t.id); else picked.delete(t.id); paintPick(); } }),
+        h('span', { class: 'mi-main' }, h('b', null, t.label || t.title), h('small', null, pickMeta(t, key))),
+        key === 'apps' && h('button', { type: 'button', class: 'icon-btn', title: 'Not now: leave it out of Magic add', onclick: async (e) => {
+          e.preventDefault();
+          picked.delete(t.id);
+          try { await onyx.dismissInbox(t.id); } catch (err) { fail(err); return; }
+          inboxIds = inboxIds.filter((id) => id !== t.id);
+          paintInboxBadge();
+          paintPick();
+        } }, icon('x')));
+    }
+    function paintPick() {
+      const lists = Object.fromEntries(PICK_TABS.map((s) => [s.key, s.list()]));
+      const total = PICK_TABS.reduce((n, s) => n + lists[s.key].length, 0);
+      pickBox.hidden = !total;
+      if (!total) { pickBox.replaceChildren(); return; }
+      const known = new Set(Object.values(lists).flat().map((t) => t.id));
+      for (const id of [...picked]) if (!known.has(id)) picked.delete(id); // done or gone meanwhile
+      const scroll = pickBox.querySelector('.mp-list')?.scrollTop || 0;
+      const tab = PICK_TABS.find((s) => s.key === pickTab) || PICK_TABS[0];
+      const n = picked.size;
+      pickBox.replaceChildren(
+        h('div', { class: 'mp-tabs', role: 'tablist', 'aria-label': 'Tasks to plan in' }, PICK_TABS.map((s) => {
+          const ticked = lists[s.key].filter((t) => picked.has(t.id)).length;
+          return h('button', {
+            type: 'button', role: 'tab', class: `mp-tab${s.key === tab.key ? ' on' : ''}`, 'aria-selected': String(s.key === tab.key),
+            onclick: () => { pickTab = s.key; paintPick(); },
+          }, s.label, h('span', { class: `mp-count${ticked ? ' ticked' : ''}` }, ticked ? `${ticked} of ${lists[s.key].length}` : String(lists[s.key].length)));
+        })),
+        h('div', { class: 'mp-list', role: 'tabpanel' }, lists[tab.key].length ? lists[tab.key].map((t) => pickRow(t, tab.key)) : h('p', { class: 'mp-empty' }, tab.empty)),
+        h('div', { class: 'mp-foot' },
+          h('span', null, n ? `${n} ticked to plan into the day` : 'Tick any to plan them into the day'),
+          n ? h('button', { type: 'button', class: 'btn ghost', onclick: () => { picked.clear(); paintPick(); } }, 'Untick all') : null));
+      const list = pickBox.querySelector('.mp-list');
+      if (list) list.scrollTop = scroll;
     }
     const text = h('textarea', { class: 'magic-text', rows: 5, spellcheck: true, value: preset.text || '',
-      placeholder: inboxTasks().length ? 'Anything else to get done? One task per line…'
+      placeholder: PICK_TABS.some((s) => s.list().length) ? 'Anything else to get done? One task per line…'
         : 'Pick up the prescription\nGroceries\nStudy Arabic for an hour and a half\nCall the bank by 4pm\nGym' });
     const date = h('input', { type: 'date', value: preset.date || ymd(new Date()) });
     const start = h('input', { type: 'time', value: m.start, step: 900 });
@@ -6757,8 +6796,6 @@
     const claude = S.ai?.ready;
 
     const opts = () => ({ home: home.value.trim(), mode: mode.value, start: start.value || '08:00', end: end.value || '21:00', lunch: lunch.checked });
-    const dayName = (d) => (d === ymd(new Date()) ? 'today' : d === ymd(addDays(new Date(), 1)) ? 'tomorrow' : fmtDay(fromYmd(d)));
-    const mins = (n) => (n >= 60 ? `${Math.floor(n / 60)} h${n % 60 ? ` ${n % 60} min` : ''}` : `${n} min`);
 
     function paint() {
       if (!view) { out.replaceChildren(); return; }
@@ -6911,12 +6948,12 @@
     }
 
     const row = (label, ...kids) => h('label', { class: 'magic-field' }, h('span', null, label), ...kids);
-    paintArrived();
+    paintPick();
     const sheet = h('div', { class: 'sheet magic' }, h('div', { class: 'pane' },
       h('button', { class: 'icon-btn close', onclick: closeSettings }, icon('x')),
       h('h3', { class: 'magic-h' }, icon('sparkles'), 'Magic add'),
-      h('p', { class: 'hint' }, 'Describe what you need to get done. Each task gets a length, a place and a good time of day, and they are fitted around what is already in your day, with the travel counted. Tasks that arrive from your other apps wait here to be planned in.'),
-      arrivedBox,
+      h('p', { class: 'hint' }, 'Describe what you need to get done, and tick tasks from your backburner, your other apps or your tasks with no date. Each one gets a length, a place and a good time of day, and they are fitted around what is already in your day, with the travel counted.'),
+      pickBox,
       text,
       h('div', { class: 'magic-grid' }, row('Day', date, dayChips), row('Add to', calendarPick)),
       h('details', { class: 'magic-opts', open: !MOBILE },

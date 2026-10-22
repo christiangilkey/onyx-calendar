@@ -14,7 +14,7 @@ const SYSTEM = [
   'You help someone plan one day. They describe things they need to get done; you work out how long each takes and where and when it fits best.',
   'For each task give: "title" (short, keep their words), "minutes" (realistic, door-to-door for the doing itself not the travel, including setup, queues and tidy-up, multiples of 5, between 5 and 240), "place" (a short name of where it is done; reuse the exact place names from their schedule when it is the same place; "Home" for things done at home; null for things done anywhere, like a phone call), "when" (morning, midday, afternoon, evening or any: when it suits best, thinking about energy, opening hours and how people usually do it; focus work is best in the morning, errands when places are open, calls in office hours), "kind" (focus, errand, call, chore, exercise, admin or other), "after" and "before" ("HH:MM" 24-hour, only when they said a time limit; otherwise null) and "why" (one short sentence on the length or timing).',
   'Also give "travel": the minutes of door-to-door travel between every two different places that matter (each pair once): the places of your tasks, the places in their schedule and their home base. Use their way of getting around and their area. If you do not know the area, assume a typical town.',
-  'Some tasks arrive from other apps as "[t1] title"; each of those is exactly one task: give it the field "ref" with its tag (t1), and still estimate it like the rest. Tasks the person typed have no ref.',
+  'Some tasks come from the person\'s own lists (sent from other apps, kept on the backburner, or with no date yet) as "[t1] title"; each of those is exactly one task: give it the field "ref" with its tag (t1), and still estimate it like the rest. Tasks the person typed have no ref.',
   'Write in the same language as the task. Reply with only JSON: {"tasks":[...],"travel":[{"from":"","to":"","minutes":0}]}.',
 ].join(' ');
 
@@ -59,7 +59,7 @@ function userMessage({ text, day, from, to, busy, home, mode, arrived = [] }) {
     `Day: ${day.toDateString()}. Free window to plan in: ${hm(new Date(from))} to ${hm(new Date(to))}.`,
     `Home base: ${home || 'not given'}. They get around ${MODES[mode] || MODES.drive}.`,
     `Already in their schedule:\n${lines.length ? lines.join('\n') : '(nothing)'}`,
-    arrived.length ? `Tasks that arrived from other apps:\n${arrived.map((a, i) => `[t${i + 1}] ${String(a.title).slice(0, 120)}${a.minutes ? ` [expected length: ${a.minutes} min]` : ''}${a.notes ? ` (${String(a.notes).replace(/\s+/g, ' ').slice(0, 160)})` : ''}`).join('\n')}` : '',
+    arrived.length ? `Tasks picked from their lists:\n${arrived.map((a, i) => `[t${i + 1}] ${String(a.title).slice(0, 120)}${a.minutes ? ` [expected length: ${a.minutes} min]` : ''}${a.notes ? ` (${String(a.notes).replace(/\s+/g, ' ').slice(0, 160)})` : ''}`).join('\n')}` : '',
     String(text).trim() ? `What they need to get done:\n${String(text).slice(0, 3000)}` : '',
   ].filter(Boolean).join('\n\n');
 }
@@ -116,7 +116,7 @@ const optsOf = (o = {}) => {
  */
 async function planDay(text, date, o, inboxIds = []) {
   const body = String(text || '').trim();
-  // Tasks that arrived from other apps, picked in the window: planned along with what was typed.
+  // Tasks picked in the window (sent from other apps, on the backburner, or with no date): planned along with what was typed.
   const wanted = new Set(Array.isArray(inboxIds) ? inboxIds : []);
   const arrived = wanted.size ? (await hub.getTasks()).tasks.filter((t) => wanted.has(t.id) && !t.done && !t.mirror) : [];
   if (!body && !arrived.length) throw new Error('Describe what you need to get done first.');
@@ -151,7 +151,10 @@ async function planDay(text, date, o, inboxIds = []) {
   // A length the other app gave (Tamkeen's review time) is the length planned.
   for (const t of tasks) {
     const given = t.ref && arrived.find((a) => a.id === t.ref)?.minutes;
-    if (given) { t.minutes = plan.clampMinutes(given); t.why ||= 'Length given by the app that sent it'; }
+    if (given) {
+      t.minutes = plan.clampMinutes(given);
+      t.why ||= arrived.find((a) => a.id === t.ref)?.from ? 'Length given by the app that sent it' : 'The length it was kept with';
+    }
   }
   if (!tasks.length) throw new Error('No tasks found in that. Put one on each line.');
   const result = plan.schedule(busy, tasks, { day, from, to, home: opts.home || 'Home', travel, lunch: opts.lunch, focusPart: require('./focus').bestFocusPart() });

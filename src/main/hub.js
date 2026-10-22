@@ -873,7 +873,7 @@ async function planTask(id, { start, minutes, leaveBy } = {}) {
   if (!before) throw Object.assign(new Error('That task no longer exists.'), { status: 404 });
   const prev = {
     title: before.title, due: before.due || null, minutes: store.data.taskMinutes?.[id] || null, leaveBy: leaveByOf(id),
-    state: store.data.inboxItems?.[id]?.state || null,
+    state: store.data.inboxItems?.[id]?.state || null, backburner: !!before.backburner,
   };
   const task = await moveTask(id, { start });
   setTaskMinutes(id, minutes);
@@ -904,7 +904,9 @@ async function unplanTask(id, prev = {}) {
   await updateTask(id, { title: prev.title, due: prev.due || null });
   setTaskMinutes(id, prev.minutes);
   setLeaveBy(id, prev.leaveBy);
-  inbox.mark(id, prev.state && prev.state !== 'planned' ? prev.state : 'new');
+  // Back where it was: on the backburner, or waiting among what other apps sent (a task that never was stays out of that).
+  if (prev.backburner) setBackburner(id, true);
+  inbox.mark(id, prev.state && prev.state !== 'planned' ? prev.state : prev.state ? 'new' : 'seen');
   return true;
 }
 

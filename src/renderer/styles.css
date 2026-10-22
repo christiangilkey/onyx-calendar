@@ -2357,3 +2357,17 @@ body.mobile .fc .fc-timegrid-event:is(.is-selected, .fc-event-selected) .fc-even
    (20px all round, to grab it by); both took the taps meant for its tick circle, and the wide one taps beside it. */
 .fc .fc-event-selected::after { pointer-events: none; }
 .fc .fc-event-selected::before { content: none; }
+
+/* ------------------------------------------------------------ Magic add: tasks to plan in, in three tabs */
+.magic-pick { gap: 6px; }
+.mp-tabs { display: flex; gap: 4px; padding: 2px; border-radius: 9px; background: rgba(255, 255, 255, .04); }
+.mp-tab { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 6px; height: 30px; padding: 0 8px; border-radius: 7px; font-size: 12.5px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.mp-tab:hover { color: var(--text); background: rgba(255, 255, 255, .04); }
+.mp-tab.on { color: var(--text); background: color-mix(in srgb, #c9b8ff 18%, #15151a); }
+.mp-count { font-size: 11px; font-weight: 500; color: var(--muted); }
+.mp-count.ticked { color: #dcd3ff; }
+.mp-list { max-height: min(240px, 34vh); overflow-y: auto; }
+.mp-empty { margin: 8px 2px; color: var(--muted); font-size: 12.5px; }
+.mp-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 6px; }
+.mp-foot .btn { height: 26px; padding: 0 10px; font-size: 12px; }
+body.mobile .mp-tab { font-size: 12px; padding: 0 4px; gap: 4px; }

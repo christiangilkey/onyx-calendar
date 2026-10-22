@@ -8109,6 +8109,7 @@
 
   // Android, before it is paired with a PC (or when the PC can't be reached at all).
   function showConnect(problem) {
+    window.onyxReady = true; // the page is up (the phone app's watch over its start: MainActivity)
     const address = h('input', { type: 'text', placeholder: 'PC address, e.g. 192.168.1.20', spellcheck: false, autocomplete: 'off', inputMode: 'url' });
     const token = h('input', { type: 'text', placeholder: 'Token', spellcheck: false, autocomplete: 'off' });
     const go = h('button', { class: 'btn primary wide', type: 'submit' }, 'Connect');
@@ -8158,6 +8159,7 @@
     applyPanelWidths();
     buildCalendar();
     buildNews();
+    window.onyxReady = true; // the page is up (the phone app's watch over its start: MainActivity)
     refreshPomodoros();
     setInterval(() => { tickPomodoro(); tickNext(); tickPopups(); tickDue(); }, 1000);
     setInterval(refreshPomodoros, 60000);

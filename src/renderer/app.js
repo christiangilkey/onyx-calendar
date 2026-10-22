@@ -6797,6 +6797,22 @@
 
     const opts = () => ({ home: home.value.trim(), mode: mode.value, start: start.value || '08:00', end: end.value || '21:00', lunch: lunch.checked });
 
+    // The plan as a day: what is already in it, dimmed, and the new blocks over it. A block is dragged to
+    // move it and by its foot to change its length (5-minute steps); a tap picks it, and its details and
+    // controls show under the day. What is moved stays where it is put: nothing is laid out again behind it.
+    let chosen = null; // the block picked in the day: its index in view.result.blocks
+    const toMin = (hm) => { const [hh, mm] = String(hm || '0:0').split(':').map(Number); return (hh || 0) * 60 + (mm || 0); };
+    const span = (b) => `${fmtTime(new Date(b.start))} – ${fmtTime(new Date(b.end))}`;
+
+    /** What is already in the day (timed, from calendars that are shown); kept with the plan. */
+    async function dayEntries(d) {
+      try {
+        const s = fromYmd(d);
+        const { events } = await onyx.events(s.toISOString(), addDays(s, 1).toISOString());
+        return events.filter((e) => e.kind !== 'goal' && visible(e.calendarId));
+      } catch { return []; }
+    }
+
     function paint() {
       if (!view) { out.replaceChildren(); return; }
       const { result } = view;
@@ -6806,31 +6822,16 @@
         result.source === 'claude' ? `Estimated by Claude for ${dayName(view.date)}`
           : result.source === 'edited' ? `Laid out again for ${dayName(view.date)}`
             : `Estimated from your words for ${dayName(view.date)}${claude ? '' : '. Add a Claude key in Settings for smarter estimates'}`));
-      if (result.blocks.length) {
-        kids.push(h('div', { class: 'magic-plan' }, result.blocks.map((b) => {
-          const s = new Date(b.start), e = new Date(b.end), at = new Date(s.getTime() + b.travel * 60000);
-          return h('div', { class: 'magic-row' },
-            h('div', { class: 'mr-time' }, h('b', null, fmtTime(b.travel ? at : s)), h('small', null, `to ${fmtTime(e)}`)),
-            h('div', { class: 'mr-main' },
-              h('div', { class: 'mr-title' }, b.title),
-              h('div', { class: 'mr-meta' },
-                b.travel > 0 && h('span', { class: 'mr-chip travel', title: 'Inside the block: it starts when you set off' }, icon('car'), `${b.travel} min travel · leave ${fmtTime(s)}`),
-                b.ref && h('span', { class: 'mr-chip from', title: 'This is the task itself: it gets this time, not a copy' }, icon('tasks'), sourceName(tasks.find((t) => t.id === b.ref))),
-                b.place && h('span', { class: 'mr-chip' }, icon('pin'), b.place),
-                h('span', { class: 'mr-chip' }, mins(b.minutes))),
-              b.why && h('div', { class: 'mr-why' }, b.why)),
-            h('div', { class: 'mr-ctl' },
-              !b.part && h('button', { class: 'icon-btn', title: 'Shorter', onclick: () => nudge(b.idx, -1) }, '−'),
-              !b.part && h('button', { class: 'icon-btn', title: 'Longer', onclick: () => nudge(b.idx, 1) }, '+'),
-              h('button', { class: 'icon-btn', title: 'Leave this one out', onclick: () => drop(b.idx) }, icon('x'))));
-        })));
-      }
+      if (result.blocks.length) kids.push(dayPreview());
       if (result.unplaced.length) {
         kids.push(h('div', { class: 'magic-left' },
           h('h4', null, `Did not fit ${dayName(view.date)}`),
-          result.unplaced.map((u) => h('div', { class: 'magic-row slim' },
+          result.unplaced.map((u, k) => h('div', { class: 'magic-row slim' },
             h('div', { class: 'mr-main' }, h('div', { class: 'mr-title' }, u.title), h('div', { class: 'mr-why' }, `${mins(u.minutes)} · ${u.reason}`)),
-            h('div', { class: 'mr-ctl' }, h('button', { class: 'icon-btn', title: 'Leave this one out', onclick: () => drop(u.idx) }, icon('x'))))),
+            h('div', { class: 'mr-ctl' }, h('button', { class: 'icon-btn', title: 'Leave this one out', onclick: () => {
+              view.result = { ...view.result, unplaced: view.result.unplaced.filter((_, j) => j !== k) };
+              paint();
+            } }, icon('x'))))),
           h('div', { class: 'magic-actions' },
             h('button', { class: 'btn', onclick: later }, 'Plan these for the next day'),
             h('button', { class: 'btn ghost', onclick: addAsTasks }, 'Add them as tasks'))));
@@ -6840,6 +6841,120 @@
         h('span', { class: 'magic-total' }, n ? `${n} block${n > 1 ? 's' : ''} · ${mins(result.blocks.reduce((t, b) => t + b.minutes + b.travel, 0))}` : 'Nothing fits in that window'),
         h('button', { class: 'btn primary', disabled: !n || working, onclick: commit }, icon('plus'), n ? `Add ${n} to my calendar` : 'Add')));
       out.replaceChildren(...kids);
+    }
+
+    function dayPreview() {
+      const blocks = view.result.blocks;
+      const day0 = fromYmd(view.date).getTime();
+      const minOf = (iso) => (new Date(iso).getTime() - day0) / 60000;
+      const at = (m) => new Date(day0 + m * 60000);
+      const refs = new Set(blocks.map((b) => b.ref).filter(Boolean)); // a task being planned shows once: as its new block
+      const entries = (view.busy || []).filter((e) => !refs.has(e.id));
+      const timed = entries.filter((e) => !e.allDay && e.end && minOf(e.end) > 0 && minOf(e.start) < 24 * 60);
+      const allDay = entries.filter((e) => e.allDay);
+      // The day from the planning hours, widened to whatever is in it, in whole hours.
+      const spans = [...blocks, ...timed].map((x) => [Math.max(0, minOf(x.start)), Math.min(24 * 60, minOf(x.end))]);
+      const from = Math.floor(Math.min(toMin(start.value || '08:00'), ...spans.map((s) => s[0])) / 60) * 60;
+      const to = Math.min(24 * 60, Math.ceil(Math.max(toMin(end.value || '21:00'), ...spans.map((s) => s[1])) / 60) * 60);
+      const PX = MOBILE ? 1.1 : 1.25;
+      const y = (m) => (m - from) * PX;
+      const grid = h('div', { class: 'md-grid', css: { height: `${(to - from) * PX}px` } });
+      for (let m = from; m <= to; m += 60) {
+        grid.append(h('div', { class: 'md-hour', css: { top: `${y(m)}px` } }, h('span', null, m < 24 * 60 ? fmtTime(at(m)).replace(':00', '') : '')));
+      }
+      if (view.date === ymd(new Date())) {
+        const now = minOf(new Date().toISOString());
+        if (now > from && now < to) grid.append(h('div', { class: 'md-now', css: { top: `${y(now)}px` } }));
+      }
+      for (const e of timed) {
+        const s = Math.max(from, minOf(e.start)), f = Math.min(to, minOf(e.end));
+        grid.append(h('div', { class: `md-busy${e.done ? ' done' : ''}`, css: { top: `${y(s)}px`, height: `${Math.max(14, (f - s) * PX - 2)}px`, '--c': e.color || '#8b7cff' }, title: `${e.title} · ${span(e)}` },
+          h('span', null, e.title)));
+      }
+      blocks.forEach((b, i) => grid.append(magicBlock(b, i, { y, PX, minOf, at, from, to })));
+      return h('div', { class: 'magic-day' },
+        allDay.length ? h('div', { class: 'md-allday' }, h('b', null, 'All day'), allDay.map((e) => h('span', { css: { '--c': e.color || '#8b7cff' } }, e.title))) : null,
+        grid,
+        chosenDetails());
+    }
+
+    /** One planned block in the day: dragged to move it (its length kept), or by its foot to change its length. */
+    function magicBlock(b, i, g) {
+      const s = g.minOf(b.start), e = g.minOf(b.end);
+      const label = h('small', null, span(b));
+      const el = h('div', { class: `md-magic${chosen === i ? ' on' : ''}${(e - s) * g.PX < 40 ? ' short' : ''}`, css: { top: `${g.y(s)}px`, height: `${Math.max(20, (e - s) * g.PX - 2)}px` } },
+        b.travel > 0 && h('div', { class: 'md-travel', css: { height: `${Math.min(100, (b.travel / Math.max(1, e - s)) * 100)}%` } }),
+        h('div', { class: 'md-t' }, h('b', null, b.title), label),
+        h('div', { class: 'md-grip', title: 'Drag to make it longer or shorter' }));
+      el.addEventListener('pointerdown', (ev) => {
+        if (ev.button || working) return;
+        const grip = !!ev.target.closest('.md-grip');
+        const y0 = ev.clientY, len = e - s;
+        let moved = false, next = [s, e];
+        try { el.setPointerCapture(ev.pointerId); } catch { /* a synthetic pointer */ }
+        const move = (mv) => {
+          if (!moved && Math.abs(mv.clientY - y0) < 5) return;
+          moved = true;
+          el.classList.add('dragging');
+          const d = Math.round((mv.clientY - y0) / g.PX / 5) * 5;
+          next = grip
+            ? [s, Math.max(s + Math.max(5, b.travel + 5), Math.min(24 * 60, e + d))]
+            : [Math.max(0, Math.min(24 * 60 - len, s + d)), 0];
+          if (!grip) next[1] = next[0] + len;
+          el.style.top = `${g.y(next[0])}px`;
+          el.style.height = `${Math.max(20, (next[1] - next[0]) * g.PX - 2)}px`;
+          label.textContent = `${fmtTime(g.at(next[0]))} – ${fmtTime(g.at(next[1]))}`;
+        };
+        const up = () => {
+          el.removeEventListener('pointermove', move);
+          el.removeEventListener('pointerup', up);
+          el.removeEventListener('pointercancel', up);
+          if (!moved) { chosen = chosen === i ? null : i; paint(); return; }
+          b.start = g.at(next[0]).toISOString();
+          b.end = g.at(next[1]).toISOString();
+          b.minutes = Math.max(5, next[1] - next[0] - (b.travel || 0));
+          b.why = '';
+          chosen = i;
+          paint();
+        };
+        el.addEventListener('pointermove', move);
+        el.addEventListener('pointerup', up);
+        el.addEventListener('pointercancel', up);
+        ev.preventDefault();
+      });
+      return el;
+    }
+
+    /** The picked block's details and controls, under the day: a little longer or shorter, or left out. */
+    function chosenDetails() {
+      const b = chosen != null ? view.result.blocks[chosen] : null;
+      if (!b) return h('p', { class: 'md-hint' }, MOBILE ? 'Drag a block to move it, or its bottom edge to change its length. Tap one for its details.'
+        : 'Drag a block to move it, or its bottom edge to change its length. Click one for its details.');
+      const s = new Date(b.start), at = new Date(s.getTime() + b.travel * 60000);
+      const resize = (dir) => {
+        const step = b.minutes >= 60 ? 15 : 5;
+        b.minutes = Math.max(5, Math.min(240, b.minutes + dir * step));
+        b.end = new Date(s.getTime() + (b.minutes + (b.travel || 0)) * 60000).toISOString();
+        paint();
+      };
+      return h('div', { class: 'magic-row md-chosen' },
+        h('div', { class: 'mr-time' }, h('b', null, fmtTime(b.travel ? at : s)), h('small', null, `to ${fmtTime(new Date(b.end))}`)),
+        h('div', { class: 'mr-main' },
+          h('div', { class: 'mr-title' }, b.title),
+          h('div', { class: 'mr-meta' },
+            b.travel > 0 && h('span', { class: 'mr-chip travel', title: 'Inside the block: it starts when you set off' }, icon('car'), `${b.travel} min travel · leave ${fmtTime(s)}`),
+            b.ref && h('span', { class: 'mr-chip from', title: 'This is the task itself: it gets this time, not a copy' }, icon('tasks'), sourceName(tasks.find((t) => t.id === b.ref))),
+            b.place && h('span', { class: 'mr-chip' }, icon('pin'), b.place),
+            h('span', { class: 'mr-chip' }, mins(b.minutes))),
+          b.why && h('div', { class: 'mr-why' }, b.why)),
+        h('div', { class: 'mr-ctl' },
+          h('button', { class: 'icon-btn', title: 'Shorter', onclick: () => resize(-1) }, '−'),
+          h('button', { class: 'icon-btn', title: 'Longer', onclick: () => resize(1) }, '+'),
+          h('button', { class: 'icon-btn', title: 'Leave this one out', onclick: () => {
+            view.result = { ...view.result, blocks: view.result.blocks.filter((_, k) => k !== chosen) };
+            chosen = null;
+            paint();
+          } }, icon('x'))));
     }
 
     async function run() {
@@ -6852,7 +6967,8 @@
       try {
         onyx.magicRemember?.(opts()).then((s) => { if (s?.settings) S.settings = s.settings; }).catch(() => {});
         const r = await onyx.magicPlan(text.value, date.value, opts(), [...picked]);
-        view = { date: date.value, tasks: r.tasks, travel: r.travel, result: r };
+        view = { date: date.value, tasks: r.tasks, travel: r.travel, result: r, busy: await dayEntries(date.value) };
+        chosen = null;
         working = false;
         paint();
         out.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -6864,37 +6980,14 @@
       go.replaceChildren(icon('sparkles'), view ? 'Plan again' : 'Plan my day');
     }
 
-    // A change to the tasks lays them out again at once, without asking Claude again.
-    function relayout() {
-      clearTimeout(timer);
-      timer = setTimeout(async () => {
-        try {
-          const r = await onyx.magicReplan(view.tasks, view.travel, view.date, opts());
-          view = { ...view, tasks: r.tasks, result: r };
-          paint();
-        } catch (err) { fail(err); }
-      }, 250);
-    }
-    function nudge(i, dir) {
-      const t = view.tasks[i];
-      if (!t) return;
-      const step = t.minutes >= 60 ? 15 : 5;
-      t.minutes = Math.max(5, Math.min(240, t.minutes + dir * step));
-      relayout();
-    }
-    function drop(i) {
-      view.tasks = view.tasks.filter((_, k) => k !== i);
-      view.result = { ...view.result, blocks: view.result.blocks.filter((b) => b.idx !== i).map((b) => ({ ...b, idx: b.idx > i ? b.idx - 1 : b.idx })), unplaced: view.result.unplaced.filter((u) => u.idx !== i).map((u) => ({ ...u, idx: u.idx > i ? u.idx - 1 : u.idx })) };
-      paint();
-      relayout();
-    }
     async function later() {
       const left = view.result.unplaced.map((u) => view.tasks[u.idx]).filter(Boolean);
       const next = ymd(addDays(fromYmd(view.date), 1));
       try {
         const r = await onyx.magicReplan(left, view.travel, next, { ...opts(), start: start.value || '08:00' });
         date.value = next;
-        view = { date: next, tasks: r.tasks, travel: view.travel, result: r };
+        view = { date: next, tasks: r.tasks, travel: view.travel, result: r, busy: await dayEntries(next) };
+        chosen = null;
         paint();
       } catch (err) { fail(err); }
     }
@@ -6905,7 +6998,6 @@
       view.tasks = view.tasks.filter((_, k) => !todo.some((u) => u.idx === k));
       view.result = { ...view.result, unplaced: [] };
       paint();
-      relayout();
     }
 
     async function commit() {

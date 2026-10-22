@@ -94,7 +94,7 @@
     return null;
   }
 
-  const CACHED = new Set(['state', 'events', 'tasks', 'globe']);
+  const CACHED = new Set(['state', 'events', 'tasks', 'globe', 'goals']);
 
   // The home-screen widgets fetch from the PC themselves: they get its address and token
   // from here, and a nudge to refresh after anything is changed in the app.
@@ -126,11 +126,16 @@
     widgetTimer = setTimeout(() => Widget.refresh()?.catch?.(() => {}), 1500);
   }
 
-  /** No PC (nor any PC linked to it) answered at any address. */
-  class Unreachable extends Error {}
-  const unreachable = () => new Unreachable(conn.addresses.some(isTailscale)
-    ? 'Can\'t reach Onyx on your PC. Check that it is running, and that Tailscale is on, on both the PC and this phone.'
-    : 'Can\'t reach Onyx on your PC. Check that it is running and that the phone is on the same wifi. To use Onyx away from home, set up Tailscale: Settings → Connection.');
+  /**
+   * No PC (nor any PC linked to it) answered at any address. The title bar already says the phone is offline,
+   * so this is only ever a short word, for something tapped that can't be done without the PC (a breakdown, say):
+   * the calendar, the tasks and the goals show what was kept, and changes wait in the outbox.
+   */
+  const OFFLINE_TEXT = 'That needs your PC, and it is out of reach right now.';
+  class Unreachable extends Error {
+    constructor() { super(OFFLINE_TEXT); this.offline = true; }
+  }
+  const unreachable = () => new Unreachable();
 
   // Finding the PC quickly. Its addresses (wifi, Tailscale, linked PCs) are asked all at once with a
   // short wait, not one by one with a long one: when none is in reach that costs one short wait,
@@ -509,6 +514,7 @@
   window.ONYX_PHONE = true;
   window.onyx = {
     isPhone: true,
+    offlineText: OFFLINE_TEXT,
     paired: () => !!conn,
     connection: () => (conn ? { addresses: conn.addresses, last: conn.last, online, anywhere: conn.addresses.filter(isTailscale) } : null),
     pair,
@@ -634,6 +640,7 @@
     setBlockTasks: (key, items) => call('blockTasks:set', key, items),
     tickBlockTask: (id, taskId, done) => call('blockTasks:tick', id, taskId, done),
     setEventColor: (key, color) => call('eventColor:set', key, color),
+    reportBugs: (list) => call('bugs:report', list),
     news: (force, mode) => call('news', force, mode),
     addNewsChannel: (input) => call('news:add', input),
     setNewsChannel: (id, on) => call('news:set', id, on),
@@ -663,7 +670,18 @@
       const mine = {}, shared = {};
       for (const [k, v] of Object.entries(patch || {})) (PHONE_ONLY.includes(k) ? mine : shared)[k] = v;
       if (Object.keys(mine).length) { local = { ...local, ...mine }; write(LOCAL, local); }
-      return withLocal(Object.keys(shared).length ? await call('settings', shared) : await call('state'));
+      if (!Object.keys(shared).length) return withLocal(await call('state'));
+      try {
+        return withLocal(await call('settings', shared));
+      } catch (err) {
+        // The PC out of reach: kept on the phone at once, and sent with the other changes once it is back.
+        const kept = err instanceof Unreachable && read(`${CACHE}state`, null);
+        if (!kept) throw err;
+        const next = { ...kept, settings: { ...kept.settings, ...shared } };
+        write(`${CACHE}state`, next);
+        enqueue('settings', [shared]);
+        return withLocal(next);
+      }
     },
     open: async (url) => openOutside(url),
     checkUpdate,

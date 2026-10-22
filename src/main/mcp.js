@@ -376,7 +376,7 @@ function send(res, code, body, headers = {}) {
 
 // Commands the Android app may run (see api.js), set by main.js.
 let appApi = {};
-const READS = new Set(['ping', 'state', 'events', 'tasks', 'refresh', 'emails']);
+const READS = new Set(['ping', 'state', 'events', 'tasks', 'refresh', 'emails', 'bugs:report']);
 
 async function appRpc(req, res) {
   if (req.method !== 'POST') return send(res, 405, { error: 'Use POST.' }, { Allow: 'POST' });
@@ -419,6 +419,7 @@ async function appCall(msg) {
     if (!READS.has(msg.name)) onChange();
     return { ok: true, value: value ?? null };
   } catch (err) {
+    require('./bugs').noteError(err, msg.name);
     return { ok: false, error: err.message || String(err) };
   }
 }

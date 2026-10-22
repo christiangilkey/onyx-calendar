@@ -368,6 +368,7 @@ function registerIpc() {
       try {
         return { ok: true, value: await fn(...args) };
       } catch (err) {
+        require('./bugs').noteError(err, name);
         return { ok: false, error: err.message || String(err) };
       }
     });

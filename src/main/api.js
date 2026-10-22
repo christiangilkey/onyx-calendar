@@ -125,6 +125,7 @@ const handlers = {
   'blockTasks:set': (key, items) => hub.setBlockTasks(key, items),
   'blockTasks:tick': (id, taskId, done) => hub.tickBlockTask(id, taskId, done),
   'eventColor:set': (key, color) => hub.setEventColor(key, color),
+  'bugs:report': (list) => require('./bugs').fromApp(list),
   'tag:color': withState((tag, color) => hub.setTagColor(tag, color)),
   'tag:rename': withState((from, to) => hub.renameTag(from, to)),
   'tag:delete': withState((tag) => hub.deleteTag(tag)),

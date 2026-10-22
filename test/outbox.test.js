@@ -28,7 +28,10 @@ function makePC() {
     'task:create': async (d) => { const t = { ...d, id: `list/${++pc.seq}`, label: d.title, date: d.due || null, done: false }; pc.tasks.push(t); return t; },
     'task:update': async (id, patch) => { const t = pc.tasks.find((x) => x.id === id); if (!t) throw new Error('That task no longer exists.'); return Object.assign(t, patch); },
     'tags:set': async (id, tags) => { if (tags.some((t) => t.includes('!'))) throw new Error('A tag is a word or two.'); return tags; },
+    goals: async () => [{ id: 'goal/1', title: 'Learn Arabic', steps: [] }],
+    settings: async (patch) => { Object.assign(pc.settings, patch); return { version: 'test', settings: { ...pc.settings }, calendars: [] }; },
   });
+  pc.settings = { defaultCalendar: 'cal' };
   pc.tries = 0;
   pc.fetch = async (url, opts) => {
     pc.tries++;
@@ -198,4 +201,27 @@ test('a task moved offline shows at its new time', async () => {
   const e = (await phone.events(...DAY)).events.find((x) => x.id === t.id);
   assert.equal(e?.start, '2026-10-22T14:00:00.000Z');
   assert.equal(e?.allDay, false);
+});
+
+test('a setting changed offline is kept on the phone at once and reaches the PC once it is back', async () => {
+  const pc = makePC(), phone = makePhone(pc);
+  await phone.state(); // kept for offline
+  pc.up = false;
+  const st = await phone.settings({ defaultCalendar: 'other', view: 'timeGridDay' });
+  assert.equal(st.settings.defaultCalendar, 'other');
+  assert.equal(st.settings.view, 'timeGridDay');
+  assert.equal((await phone.state()).settings.defaultCalendar, 'other', 'and stays so offline');
+  assert.equal(phone.outbox().pending, 1);
+  pc.up = true;
+  await phone.syncNow();
+  assert.equal(pc.settings.defaultCalendar, 'other');
+  assert.equal(pc.settings.view, undefined, 'the view is kept on the phone');
+});
+
+test('offline, the goals show what was kept; a command that needs the PC says so in a short word', async () => {
+  const pc = makePC(), phone = makePhone(pc);
+  await phone.goals();
+  pc.up = false;
+  assert.deepEqual(plain((await phone.goals()).map((g) => g.title)), ['Learn Arabic']);
+  await assert.rejects(phone.breakdown ? phone.breakdown('x') : phone.news(), (err) => err.offline === true && err.message === phone.offlineText);
 });

@@ -2337,24 +2337,28 @@ html.syncing:not(.offline) #titlebar::after { background: var(--accent); color: 
    bottom with a small gap, as pills big enough to take with a thumb, so a drag that starts anywhere on the block
    can't catch one by mistake. Not highlighted (the PC, on hover), the grab zone is a thin strip at each edge. */
 .fc .fc-timegrid-event .fc-event-resizer { height: min(8px, 22%); }
-.fc .fc-timegrid-event.is-selected .fc-event-resizer,
-body.mobile .fc .fc-timegrid-event.is-selected .fc-event-resizer {
+.fc .fc-timegrid-event:is(.is-selected, .fc-event-selected) .fc-event-resizer,
+body.mobile .fc .fc-timegrid-event:is(.is-selected, .fc-event-selected) .fc-event-resizer {
   display: block; left: 50%; right: auto; width: 48px; margin-left: -24px; height: 22px; z-index: 6;
 }
-.fc .fc-timegrid-event.is-selected .fc-event-resizer-start, body.mobile .fc .fc-timegrid-event.is-selected .fc-event-resizer-start { top: -25px; bottom: auto; }
-.fc .fc-timegrid-event.is-selected .fc-event-resizer-end, body.mobile .fc .fc-timegrid-event.is-selected .fc-event-resizer-end { bottom: -25px; top: auto; }
-.fc .fc-timegrid-event.is-selected .fc-event-resizer::after,
-body.mobile .fc .fc-timegrid-event.is-selected .fc-event-resizer::after {
+.fc .fc-timegrid-event:is(.is-selected, .fc-event-selected) .fc-event-resizer-start, body.mobile .fc .fc-timegrid-event:is(.is-selected, .fc-event-selected) .fc-event-resizer-start { top: -25px; bottom: auto; }
+.fc .fc-timegrid-event:is(.is-selected, .fc-event-selected) .fc-event-resizer-end, body.mobile .fc .fc-timegrid-event:is(.is-selected, .fc-event-selected) .fc-event-resizer-end { bottom: -25px; top: auto; }
+.fc .fc-timegrid-event:is(.is-selected, .fc-event-selected) .fc-event-resizer::after,
+body.mobile .fc .fc-timegrid-event:is(.is-selected, .fc-event-selected) .fc-event-resizer::after {
   width: 30px; height: 6px; margin-left: -15px; border-radius: 4px; background: #fff; opacity: 1;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, .35), 0 2px 6px rgba(0, 0, 0, .55);
 }
-.fc .fc-timegrid-event.is-selected .fc-event-resizer-start::after, body.mobile .fc .fc-timegrid-event.is-selected .fc-event-resizer-start::after { top: auto; bottom: 8px; }
-.fc .fc-timegrid-event.is-selected .fc-event-resizer-end::after, body.mobile .fc .fc-timegrid-event.is-selected .fc-event-resizer-end::after { bottom: auto; top: 8px; }
+.fc .fc-timegrid-event:is(.is-selected, .fc-event-selected) .fc-event-resizer-start::after, body.mobile .fc .fc-timegrid-event:is(.is-selected, .fc-event-selected) .fc-event-resizer-start::after { top: auto; bottom: 8px; }
+.fc .fc-timegrid-event:is(.is-selected, .fc-event-selected) .fc-event-resizer-end::after, body.mobile .fc .fc-timegrid-event:is(.is-selected, .fc-event-selected) .fc-event-resizer-end::after { bottom: auto; top: 8px; }
 /* The phone: bigger pills, a bigger place to put a thumb. */
-body.mobile .fc .fc-timegrid-event.is-selected .fc-event-resizer { width: 60px; margin-left: -30px; height: 28px; }
-body.mobile .fc .fc-timegrid-event.is-selected .fc-event-resizer-start { top: -31px; }
-body.mobile .fc .fc-timegrid-event.is-selected .fc-event-resizer-end { bottom: -31px; }
-body.mobile .fc .fc-timegrid-event.is-selected .fc-event-resizer::after { width: 36px; margin-left: -18px; height: 6px; }
+body.mobile .fc .fc-timegrid-event:is(.is-selected, .fc-event-selected) .fc-event-resizer { width: 60px; margin-left: -30px; height: 28px; }
+body.mobile .fc .fc-timegrid-event:is(.is-selected, .fc-event-selected) .fc-event-resizer-start { top: -31px; }
+body.mobile .fc .fc-timegrid-event:is(.is-selected, .fc-event-selected) .fc-event-resizer-end { bottom: -31px; }
+body.mobile .fc .fc-timegrid-event:is(.is-selected, .fc-event-selected) .fc-event-resizer::after { width: 36px; margin-left: -18px; height: 6px; }
 /* Nothing in the way of the bars standing outside the block. */
-.fc .fc-timegrid-event.is-selected, .fc .fc-timegrid-event-harness:has(> .is-selected) { overflow: visible; z-index: 6; }
+.fc .fc-timegrid-event:is(.is-selected, .fc-event-selected), .fc .fc-timegrid-event-harness:has(> .is-selected, > .fc-event-selected) { overflow: visible; z-index: 6; }
 .fc .fc-timegrid-event .fc-event-resizer::before { content: none; }
+/* A highlighted entry on a touch screen: the calendar lays a dimming layer over it and a wider invisible one
+   (20px all round, to grab it by); both took the taps meant for its tick circle, and the wide one taps beside it. */
+.fc .fc-event-selected::after { pointer-events: none; }
+.fc .fc-event-selected::before { content: none; }

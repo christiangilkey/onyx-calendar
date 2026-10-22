@@ -52,6 +52,7 @@ const DEFAULTS = {
   blockTasks: {},        // event id (a repeat's: the series') -> [{ id, text }]: what to get done within the block (hub.js)
   eventColors: {},       // event id (a repeat's: the series') -> '#rrggbb': a colour of its own, in place of its calendar's
   opsDone: {},           // a change sent by a phone (its outbox id) -> { at, value }: made once, even if sent again (mcp.js)
+  bugReports: [],        // bugs in Onyx itself, the PC's and the app's, with where they happened (bugs.js): kept to be fixed
   blockTicks: {},        // event id (each day of a repeat on its own) -> [task id, ...]: which of them are ticked off
   inboxItems: {},        // task id -> { at, state, from? }: tasks that arrived from outside, waiting for Magic add (inbox.js)
   inboxLists: {},        // task list id -> true once read, so its first read only learns what is there

@@ -1150,7 +1150,7 @@
       recordAction(color ? `Coloured "${src.title}"` : `"${src.title}" in its calendar's colour`, () => onyx.setEventColor(key, before), () => onyx.setEventColor(key, color));
       refetch();
     } catch (err) {
-      toast(err.message, 'error');
+      fail(err);
     }
   }
 
@@ -1268,7 +1268,15 @@
   const quietLabel = () => `${fmtTime(at('2000-01-01', S.settings.pi.quietStart))} to ${fmtTime(at('2000-01-01', S.settings.pi.quietEnd))}`;
 
   /** `action` ({ label, run }) adds a button to the toast, like Undo. */
+  let toldOffline = 0;
   function toast(message, kind = '', action) {
+    // The phone with its PC out of reach: the title bar says so already. Something tapped that needs the PC
+    // gets a short, calm word (not an error), and not again and again.
+    if (onyx.offlineText && message === onyx.offlineText) {
+      if (Date.now() - toldOffline < 30000) return;
+      toldOffline = Date.now();
+      kind = '';
+    }
     const ms = action ? 8000 : kind ? 7000 : 3200;
     // The same message again (a button tapped twice) keeps the one already showing up for longer.
     const same = !action && [...$('#toasts').children].find((t) => !t.classList.contains('has-action') && t.textContent === String(message));
@@ -1281,6 +1289,44 @@
       action && h('button', { class: 'toast-action', onclick: () => { el.remove(); action.run(); } }, action.label));
     $('#toasts').append(el);
     el._timer = setTimeout(() => el.remove(), ms);
+  }
+
+  // ---- bugs: a slip in Onyx's own code (not a refusal from Google, the PC or the network) shows as a
+  // short word, not a line of code. What happened is kept, and sent to the PC (bugs.js), so it can be fixed.
+  const BUG_RE = /Cannot read propert|Cannot set propert|is not a function|is not defined|is not iterable|Cannot access '|before initialization|Maximum call stack|Invalid time value|Invalid array length/;
+  const BUGS = 'onyx.bugs';
+  /** Says why something didn't work: the message as it is, or, for a bug, a short word (and the bug is kept). */
+  function fail(err, kind = 'error') {
+    const message = err?.message || String(err || '');
+    if (!BUG_RE.test(message)) return toast(message || 'Something went wrong.', kind);
+    noteBug(err);
+    toast('Something went wrong there. Onyx noted it so it can be fixed.', kind);
+  }
+  function noteBug(err) {
+    console.error(err);
+    try {
+      const list = JSON.parse(localStorage.getItem(BUGS) || '[]');
+      list.push({ at: new Date().toISOString(), where: onyx.isPhone ? 'phone' : 'window', version: S?.version || '',
+        message: String(err?.message || err).slice(0, 300), stack: String(err?.stack || '').slice(0, 3000) });
+      localStorage.setItem(BUGS, JSON.stringify(list.slice(-30)));
+    } catch { /* not kept */ }
+    setTimeout(sendBugs, 0);
+  }
+  let sendingBugs = false;
+  /** Hands the bugs kept here to the PC; kept until it is in reach. */
+  async function sendBugs() {
+    if (sendingBugs || !onyx.reportBugs) return;
+    let list;
+    try { list = JSON.parse(localStorage.getItem(BUGS) || '[]'); } catch { return; }
+    if (!list.length) return;
+    sendingBugs = true;
+    try {
+      await onyx.reportBugs(list);
+      const now = JSON.parse(localStorage.getItem(BUGS) || '[]');
+      localStorage.setItem(BUGS, JSON.stringify(now.slice(list.length)));
+    } catch { /* kept for the next time */ } finally {
+      sendingBugs = false;
+    }
   }
 
   // The phone talking to an older Onyx on the PC: say so once, not on every reload.
@@ -1412,7 +1458,7 @@
       // A stand-in goes once a load that started after its entry was made has brought the real one.
       for (const ev of [...pending]) if (ev.extendedProps.madeAt && ev.extendedProps.madeAt <= began) dropPending(ev);
     } catch (err) {
-      toast(err.message, 'error');
+      if (!err.offline) fail(err);
       ok([]);
     }
   }
@@ -1611,7 +1657,7 @@
       refetch();
     } catch (err) {
       info.revert();
-      toast(err.message, 'error');
+      fail(err);
     }
   }
 
@@ -1634,7 +1680,7 @@
       loadTasks(true);
     } catch (err) {
       info.revert();
-      toast(err.message, 'error');
+      fail(err);
     }
   }
 
@@ -1680,7 +1726,7 @@
       loadTasks(true);
     } catch (err) {
       info.revert();
-      toast(err.message, 'error');
+      fail(err);
     }
   }
 
@@ -1836,9 +1882,9 @@
       // While it is carried, the entry itself follows the pointer freely; where it will land
       // (snapped to the grid) shows as an outline, and it snaps there when dropped.
       eventDragStart: (info) => { hidePeek(); edgeNavStart(); floatStart(info); },
-      eventDragStop: () => { edgeNavStop(); floatStop(); afterDrag(); },
+      eventDragStop: (info) => { edgeNavStop(); floatStop(); afterDrag(info); },
       eventResizeStart: (info) => { hidePeek(); stretchStart(info); },
-      eventResizeStop: () => { stretchStop(); afterDrag(); },
+      eventResizeStop: (info) => { stretchStop(); afterDrag(info); },
       datesSet: (info) => {
         if (!graph.on) $('#range').textContent = MOBILE ? shortTitle(info.view.currentStart, info.view.currentEnd, info.view.type) : info.view.title;
         for (const b of document.querySelectorAll('[data-view]')) b.classList.toggle('on', !graph.on && b.dataset.view === info.view.type);
@@ -1981,7 +2027,7 @@
       refetch();
     } catch (err) {
       dropPending(stand);
-      toast(err.message, 'error');
+      fail(err);
     }
   }
 
@@ -2146,8 +2192,11 @@
     && !document.querySelector('#calendar .fc-event-dragging, #calendar .fc-event-resizing');
 
   // A reload that waited for a drag runs once it is over.
-  function afterDrag() {
+  function afterDrag(info) {
     setTimeout(() => { if (refetch.later && !midDrag()) refetch(); }, 60);
+    // The entry just carried or stretched is the highlighted one (its bars outside it, ready for more).
+    const src = info?.event?.extendedProps?.src;
+    if (src && (src.kind === 'event' || src.kind === 'task') && !src.pending) setTimeout(() => selectEntry(src), 80);
   }
 
   // A backstop for touch: once every finger is off the screen, a drag still going (its end got
@@ -2741,7 +2790,7 @@
     calendarPick.addEventListener('change', () => colorPick.el.firstChild.style.setProperty('--s', calColor() || 'var(--accent)')); // the calendar's colour, as picked
     // What to get done within the block: kept in Onyx (on a read-only calendar too); a tick on a saved block saves at once.
     const tasksField = blockTaskField(src?.taskList || [], {
-      onTick: src ? (taskId, done) => onyx.tickBlockTask(src.id, taskId, done).then(() => refetch()).catch((err) => toast(err.message, 'error')) : null,
+      onTick: src ? (taskId, done) => onyx.tickBlockTask(src.id, taskId, done).then(() => refetch()).catch((err) => fail(err)) : null,
     });
 
     const sync = () => {
@@ -2843,7 +2892,7 @@
         if (typeof then === 'function') then({ ...src, ...data, ...saved, taskList: tasksField.get().items });
       } catch (err) {
         busy = false;
-        toast(err.message, 'error');
+        fail(err);
       }
     };
 
@@ -2866,7 +2915,7 @@
         loadTasks(true);
       } catch (err) {
         busy = false;
-        toast(err.message, 'error');
+        fail(err);
       }
     };
 
@@ -2888,7 +2937,7 @@
         closePopover();
         refetch();
       } catch (err) {
-        toast(err.message, 'error');
+        fail(err);
       }
     };
 
@@ -2963,7 +3012,7 @@
       showProblems(res.errors);
       noteInbox(res.inbox || []);
     } catch (err) {
-      toast(err.message, 'error');
+      if (!err.offline) fail(err); // offline: the last list stays
     }
     renderTasks();
     loadGoals();
@@ -3002,7 +3051,7 @@
     try {
       goals = await onyx.goals();
     } catch (err) {
-      if (!outdated(err)) toast(err.message, 'error');
+      if (!err.offline && !outdated(err)) fail(err); // offline: the last ones stay
     }
     renderGoals();
   }
@@ -3056,7 +3105,7 @@
         await loadTasks(true);
         refetch(true);
       } catch (err) {
-        toast(err.message, 'error');
+        fail(err);
       }
     };
     return [
@@ -3110,7 +3159,7 @@
         refetch(true);
       } catch (err) {
         input.value = t.date || '';
-        toast(err.message, 'error');
+        fail(err);
       }
     });
     const open = (e) => {
@@ -3151,7 +3200,7 @@
       (back ? history.future : history.past).push(a);
       showUndoBar(`${back ? 'Undone' : 'Redone'}: ${a.label}`);
     } catch (err) {
-      toast(err.message, 'error');
+      fail(err);
     }
     history.busy = false;
     syncUndo();
@@ -3277,7 +3326,7 @@
       return true;
     } catch (err) {
       row?.classList.remove('done');
-      toast(err.message, 'error');
+      fail(err);
       return false;
     }
   }
@@ -3293,7 +3342,7 @@
       refetch();
       return true;
     } catch (err) {
-      toast(err.message, 'error');
+      fail(err);
       return false;
     }
   }
@@ -3304,7 +3353,7 @@
       recordAction(`Restored "${src.title}"`, () => onyx.setEventDone(src.id, true), () => onyx.setEventDone(src.id, false));
       refetch();
     } catch (err) {
-      toast(err.message, 'error');
+      fail(err);
     }
   }
 
@@ -3316,7 +3365,7 @@
       if (taskTab === 'archived') loadArchive();
       refetch();
     } catch (err) {
-      toast(err.message, 'error');
+      fail(err);
     }
   }
 
@@ -3356,7 +3405,7 @@
       showProblems(res.errors);
     } catch (err) {
       if (mine !== archiveSeq) return;
-      toast(err.message, 'error');
+      fail(err);
     }
     if (taskTab === 'archived') renderArchive();
   }
@@ -3376,7 +3425,7 @@
         toast(`Deleted "${t.label}"`);
         loadArchive();
       } catch (err) {
-        toast(err.message, 'error');
+        fail(err);
       }
     };
     return h('div', { class: 'task archived', css: { '--c': t.color } },
@@ -3531,11 +3580,11 @@
       e.stopPropagation();
       try {
         await fn();
-        toast(done, '', { label: 'Undo', run: async () => { await undo().catch((err) => toast(err.message, 'error')); await loadTasks(true); refetch(true); } });
+        toast(done, '', { label: 'Undo', run: async () => { await undo().catch((err) => fail(err)); await loadTasks(true); refetch(true); } });
         await loadTasks(true);
         refetch(true);
       } catch (err) {
-        toast(err.message, 'error');
+        fail(err);
       }
     };
     // Move to later: the date picker, as on the date chip.
@@ -3592,7 +3641,7 @@
         await loadTasks();
         refetch();
       } catch (err) {
-        toast(err.message, 'error');
+        fail(err);
       }
     };
     // The due date: changing it here does what dragging the task in the calendar does.
@@ -3712,7 +3761,7 @@
         steps = await onyx.breakdown(t.label || t.title, { level, notes: cleanNote(notes.value) });
         drawSteps();
       } catch (err) {
-        toast(err.message, 'error');
+        fail(err);
       } finally {
         go.disabled = false;
         go.replaceChildren(icon('hammer'), steps.length ? 'Again' : 'Break it down');
@@ -3735,7 +3784,7 @@
               toast(`${steps.length} steps added as tasks`);
               await loadTasks(true);
               refetch(true);
-            } catch (err) { toast(err.message, 'error'); }
+            } catch (err) { fail(err); }
           } }, 'Make them tasks')));
     };
     return h('div', { class: 'row top breakdown-row' }, icon('hammer'),
@@ -3941,7 +3990,7 @@
           drawSteps();
         }
       } catch (err) {
-        toast(err.message, 'error');
+        fail(err);
       } finally {
         hammer.disabled = false;
         hammer.replaceChildren(icon('hammer'), 'Again');
@@ -5070,7 +5119,7 @@
       closePopover();
       openFocusSetup(focusEntry(t), { minutes: req.minutes });
     } catch (err) {
-      toast(err.message, 'error');
+      fail(err);
     }
   }
 
@@ -5118,7 +5167,7 @@
       await loadTasks(true);
       refetch(true);
     } catch (err) {
-      toast(err.message, 'error');
+      fail(err);
     }
   }
 
@@ -5146,7 +5195,7 @@
         await loadTasks();
         refetch();
       } catch (err) {
-        toast(err.message, 'error');
+        fail(err);
       }
     };
     const clear = async () => {
@@ -5157,7 +5206,7 @@
         await loadTasks();
         refetch();
       } catch (err) {
-        toast(err.message, 'error');
+        fail(err);
       }
     };
     showPopover(anchor, [
@@ -5232,7 +5281,7 @@
       refetch();
     } catch (err) {
       input.value = title;
-      toast(err.message, 'error');
+      fail(err);
     }
   });
 
@@ -5289,7 +5338,7 @@
       if (problems && problems !== news.problems) toast(`News: ${problems}`, 'warn');
       news.problems = problems;
     } catch (err) {
-      toast(err.message, 'error');
+      fail(err);
     } finally {
       news.loading = false;
       $('#news-refresh').classList.remove('spin');
@@ -5356,7 +5405,7 @@
       await onyx.tamkeen.watch(c.id);
       toast(`Opening "${c.title || 'the video'}" in Tamkeen`);
     } catch (err) {
-      toast(err.message, 'error');
+      fail(err);
     }
   }
 
@@ -5379,7 +5428,7 @@
         if (news.current !== c) return;
         news.tamkeen = null;
         renderNews();
-        toast(err.message, 'error');
+        fail(err);
       });
       return;
     }
@@ -5501,7 +5550,7 @@
         draw();
         loadNews();
       } catch (err) {
-        toast(err.message, 'error');
+        fail(err);
       }
     };
     const draw = () => list.replaceChildren(...news.channels.map((c) => h('label', null,
@@ -5519,7 +5568,7 @@
         draw();
         loadNews();
       } catch (err) {
-        toast(err.message, 'error');
+        fail(err);
       }
       addBtn.disabled = false;
     };
@@ -5633,7 +5682,7 @@
       } catch (err) {
         box.disabled = false;
         box.checked = !done;
-        toast(err.message, 'error');
+        fail(err);
       }
     };
 
@@ -5707,7 +5756,7 @@
         if (!sameTags(picked, g?.tags)) reloadTags();
       } catch (err) {
         busy = false;
-        toast(err.message, 'error');
+        fail(err);
       }
     };
     const remove = async () => {
@@ -5720,7 +5769,7 @@
         refetch();
         reloadTags();
       } catch (err) {
-        toast(err.message, 'error');
+        fail(err);
       }
     };
 
@@ -5869,7 +5918,7 @@
       if (!quiet) applyState(next);
       else { S.settings = next.settings; S.mcp = next.mcp; S.tags = next.tags; }
     } catch (err) {
-      toast(err.message, 'error');
+      fail(err);
     }
   }
 
@@ -6013,7 +6062,7 @@
       loadTasks(true);
       if (done) toast(done);
     } catch (err) {
-      toast(err.message, 'error');
+      fail(err);
     }
   }
 
@@ -6213,7 +6262,7 @@
           h('span', { class: 'pc-node off' }, icon('cloudoff'), 'Nothing sent')));
       const draw = (info) => {
         if (!('doomscroll' in info)) { box.replaceChildren(h('p', null, 'Update the Onyx app to use this.')); return; }
-        const set = (o) => onyx.launcher.setDoomscroll(o).then(draw).catch((err) => toast(err.message, 'error'));
+        const set = (o) => onyx.launcher.setDoomscroll(o).then(draw).catch((err) => fail(err));
         const minutes = [...new Set([...MINUTES, info.doomMinutes])].sort((a, b) => a - b);
         box.replaceChildren(...[
           field('Doomscroll saver', 'After a while on social media, a small card comes up in the bottom right corner: how long it has been, and what is next on your calendar with a bar filling as it nears. Tap it to come back to Onyx; the × hides it for another stretch.',
@@ -6264,7 +6313,7 @@
         const lock = info.show === 'lock' || info.show === 'both';
         box.replaceChildren(...[
           field('Show Onyx on', 'Your progress bars, the time until your next task, and the Pi\'s calls as they ring.',
-            h('select', { onchange: (e) => onyx.launcher.set(e.target.value).then(draw).catch((err) => toast(err.message, 'error')) },
+            h('select', { onchange: (e) => onyx.launcher.set(e.target.value).then(draw).catch((err) => fail(err)) },
               [['home', 'Home screen'], ['lock', 'Lock screen'], ['both', 'Home and lock screen'], ['off', 'Neither']]
                 .map(([v, n]) => h('option', { value: v, selected: v === info.show }, n)))),
           field('Onyx Home', info.isHome
@@ -6274,7 +6323,7 @@
               h('button', { class: 'btn', onclick: () => onyx.launcher.open('launcher') }, 'Preview'),
               h('button', { class: info.isHome ? 'btn' : 'btn primary', onclick: () => onyx.launcher.open('home') }, info.isHome ? 'Change home app' : 'Make it my home app'))),
           field('Alarm for everything as it starts', 'On top of each entry\'s own Escalation: every timed entry and task rings the full-screen alarm as it starts. Off, only entries set to Alarm ring your phone.',
-            toggle(info.alarm === true, (v) => onyx.launcher.setAlarm(v).then(draw).catch((err) => toast(err.message, 'error')))),
+            toggle(info.alarm === true, (v) => onyx.launcher.setAlarm(v).then(draw).catch((err) => fail(err)))),
           lock && field('Notifications', 'The lock screen shows what is on now, its progress bar and a countdown to the next thing as a live notification.', allow(info.notifications, 'notifications')),
           lock && field('Over the lock screen', 'Brings the full Onyx panel up over the lock screen each time the screen turns on ("Display over other apps").', allow(info.overlay, 'overlay')),
           lock && 'notiflist' in info && field('My notifications under the panel', 'Android hides its own notification list behind the Onyx panel, so Onyx lists your other apps\' notifications under it: tap one to unlock and open it, hold it to clear it. Private ones show only "Contents hidden", and your lock screen settings for notifications are kept. Needs Notification access.',
@@ -6374,7 +6423,7 @@
           if (next?.settings) applyState(next); else openSettings('desktops');
           if (done) toast(done);
         } catch (err) {
-          toast(err.message, 'error');
+          fail(err);
         }
       };
       const ago = (t) => {
@@ -6602,7 +6651,7 @@
           h('button', { type: 'button', class: 'icon-btn', title: 'Not now: leave it out of Magic add', onclick: async (e) => {
             e.preventDefault();
             picked.delete(t.id);
-            try { await onyx.dismissInbox(t.id); } catch (err) { toast(err.message, 'error'); return; }
+            try { await onyx.dismissInbox(t.id); } catch (err) { fail(err); return; }
             inboxIds = inboxIds.filter((id) => id !== t.id);
             paintInboxBadge();
             paintArrived();
@@ -6707,7 +6756,7 @@
           const r = await onyx.magicReplan(view.tasks, view.travel, view.date, opts());
           view = { ...view, tasks: r.tasks, result: r };
           paint();
-        } catch (err) { toast(err.message, 'error'); }
+        } catch (err) { fail(err); }
       }, 250);
     }
     function nudge(i, dir) {
@@ -6731,7 +6780,7 @@
         date.value = next;
         view = { date: next, tasks: r.tasks, travel: view.travel, result: r };
         paint();
-      } catch (err) { toast(err.message, 'error'); }
+      } catch (err) { fail(err); }
     }
     async function addAsTasks() {
       const todo = view.result.unplaced;
@@ -6768,7 +6817,7 @@
           else made.push({ ...s, event: await onyx.createEvent(s.fields) });
         }
       } catch (err) {
-        toast(err.message, 'error');
+        fail(err);
       }
       working = false;
       if (!made.length) { paint(); return; }
@@ -7030,7 +7079,7 @@
         for (const p of mail.problems || []) if (!graph.mailWarned?.has(p)) { (graph.mailWarned ||= new Set()).add(p); toast(p, 'warn'); }
       }
     } catch (err) {
-      toast(err.message, 'error');
+      fail(err);
     }
     if (seq !== graph.seq || !graph.on) return;
     graph.events = events;
@@ -7187,7 +7236,7 @@
         try {
           afterFilesAdded(await onyx.addFiles(paths, tag ? [tag] : []), tag ? [tag] : []);
         } catch (err) {
-          toast(err.message, 'error');
+          fail(err);
         }
         return;
       }
@@ -7295,7 +7344,7 @@
         await afterGlobeChange(!sameTags(data.tags, note?.tags));
       } catch (err) {
         busy = false;
-        toast(err.message, 'error');
+        fail(err);
       }
     };
     showPopover(anchor, [
@@ -7305,7 +7354,7 @@
       h('p', { class: 'pop-meta' }, 'Tags place the note in clusters on the globe. Notes stay in Onyx.'),
       h('div', { class: 'pop-actions' },
         note && h('button', { class: 'btn danger', onclick: async () => {
-          try { await onyx.deleteNote(note.id); await afterGlobeChange(true); } catch (err) { toast(err.message, 'error'); }
+          try { await onyx.deleteNote(note.id); await afterGlobeChange(true); } catch (err) { fail(err); }
         } }, icon('trash'), 'Delete'),
         h('div', { class: 'grow' }),
         h('button', { class: 'btn ghost', onclick: () => closePopover() }, 'Cancel'),
@@ -7332,10 +7381,10 @@
       const patch = { tags: picked };
       if (cleanNote(notes.value) !== (pin.notes || '')) patch.notes = notes.value;
       if (named && name.value.trim() && name.value.trim() !== pin.title) patch.title = name.value.trim();
-      try { await onyx.updatePin(pin.id, patch); await afterGlobeChange(!sameTags(picked, pin.tags)); } catch (err) { toast(err.message, 'error'); }
+      try { await onyx.updatePin(pin.id, patch); await afterGlobeChange(!sameTags(picked, pin.tags)); } catch (err) { fail(err); }
     };
     // A file or folder opens with its own app on the PC; the phone can only list it.
-    const openLocal = (reveal) => onyx.openFile(pin.id, reveal).catch((err) => toast(err.message, 'error'));
+    const openLocal = (reveal) => onyx.openFile(pin.id, reveal).catch((err) => fail(err));
     const openButtons = local
       ? (onyx.openFile
         ? [h('button', { class: 'btn', title: 'Show it in File Explorer', onclick: () => openLocal(true) }, 'Show in folder'),
@@ -7352,7 +7401,7 @@
       h('div', { class: 'row' }, icon('tag'), tags.el),
       h('div', { class: 'pop-actions' },
         h('button', { class: 'btn danger', title: local ? 'Take it off the globe (the file itself is not touched)' : `Take it off the globe (it stays in ${SOURCES[pin.source].label})`, onclick: async () => {
-          try { await onyx.removePin(pin.id); await afterGlobeChange(true); } catch (err) { toast(err.message, 'error'); }
+          try { await onyx.removePin(pin.id); await afterGlobeChange(true); } catch (err) { fail(err); }
         } }, icon('x'), 'Remove'),
         h('div', { class: 'grow' }),
         ...openButtons,
@@ -7374,7 +7423,7 @@
         afterFilesAdded(pins, picked);
         closePopover();
       } catch (err) {
-        toast(err.message, 'error');
+        fail(err);
       }
     };
     showPopover(anchor, [
@@ -7425,7 +7474,7 @@
         if (picked.length) reloadTags();
       } catch (err) {
         busy = false;
-        toast(err.message, 'error');
+        fail(err);
       }
     };
     url.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); name.focus(); } });
@@ -7482,7 +7531,7 @@
             if (tags.length) reloadTags();
           } catch (err) {
             btn.disabled = false;
-            toast(err.message, 'error');
+            fail(err);
           }
         };
         // Add first asks which tags (if any) it should carry: tags place it in clusters on the globe.
@@ -7828,7 +7877,7 @@
     try {
       onUpdateState(await onyx.checkUpdate(), manual);
     } catch (err) {
-      if (manual) toast(err.message, 'error');
+      if (manual) fail(err);
     }
     btn.classList.remove('spin');
   }
@@ -7839,7 +7888,7 @@
       if (u.status === 'error') { toast(u.error, 'error'); closeUpdateDialog(); }
       else showUpdateDialog(u);
     } catch (err) {
-      toast(err.message, 'error');
+      fail(err);
     }
   }
 
@@ -7973,7 +8022,7 @@
     try {
       if (await onyx.scan()) { location.reload(); return; }
     } catch (err) {
-      toast(err.message, 'error');
+      fail(err);
     }
     button.disabled = false;
     button.replaceChildren(...label);
@@ -7994,7 +8043,7 @@
         else await onyx.pair({ addresses: value.split(/[\s,]+/), token: token.value });
         location.reload();
       } catch (err) {
-        toast(err.message, 'error');
+        fail(err);
         go.disabled = false;
         go.textContent = 'Connect';
       }
@@ -8085,9 +8134,10 @@
     if (onyx.onOnline) {
       onyx.onOnline((ok) => {
         toast(ok ? 'Connected to your PC again.' : 'Your PC is out of reach. Keep going: what you change here syncs when it is back.', ok ? '' : 'warn');
-        if (ok) { refetch(true); loadTasks(true); }
+        if (ok) { refetch(true); loadTasks(true); sendBugs(); }
       });
     }
+    setTimeout(sendBugs, 5000); // any kept from last time
     // The phone's outbox: changes made while the PC was out of reach, waiting, then sent.
     if (onyx.onOutbox) {
       const label = (n, online, syncing) => (!n ? (online ? '' : 'Offline: showing last sync')
@@ -8110,5 +8160,5 @@
     window.addEventListener('resize', () => { if (!MOBILE) closePopover(); });
   }
 
-  init().catch((err) => toast(err.message, 'error'));
+  init().catch((err) => fail(err));
 })();

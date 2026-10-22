@@ -479,7 +479,38 @@
   /** The idea for break number `n` (1 on): each break takes the next one, round and round. '' when there are none. */
   const breakIdea = (list, n) => (Array.isArray(list) && list.length ? list[(Math.max(1, Math.round(n || 1)) - 1) % list.length] : '');
 
+  // ---- the study cat: three phases through a session, from its start to its hard stop. Calm for the first
+  // third, caffeine for the second, a total physics breakdown for the last: each a loop, with a short clip
+  // into the next (assets/cat-phase*.mp4). Each clip flows into the next only in that order.
+  const CAT_CLIPS = {
+    1: { loop: 'cat-phase1-loop' },
+    2: { intro: 'cat-phase2-intro', loop: 'cat-phase2-loop' },
+    3: { intro: 'cat-phase3-intro', loop: 'cat-phase3-loop' },
+  };
+
+  /** The cat's phase (1, 2 or 3) at `now` in a session from `startedAt` to its hard stop `plannedEnd` (ms): its thirds. */
+  function catPhase(startedAt, plannedEnd, now) {
+    const span = plannedEnd - startedAt;
+    if (!(span > 0)) return 1;
+    const p = (now - startedAt) / span;
+    return p < 1 / 3 ? 1 : p < 2 / 3 ? 2 : 3;
+  }
+
+  /**
+   * What the cat plays once a clip ends (`at`: { phase, intro }), with phase `due` due by now: its phase's
+   * loop again until a later phase is due, then that phase's intro, once, then its loop. One phase at a time
+   * (a jump of two still plays the phase between: its loop's end is where the next intro begins); never back.
+   */
+  function catNext(at, due) {
+    if (at.intro) return { phase: at.phase, intro: false };
+    if (due > at.phase && at.phase < 3) return { phase: at.phase + 1, intro: true };
+    return { phase: at.phase, intro: false };
+  }
+  /** The file (in assets/, .mp4) for a clip ({ phase, intro }). */
+  const catClip = (at) => CAT_CLIPS[at.phase][at.intro ? 'intro' : 'loop'];
+
   const api = {
+    catPhase, catNext, catClip, CAT_CLIPS,
     parseActivities, breakIdea, pomodoroChunks, workRounds, roundGoal,
     presenceStart, presenceSee, presencePeriod, presenceEnd, presenceSummary, dropTier, flameStreak, metres, inPlace,
     PRESENCE_AWAY_MS, PERIOD_GRACE_MS, PLACE_RADIUS_M,

@@ -4701,30 +4701,138 @@
   }
 
   /**
-   * Body doubling: a study companion (a cat in headphones at a laptop) working quietly in the
-   * corner the whole session, in a loop. Its wall is masked away (assets/bodydouble-mask.png),
-   * so it sits on the screen's own background. Always muted, never in the way of a click.
+   * Body doubling: a study companion (a cat in headphones at a laptop) working in the corner the whole session.
+   * It builds as the session goes: calm for the first third, caffeine for the second, a total physics breakdown
+   * for the last (OnyxFocus.catPhase), each a loop, with a short clip into the next once the loop playing ends.
+   * Its videos carry their own see-through parts (colour on the left half, premultiplied; how solid each pixel is
+   * on the right), put together here with WebGL, so it sits on the screen's own background. Always muted, never
+   * in the way of a click. The videos are not on the page: catStop lets them go when the session ends.
    */
   function bodyDouble() {
-    const v = h('video', {
-      class: 'bodydouble', src: 'assets/bodydouble.mp4', muted: true, loop: true, playsInline: true, preload: 'auto',
-      disablePictureInPicture: true, tabIndex: -1, 'aria-hidden': 'true',
-    });
-    v.muted = true;
+    const canvas = h('canvas', { class: 'bodydouble', width: 800, height: 800, 'aria-hidden': 'true' });
+    const gl = canvas.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: false, depth: false, stencil: false });
+    canvas.cat = { canvas, gl, at: null, due: 1, key: null, cur: null, run: false, videos: {}, shown: -1 };
+    if (!gl) return canvas; // no WebGL: no cat, rather than one in a black box (syncBuddy keeps it hidden)
+    const shader = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; };
+    const prog = gl.createProgram();
+    gl.attachShader(prog, shader(gl.VERTEX_SHADER,
+      'attribute vec2 p; varying vec2 u; void main() { u = vec2((p.x + 1.0) * 0.5, (1.0 - p.y) * 0.5); gl_Position = vec4(p, 0.0, 1.0); }'));
+    // The matte (right half) says how solid each pixel is; the colour (left half) is kept within it, which takes
+    // away the faint fringe the video's coarser colour leaves at hard edges.
+    gl.attachShader(prog, shader(gl.FRAGMENT_SHADER,
+      'precision mediump float; uniform sampler2D t; varying vec2 u; void main() { float a = texture2D(t, vec2(0.5 + u.x * 0.5, u.y)).r;'
+      + ' gl_FragColor = vec4(min(texture2D(t, vec2(u.x * 0.5, u.y)).rgb, vec3(a)), a); }'));
+    gl.linkProgram(prog);
+    gl.useProgram(prog);
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+    const at = gl.getAttribLocation(prog, 'p');
+    gl.enableVertexAttribArray(at);
+    gl.vertexAttribPointer(at, 2, gl.FLOAT, false, 0, 0);
+    gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+    for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+    return canvas;
+  }
+
+  /** One of the cat's clips, ready to play (made when first wanted). */
+  function catVideo(cat, name) {
+    if (cat.videos[name]) return cat.videos[name];
+    const v = document.createElement('video');
+    Object.assign(v, { muted: true, playsInline: true, preload: 'auto', disablePictureInPicture: true });
     v.setAttribute('muted', '');
-    v.addEventListener('loadeddata', syncBuddy);
+    v.addEventListener('ended', () => { if (cat.cur === v) catOpen(cat, OnyxFocus.catNext(cat.at, cat.due)); });
+    for (const type of ['loadeddata', 'seeked']) v.addEventListener(type, () => { if (cat.cur === v) catDraw(cat, true); });
+    v.src = `assets/${name}.mp4`;
+    cat.videos[name] = v;
     return v;
   }
-  const stillMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
-  /** Plays the companion only while the session is on screen and the window can be seen; with reduced motion it keeps its first frame. */
-  function syncBuddy() {
-    const v = focus.parts?.buddy;
+
+  /** Draws the clip's frame now showing (only a new one, unless `force`). */
+  function catDraw(cat, force) {
+    const v = cat.cur, gl = cat.gl;
+    if (!v || !gl || v.readyState < 2 || (!force && v.currentTime === cat.shown)) return;
+    cat.shown = v.currentTime;
+    gl.viewport(0, 0, cat.canvas.width, cat.canvas.height);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, v);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+
+  /** Plays a clip ({ phase, intro }) from its start. The clip that would come after it is made ready; the rest are let go. */
+  function catOpen(cat, at) {
+    cat.at = at;
+    const name = OnyxFocus.catClip(at), next = OnyxFocus.catClip(OnyxFocus.catNext(at, 3));
+    for (const [n, v] of Object.entries(cat.videos)) {
+      if (n === name || n === next) continue;
+      v.pause();
+      v.removeAttribute('src');
+      v.load();
+      delete cat.videos[n];
+    }
+    const v = catVideo(cat, name);
+    catVideo(cat, next);
+    if (cat.cur && cat.cur !== v) cat.cur.pause();
+    cat.cur = v;
+    v.loop = !at.intro && cat.due <= at.phase; // a loop goes round by itself until the next phase is due
+    if (v.currentTime) v.currentTime = 0;
+    cat.shown = -1;
+    catPlay(cat);
+  }
+
+  function catPlay(cat) {
+    const v = cat.cur;
     if (!v) return;
-    const show = focus.s?.phase === 'focus' || focus.s?.phase === 'exit';
-    v.hidden = !show;
-    const run = show && !stillMotion() && document.visibilityState === 'visible' && !window.onyxHidden;
-    if (run) v.play().catch(() => {}); // a refused play leaves it still
-    else { v.pause(); if (stillMotion()) v.currentTime = 0; }
+    if (!cat.run) { v.pause(); catDraw(cat, true); return; }
+    v.play().catch(() => {}); // a refused play leaves it still
+    if (cat.frames) return;
+    // Each new frame, drawn as the screen refreshes (it waits while the clip is paused or the session is gone).
+    const tick = () => {
+      if (!cat.run || !cat.cur) { cat.frames = 0; return; }
+      catDraw(cat);
+      cat.frames = requestAnimationFrame(tick);
+    };
+    cat.frames = requestAnimationFrame(tick);
+  }
+
+  /** The session is over: its clips are let go. */
+  function catStop(cat) {
+    if (!cat) return;
+    cat.run = false;
+    cancelAnimationFrame(cat.frames || 0);
+    cat.frames = 0;
+    for (const v of Object.values(cat.videos)) { v.pause(); v.removeAttribute('src'); v.load(); }
+    cat.videos = {};
+    cat.cur = null;
+  }
+
+  const stillMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+  /**
+   * The cat's phase and playing, each second and as the window shows or hides: it plays only while the session is
+   * on screen and the window can be seen; with reduced motion it shows its phase's first frame. A later phase waits
+   * for the loop playing to end (then its intro plays); a session made longer never takes it back a phase.
+   */
+  function syncBuddy() {
+    const cat = focus.parts?.buddy?.cat, s = focus.s;
+    if (!cat) return;
+    const show = s?.phase === 'focus' || s?.phase === 'exit';
+    cat.canvas.hidden = !show || !cat.gl;
+    if (!cat.gl || !s) return;
+    const due = OnyxFocus.catPhase(s.startedAt, s.plannedEnd, Date.now());
+    cat.run = show && !stillMotion() && document.visibilityState === 'visible' && !window.onyxHidden;
+    if (cat.key !== s.startedAt) {
+      cat.key = s.startedAt;
+      cat.due = due;
+      catOpen(cat, { phase: due, intro: false }); // a session opened part way through starts in its phase
+      return;
+    }
+    if (due > cat.due) {
+      cat.due = due;
+      if (!cat.run) return catOpen(cat, { phase: due, intro: false }); // still: straight to the new phase's first frame
+      if (!cat.at.intro && cat.cur) cat.cur.loop = false; // this loop plays to its end, then on to the next phase
+    }
+    if (!cat.run && stillMotion() && cat.cur && cat.cur.currentTime) cat.cur.currentTime = 0;
+    catPlay(cat);
   }
   document.addEventListener('visibilitychange', syncBuddy);
   window.addEventListener('onyx-visibility', syncBuddy);
@@ -4818,6 +4926,7 @@
   function tickFocus() {
     const s = focus.s;
     if (!s || !focus.parts) return;
+    syncBuddy(); // the cat's phase
     const now = Date.now(), p = focus.parts;
     if (s.phase === 'wind') return tickWindDown();
     if (s.phase !== 'focus') return;
@@ -5134,8 +5243,7 @@
   function endFocus() {
     if (focus.s) onyx.focusEnd?.().catch(() => {});
     onyx.launcher?.focus?.(null);
-    const buddy = focus.parts?.buddy;
-    if (buddy) { buddy.pause(); buddy.removeAttribute('src'); buddy.load(); } // let the video go
+    catStop(focus.parts?.buddy?.cat); // let the cat's videos go
     finishPresence(false);
     clearInterval(focus.timer);
     stopNoise();

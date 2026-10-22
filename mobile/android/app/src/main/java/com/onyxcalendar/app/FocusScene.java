@@ -16,6 +16,15 @@ import android.graphics.SurfaceTexture;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.media.MediaPlayer;
+import android.opengl.EGL14;
+import android.opengl.EGLConfig;
+import android.opengl.EGLContext;
+import android.opengl.EGLDisplay;
+import android.opengl.EGLSurface;
+import android.opengl.GLES11Ext;
+import android.opengl.GLES20;
+import android.os.Handler;
+import android.os.HandlerThread;
 import android.provider.Settings;
 import android.text.TextUtils;
 import android.text.format.DateFormat;
@@ -34,6 +43,9 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.FloatBuffer;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -43,7 +55,7 @@ import java.util.Locale;
 /**
  * Onyx Home and the lock screen while a Hyperfocus session runs: one calm, centred scene in place of
  * the big clock. The time left on a draining ring, the study companion working under it (the same
- * looping cat as the app, its wall masked away), the goal in large type, the pomodoro when a block
+ * cat as the app, building through the session), the goal in large type, the pomodoro when a block
  * has one, and the hard stop. The rest of the day follows below it, quieter (OnyxPanel).
  */
 final class FocusScene {
@@ -178,6 +190,7 @@ final class FocusScene {
         if (visible) {
             goal.setText(f.goal);
             stopLine.setText("Hard stop " + clock(f.end) + "  ·  one thing until then");
+            cat.session(f.start, BodyDouble.phaseAt(f.start, f.end, System.currentTimeMillis()));
             tick();
         }
         cat.play(visible && resumed);
@@ -201,6 +214,7 @@ final class FocusScene {
     void tick() {
         if (focus == null) return;
         long t = System.currentTimeMillis();
+        cat.session(focus.start, BodyDouble.phaseAt(focus.start, focus.end, t));
         ring.set((float) (focus.end - t) / Math.max(1, focus.end - focus.start), OnyxPanel.span(focus.end - t), "until " + clock(focus.end));
         LauncherData.Item now = LauncherData.now(items, t);
         long[] ph = now != null ? now.phase(t) : null;
@@ -366,51 +380,99 @@ final class FocusScene {
     // ------------------------------------------------------------ the study companion
 
     /**
-     * The cat in headphones at a laptop, looping, muted, its wall masked away (the app's own video and
-     * mask, from its web files), so it sits on the screen's own background. Plays only while the screen
-     * can be seen; with animations turned off in Android, it stays on its first frame.
+     * The study cat: a cat in headphones at a laptop, working through the session in three phases that build as
+     * it goes (calm for the first third, caffeine for the second, a total physics breakdown for the last), each a
+     * loop, with a short clip into the next once the loop playing ends; never back a phase. The app's own videos
+     * (its web files, assets/cat-phase*.mp4) each carry their see-through parts: colour on the left half
+     * (premultiplied), how solid each pixel is on the right. They are put together here on the GPU, so the cat
+     * sits on the screen's own background. Plays only while the screen can be seen; with animations turned off
+     * in Android, it shows its phase's first frame.
      */
-    static final class BodyDouble extends FrameLayout implements TextureView.SurfaceTextureListener {
-        private final TextureView view;
-        private final Paint maskPaint = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG);
-        private final Rect dst = new Rect();
-        private Bitmap mask;
+    static final class BodyDouble extends TextureView implements TextureView.SurfaceTextureListener {
+        private static final String[] LOOPS = { "cat-phase1-loop.mp4", "cat-phase2-loop.mp4", "cat-phase3-loop.mp4" };
+        private static final String[] INTROS = { null, "cat-phase2-intro.mp4", "cat-phase3-intro.mp4" };
+        private static final String VERTEX = "attribute vec2 aPos;\n"
+            + "uniform mat4 uMatrix;\n"
+            + "varying vec2 vColour;\n"
+            + "varying vec2 vMatte;\n"
+            + "void main() {\n"
+            + "  vec2 u = aPos * 0.5 + 0.5;\n"
+            + "  vColour = (uMatrix * vec4(u.x * 0.5, u.y, 0.0, 1.0)).xy;\n"
+            + "  vMatte = (uMatrix * vec4(0.5 + u.x * 0.5, u.y, 0.0, 1.0)).xy;\n"
+            + "  gl_Position = vec4(aPos, 0.0, 1.0);\n"
+            + "}\n";
+        // The colour is kept within the matte: that takes away the faint fringe the video's coarser colour leaves at hard edges.
+        private static final String FRAGMENT = "#extension GL_OES_EGL_image_external : require\n"
+            + "precision mediump float;\n"
+            + "uniform samplerExternalOES uTex;\n"
+            + "varying vec2 vColour;\n"
+            + "varying vec2 vMatte;\n"
+            + "void main() {\n"
+            + "  float a = texture2D(uTex, vMatte).r;\n"
+            + "  gl_FragColor = vec4(min(texture2D(uTex, vColour).rgb, vec3(a)), a);\n"
+            + "}\n";
+        private static final long NONE = Long.MAX_VALUE;
+
+        // The playing and the drawing happen on a thread of the cat's own; its looper runs the player's callbacks too.
+        private HandlerThread thread;
+        private Handler gl;
+        private EGLDisplay display = EGL14.EGL_NO_DISPLAY;
+        private EGLContext context = EGL14.EGL_NO_CONTEXT;
+        private EGLSurface eglSurface = EGL14.EGL_NO_SURFACE;
+        private SurfaceTexture out, frames;
+        private Surface input;
+        private int program, texture, aPos, uMatrix, uTex, width, height;
+        private final float[] matrix = new float[16];
+        private FloatBuffer quad;
         private MediaPlayer player;
-        private Surface surface;
-        private boolean want, prepared;
+        private boolean prepared, intro;
+        private int phase = 1;
+        private long playing = NONE; // the session the clip playing belongs to
+        // Set on the screen's thread, read on the cat's.
+        private volatile boolean want;
+        private volatile int due = 1;
+        private volatile long session = NONE;
 
         BodyDouble(Context ctx) {
             super(ctx);
-            setWillNotDraw(false);
-            view = new TextureView(ctx);
-            view.setOpaque(false);
-            view.setSurfaceTextureListener(this);
-            addView(view, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-            maskPaint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_IN));
-            try (InputStream in = ctx.getAssets().open("public/assets/bodydouble-mask.png")) {
-                mask = BitmapFactory.decodeStream(in);
-            } catch (Exception e) {
-                mask = null; // an app build without it: the cat is left out rather than shown with its wall
-            }
-            if (mask == null) setVisibility(GONE);
+            setOpaque(false);
+            setSurfaceTextureListener(this);
+        }
+
+        /** The phase (1, 2 or 3) at `now` in a session from `start` to its hard stop `end`: its thirds. */
+        static int phaseAt(long start, long end, long now) {
+            long span = end - start;
+            if (span <= 0) return 1;
+            double p = (double) (now - start) / span;
+            return p < 1.0 / 3 ? 1 : p < 2.0 / 3 ? 2 : 3;
         }
 
         @Override
         protected void onMeasure(int w, int h) {
             float density = getResources().getDisplayMetrics().density;
-            int width = (int) Math.min(MeasureSpec.getSize(w) * 0.6f, 270 * density);
-            int height = width * 9 / 16;
-            super.onMeasure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY));
+            int side = (int) Math.min(MeasureSpec.getSize(w) * 0.52f, 200 * density);
+            setMeasuredDimension(side, side);
         }
 
-        @Override
-        protected void dispatchDraw(Canvas canvas) {
-            if (mask == null) return;
-            int saved = canvas.saveLayer(0, 0, getWidth(), getHeight(), null);
-            super.dispatchDraw(canvas);
-            dst.set(0, 0, getWidth(), getHeight());
-            canvas.drawBitmap(mask, null, dst, maskPaint);
-            canvas.restoreToCount(saved);
+        /** The session on screen (its start, as a key) and the phase due in it now: a later one waits for the loop playing to end. */
+        void session(long key, int phaseDue) {
+            if (key != session) {
+                session = key;
+                due = phaseDue;
+            } else if (phaseDue > due) {
+                due = phaseDue; // never back, even when the session is made longer
+            }
+            onCat(this::sync);
+        }
+
+        void play(boolean on) {
+            want = on;
+            onCat(this::sync);
+        }
+
+        private void onCat(Runnable r) {
+            Handler h = gl;
+            if (h != null) h.post(r);
         }
 
         private boolean still() {
@@ -421,11 +483,33 @@ final class FocusScene {
             }
         }
 
-        void play(boolean on) {
-            want = on;
+        // ---- the clips (on the cat's thread)
+
+        private void sync() {
             if (player == null) return;
+            if (playing != session) { // a new session (or the first): it starts in the phase due, without an intro
+                playing = session;
+                phase = Math.max(1, Math.min(3, due));
+                intro = false;
+                open(LOOPS[phase - 1], true);
+                return;
+            }
+            boolean still = still();
+            if (due > phase && !intro) {
+                if (still || !want) { // not moving: straight to the new phase's first frame
+                    phase = Math.min(3, due);
+                    open(LOOPS[phase - 1], true);
+                    return;
+                }
+                try {
+                    player.setLooping(false); // this loop plays to its end, then on to the next phase
+                } catch (Exception ignored) {
+                    // the player is between clips
+                }
+            }
+            if (!prepared) return;
             try {
-                if (on && prepared && !still()) {
+                if (want && !still) {
                     if (!player.isPlaying()) player.start();
                 } else if (player.isPlaying()) {
                     player.pause();
@@ -435,58 +519,153 @@ final class FocusScene {
             }
         }
 
-        @Override
-        public void onSurfaceTextureAvailable(SurfaceTexture st, int w, int h) {
-            if (mask == null) return;
-            surface = new Surface(st);
-            player = new MediaPlayer();
-            try {
-                try (AssetFileDescriptor fd = getContext().getAssets().openFd("public/assets/bodydouble.mp4")) {
-                    player.setDataSource(fd.getFileDescriptor(), fd.getStartOffset(), fd.getLength());
-                } catch (Exception compressed) {
-                    player.setDataSource(cached().getAbsolutePath()); // stored compressed in the APK: played from a copy
-                }
-                player.setSurface(surface);
-                player.setLooping(true);
-                player.setVolume(0f, 0f);
-                player.setOnPreparedListener(mp -> {
-                    prepared = true;
+        /** A clip ended: the same loop again, or on to the next phase's intro, or from an intro to its loop. */
+        private void next(MediaPlayer mp) {
+            if (intro) {
+                intro = false;
+                open(LOOPS[phase - 1], due <= phase);
+            } else if (due > phase && phase < 3) {
+                phase++;
+                intro = true;
+                open(INTROS[phase - 1], false);
+            } else {
+                try {
+                    mp.setLooping(true);
                     mp.seekTo(0);
-                    play(want);
-                });
-                player.prepareAsync();
-            } catch (Exception e) {
-                release();
-                setVisibility(GONE);
+                    mp.start();
+                } catch (Exception e) {
+                    open(LOOPS[phase - 1], true);
+                }
             }
         }
 
-        private File cached() throws Exception {
-            File f = new File(getContext().getCacheDir(), "bodydouble.mp4");
+        private void open(String name, boolean loop) {
+            prepared = false;
+            try {
+                player.reset();
+                try (AssetFileDescriptor fd = getContext().getAssets().openFd("public/assets/" + name)) {
+                    player.setDataSource(fd.getFileDescriptor(), fd.getStartOffset(), fd.getLength());
+                } catch (Exception compressed) {
+                    player.setDataSource(cached(name).getAbsolutePath()); // stored compressed in the APK: played from a copy
+                }
+                player.setSurface(input);
+                player.setLooping(loop);
+                player.setVolume(0f, 0f);
+                player.prepareAsync();
+            } catch (Exception e) {
+                gone();
+            }
+        }
+
+        private File cached(String name) throws Exception {
+            File f = new File(getContext().getCacheDir(), name);
             if (f.length() > 0) return f;
-            try (InputStream in = getContext().getAssets().open("public/assets/bodydouble.mp4"); OutputStream out = new FileOutputStream(f)) {
+            try (InputStream in = getContext().getAssets().open("public/assets/" + name); OutputStream o = new FileOutputStream(f)) {
                 byte[] buf = new byte[64 * 1024];
-                for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
+                for (int n; (n = in.read(buf)) > 0; ) o.write(buf, 0, n);
             }
             return f;
         }
 
-        @Override
-        public void onSurfaceTextureSizeChanged(SurfaceTexture st, int w, int h) {
+        /** Something went wrong: no cat, rather than a broken one. */
+        private void gone() {
+            onCat(this::end);
+            new Handler(getContext().getMainLooper()).post(() -> setVisibility(GONE));
         }
 
-        @Override
-        public boolean onSurfaceTextureDestroyed(SurfaceTexture st) {
-            release();
-            return true;
+        // ---- drawing (on the cat's thread)
+
+        private void begin() {
+            try {
+                display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY);
+                int[] version = new int[2];
+                if (!EGL14.eglInitialize(display, version, 0, version, 1)) throw new IllegalStateException("EGL");
+                int[] attrs = {
+                    EGL14.EGL_RED_SIZE, 8, EGL14.EGL_GREEN_SIZE, 8, EGL14.EGL_BLUE_SIZE, 8, EGL14.EGL_ALPHA_SIZE, 8,
+                    EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT, EGL14.EGL_SURFACE_TYPE, EGL14.EGL_WINDOW_BIT, EGL14.EGL_NONE,
+                };
+                EGLConfig[] config = new EGLConfig[1];
+                int[] count = new int[1];
+                if (!EGL14.eglChooseConfig(display, attrs, 0, config, 0, 1, count, 0) || count[0] == 0) throw new IllegalStateException("EGL config");
+                context = EGL14.eglCreateContext(display, config[0], EGL14.EGL_NO_CONTEXT, new int[] { EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE }, 0);
+                eglSurface = EGL14.eglCreateWindowSurface(display, config[0], out, new int[] { EGL14.EGL_NONE }, 0);
+                if (context == EGL14.EGL_NO_CONTEXT || eglSurface == EGL14.EGL_NO_SURFACE) throw new IllegalStateException("EGL surface");
+                if (!EGL14.eglMakeCurrent(display, eglSurface, eglSurface, context)) throw new IllegalStateException("EGL current");
+
+                program = GLES20.glCreateProgram();
+                GLES20.glAttachShader(program, shader(GLES20.GL_VERTEX_SHADER, VERTEX));
+                GLES20.glAttachShader(program, shader(GLES20.GL_FRAGMENT_SHADER, FRAGMENT));
+                GLES20.glLinkProgram(program);
+                int[] linked = new int[1];
+                GLES20.glGetProgramiv(program, GLES20.GL_LINK_STATUS, linked, 0);
+                if (linked[0] == 0) throw new IllegalStateException("GL program");
+                aPos = GLES20.glGetAttribLocation(program, "aPos");
+                uMatrix = GLES20.glGetUniformLocation(program, "uMatrix");
+                uTex = GLES20.glGetUniformLocation(program, "uTex");
+                quad = ByteBuffer.allocateDirect(8 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
+                quad.put(new float[] { -1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f }).position(0);
+
+                int[] t = new int[1];
+                GLES20.glGenTextures(1, t, 0);
+                texture = t[0];
+                GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, texture);
+                GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
+                GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
+                GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
+                GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
+                frames = new SurfaceTexture(texture);
+                frames.setOnFrameAvailableListener(st -> draw(), gl);
+                input = new Surface(frames);
+
+                player = new MediaPlayer();
+                player.setOnPreparedListener(mp -> {
+                    prepared = true;
+                    if (want && !still()) mp.start();
+                    else mp.seekTo(0); // shows its first frame
+                });
+                player.setOnCompletionListener(this::next);
+                player.setOnErrorListener((mp, what, extra) -> {
+                    gone();
+                    return true;
+                });
+                playing = NONE;
+                sync();
+            } catch (Exception e) {
+                gone();
+            }
         }
 
-        @Override
-        public void onSurfaceTextureUpdated(SurfaceTexture st) {
-            invalidate(); // the mask is drawn again over each new frame
+        private static int shader(int type, String src) {
+            int s = GLES20.glCreateShader(type);
+            GLES20.glShaderSource(s, src);
+            GLES20.glCompileShader(s);
+            return s;
         }
 
-        void release() {
+        private void draw() {
+            if (frames == null || eglSurface == EGL14.EGL_NO_SURFACE) return;
+            try {
+                frames.updateTexImage();
+                frames.getTransformMatrix(matrix);
+                GLES20.glViewport(0, 0, width, height);
+                GLES20.glClearColor(0f, 0f, 0f, 0f);
+                GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
+                GLES20.glUseProgram(program);
+                GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+                GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, texture);
+                GLES20.glUniformMatrix4fv(uMatrix, 1, false, matrix, 0);
+                GLES20.glUniform1i(uTex, 0);
+                GLES20.glEnableVertexAttribArray(aPos);
+                GLES20.glVertexAttribPointer(aPos, 2, GLES20.GL_FLOAT, false, 0, quad);
+                GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
+                EGL14.eglSwapBuffers(display, eglSurface);
+            } catch (Exception ignored) {
+                // the surface is going away
+            }
+        }
+
+        /** Lets the player, the frames and the drawing surface go (on the cat's thread). */
+        private void end() {
             prepared = false;
             if (player != null) {
                 try {
@@ -496,10 +675,66 @@ final class FocusScene {
                 }
                 player = null;
             }
-            if (surface != null) {
-                surface.release();
-                surface = null;
+            if (input != null) { input.release(); input = null; }
+            if (frames != null) { frames.release(); frames = null; }
+            if (display != EGL14.EGL_NO_DISPLAY) {
+                EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT);
+                if (eglSurface != EGL14.EGL_NO_SURFACE) EGL14.eglDestroySurface(display, eglSurface);
+                if (context != EGL14.EGL_NO_CONTEXT) EGL14.eglDestroyContext(display, context);
+                EGL14.eglReleaseThread();
             }
+            eglSurface = EGL14.EGL_NO_SURFACE;
+            context = EGL14.EGL_NO_CONTEXT;
+            display = EGL14.EGL_NO_DISPLAY;
+        }
+
+        // ---- the view's surface
+
+        @Override
+        public void onSurfaceTextureAvailable(SurfaceTexture st, int w, int h) {
+            stop(null);
+            out = st;
+            width = w;
+            height = h;
+            thread = new HandlerThread("onyx-cat");
+            thread.start();
+            gl = new Handler(thread.getLooper());
+            gl.post(this::begin);
+        }
+
+        @Override
+        public void onSurfaceTextureSizeChanged(SurfaceTexture st, int w, int h) {
+            onCat(() -> { width = w; height = h; });
+        }
+
+        @Override
+        public boolean onSurfaceTextureDestroyed(SurfaceTexture st) {
+            // Drawing into it still: it is let go on the cat's thread once that has stopped. Else the view lets it go.
+            return !stop(st);
+        }
+
+        @Override
+        public void onSurfaceTextureUpdated(SurfaceTexture st) {
+        }
+
+        void release() {
+            stop(null);
+        }
+
+        /** Stops the cat's thread (after letting its player and drawing go, and then the surface if given); false when none ran. */
+        private boolean stop(SurfaceTexture surface) {
+            Handler h = gl;
+            HandlerThread t = thread;
+            gl = null;
+            thread = null;
+            if (h == null) return false;
+            h.post(() -> {
+                end();
+                if (surface != null) surface.release();
+            });
+            t.quitSafely();
+            return true;
         }
     }
+
 }

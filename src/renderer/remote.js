@@ -654,6 +654,10 @@
     updatePin: (id, patch) => call('pin:update', id, patch),
     removePin: (id) => call('pin:remove', id),
     searchNotion: (query) => call('notion:search', query),
+    shareSenders: () => call('share:senders'),
+    shareEmail: (data) => call('share:email', data),
+    sharePages: (query) => call('share:pages', query),
+    shareNotion: (data) => call('share:notion', data),
     searchDrive: (query) => call('drive:search', query),
     // Keys entered on the phone are saved in Onyx on the PC, so both use them.
     connectNotion: async (key) => withLocal(await call('notion:connect', key)),

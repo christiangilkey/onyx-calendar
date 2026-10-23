@@ -2415,3 +2415,24 @@ body.mobile .md-grip { height: 16px; }
 .burner.empty .burner-head { cursor: default; }
 .burner-drop { font-size: 11px; color: var(--faint); font-weight: 400; letter-spacing: 0; text-transform: none; }
 .stretch-chip.snapped { box-shadow: 0 0 0 1.5px var(--accent); }
+
+/* ------------------------------------------------------------ sending a block: by email, or onto a Notion page */
+.sheet.send { grid-template-columns: 1fr; width: min(520px, calc(100vw - 40px)); height: auto; max-height: min(680px, calc(100vh - 60px)); }
+.send-pane { display: flex; flex-direction: column; gap: 12px; padding-top: 20px; }
+.send-what { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 12px; background: #101013; border: 1px solid var(--line); }
+.send-what b { font-weight: 600; overflow-wrap: anywhere; }
+.send-what small { color: var(--muted); font-size: 12px; }
+.send-part { display: flex; flex-direction: column; gap: 10px; }
+.send-part textarea { resize: vertical; min-height: 64px; }
+.send-go { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.send-go small { color: var(--muted); font-size: 12px; flex: 1; min-width: 180px; }
+.send-problem { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-radius: 10px; font-size: 13px;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line-2)); background: color-mix(in srgb, var(--warn) 8%, transparent); }
+.send-problem[hidden] { display: none; }
+.send-problem span { flex: 1; min-width: 200px; }
+.send-pages { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
+.send-page { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 9px; text-align: left; border: 1px solid transparent; }
+.send-page:hover { background: rgba(255, 255, 255, .04); }
+.send-page.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.sp-icon { width: 20px; text-align: center; flex: none; }
+.sp-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

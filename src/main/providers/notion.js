@@ -70,4 +70,9 @@ function disconnect() {
 
 const info = () => ({ connected: !!token(), ...(store.data.notion || {}) });
 
-module.exports = { search, connect, disconnect, info };
+/** Adds blocks at the end of a page shared with the integration (share.js: a calendar block sent there). */
+async function append(pageId, children) {
+  return call(`/blocks/${encodeURIComponent(pageId)}/children`, { method: 'PATCH', body: { children } });
+}
+
+module.exports = { search, connect, disconnect, info, append };

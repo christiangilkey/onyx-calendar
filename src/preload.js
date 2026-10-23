@@ -101,6 +101,10 @@ contextBridge.exposeInMainWorld('onyx', {
   // Where a file dropped on the window lives (Electron no longer puts it on File.path).
   pathOf: (file) => webUtils.getPathForFile(file),
   searchNotion: (query) => call('notion:search', query),
+  shareSenders: () => call('share:senders'),
+  shareEmail: (data) => call('share:email', data),
+  sharePages: (query) => call('share:pages', query),
+  shareNotion: (data) => call('share:notion', data),
   connectNotion: (key) => call('notion:connect', key),
   disconnectNotion: () => call('notion:disconnect'),
   searchDrive: (query) => call('drive:search', query),

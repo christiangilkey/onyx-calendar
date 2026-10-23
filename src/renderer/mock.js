@@ -348,6 +348,17 @@
       if (rule && !t.date) Object.assign(t, { due: ymd(new Date()), date: ymd(new Date()) });
       return taskOut(t);
     },
+    shareSenders: async () => ({ senders: [{ id: 'g1', label: 'you@gmail.com', provider: 'google' }, { id: 'm1', label: 'you@outlook.com', provider: 'microsoft' }], recents: ['sam@example.com'] }),
+    shareEmail: async (d) => {
+      const to = String(d.to || '').split(/[\s,;]+/).filter(Boolean);
+      if (!to.length) throw new Error('Enter who to send it to.');
+      if (d.accountId === 'm1') throw new Error('To send from you@outlook.com, connect it again once in Settings → Calendars: Onyx now asks to send email too.');
+      window.onyxSent = [...(window.onyxSent || []), d];
+      return { sent: to.length, to, from: 'you@gmail.com' };
+    },
+    sharePages: async (q) => ({ connected: true, pages: [{ ref: 'p1', title: 'Weekly plan', url: 'https://notion.so/p1', kind: 'page', icon: '🗓️' }, { ref: 'p2', title: 'Reading list', url: 'https://notion.so/p2', kind: 'page', icon: '' }]
+      .filter((p) => !q || p.title.toLowerCase().includes(String(q).toLowerCase())) }),
+    shareNotion: async (d) => { window.onyxSentNotion = [...(window.onyxSentNotion || []), d]; return { ok: true }; },
     createEvent: async (d) => {
       const c = cal(d.calendarId);
       const e = { id: `${c.id}/${seq++}`, calendarId: c.id, calendarName: c.name, color: c.color, kind: 'event', location: '', link: '', writable: true, ...d, title: d.blank ? '' : d.title || 'Time block' };

@@ -9,13 +9,17 @@ const GOOGLE = {
   auth: 'https://accounts.google.com/o/oauth2/v2/auth',
   token: 'https://oauth2.googleapis.com/token',
   // Drive: names and links only, for pinning files to the globe.
-  scope: 'openid email https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/gmail.readonly',
+  // Gmail: starred emails read for the globe, and a block sent by email (share.js).
+  scope: 'openid email https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send',
 };
 const MICROSOFT = {
   auth: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
   token: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
-  scope: 'offline_access User.Read Calendars.ReadWrite Tasks.ReadWrite Mail.Read',
+  scope: 'offline_access User.Read Calendars.ReadWrite Tasks.ReadWrite Mail.Read Mail.Send',
 };
+// What accounts connected before sending was added agreed to: their sign-in is renewed with just that (asking
+// Microsoft for more than was agreed would fail, and stop their calendars) until they are connected again.
+const MICROSOFT_BEFORE_SEND = 'offline_access User.Read Calendars.ReadWrite Tasks.ReadWrite Mail.Read';
 
 const newId = (prefix) => prefix + crypto.randomBytes(4).toString('hex');
 
@@ -32,6 +36,7 @@ function saveAccount(provider, label, tokens, extra = {}) {
       access: tokens.access_token,
       refresh: tokens.refresh_token || old.refresh,
       expires: Date.now() + (tokens.expires_in || 3600) * 1000,
+      ...(extra.scope || old.scope ? { scope: extra.scope || old.scope } : {}), // what the account agreed to (Microsoft)
     };
   }
   store.save();
@@ -74,7 +79,7 @@ async function connectMicrosoft() {
   });
   const res = await fetch('https://graph.microsoft.com/v1.0/me', { headers: { Authorization: `Bearer ${tokens.access_token}` } });
   const me = res.ok ? await res.json() : {};
-  return saveAccount('microsoft', me.mail || me.userPrincipalName || 'Outlook', tokens);
+  return saveAccount('microsoft', me.mail || me.userPrincipalName || 'Outlook', tokens, { scope: MICROSOFT.scope });
 }
 
 function addFeed(name, url) {
@@ -103,7 +108,7 @@ async function accessToken(acct, force = false) {
     const job = (async () => {
       const fields = acct.provider === 'google'
         ? { client_id: store.data.google.clientId, client_secret: store.data.secrets.googleClientSecret }
-        : { client_id: store.data.microsoft.clientId, scope: MICROSOFT.scope };
+        : { client_id: store.data.microsoft.clientId, scope: tok.scope || MICROSOFT_BEFORE_SEND };
       try {
         const fresh = await postForm(acct.provider === 'google' ? GOOGLE.token : MICROSOFT.token,
           { ...fields, grant_type: 'refresh_token', refresh_token: tok.refresh });

@@ -144,6 +144,11 @@ const handlers = {
   'pin:update': (id, patch) => library.updatePin(id, patch),
   'pin:remove': (id) => library.removePin(id),
   'notion:search': (query) => notion.search(query),
+  // Sending a block: by email from a connected account, or onto a Notion page (share.js).
+  'share:senders': () => ({ senders: require('./share').senders(), recents: require('./share').recents() }),
+  'share:email': (data) => require('./share').email(data),
+  'share:pages': (query) => require('./share').notionPages(query),
+  'share:notion': (data) => require('./share').toNotion(data),
   'notion:connect': withState((key) => notion.connect(key)),
   'notion:disconnect': withState(() => notion.disconnect()),
   'drive:search': (query) => drive.search(query),

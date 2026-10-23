@@ -51,6 +51,7 @@
     monitor: '<rect x="3.5" y="4.5" width="17" height="11.5" rx="2"/><path d="M9 20h6M12 16v4"/>',
     grip: '<path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"/>',
     drop: '<path d="M12 3.5s-6 6.6-6 11a6 6 0 0 0 12 0c0-4.4-6-11-6-11z"/>',
+    send: '<path d="M20.5 3.5L3.5 10.6l6.8 2.6 2.6 6.8z"/><path d="M10.3 13.2l4.4-4.4"/>',
     qr: '<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><rect x="8" y="8" width="3" height="3"/><rect x="13" y="8" width="3" height="3"/><rect x="8" y="13" width="3" height="3"/><path d="M13 13h3v3"/>',
   };
   const COLORS = ['#8b7cff', '#4aa8ff', '#3fd0c9', '#5fd38d', '#f5b83d', '#ff9f4a', '#ff6b6b', '#ff7eb6', '#b9b9c2'];
@@ -2244,6 +2245,133 @@
     }
   }
 
+  /**
+   * Sends a block to someone: by email from any connected Gmail or Outlook account, to whoever is typed (the
+   * ones sent to before are offered), with its details and an invite to add it to their calendar; or onto a
+   * Notion page shared with the Notion integration, as a to-do with its time. All of it is done on the PC.
+   */
+  async function openSend(src) {
+    const s = toDate(src.start), e = toDate(src.end || src.start);
+    const when = src.allDay ? fmtDay(s) : `${fmtDay(s)}, ${fmtTime(s)} – ${fmtTime(e)}`;
+    const entry = {
+      title: src.title || 'A block', start: src.start, end: src.end, allDay: !!src.allDay, when,
+      location: src.location || '', notes: notesOf(src).replace(/<[^>]+>/g, ''),
+    };
+    let tab = 'email', busy = false;
+    const pane = h('div', { class: 'pane send-pane' });
+    const sheet = h('div', { class: 'sheet send' }, pane);
+    let info = { senders: [], recents: [] };
+    try { info = await onyx.shareSenders(); } catch { /* shown as no accounts */ }
+
+    // By email
+    const lastFrom = (() => { try { return localStorage.getItem('onyx.send-from') || ''; } catch { return ''; } })();
+    const from = h('select', null, info.senders.map((a) => h('option', { value: a.id }, `${a.label}  ·  ${a.provider === 'microsoft' ? 'Outlook' : 'Gmail'}`)));
+    if (info.senders.some((a) => a.id === lastFrom)) from.value = lastFrom;
+    const to = h('input', { type: 'text', inputMode: 'email', autocomplete: 'email', spellcheck: false, list: 'send-recents', placeholder: 'name@example.com (more with commas)' });
+    const recents = h('datalist', { id: 'send-recents' }, (info.recents || []).map((a) => h('option', { value: a })));
+    const note = h('textarea', { rows: 3, placeholder: 'A note to go with it (optional)' });
+    const problem = h('div', { class: 'send-problem', hidden: true });
+    const say = (text, reconnect) => {
+      problem.hidden = !text;
+      problem.replaceChildren(text ? h('span', null, text) : '',
+        reconnect ? h('button', { class: 'btn', onclick: () => { closeSettings(); openSettings('calendars'); } }, 'Open Settings') : '');
+    };
+    const sendEmail = async () => {
+      if (busy) return;
+      busy = true;
+      say('');
+      goEmail.disabled = true;
+      try {
+        const r = await onyx.shareEmail({ accountId: from.value, to: to.value, note: note.value, entry });
+        try { localStorage.setItem('onyx.send-from', from.value); } catch { /* this visit only */ }
+        closeSettings();
+        toast(`Sent "${entry.title}" to ${r.to.join(', ')}`);
+      } catch (err) {
+        say(err.message, !!err.message && /connect it again/.test(err.message));
+      }
+      busy = false;
+      goEmail.disabled = false;
+    };
+    const goEmail = h('button', { class: 'btn primary', onclick: sendEmail }, icon('send'), 'Send email');
+    to.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); sendEmail(); } });
+    const emailPart = info.senders.length
+      ? h('div', { class: 'send-part' },
+        h('label', { class: 'magic-field' }, h('span', null, 'From'), from),
+        h('label', { class: 'magic-field' }, h('span', null, 'To'), to, recents),
+        h('label', { class: 'magic-field' }, h('span', null, 'Note'), note),
+        h('div', { class: 'send-go' }, goEmail, h('small', null, 'They get its details and an invite to add it to their calendar.')))
+      : h('div', { class: 'send-part' }, h('p', { class: 'hint' }, 'Connect a Google or Outlook account to send blocks by email.'),
+        h('button', { class: 'btn', onclick: () => { closeSettings(); openSettings('calendars'); } }, 'Connect an account'));
+
+    // Onto a Notion page
+    let picked = null, timer = 0;
+    const find = h('input', { type: 'search', placeholder: 'Find a page by its name…', spellcheck: false });
+    const pages = h('div', { class: 'send-pages' });
+    const goNotion = h('button', { class: 'btn primary', disabled: true, onclick: async () => {
+      if (busy || !picked) return;
+      busy = true;
+      goNotion.disabled = true;
+      say('');
+      try {
+        await onyx.shareNotion({ pageId: picked.ref, entry });
+        closeSettings();
+        toast(`Added "${entry.title}" to ${picked.title} in Notion`, '', { label: 'Open', run: () => onyx.open(picked.url) });
+      } catch (err) {
+        say(err.message);
+        goNotion.disabled = false;
+      }
+      busy = false;
+    } }, icon('send'), 'Add to the page');
+    const look = async () => {
+      pages.replaceChildren(h('p', { class: 'hint' }, 'Looking…'));
+      try {
+        const r = await onyx.sharePages(find.value);
+        if (!r.connected) {
+          pages.replaceChildren(h('p', { class: 'hint' }, 'Connect Notion to send blocks to its pages.'),
+            h('button', { class: 'btn', onclick: () => { closeSettings(); openSettings('connections'); } }, 'Connect Notion'));
+          return;
+        }
+        if (!r.pages.length) {
+          pages.replaceChildren(h('p', { class: 'hint' }, find.value ? 'No page by that name. Pages show here once they are shared with your Onyx integration in Notion.'
+            : 'No pages yet. In Notion, open a page, then ••• → Connections → your Onyx integration.'));
+          return;
+        }
+        pages.replaceChildren(...r.pages.map((p) => h('button', {
+          type: 'button', class: `send-page${picked?.ref === p.ref ? ' on' : ''}`,
+          onclick: (ev) => {
+            picked = p;
+            for (const b of pages.querySelectorAll('.send-page')) b.classList.toggle('on', b === ev.currentTarget);
+            goNotion.disabled = false;
+          },
+        }, h('span', { class: 'sp-icon' }, p.icon || '📄'), h('span', { class: 'sp-title' }, p.title))));
+      } catch (err) {
+        pages.replaceChildren(h('p', { class: 'hint' }, err.message));
+      }
+    };
+    find.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(look, 300); });
+    const notionPart = h('div', { class: 'send-part' }, find, pages,
+      h('div', { class: 'send-go' }, goNotion, h('small', null, 'It goes at the end of the page as a to-do with its time.')));
+
+    const tabs = h('div', { class: 'mp-tabs', role: 'tablist' });
+    const body = h('div');
+    const paint = () => {
+      tabs.replaceChildren(...[['email', 'Email'], ['notion', 'Notion page']].map(([k, label]) => h('button', {
+        type: 'button', role: 'tab', class: `mp-tab${tab === k ? ' on' : ''}`, 'aria-selected': String(tab === k),
+        onclick: () => { tab = k; say(''); paint(); if (k === 'notion' && !pages.childElementCount) look(); },
+      }, label)));
+      body.replaceChildren(tab === 'email' ? emailPart : notionPart);
+    };
+    paint();
+    pane.append(
+      h('button', { class: 'icon-btn close', onclick: closeSettings }, icon('x')),
+      h('h3', { class: 'magic-h' }, icon('send'), 'Send'),
+      h('div', { class: 'send-what' }, h('b', null, entry.title), h('small', null, when)),
+      tabs, body, problem);
+    $('#modal').replaceChildren(sheet);
+    $('#modal').hidden = false;
+    setTimeout(() => (info.senders.length ? to : find).focus({ preventScroll: true }), 50);
+  }
+
   /** The right-click menu: on an entry (copy, paste, duplicate, open) or on an empty spot (paste here). */
   function entryMenu(e, src) {
     closeMenu();
@@ -2254,6 +2382,7 @@
       src && !MOBILE && !src.mirror && item('Hyperfocus…', () => openFocusSetup(focusEntry(src))),
       src?.kind === 'event' && h('div', { class: 'ctx-colors' },
         colorSwatches(src.ownColor ? src.color : null, src.calColor || src.color, (c) => { closeMenu(); colorBlock(src, c); }).el),
+      src && item('Send…', () => openSend(src)),
       src && item('Copy   Ctrl+C', () => copyEntry(src)),
       src && item('Duplicate', () => { clip.entry = src; const d = toDate(src.start); pasteEntry({ day: ymd(addDays(d, src.allDay ? 1 : 0)), time: src.allDay ? null : hm(new Date(d.getTime() + Math.max(15 * 60000, toDate(src.end) - d))) }); }),
       item(`Paste here   Ctrl+V${clip.entry ? `: ${clip.entry.title}` : ''}`, () => pasteEntry(slot), !clip.entry || !slot));
@@ -3197,6 +3326,7 @@
         src && !readOnly && h('button', { class: 'btn danger', title: src.seriesId ? 'Delete every repeat' : null, onclick: () => remove('all') }, icon('trash'), src.seriesId ? 'Delete all' : 'Delete'),
         src?.seriesId && !readOnly && h('button', { class: 'btn', title: 'Take just this day off; the others stay', onclick: () => remove('one') }, 'Skip this day'),
         src && !src.done && focusButton(src),
+        src && h('button', { class: 'btn send-btn', title: 'Send it to someone by email (with an invite), or onto a Notion page', onclick: () => { closePopover(); openSend(src); } }, icon('send'), 'Send'),
         // The backburner: the block comes off the calendar and waits as a task with no date, its name, notes,
         // tags and length kept. Undo puts the block back.
         src && !readOnly && !src.seriesId && !src.done && h('button', {

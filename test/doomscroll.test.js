@@ -22,7 +22,14 @@ test('it hears window changes only: not the screen\'s content changing, not what
   assert.doesNotMatch(x, /typeAllMask|typeViewTextChanged|typeWindowContentChanged|typeViewFocused/);
   assert.doesNotMatch(x, /flagRequestFilterKeyEvents|canRequestFilterKeyEvents/);
   const strings = fs.readFileSync(path.join(main, 'res/values/strings.xml'), 'utf8');
-  assert.match(strings, /name="doomscroll_description">[^<]*All it keeps is today's time on each of those apps, on this phone[^<]*Nothing is sent/);
+  assert.match(strings, /name="doomscroll_description">[^<]*All it keeps is how long you spent on each of those apps today, on this phone[^<]*Nothing is sent/);
+});
+
+test('every Android string builds: no bare apostrophe or quote (the resource compiler stops on one)', () => {
+  const strings = fs.readFileSync(path.join(main, 'res/values/strings.xml'), 'utf8');
+  for (const m of strings.matchAll(/<string name="([^"]+)">([^<]*)<\/string>/g)) {
+    assert.doesNotMatch(m[2], /(^|[^\\])['"]/, `string ${m[1]} has a bare apostrophe or quote: write \\' or \\"`);
+  }
 });
 
 test('the service keeps nothing but today\'s time per app: no files, no network', () => {

@@ -363,7 +363,7 @@ async function createEvent(data) {
   if (cal.kind !== 'calendar' || !cal.writable) throw new Error(`"${cal.name}" is read-only. Pick another calendar.`);
   const fields = eventFields(data);
   if (!fields.start) throw new Error('A start and end time are needed.');
-  if (!fields.title) fields.title = 'Time block';
+  if (!fields.title && !data.blank) fields.title = 'Time block'; // a block dragged out on the calendar stays blank, to name later
   if (data.recur) {
     fields.recur = recur.normalize(data.recur, dayOfFields(fields));
     Object.assign(fields, alignToRule(fields, fields.recur));

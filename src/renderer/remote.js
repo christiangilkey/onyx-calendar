@@ -276,7 +276,7 @@
     const d = o.args[0] || {}, cal = calOf(d.calendarId);
     return {
       id: o.temp, kind: 'event', calendarId: d.calendarId, calendarName: cal?.name || '', color: cal?.color || '#8b7cff',
-      title: d.title || '(No title)', start: d.start, end: d.end || d.start, allDay: !!d.allDay, notes: d.notes || '', location: d.location || '',
+      title: d.blank ? '' : d.title || '(No title)', start: d.start, end: d.end || d.start, allDay: !!d.allDay, notes: d.notes || '', location: d.location || '',
       tags: d.tags || [], writable: true, recur: d.recur || null, offline: true,
     };
   }

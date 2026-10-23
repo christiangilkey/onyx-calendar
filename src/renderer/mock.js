@@ -350,7 +350,7 @@
     },
     createEvent: async (d) => {
       const c = cal(d.calendarId);
-      const e = { id: `${c.id}/${seq++}`, calendarId: c.id, calendarName: c.name, color: c.color, kind: 'event', location: '', link: '', writable: true, ...d, title: d.title || 'Time block' };
+      const e = { id: `${c.id}/${seq++}`, calendarId: c.id, calendarName: c.name, color: c.color, kind: 'event', location: '', link: '', writable: true, ...d, title: d.blank ? '' : d.title || 'Time block' };
       delete e.tags;
       if (d.recur) e.seriesId = e.id; // shown as one block: enough to see the repeat in the window
       events.push(e);

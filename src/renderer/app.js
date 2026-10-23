@@ -1995,7 +1995,7 @@
       select: (info) => {
         const marked = $('.fc-event-mirror') || $('.fc-highlight');
         const anchor = marked ? marked.getBoundingClientRect() : pointRect(info.jsEvent);
-        openEditor({ start: info.start, end: info.end, allDay: info.allDay }, anchor);
+        blockOut(info, anchor);
       },
       eventClick: (info) => {
         if (info.event.extendedProps.src?.pending) return; // a pasted entry still being made
@@ -2195,6 +2195,33 @@
       }
       // Making it marked its calendar changed, so this load reads just that one again, not every calendar.
       refetch();
+    } catch (err) {
+      dropPending(stand);
+      fail(err);
+    }
+  }
+
+  /**
+   * Time dragged out on the calendar is kept at once, as a blank block (no Save needed): it shows straight away,
+   * is made in the usual calendar, and its editor opens on it to name it now. Left as it is, it stays blank, to
+   * fill in later. Undo takes it away.
+   */
+  async function blockOut(info, anchor) {
+    const writable = S.calendars.filter((c) => c.kind === 'calendar' && c.writable);
+    const cal = writable.find((c) => c.id === S.settings.defaultCalendar) || writable[0];
+    if (!cal) return openEditor({ start: info.start, end: info.end, allDay: info.allDay }, anchor); // nowhere to keep it: the editor says so
+    const fields = info.allDay
+      ? { title: '', blank: true, start: ymd(info.start), end: ymd(info.end), allDay: true, calendarId: cal.id }
+      : { title: '', blank: true, start: info.start.toISOString(), end: info.end.toISOString(), allDay: false, calendarId: cal.id };
+    calendar.unselect();
+    const stand = showPending({ kind: 'event', ...fields, color: cal.color, calendarName: cal.name, writable: true, done: false, tags: [] });
+    try {
+      let made = await onyx.createEvent(fields);
+      stand?.setExtendedProp('madeAt', Date.now());
+      recordAction('Added a block', () => onyx.deleteEvent(made.id), async () => { made = await onyx.createEvent(fields); });
+      refetch();
+      const src = { kind: 'event', writable: true, calendarId: cal.id, calendarName: cal.name, color: cal.color, tags: [], notes: '', ...made, title: '' };
+      openEditor({ src, start: toDate(src.start), end: toDate(src.end), allDay: !!src.allDay }, anchor);
     } catch (err) {
       dropPending(stand);
       fail(err);

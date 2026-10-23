@@ -6560,6 +6560,39 @@
   }
 
   const PANES = {
+    // Every version of Onyx and what came with it, newest first (changelog.js, made by scripts/changelog.js).
+    changelog() {
+      const list = window.OnyxChangelog || [];
+      const here = onyx.isPhone ? null : S.version; // the phone app's own version is not known here
+      const FIRST = 12;
+      let all = false;
+      const search = h('input', { type: 'search', class: 'cl-search', placeholder: 'Search the changes…', spellcheck: false, 'aria-label': 'Search the changelog' });
+      const body = h('div', { class: 'cl-list' });
+      const day = (d) => { try { return fromYmd(d).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }); } catch { return d; } };
+      const draw = () => {
+        const q = search.value.trim().toLowerCase();
+        const has = (v) => !q || v.version.includes(q) || (v.title || '').toLowerCase().includes(q) || v.items.some((it) => it.toLowerCase().includes(q));
+        const found = list.filter(has);
+        const shown = q || all ? found : found.slice(0, FIRST);
+        body.replaceChildren(
+          ...shown.map((v) => h('section', { class: `cl-ver${v.version === here ? ' here' : ''}` },
+            h('header', { class: 'cl-head' },
+              h('span', { class: 'cl-num' }, v.version),
+              v.version === here && h('span', { class: 'cl-here' }, 'You have this'),
+              h('span', { class: 'cl-date' }, day(v.date))),
+            v.title && h('div', { class: 'cl-title' }, v.title),
+            h('ul', { class: 'cl-items' }, (q ? v.items.filter((it) => it.toLowerCase().includes(q) || v.version.includes(q) || (v.title || '').toLowerCase().includes(q)) : v.items)
+              .map((it) => h('li', null, it))))),
+          !q && !all && found.length > shown.length ? h('button', { class: 'btn cl-more', onclick: () => { all = true; draw(); } }, `Show all ${found.length} versions`) : null,
+          q && !found.length ? h('p', { class: 'hint' }, 'No change mentions that.') : null);
+      };
+      search.addEventListener('input', draw);
+      draw();
+      return h('div', { class: 'cl-pane' },
+        h('h3', null, 'Changelog'),
+        h('p', { class: 'lead' }, `Every version of Onyx, newest first: ${list.length} so far. It grows with every update.`),
+        search, body);
+    },
     calendars() {
       const msId = h('input', { type: 'text', placeholder: 'Application (client) ID', value: S.microsoft.clientId, spellcheck: false });
       const feedName = h('input', { type: 'text', placeholder: 'Name, e.g. Work Outlook' });
@@ -7055,8 +7088,8 @@
   let settingsTab = onyx.isPhone ? 'connection' : 'calendars';
   function openSettings(tab = settingsTab) {
     const tabs = onyx.isPhone
-      ? [['connection', 'Connection'], ['keys', 'Keys & accounts'], ['pi', 'Calls & alerts'], ...(onyx.launcher ? [['launcher', 'Home & lock screen'], ['doomscroll', 'Doomscroll saver']] : []), ['general', 'General']]
-      : [['calendars', 'Calendars'], ['connections', 'Notion, Drive & AI'], ['phone', 'Phone'], ['desktops', 'Desktops'], ['pi', 'Calls & alerts'], ['mcp', 'MCP server'], ['general', 'General']];
+      ? [['connection', 'Connection'], ['keys', 'Keys & accounts'], ['pi', 'Calls & alerts'], ...(onyx.launcher ? [['launcher', 'Home & lock screen'], ['doomscroll', 'Doomscroll saver']] : []), ['general', 'General'], ['changelog', 'Changelog']]
+      : [['calendars', 'Calendars'], ['connections', 'Notion, Drive & AI'], ['phone', 'Phone'], ['desktops', 'Desktops'], ['pi', 'Calls & alerts'], ['mcp', 'MCP server'], ['general', 'General'], ['changelog', 'Changelog']];
     if (!tabs.some(([id]) => id === tab)) tab = tabs[0][0];
     settingsTab = tab;
     closePopover();

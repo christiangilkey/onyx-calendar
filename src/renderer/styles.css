@@ -2519,3 +2519,19 @@ body.mobile .mg-seg > button, body.mobile .mg-seg > input { height: 40px; font-s
 .mg-opts-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .mg-opts summary .mg-opts-t small { margin-left: 0; text-align: left; }
 .mg-type .magic-text { min-height: 52px; }
+
+/* ------------------------------------------------------------ Settings → Changelog */
+.cl-pane { display: flex; flex-direction: column; gap: 12px; }
+.cl-pane .lead { margin-bottom: 2px; }
+.cl-search { height: 40px; border-radius: 10px; padding: 0 12px; background: #0c0c10; border: 1px solid rgba(255, 255, 255, .08); color: var(--text); font-size: 14px; }
+.cl-list { display: flex; flex-direction: column; gap: 10px; }
+.cl-ver { padding: 12px 14px; border-radius: 14px; background: #121216; border: 1px solid rgba(255, 255, 255, .06); }
+.cl-ver.here { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.cl-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cl-num { font-weight: 700; font-size: 14px; font-variant-numeric: tabular-nums; color: var(--text); }
+.cl-here { padding: 1px 8px; border-radius: 9px; font-size: 11px; font-weight: 700; background: color-mix(in srgb, var(--accent) 24%, transparent); color: #dcd3ff; }
+.cl-date { margin-left: auto; color: var(--muted); font-size: 12px; }
+.cl-title { margin-top: 3px; color: var(--soft); font-size: 13.5px; font-weight: 600; }
+.cl-items { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; color: var(--soft); font-size: 13px; line-height: 1.5; }
+.cl-items li::marker { color: var(--faint); }
+.cl-more { align-self: center; }

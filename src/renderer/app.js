@@ -1586,28 +1586,44 @@
   }
 
   /**
-   * Carried to just under another entry, it starts where that one ends (not at the next 15 minutes), so
-   * entries fit together: the nearest end on the same day less than 15 minutes from its start. Null otherwise.
+   * Entries fit together: one carried up meets the entry above it (it starts where that one ends), one carried
+   * down meets the entry below it (it ends where that one starts); a top edge stretched meets the end of the
+   * entry above, a bottom edge the start of the entry below. Only once it comes within SNAP_MS of that edge
+   * (either side), so small changes anywhere else stay as fine as the grid's 15 minutes. `edge` is 'move'
+   * (with `from`, where it started, for the way it is going), 'start' or 'end'. { start, end, by } or null.
    */
-  const MAGNET_MS = 15 * 60000;
-  function magnetFor(dragged, start, end) {
+  const SNAP_MS = 10 * 60000;
+  function magnetFor(dragged, start, end, { from = null, edge = 'move' } = {}) {
     if (!start || !end || dragged.allDay) return null;
+    const len = end - start;
+    const dir = edge === 'move' && from ? Math.sign(start - from) : 0;
+    if (edge === 'move' && !dir) return null; // back where it started: nothing to meet
     let best = null;
+    const take = (gap, s, e, by) => { if (gap > 0 && gap < SNAP_MS && (!best || gap < best.gap)) best = { gap, start: s, end: e, by }; };
     for (const o of calendar.getEvents()) {
-      if (o.id === dragged.id || o.allDay || o.display === 'background' || !o.end || !o.extendedProps?.src) continue;
-      if (!sameDay(o.end, start)) continue;
-      const gap = Math.abs(o.end - start);
-      if (gap > 0 && gap < MAGNET_MS && (!best || gap < Math.abs(best - start))) best = o.end;
+      if (o.id === dragged.id || o.allDay || o.display === 'background' || !o.end || !o.extendedProps?.src || o.extendedProps.src.pending) continue;
+      // The entry above: its end, met by this one's start.
+      if ((edge === 'start' || dir < 0) && sameDay(o.end, start)) {
+        take(Math.abs(o.end - start), new Date(+o.end), edge === 'start' ? new Date(+end) : new Date(+o.end + len), o.title);
+      }
+      // The entry below: its start, met by this one's end.
+      if ((edge === 'end' || dir > 0) && sameDay(o.start, new Date(end - 1))) {
+        take(Math.abs(o.start - end), edge === 'end' ? new Date(+start) : new Date(+o.start - len), new Date(+o.start), o.title);
+      }
     }
-    return best ? { start: new Date(best), end: new Date(+best + (end - start)) } : null;
+    if (!best || best.end - best.start < 5 * 60000) return null; // a stretch never snaps it down to nothing
+    return best;
   }
+  /** How long a calendar Duration is, in ms (zero for none). */
+  const durMs = (d) => (d ? (d.milliseconds || 0) + (d.days || 0) * 86400000 + (d.months || 0) * 30 * 86400000 + (d.years || 0) * 365 * 86400000 : 0);
 
   async function onMove(info) {
     const e = info.event;
     const src = e.extendedProps.src;
-    // A drop just under another entry: it starts where that one ends.
-    if (info.delta && !e.allDay) {
-      const m = magnetFor(e, e.start, e.end || new Date(e.start.getTime() + 3600000));
+    // Let go close to another entry: it meets it (carried up or down, or stretched by an edge).
+    if (!e.allDay) {
+      const edge = info.delta ? 'move' : durMs(info.startDelta) ? 'start' : durMs(info.endDelta) ? 'end' : null;
+      const m = edge && magnetFor(e, e.start, e.end || new Date(e.start.getTime() + 3600000), { from: info.oldEvent?.start, edge });
       if (m) e.setDates(m.start, m.end);
     }
     if (src.kind === 'task') return moveTaskTo(info);
@@ -2441,10 +2457,11 @@
   // ---- stretching an entry by its top or bottom edge
   // The grid snaps the new time to 15 minutes (the dashed outline). A copy of the entry follows the
   // pointer exactly, smoothly, with the time it will land on, and settles into place when let go.
-  const stretch = { box: null, chip: null, edge: 'end', rect: null, y: 0, frame: 0, perMin: 0 };
+  const stretch = { box: null, chip: null, edge: 'end', rect: null, y: 0, frame: 0, perMin: 0, magnet: null };
 
   function stretchStart(info) {
     stretchStop();
+    stretch.magnet = null;
     const el = info.el;
     const r = el.getBoundingClientRect();
     const target = info.jsEvent?.target;
@@ -2489,10 +2506,12 @@
     box.style.width = `${base.width}px`;
     box.style.top = `${top}px`;
     box.style.height = `${height}px`;
-    // Where it will land: the snapped times, and how long that makes it.
-    const mins = mirror ? Math.round(mirror.getBoundingClientRect().height / stretch.perMin / 15) * 15 : 0;
-    const when = mirror?.querySelector('.ev-time')?.textContent?.trim();
-    stretch.chip.textContent = [when, mins > 0 ? (mins >= 60 ? `${Math.floor(mins / 60)} h${mins % 60 ? ` ${mins % 60} min` : ''}` : `${mins} min`) : ''].filter(Boolean).join(' · ');
+    // Where it will land: the snapped times (met with a neighbour it comes close to), and how long that makes it.
+    const m = stretch.magnet;
+    const mins = m ? Math.round((m.end - m.start) / 60000) : mirror ? Math.round(mirror.getBoundingClientRect().height / stretch.perMin / 15) * 15 : 0;
+    const when = m ? calendar.formatRange(m.start, m.end, { ...timeFormats().eventTimeFormat, separator: ' - ' }) : mirror?.querySelector('.ev-time')?.textContent?.trim();
+    stretch.chip.textContent = [when, mins > 0 ? (mins >= 60 ? `${Math.floor(mins / 60)} h${mins % 60 ? ` ${mins % 60} min` : ''}` : `${mins} min`) : '', m ? `meets ${m.by}` : ''].filter(Boolean).join(' · ');
+    stretch.chip.classList.toggle('snapped', !!m);
   }
 
   function stretchStop() {
@@ -2510,10 +2529,15 @@
   // ---- the carried entry: a copy that follows the pointer exactly
   const float = { box: null, dx: 0, dy: 0, time: null, chip: null, last: '', magnet: null, shift: 0 };
 
-  /** Where a carried entry would land, with the pull to an entry's end (the outline moves to it in floatMove). */
+  /** Where a carried entry would land, met with a neighbour it comes close to (the outline moves to it in floatMove). */
   function carryAt(dragged, drop) {
+    if (stretch.box) {
+      // Stretched by an edge: the time it will land on, met with a neighbour's edge it comes close to (stretchFrame).
+      stretch.magnet = drop.allDay ? null : magnetFor(dragged, drop.start, drop.end, { edge: stretch.edge });
+      return;
+    }
     if (!float.box) return;
-    const m = drop.allDay ? null : magnetFor(dragged, drop.start, drop.end);
+    const m = drop.allDay ? null : magnetFor(dragged, drop.start, drop.end, { from: dragged.start, edge: 'move' });
     float.magnet = m;
     float.shift = m ? (m.start - drop.start) / 60000 : 0;
   }

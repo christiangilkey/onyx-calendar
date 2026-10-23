@@ -1658,6 +1658,193 @@
     }
   }
 
+  // ---- dragging a task from the list (with a mouse): onto the calendar to schedule it (a time on the time
+  // grid, snapped to 15 minutes, with an outline of where it lands; a day in the month or the all-day row),
+  // onto the backburner to keep it for later, out of it (anywhere else in the list) to bring it back, onto
+  // Today to give it today, onto No date to take its day off. Each one can be undone.
+  let taskDropDone = () => {};
+  function taskDrops() {
+    const cal = $('#calendar');
+    const ghost = h('div', { class: 'task-drop-ghost', hidden: true }, h('b'), h('small'));
+    document.body.append(ghost);
+    const lengthOf = (t) => (t.minutes || 30);
+
+    /** The spot under the pointer: { day, minutes? } and where its outline goes. */
+    const spotAt = (x, y) => {
+      const under = document.elementsFromPoint(x, y);
+      const col = under.find((el) => el.matches?.('#calendar .fc-timegrid-col[data-date]'));
+      if (col) {
+        const lanes = [...cal.querySelectorAll('.fc-timegrid-slot-lane[data-time]')];
+        const lane = lanes.find((l) => { const r = l.getBoundingClientRect(); return y >= r.top && y < r.bottom; });
+        if (!lane) return null;
+        const r = lane.getBoundingClientRect(), c = col.getBoundingClientRect();
+        const [hh, mm] = lane.dataset.time.split(':').map(Number);
+        const slot = 30; // slotDuration
+        const minutes = hh * 60 + mm + Math.min(slot - 15, Math.floor(((y - r.top) / r.height) * (slot / 15)) * 15);
+        const perMin = r.height / slot;
+        return { day: col.dataset.date, minutes, box: { left: c.left + 2, top: r.top + (minutes - hh * 60 - mm) * perMin, width: c.width - 4, height: Math.max(18, lengthOf(draggedTask) * perMin) } };
+      }
+      const cell = under.find((el) => el.matches?.('#calendar .fc-daygrid-day[data-date]'));
+      if (cell) {
+        const c = cell.getBoundingClientRect();
+        return { day: cell.dataset.date, box: { left: c.left + 2, top: c.top + 2, width: c.width - 4, height: Math.min(c.height - 4, 26) } };
+      }
+      return null;
+    };
+    const when = (spot) => (spot.minutes != null
+      ? `${fmtDay(fromYmd(spot.day))}, ${fmtTime(at(spot.day, hhmm(spot.minutes)))}` : fmtDay(fromYmd(spot.day)));
+    const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+    const showGhost = (spot) => {
+      Object.assign(ghost.style, { left: `${spot.box.left}px`, top: `${spot.box.top}px`, width: `${spot.box.width}px`, height: `${spot.box.height}px` });
+      ghost.style.setProperty('--c', draggedTask.color || 'var(--accent)');
+      ghost.firstChild.textContent = draggedTask.label;
+      ghost.lastChild.textContent = when(spot);
+      ghost.hidden = false;
+    };
+
+    cal.addEventListener('dragover', (e) => {
+      if (!draggedTask || graph.on || draggedTask.mirror) return;
+      const spot = spotAt(e.clientX, e.clientY);
+      if (!spot) { ghost.hidden = true; return; }
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      showGhost(spot);
+    });
+    cal.addEventListener('dragleave', (e) => { if (!cal.contains(e.relatedTarget)) ghost.hidden = true; });
+    cal.addEventListener('drop', async (e) => {
+      const t = draggedTask;
+      if (!t) return;
+      e.preventDefault();
+      const spot = spotAt(e.clientX, e.clientY);
+      ghost.hidden = true;
+      if (!spot) return;
+      const to = spot.minutes != null ? { start: at(spot.day, hhmm(spot.minutes)).toISOString() } : { date: spot.day };
+      await taskMoved(t, () => onyx.moveTask(t.id, to), `Scheduled "${t.label}" for ${when(spot)}`, () => onyx.moveTask(t.id, to));
+    });
+
+    // The task list: the backburner, Today and No date take a dropped task.
+    const box = $('#task-items');
+    let lit = null;
+    const light = (el) => { if (lit === el) return; lit?.classList.remove('drop-on'); lit = el; el?.classList.add('drop-on'); };
+    const today = () => ymd(new Date());
+    const targetOf = (e) => {
+      const t = draggedTask;
+      if (!t || t.mirror) return null;
+      const el = e.target.closest?.('[data-drop]');
+      const kind = el?.dataset.drop;
+      if (kind === 'burner') return t.backburner ? null : { el, kind };
+      if (kind === 'today') return t.date === today() ? null : { el, kind };
+      if (kind === 'nodate') return !t.date && !t.backburner ? null : { el, kind };
+      if (t.backburner && !e.target.closest?.('[data-drop="burner"]')) return { el: box, kind: 'nodate' }; // out of the backburner
+      return null;
+    };
+    box.addEventListener('dragover', (e) => {
+      const target = targetOf(e);
+      if (!target) { light(null); return; }
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      light(target.el);
+    });
+    box.addEventListener('dragleave', (e) => { if (!box.contains(e.relatedTarget)) light(null); });
+    box.addEventListener('drop', async (e) => {
+      const target = targetOf(e);
+      light(null);
+      if (!target) return;
+      e.preventDefault();
+      const t = draggedTask;
+      if (target.kind === 'burner') {
+        await taskMoved(t, () => taskToBackburner(t));
+      } else if (target.kind === 'today') {
+        await taskMoved(t, () => moveToDay(t, today()), `"${t.label}" moved to today`, () => moveToDay(t, today()));
+      } else if (t.backburner) {
+        await taskMoved(t, () => offBackburner(t));
+      } else {
+        await taskMoved(t, () => onyx.updateTask(t.id, noDatePatch(t)), `"${t.label}" has no date now`, () => onyx.updateTask(t.id, noDatePatch(t)));
+      }
+    });
+    taskDropDone = () => { ghost.hidden = true; light(null); };
+  }
+
+  /** A task's day off: a date or time written in its name goes with it (as when it goes to the backburner). */
+  const noDatePatch = (t) => (t.dateInName || t.time ? { title: t.label, due: null } : { due: null });
+
+  /** Where over the task list a point is: 'burner' (the backburner bar), 'list' (anywhere else in it), or null. */
+  function listTargetAt(x, y) {
+    const panel = $('#tasks');
+    if (!panel || graph.on || x == null) return null;
+    const r = panel.getBoundingClientRect();
+    if (!r.width || x < r.left || x > r.right || y < r.top || y > r.bottom || getComputedStyle(panel).display === 'none') return null;
+    const b = $('#task-items [data-drop="burner"]')?.getBoundingClientRect();
+    return b && x >= b.left && x <= b.right && y >= b.top && y <= b.bottom ? 'burner' : 'list';
+  }
+  let listLit = null;
+  function listHover(kind) {
+    const el = kind === 'burner' ? $('#task-items [data-drop="burner"]') : kind === 'list' ? $('#task-items') : null;
+    if (el === listLit) return;
+    listLit?.classList.remove('drop-on');
+    listLit = el;
+    el?.classList.add('drop-on');
+  }
+
+  /**
+   * An entry from the calendar let go over the task list, to do another time: a task loses its day and time
+   * (onto the backburner, over that); a block becomes a task with no date, its name, notes, tags and length
+   * kept (as its Backburner button does). Undo puts either back where it was.
+   */
+  async function laterFromCalendar(src, where) {
+    if (!src || src.pending) return;
+    if (src.kind === 'task') {
+      const t = tasks.find((x) => x.id === src.id) || { id: src.id, title: src.title, label: src.title, start: src.allDay ? null : src.start, date: ymd(toDate(src.start)) };
+      if (where === 'burner') return taskMoved(t, () => taskToBackburner(t));
+      return taskMoved(t, () => onyx.updateTask(t.id, noDatePatch(t)), `"${t.label}" waits with no date`, () => onyx.updateTask(t.id, noDatePatch(t)));
+    }
+    if (src.kind !== 'event') return;
+    if (!src.writable) return toast(`"${src.calendarName}" is read-only here, so this stays on the calendar.`, 'warn');
+    if (src.seriesId) return toast('A repeating block stays on the calendar: skip a day of it from its menu instead.', 'warn');
+    const burner = where === 'burner';
+    try {
+      const minutes = Math.round((new Date(src.end) - new Date(src.start)) / 60000);
+      const keep = { title: src.title, notes: src.notes || src.memo || '', tags: src.tags || [], ...(burner ? { backburner: true } : {}) };
+      let task = await onyx.createTask(keep);
+      if (!src.allDay && minutes >= 5) await onyx.resizeTask(task.id, { minutes }).catch(() => {}); // Magic add plans it at this length
+      await onyx.deleteEvent(src.id);
+      const copy = { title: src.title, notes: src.notes || '', location: src.location || '', start: src.start, end: src.end, allDay: !!src.allDay, calendarId: src.calendarId, tags: src.tags || [] };
+      let back = null;
+      recordAction(burner ? `"${src.title}" on the backburner` : `"${src.title}" waits as a task with no date`,
+        async () => { back = await onyx.createEvent(copy); await onyx.deleteTask(task.id); },
+        async () => { task = await onyx.createTask(keep); await onyx.deleteEvent(back.id); });
+    } catch (err) {
+      fail(err);
+    }
+    refetch(true);
+    loadTasks(true);
+  }
+
+  /**
+   * Does a change to a dropped task and shows it. With `label`, it is recorded for Undo here (which puts the
+   * task back where it was: its day and time, no date, or the backburner); without, `run` records its own.
+   */
+  async function taskMoved(t, run, label, redo) {
+    const was = t.start ? { start: t.start } : t.date ? { date: t.date } : null;
+    const burner = !!t.backburner;
+    try {
+      await run();
+      if (label) {
+        recordAction(label, async () => {
+          if (was) await onyx.moveTask(t.id, was);
+          else {
+            await onyx.updateTask(t.id, { due: null });
+            if (burner) await onyx.setBackburner(t.id, true);
+          }
+        }, redo);
+      }
+    } catch (err) {
+      fail(err);
+    }
+    await loadTasks(true);
+    refetch(true);
+  }
+
   /** Why a block cannot be moved (null when nothing is known): said when someone tries to drag it. */
   const lockedWhy = (src) => (src?.kind === 'task' && src.mirror ? 'This task follows a calendar entry for the Pi. Move the entry instead.'
     : src?.kind === 'event' && !src.writable ? `"${src.calendarName}" is read-only here, so this cannot be moved.` : null);
@@ -1856,7 +2043,15 @@
       // While it is carried, the entry itself follows the pointer freely; where it will land
       // (snapped to the grid) shows as an outline, and it snaps there when dropped.
       eventDragStart: (info) => { hidePeek(); edgeNavStart(); floatStart(info); },
-      eventDragStop: (info) => { edgeNavStop(); floatStop(); afterDrag(info); },
+      eventDragStop: (info) => {
+        // Let go over the task list: off the calendar, to do another time (the calendar puts it back first).
+        const p = info.jsEvent?.changedTouches?.[0] || info.jsEvent;
+        const toList = MOBILE || !p ? null : listTargetAt(p.clientX, p.clientY);
+        edgeNavStop();
+        floatStop();
+        afterDrag(info);
+        if (toList) laterFromCalendar(info.event.extendedProps.src, toList);
+      },
       eventResizeStart: (info) => { hidePeek(); stretchStart(info); },
       eventResizeStop: (info) => { stretchStop(); afterDrag(info); },
       datesSet: (info) => {
@@ -1870,6 +2065,7 @@
     calendar.render();
     explainLocked();
     swipeToChangeDates($('#calendar'));
+    if (!MOBILE) taskDrops();
     touchDragWatchdog();
     if (!MOBILE) {
       edgeArrows();
@@ -2106,7 +2302,9 @@
       floatMove(drag.x, drag.y);
       if (!drag.rect) dragMeasure();
       const r = drag.rect;
-      setEdge(drag.x >= r.right - EDGE_ZONE ? 1 : drag.x <= r.left + drag.axis ? -1 : 0);
+      const toList = MOBILE ? null : listTargetAt(drag.x, drag.y);
+      listHover(toList);
+      setEdge(toList ? 0 : drag.x >= r.right - EDGE_ZONE && drag.x <= r.right ? 1 : drag.x <= r.left + drag.axis ? -1 : 0);
     });
   }
 
@@ -2142,6 +2340,7 @@
   }
 
   function edgeNavStop() {
+    listHover(null);
     document.body.classList.remove('dragging-entry');
     document.removeEventListener(MOVE_EVENT, edgeMove, { capture: true });
     cancelAnimationFrame(drag.frame);
@@ -3492,7 +3691,8 @@
         cls === 'earlier' && h('span', { class: 'carry-set' },
           h('button', { class: 'carry', title: 'Move all of these to today', onclick: () => carryOver(earlier, 0) }, '→ Today'),
           h('button', { class: 'carry', title: 'Move all of these to tomorrow', onclick: () => carryOver(earlier, 1) }, '→ Tomorrow')));
-      return h('section', { class: 'task-group' }, head,
+      const drop = name === 'Today' ? 'today' : name === 'No date' ? 'nodate' : null;
+      return h('section', { class: 'task-group', ...(drop ? { 'data-drop': drop } : {}) }, head,
         !closed && h('div', { class: 'task-cards' }, items.sort((a, b) => sortKey(a).localeCompare(sortKey(b))).map(taskRow)));
     };
     box.replaceChildren(...[rolloverTray(earlier, someday), ...groups.filter(([, items]) => items.length).map(group),
@@ -3503,20 +3703,20 @@
   const burnerOpen = () => { try { return localStorage.getItem('onyx.burner-open') === '1'; } catch { return false; } };
 
   function burnerBar(items) {
-    if (!items.length) return null;
-    const open = burnerOpen();
+    if (!items.length && MOBILE) return null;
+    const open = burnerOpen() && items.length > 0;
     const toggle = () => {
       try { localStorage.setItem('onyx.burner-open', open ? '0' : '1'); } catch { /* this visit only */ }
       renderTasks();
     };
-    return h('section', { class: `burner${open ? ' open' : ''}` },
+    return h('section', { class: `burner${open ? ' open' : ''}${items.length ? '' : ' empty'}`, 'data-drop': 'burner' },
       h('div', {
         class: 'burner-head', role: 'button', tabindex: '0', 'aria-expanded': String(open),
         title: open ? 'Fold the backburner away' : 'Tasks kept for later: open to schedule one',
         onclick: toggle,
         onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } },
       }, icon('stove'), h('span', null, 'Backburner'), h('span', { class: 'sec-count' }, items.length), h('span', { class: 'grow' }),
-        h('span', { class: 'burner-chev' }, open ? '▾' : '▸')),
+        items.length ? h('span', { class: 'burner-chev' }, open ? '▾' : '▸') : h('small', { class: 'burner-drop' }, 'Drag a task here to keep it for later')),
       open && h('div', { class: 'task-cards' }, items.sort((a, b) => a.label.localeCompare(b.label)).map(taskRow)),
       open && h('div', { class: 'burner-hint' }, 'Pick a day on one to schedule it; it leaves the backburner.'));
   }
@@ -7389,14 +7589,11 @@
     e.dataTransfer.setData('text/plain', t.label);
     e.dataTransfer.effectAllowed = 'move';
     document.body.classList.add('dragging-task');
-    if (!graph.on && !dragHinted) {
-      dragHinted = true;
-      toast('Open the globe view (G) to drop tasks into its clusters.');
-    }
   }
 
   function taskDragEnd() {
     draggedTask = null;
+    taskDropDone();
     graph.view?.dragOver();
     document.body.classList.remove('dragging-task');
   }

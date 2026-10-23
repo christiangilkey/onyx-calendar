@@ -122,6 +122,7 @@
             android:noHistory="true"
             android:taskAffinity="com.onyxcalendar.app.lock"
             android:theme="@style/OnyxLock"
+            android:windowSoftInputMode="adjustResize|stateHidden"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|screenLayout|density" />
 
         <!-- The alarm as something starts: wakes the phone, over the lock screen, ringing until a button is pressed. -->

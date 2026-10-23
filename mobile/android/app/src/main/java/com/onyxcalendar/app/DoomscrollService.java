@@ -15,7 +15,11 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.provider.Settings;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
 import android.text.TextUtils;
+import android.text.style.ForegroundColorSpan;
+import android.text.style.StyleSpan;
 import android.text.format.DateFormat;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -29,7 +33,10 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import org.json.JSONObject;
+
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -140,7 +147,12 @@ public class DoomscrollService extends AccessibilityService {
     private final LinkedHashSet<String> names = new LinkedHashSet<>(); // what this stretch has been on
     private String iconPkg = "", shownIcon = null;
     private View card;
-    private TextView title, sub, nextLabel, nextWhen, nextTitle, nextLeft;
+    private TextView title, timer, sub, nextLabel, nextWhen, nextTitle, nextLeft;
+    // Today's time on each app or site (its name → ms), counted as it is looked at, for "1 h 40 min today".
+    // Kept on the phone (so a restart keeps it), only for today: it starts again each day. Never sent.
+    private final Map<String, Long> used = new HashMap<>();
+    private String usedDay = "";
+    private long lastTick = 0, lastSave = 0;
     private ImageView icon;
     private View nextBox, barFill;
     private FrameLayout bar;
@@ -148,6 +160,7 @@ public class DoomscrollService extends AccessibilityService {
     @Override
     protected void onServiceConnected() {
         live = this;
+        loadUsed();
         handler.removeCallbacksAndMessages(null);
         handler.post(this::tick);
     }
@@ -169,6 +182,7 @@ public class DoomscrollService extends AccessibilityService {
     @Override
     public void onDestroy() {
         if (live == this) live = null;
+        saveUsed();
         handler.removeCallbacksAndMessages(null);
         hideCard();
         bg.shutdownNow();
@@ -238,6 +252,10 @@ public class DoomscrollService extends AccessibilityService {
         PowerManager pm = getSystemService(PowerManager.class);
         boolean screenOn = pm == null || pm.isInteractive();
         String name = on(this) && screenOn ? social() : null;
+        // The time since the last look counts toward today's total for what is in front (not a gap, a sleep).
+        long dt = lastTick > 0 ? now - lastTick : 0;
+        lastTick = now;
+        if (name != null && dt > 0 && dt <= 2 * TICK + 1_000) addUsed(name, dt, now);
         if (name != null) {
             if (stretchStart == 0 || now - lastSocial > GAP) { stretchStart = now; names.clear(); hiddenUntil = 0; }
             lastSocial = now;
@@ -252,6 +270,60 @@ public class DoomscrollService extends AccessibilityService {
         }
         if (card != null) drawCard(now);
         handler.postDelayed(this::tick, card != null ? 1_000 : TICK);
+    }
+
+    // ---- today's totals
+
+    private void loadUsed() {
+        try {
+            JSONObject o = new JSONObject(prefs(this).getString("today", "{}"));
+            if (!LauncherData.dayOf(System.currentTimeMillis()).toString().equals(o.optString("day"))) return;
+            usedDay = o.optString("day");
+            JSONObject u = o.optJSONObject("used");
+            if (u == null) return;
+            for (Iterator<String> k = u.keys(); k.hasNext(); ) {
+                String n = k.next();
+                used.put(n, u.optLong(n));
+            }
+        } catch (Exception ignored) {
+            // nothing kept yet
+        }
+    }
+
+    private void saveUsed() {
+        try {
+            JSONObject u = new JSONObject();
+            for (Map.Entry<String, Long> e : used.entrySet()) u.put(e.getKey(), (long) e.getValue());
+            prefs(this).edit().putString("today", new JSONObject().put("day", usedDay).put("used", u).toString()).apply();
+        } catch (Exception ignored) {
+            // kept in memory still
+        }
+    }
+
+    private void addUsed(String name, long ms, long now) {
+        String day = LauncherData.dayOf(now).toString();
+        if (!day.equals(usedDay)) { used.clear(); usedDay = day; }
+        Long had = used.get(name);
+        used.put(name, (had == null ? 0 : had) + ms);
+        if (now - lastSave > 30_000) { lastSave = now; saveUsed(); }
+    }
+
+    private long usedToday(String name, long now) {
+        if (name == null || !LauncherData.dayOf(now).toString().equals(usedDay)) return 0;
+        Long ms = used.get(name);
+        return ms == null ? 0 : ms;
+    }
+
+    /** "40m", "1h 40m": today's total, short enough to share its line. */
+    static String compact(long ms) {
+        long m = Math.max(1, Math.round(ms / (double) MIN));
+        return m < 60 ? m + "m" : (m / 60) + "h" + (m % 60 > 0 ? " " + (m % 60) + "m" : "");
+    }
+
+    /** "4:05", "1:02:09": a session's running time. */
+    static String clock(long ms) {
+        long s = Math.max(0, ms / 1000), h = s / 3600, m = (s % 3600) / 60, sec = s % 60;
+        return h > 0 ? h + ":" + (m < 10 ? "0" : "") + m + ":" + (sec < 10 ? "0" : "") + sec : m + ":" + (sec < 10 ? "0" : "") + sec;
     }
 
     /** Settings → Doomscroll saver → Show me: the card for ten seconds, as it would look now. */
@@ -298,7 +370,8 @@ public class DoomscrollService extends AccessibilityService {
         box.setBackground(bg);
         box.setElevation(dp(10));
 
-        // How long: the app's icon, "12 min on Instagram", and the way back.
+        // How long: the app's icon and name with this stretch's running timer, then today's total there and
+        // the way back. The same two lines (and size) the card always had.
         LinearLayout head = new LinearLayout(this);
         head.setGravity(Gravity.CENTER_VERTICAL);
         icon = new ImageView(this);
@@ -307,10 +380,19 @@ public class DoomscrollService extends AccessibilityService {
         head.addView(icon, ip);
         LinearLayout words = new LinearLayout(this);
         words.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout line = new LinearLayout(this);
+        line.setGravity(Gravity.CENTER_VERTICAL);
         title = text(15, Color.WHITE, true);
+        timer = text(15, 0xFFE8E9EE, true);
+        timer.setFontFeatureSettings("tnum"); // digits of one width: the timer doesn't jiggle as it counts
+        timer.setLetterSpacing(0.02f);
+        line.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tp.setMarginStart(dp(8));
+        line.addView(timer, tp);
         sub = text(12, 0xFF9AA0A8, false);
         sub.setText("Tap to get back to Onyx");
-        words.addView(title);
+        words.addView(line);
         words.addView(sub);
         head.addView(words, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         TextView close = text(18, 0xFF7B808A, false);
@@ -422,7 +504,33 @@ public class DoomscrollService extends AccessibilityService {
     private void drawCard(long now) {
         if (card == null) return;
         long since = stretchStart > 0 ? now - stretchStart : minutes(this) * MIN;
-        title.setText(span(since) + " on " + onWhat());
+        title.setText(names.isEmpty() ? "Social media" : onWhat());
+        timer.setText(clock(since));
+        // The timer warms as the stretch goes on: amber at twice the set time, red at three times.
+        long set = minutes(this) * MIN;
+        timer.setTextColor(since >= 3 * set ? 0xFFFF6B6B : since >= 2 * set ? 0xFFF5B83D : 0xFFE8E9EE);
+        // Today on the one in front: "1 h 40 min today · Tap to go back" (its name too when the stretch spans more).
+        String front = null;
+        for (String n : names) front = n;
+        long onToday = usedToday(front, now);
+        if (onToday >= MIN) {
+            SpannableStringBuilder s = new SpannableStringBuilder();
+            int a = s.length();
+            s.append(compact(onToday));
+            s.setSpan(new ForegroundColorSpan(0xFFE8E9EE), a, s.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            s.setSpan(new StyleSpan(Typeface.BOLD), a, s.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            if (names.size() > 1) {
+                s.append(" on " + front + " today"); // which one (the line has room for that, not the hint too)
+            } else {
+                s.append(" today");
+                int b = s.length();
+                s.append(" · Tap for Onyx");
+                s.setSpan(new ForegroundColorSpan(0xFF6E7380), b, s.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
+            sub.setText(s);
+        } else {
+            sub.setText("Tap to get back to Onyx");
+        }
         if (!iconPkg.equals(shownIcon)) {
             shownIcon = iconPkg;
             try {

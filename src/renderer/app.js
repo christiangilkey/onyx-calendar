@@ -6713,7 +6713,7 @@
           h('ul', { class: 'pc-points' }, [
             ['Checked right here, on this phone', 'Onyx only looks at which app is open and, in a browser, the name of the site in the address bar.'],
             ['Nothing else is read', 'Not what is on the screen, not what you type, not your messages.'],
-            ['Never saved or sent', 'No list of the apps or sites you use is kept: only how long the stretch you are in has run, in memory.'],
+            ['Only today, and never sent', 'For the today total, it keeps how long you have been on each of those apps today, on this phone only, and starts again each day. Nothing leaves the phone.'],
           ].map(([t, d]) => h('li', null, icon('check'), h('span', null, h('b', null, t), h('small', null, d))))))),
         h('div', { class: 'pc-flow', role: 'img', 'aria-label': 'The app or site in front, checked on this phone, becomes only how long. Nothing is sent.' },
           h('span', { class: 'pc-node' }, icon('device'), 'App or site'),

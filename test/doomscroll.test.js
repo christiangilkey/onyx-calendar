@@ -22,13 +22,15 @@ test('it hears window changes only: not the screen\'s content changing, not what
   assert.doesNotMatch(x, /typeAllMask|typeViewTextChanged|typeWindowContentChanged|typeViewFocused/);
   assert.doesNotMatch(x, /flagRequestFilterKeyEvents|canRequestFilterKeyEvents/);
   const strings = fs.readFileSync(path.join(main, 'res/values/strings.xml'), 'utf8');
-  assert.match(strings, /name="doomscroll_description">[^<]*Nothing is saved or sent/);
+  assert.match(strings, /name="doomscroll_description">[^<]*All it keeps is today's time on each of those apps, on this phone[^<]*Nothing is sent/);
 });
 
-test('the service keeps nothing: no files, no network, only the minutes in memory', () => {
+test('the service keeps nothing but today\'s time per app: no files, no network', () => {
   const j = fs.readFileSync(path.join(main, 'java/com/onyxcalendar/app/DoomscrollService.java'), 'utf8');
   assert.doesNotMatch(j, /FileOutputStream|openFileOutput|HttpURLConnection|URL\(|putString\("(site|app|url|history)/);
-  // Its own settings are the only thing it stores: on/off and the minutes.
+  // What it stores: its own settings (on/off and the minutes) and today's totals (only the day and the time per app).
   const stored = [...j.matchAll(/\.put(Boolean|Int|String|Long)\("([^"]+)"/g)].map((m) => m[2]);
-  assert.deepEqual([...new Set(stored)].sort(), ['minutes', 'on']);
+  assert.deepEqual([...new Set(stored)].sort(), ['minutes', 'on', 'today']);
+  assert.match(j, /new JSONObject\(\)\.put\("day", usedDay\)\.put\("used", u\)/, 'today is the day and the time per app, nothing else');
+  assert.match(j, /if \(!day\.equals\(usedDay\)\) \{ used\.clear\(\)/, 'and it starts again each day');
 });

@@ -2041,13 +2041,14 @@
           });
           return;
         }
-        // One tap (or click) highlights the entry, ready to drag, stretch or copy; a second tap on it opens it.
-        // A goal can't be highlighted or moved, so one tap opens it.
+        // One tap (or click) highlights the entry, ready to drag, stretch or copy, with a bubble beside it that
+        // shows its whole name and opens it. On the PC a double click opens it too (on a phone a quick second tap
+        // fights the calendar's own touch handling, so the bubble is the way in). A goal opens at once.
         if (src.kind === 'event' || src.kind === 'task') {
-          const again = lastTap.id === src.id && Date.now() - lastTap.at < DOUBLE_TAP_MS;
+          const again = !MOBILE && lastTap.id === src.id && Date.now() - lastTap.at < DOUBLE_TAP_MS;
           lastTap.id = again ? null : src.id;
           lastTap.at = Date.now();
-          if (!again) return;
+          if (!again) { showTapBubble(src, info.el); return; }
         }
         openEntry(src, anchor);
       },
@@ -2059,7 +2060,7 @@
       // previous) week, so an entry can be carried there and dropped.
       // While it is carried, the entry itself follows the pointer freely; where it will land
       // (snapped to the grid) shows as an outline, and it snaps there when dropped.
-      eventDragStart: (info) => { hidePeek(); edgeNavStart(); floatStart(info); },
+      eventDragStart: (info) => { hidePeek(); hideTapBubble(); edgeNavStart(); floatStart(info); },
       eventDragStop: (info) => {
         // Let go over the task list: off the calendar, to do another time (the calendar puts it back first).
         const p = info.jsEvent?.changedTouches?.[0] || info.jsEvent;
@@ -2069,9 +2070,10 @@
         afterDrag(info);
         if (toList) laterFromCalendar(info.event.extendedProps.src, toList);
       },
-      eventResizeStart: (info) => { hidePeek(); stretchStart(info); },
+      eventResizeStart: (info) => { hidePeek(); hideTapBubble(); stretchStart(info); },
       eventResizeStop: (info) => { stretchStop(); afterDrag(info); },
       datesSet: (info) => {
+        hideTapBubble();
         if (!graph.on) $('#range').textContent = MOBILE ? shortTitle(info.view.currentStart, info.view.currentEnd, info.view.type) : info.view.title;
         for (const b of document.querySelectorAll('[data-view]')) b.classList.toggle('on', !graph.on && b.dataset.view === info.view.type);
         if (S.settings.view !== info.view.type) saveSettings({ view: info.view.type }, true);
@@ -2097,8 +2099,87 @@
   const DOUBLE_TAP_MS = 450;
   const lastTap = { id: null, at: 0 };
 
+  // ---- the bubble by a highlighted entry: its whole name, its time and calendar, and a tap to open it. It sits
+  // beside the entry on whichever side has room (above or below a wide one, past its stretch bars), inside the
+  // calendar's visible part, with an arrow to the entry. It acts on a whole tap of its own (a click), and a press on
+  // it never reaches the calendar, so nothing behind it is tapped. Gone at a tap elsewhere, a scroll or a drag.
+  const tapBubble = { el: null, src: null };
+  function hideTapBubble() {
+    const b = tapBubble.el;
+    if (!b) return;
+    tapBubble.el = null;
+    tapBubble.src = null;
+    b.classList.add('leaving');
+    setTimeout(() => b.remove(), 150);
+  }
+  function showTapBubble(src, blockEl) {
+    hideTapBubble();
+    hidePeek();
+    if (!blockEl?.isConnected) return;
+    const s = toDate(src.start), e = toDate(src.end || src.start);
+    const when = src.allDay ? 'All day' : `${fmtTime(s)} – ${fmtTime(e)}`;
+    const open = () => {
+      const now = document.querySelector(`#calendar .fc-event[data-eid="${CSS.escape(src.id)}"]`) || blockEl;
+      const r = now.getBoundingClientRect();
+      hideTapBubble();
+      openEntry(src, r);
+    };
+    const b = h('div', { class: 'tap-bubble', css: { '--c': src.color || 'var(--accent)' } },
+      h('button', { type: 'button', class: 'tb-card', 'aria-label': `Open ${src.title || 'this entry'}`, onclick: (ev) => { ev.stopPropagation(); open(); } },
+        h('span', { class: 'tb-text' },
+          h('span', { class: 'tb-title' }, src.title || (src.kind === 'task' ? 'Untitled task' : 'Untitled block')),
+          h('span', { class: 'tb-meta' }, [when, src.calendarName].filter(Boolean).join(' · '))),
+        h('span', { class: 'tb-open' }, 'Open', h('span', { class: 'tb-chev', 'aria-hidden': 'true' }))));
+    // A press on the bubble stays with the bubble: the calendar (and its touch handling) never hears of it.
+    for (const type of ['pointerdown', 'mousedown', 'touchstart']) b.addEventListener(type, (ev) => ev.stopPropagation(), { passive: true });
+    b.style.visibility = 'hidden';
+    document.body.append(b);
+    placeTapBubble(b, blockEl.getBoundingClientRect());
+    b.style.visibility = '';
+    tapBubble.el = b;
+    tapBubble.src = src;
+  }
+  function placeTapBubble(b, r) {
+    const M = 8, GAP = 10, BARS = 34; // the margin to the screen's edge, the gap to the entry, its stretch bar's reach
+    const area = ($('#calendar .fc-timegrid-body')?.closest('.fc-scroller') || $('#calendar .fc-view-harness') || $('#calendar')).getBoundingClientRect();
+    const top0 = Math.max(area.top + 4, M), bottom0 = Math.min(area.bottom - 4, innerHeight - M);
+    const bw = b.offsetWidth, bh = b.offsetHeight;
+    const clampX = (x) => Math.max(M, Math.min(innerWidth - M - bw, x));
+    const clampY = (y) => Math.max(top0, Math.min(bottom0 - bh, y));
+    // Level with the top of the entry's visible part (where its name is), when beside it.
+    const vTop = Math.max(r.top, top0), vBottom = Math.min(r.bottom, bottom0);
+    const aimY = vTop + Math.min(Math.max(14, vBottom - vTop), 40) / 2;
+    let side, x, y;
+    if (r.right + GAP + bw <= innerWidth - M) { side = 'right'; x = r.right + GAP; y = clampY(aimY - bh / 2); }
+    else if (r.left - GAP - bw >= M) { side = 'left'; x = r.left - GAP - bw; y = clampY(aimY - bh / 2); }
+    else {
+      x = clampX(r.left + r.width / 2 - bw / 2);
+      if (r.top - BARS - GAP - bh >= top0) { side = 'top'; y = r.top - BARS - GAP - bh; }
+      else if (r.bottom + BARS + GAP + bh <= bottom0) { side = 'bottom'; y = r.bottom + BARS + GAP; }
+      else { side = 'over'; x = clampX(r.right - bw - 10); y = clampY(vTop + 10); } // a tall, wide entry: over its corner
+    }
+    const arrow = side === 'left' || side === 'right' ? Math.max(14, Math.min(bh - 14, aimY - y)) : Math.max(18, Math.min(bw - 18, r.left + r.width / 2 - x));
+    b.dataset.side = side;
+    b.style.setProperty('--arrow', `${Math.round(arrow)}px`);
+    b.style.left = `${Math.round(x)}px`;
+    b.style.top = `${Math.round(y)}px`;
+  }
+  // A press anywhere but the bubble or its entry puts it away (another entry shows its own); so does a scroll.
+  document.addEventListener('pointerdown', (e) => {
+    if (!tapBubble.el || e.target.closest?.('.tap-bubble')) return;
+    const own = tapBubble.src && e.target.closest?.(`.fc-event[data-eid="${CSS.escape(tapBubble.src.id)}"]`);
+    if (!own) hideTapBubble();
+  }, true);
+  // Only the calendar moving (or the page) takes it away, not some other list scrolling by itself.
+  document.addEventListener('scroll', (e) => {
+    if (tapBubble.el && (e.target === document || e.target.closest?.('#calendar'))) hideTapBubble();
+  }, { capture: true, passive: true });
+  addEventListener('resize', hideTapBubble);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideTapBubble(); });
+
   /** Opens an entry on the calendar: its editor (an event), its card (a task) or its goal. */
   function openEntry(src, anchor) {
+    hideTapBubble();
     if (src.kind === 'task') openTask(tasks.find((t) => t.id === src.id) || { id: src.id, title: src.title, label: src.title, listName: src.calendarName }, anchor);
     else if (src.kind === 'goal') openGoalById(src.id, anchor);
     else openEditor({ src, start: toDate(src.start), end: toDate(src.end), allDay: src.allDay }, anchor);
@@ -3607,43 +3688,46 @@
     return svg;
   }
 
-  /** The chime: a soft click, then a bright rising four-note arpeggio that rings out. */
-  function doneSound() {
+  /**
+   * The sound of ticking something off (settings.doneSound): "soft", a short warm pop that lifts a little; "click",
+   * a tiny tap, like a switch; or "off". Quiet and over in a fifth of a second. The phone also gives a tiny buzz.
+   */
+  const DONE_SOUNDS = [['soft', 'Soft'], ['click', 'Click'], ['off', 'Off']];
+  function doneSound(kind = S.settings?.doneSound || 'soft') {
     try {
-      const ctx = chime.ctx || (chime.ctx = new AudioContext());
-      ctx.resume?.();
-      const t0 = ctx.currentTime;
-      const noise = ctx.createBuffer(1, Math.round(ctx.sampleRate * 0.03), ctx.sampleRate);
-      const data = noise.getChannelData(0);
-      for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length) ** 3;
-      const tick = ctx.createBufferSource();
-      tick.buffer = noise;
-      const band = ctx.createBiquadFilter();
-      band.type = 'bandpass';
-      band.frequency.value = 2600;
-      const tg = ctx.createGain();
-      tg.gain.value = 0.5;
-      tick.connect(band).connect(tg).connect(ctx.destination);
-      tick.start(t0);
-      const tone = (type, f0, f1, at, len, vol) => {
-        const o = ctx.createOscillator(), g = ctx.createGain();
-        o.type = type;
-        o.frequency.setValueAtTime(f0, t0 + at);
-        o.frequency.exponentialRampToValueAtTime(f1, t0 + at + len * 0.4);
-        g.gain.setValueAtTime(0.0001, t0 + at);
-        g.gain.exponentialRampToValueAtTime(vol, t0 + at + 0.008);
-        g.gain.exponentialRampToValueAtTime(0.0001, t0 + at + len);
-        o.connect(g).connect(ctx.destination);
-        o.start(t0 + at);
-        o.stop(t0 + at + len + 0.02);
-      };
-      tone('triangle', 620, 1240, 0.005, 0.1, 0.12); // the click
-      [1046.5, 1318.5, 1568, 2093].forEach((f, i) => {   // C, E, G, C: the chime
-        tone('sine', f, f, 0.05 + i * 0.075, 0.9 - i * 0.12, 0.11 - i * 0.015);
-        tone('triangle', f * 2, f * 2, 0.05 + i * 0.075, 0.25, 0.02);
-      });
+      if (kind !== 'off') {
+        const ctx = chime.ctx || (chime.ctx = new AudioContext());
+        ctx.resume?.();
+        const t0 = ctx.currentTime + 0.005;
+        // Everything through a gentle low-pass, so nothing in it is sharp or bright.
+        const out = ctx.createBiquadFilter();
+        out.type = 'lowpass';
+        out.frequency.value = kind === 'click' ? 2200 : 2600;
+        out.Q.value = 0.5;
+        out.connect(ctx.destination);
+        const tone = (f0, f1, at, len, vol) => {
+          const o = ctx.createOscillator(), g = ctx.createGain();
+          o.type = 'sine';
+          o.frequency.setValueAtTime(f0, t0 + at);
+          o.frequency.exponentialRampToValueAtTime(f1, t0 + at + Math.min(0.05, len * 0.4));
+          g.gain.setValueAtTime(0.0001, t0 + at);
+          g.gain.exponentialRampToValueAtTime(vol, t0 + at + 0.006);
+          g.gain.exponentialRampToValueAtTime(0.0001, t0 + at + len);
+          o.connect(g).connect(out);
+          o.start(t0 + at);
+          o.stop(t0 + at + len + 0.02);
+        };
+        if (kind === 'click') {
+          tone(1500, 900, 0, 0.035, 0.07);   // the tap
+          tone(420, 380, 0, 0.05, 0.05);     // a little body under it
+        } else {
+          tone(660, 880, 0, 0.17, 0.085);    // the pop, lifting a fourth
+          tone(330, 440, 0, 0.12, 0.05);     // warmth an octave down
+          tone(1320, 1760, 0.004, 0.06, 0.012); // a breath of shine
+        }
+      }
     } catch { /* no sound: the circle still fills */ }
-    try { navigator.vibrate?.(14); } catch { /* no buzz on this device */ }
+    try { navigator.vibrate?.(kind === 'off' ? 10 : 14); } catch { /* no buzz on this device */ }
   }
 
   /** A ring and sparks from a point on the screen, in the entry's colour. */
@@ -6862,6 +6946,15 @@
             toggle(s.nextBar !== false, (v) => saveSettings({ nextBar: v }).then(tickNext))),
           field('Popups', 'A popup over everything, ringing, when the Pi phones you about something, and another as it starts. Snooze brings it back in 5 minutes.',
             toggle(s.popups !== false, (v) => saveSettings({ popups: v }))),
+          field('Tick-off sound', 'What you hear when you tick off a task or a block. Tap one to hear it.', (() => {
+            const seg = h('div', { class: 'segmented' }, DONE_SOUNDS.map(([v, label]) => h('button', { type: 'button', 'data-v': v, onclick: () => {
+              for (const b of seg.children) b.classList.toggle('on', b.dataset.v === v);
+              doneSound(v);
+              saveSettings({ doneSound: v }, true);
+            } }, label)));
+            for (const b of seg.children) b.classList.toggle('on', b.dataset.v === (s.doneSound || 'soft'));
+            return seg;
+          })()),
           field('24-hour time', null, toggle(!s.hour12, (v) => saveSettings({ hour12: !v }))),
           field('Week starts on', null,
             h('select', { onchange: (e) => saveSettings({ weekStart: Number(e.target.value) }) },

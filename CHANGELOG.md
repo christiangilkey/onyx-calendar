@@ -2,9 +2,21 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
+## 1.78.0 · Tap a block, see a bubble; a softer tick
+
+_2026-10-24_
+
+- Tapping a block on the phone highlights it and opens a small bubble beside it with the block's whole name, its time and its calendar. Tap Open in the bubble to open the block. No more double tap on the phone, which could get stuck.
+- The bubble always stays on screen: beside the block when there is room, otherwise above or below it (clear of the drag bars), so blocks at the far left or far right of the screen work the same.
+- A tap on the bubble only ever opens that block. Blocks behind it are never tapped by mistake.
+- The bubble goes away when you tap somewhere else, scroll the calendar, drag a block or change days.
+- On the PC a click shows the same bubble, and a double click or Enter still opens the block.
+- A new, much quieter sound when you tick off a task or a block: a short soft pop instead of the bright four-note chime.
+- Settings, General, Tick-off sound: pick Soft, Click (a tiny tap) or Off. Each plays as you pick it. On the phone the choice is kept for that phone.
+
 ## 1.77.0 · A changelog of every version, in Settings
 
-_2026-10-23_
+_2026-10-22_
 
 - A changelog of every version so far, in Settings > Changelog: newest first, searchable, with the version you have marked. It grows with each update.
 

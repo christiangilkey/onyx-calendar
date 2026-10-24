@@ -1965,6 +1965,9 @@
       ...timeFormats(),
       // Drag across the grid to block out time; the highlight stays until the editor closes.
       selectable: true,
+      // On the phone a long press on an empty spot makes a new block, shown at once, that the finger then
+      // stretches to the time it wants (newBlockMove, called at every step of the selection).
+      selectAllow: (info) => { if (MOBILE) newBlockMove(info); return true; },
       // A real drag blocks out time; a click (even one that wobbles a little over an entry) never
       // turns into a new block by mistake. A plain click on an empty slot still opens one (dateClick).
       selectMinDistance: MOBILE ? 0 : 6,
@@ -2010,6 +2013,14 @@
         ? { domNodes: [h('span', { class: 'dh-dow' }, arg.text)] }
         : { domNodes: [h('span', { class: 'dh-dow' }, arg.date.toLocaleDateString([], { weekday: 'short' })), h('span', { class: 'dh-num' }, arg.date.getDate())] }),
       select: (info) => {
+        if (MOBILE && holdNew.on && !info.allDay) {
+          // The touch was taken away (the system took the gesture): nothing is made.
+          if (holdNew.cancelled) { newBlockStop(); calendar.unselect(); return; }
+          const range = { start: new Date(holdNew.start), end: new Date(holdNew.end), allDay: false };
+          const r = holdNew.ghost?.getBoundingClientRect();
+          newBlockStop(true);
+          return blockOut(range, r || pointRect(info.jsEvent));
+        }
         const marked = $('.fc-event-mirror') || $('.fc-highlight');
         const anchor = marked ? marked.getBoundingClientRect() : pointRect(info.jsEvent);
         blockOut(info, anchor);
@@ -2084,6 +2095,13 @@
     calendar.render();
     explainLocked();
     swipeToChangeDates($('#calendar'));
+    if (MOBILE) {
+      // A long press is the calendar's: the phone's own long-press menu never interrupts it.
+      $('#calendar').addEventListener('contextmenu', (e) => { if (!e.target.closest('.fc-event')) e.preventDefault(); });
+      const lifted = () => { if (holdNew.on) setTimeout(() => { if (holdNew.on) newBlockStop(); }, 0); };
+      document.addEventListener('touchend', lifted, { capture: true, passive: true });
+      document.addEventListener('touchcancel', () => { if (holdNew.on) holdNew.cancelled = true; lifted(); }, { capture: true, passive: true });
+    }
     if (!MOBILE) taskDrops();
     touchDragWatchdog();
     if (!MOBILE) {
@@ -2304,9 +2322,105 @@
    * is made in the usual calendar, and its editor opens on it to name it now. Left as it is, it stays blank, to
    * fill in later. Undo takes it away.
    */
-  async function blockOut(info, anchor) {
+  /** Where a new block is kept: the calendar picked in Settings, or the first one that can be written to. */
+  function newBlockCalendar() {
     const writable = S.calendars.filter((c) => c.kind === 'calendar' && c.writable);
-    const cal = writable.find((c) => c.id === S.settings.defaultCalendar) || writable[0];
+    return writable.find((c) => c.id === S.settings.defaultCalendar) || writable[0];
+  }
+
+  // ---- a new block by a long press (the phone). The press makes a half-hour block there at once, with a buzz;
+  // without lifting, the finger stretches it, down for a later end or up for an earlier start, a quarter hour at a
+  // time, while its times show on it and by the hours. It stays on its day, though the finger drifts sideways.
+  // Lifting saves it and opens it. FullCalendar does the pressing, the scrolling at the edges and the finding of
+  // the time under the finger; its own outline is hidden for this one (styles.css: making-block).
+  const NB_SNAP = 15 * 60000;
+  const holdNew = { on: false, cancelled: false, a: 0, day: null, moved: false, start: 0, end: 0, edge: 'end', ghost: null, pill: null, cal: null };
+  const minuteOfDay = (t, day) => Math.round((t - day) / 60000);
+  const midnight = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  function newBlockMove(info) {
+    if (info.allDay || !calendar.view.type.startsWith('timeGrid')) return;
+    const s = +info.start, e = +info.end;
+    if (!holdNew.on) {
+      holdNew.on = true;
+      holdNew.a = s;
+      holdNew.day = midnight(info.start);
+      holdNew.moved = false;
+      holdNew.cancelled = false;
+      holdNew.cal = newBlockCalendar();
+      hideTapBubble();
+      clearSelection();
+      const c = holdNew.cal?.color || 'var(--accent)';
+      holdNew.ghost = h('div', { class: 'new-block-ghost', css: { '--c': c }, 'aria-hidden': 'true' }, h('b'), h('small'));
+      holdNew.pill = h('div', { class: 'new-block-pill', css: { '--c': c }, 'aria-hidden': 'true' });
+      document.body.append(holdNew.ghost, holdNew.pill);
+      document.body.classList.add('making-block');
+      document.addEventListener('scroll', newBlockDraw, { capture: true, passive: true });
+      try { navigator.vibrate?.(12); } catch { /* no buzz on this device */ }
+    }
+    const a = holdNew.a, day = +holdNew.day, dayEnd = +addDays(holdNew.day, 1);
+    // Until the finger leaves the spot it pressed, the block is half an hour from there.
+    if (!holdNew.moved && !(s === a && e === a + NB_SNAP)) holdNew.moved = true;
+    if (!holdNew.moved) {
+      holdNew.start = a;
+      holdNew.end = Math.min(a + 2 * NB_SNAP, dayEnd);
+      holdNew.edge = 'end';
+    } else {
+      // The quarter hour under the finger (the end of the selection that is not the pressed one), on the block's day.
+      const finger = s === a ? e - NB_SNAP : s;
+      const f = day + minuteOfDay(finger, +midnight(new Date(finger))) * 60000;
+      holdNew.start = Math.min(a, f);
+      holdNew.end = Math.min(Math.max(a, f) + NB_SNAP, dayEnd);
+      holdNew.edge = f >= a ? 'end' : 'start';
+    }
+    newBlockDraw();
+  }
+  function newBlockDraw() {
+    const g = holdNew.ghost, pill = holdNew.pill;
+    if (!holdNew.on || !g) return;
+    const lane0 = $('#calendar .fc-timegrid-slot-lane[data-time="00:00:00"]'), lane12 = $('#calendar .fc-timegrid-slot-lane[data-time="12:00:00"]');
+    const col = $(`#calendar .fc-timegrid-col[data-date="${ymd(holdNew.day)}"]`);
+    const scroller = $('#calendar .fc-timegrid-body')?.closest('.fc-scroller');
+    if (!lane0 || !lane12 || !col || !scroller) { g.hidden = pill.hidden = true; return; }
+    const top0 = lane0.getBoundingClientRect().top, perMin = (lane12.getBoundingClientRect().top - top0) / 720;
+    const day = +holdNew.day;
+    const y = (t) => top0 + minuteOfDay(t, day) * perMin;
+    const area = scroller.getBoundingClientRect(), c = col.getBoundingClientRect();
+    const y0 = y(holdNew.start), y1 = y(holdNew.end);
+    const top = Math.max(y0, area.top), bottom = Math.min(y1, area.bottom);
+    g.hidden = bottom - top < 2;
+    Object.assign(g.style, { left: `${c.left + 2}px`, width: `${c.width - 5}px`, top: `${top}px`, height: `${Math.max(0, bottom - top)}px` });
+    g.classList.toggle('cut-top', y0 < area.top);
+    g.classList.toggle('cut-bottom', y1 > area.bottom);
+    g.classList.toggle('edge-start', holdNew.edge === 'start');
+    g.classList.toggle('roomy', y1 - y0 >= 34);
+    const mins = Math.round((holdNew.end - holdNew.start) / 60000);
+    g.firstChild.textContent = `${fmtTime(new Date(holdNew.start))} – ${fmtTime(new Date(holdNew.end))}`;
+    g.lastChild.textContent = mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)} h${mins % 60 ? ` ${mins % 60} min` : ''}`;
+    // The time of the edge being moved, by the hours on the left.
+    const edgeAt = holdNew.edge === 'start' ? holdNew.start : holdNew.end, ey = y(edgeAt);
+    const axis = $('#calendar .fc-timegrid-slot-label')?.getBoundingClientRect();
+    pill.hidden = !axis || ey < area.top || ey > area.bottom;
+    if (!pill.hidden) {
+      pill.textContent = new Date(edgeAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: S.settings.hour12 }).replace(/\s?[AP]M$/i, '');
+      Object.assign(pill.style, { top: `${ey}px`, left: `${axis.left + 2}px`, width: `${Math.max(30, axis.width - 4)}px` });
+    }
+  }
+  function newBlockStop(saved) {
+    if (!holdNew.on) return;
+    holdNew.on = false;
+    document.removeEventListener('scroll', newBlockDraw, { capture: true });
+    document.body.classList.remove('making-block');
+    const g = holdNew.ghost, pill = holdNew.pill;
+    holdNew.ghost = holdNew.pill = null;
+    pill?.remove();
+    if (!g) return;
+    // Saved: the block itself takes its place; let go elsewhere: it fades.
+    if (saved) setTimeout(() => g.remove(), 120);
+    else { g.classList.add('leaving'); setTimeout(() => g.remove(), 160); }
+  }
+
+  async function blockOut(info, anchor) {
+    const cal = newBlockCalendar();
     if (!cal) return openEditor({ start: info.start, end: info.end, allDay: info.allDay }, anchor); // nowhere to keep it: the editor says so
     const fields = info.allDay
       ? { title: '', blank: true, start: ymd(info.start), end: ymd(info.end), allDay: true, calendarId: cal.id }
@@ -2823,7 +2937,7 @@
       v.style.transform = x ? `translateX(${x}px)` : '';
       v.style.opacity = x ? String(Math.max(0.35, 1 - Math.abs(x) / el.clientWidth)) : '';
     };
-    const busy = () => el.querySelector('.fc-event-mirror, .fc-event-dragging, .fc-event-resizing');
+    const busy = () => holdNew.on || el.querySelector('.fc-event-mirror, .fc-event-dragging, .fc-event-resizing');
 
     el.addEventListener('touchstart', (e) => {
       const p = e.touches[0];

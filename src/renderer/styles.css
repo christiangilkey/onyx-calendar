@@ -2564,3 +2564,29 @@ body.mobile .mg-seg > button, body.mobile .mg-seg > input { height: 40px; font-s
 @keyframes tb-in { from { opacity: 0; transform: scale(.92); } }
 @keyframes tb-out { to { opacity: 0; transform: scale(.95); } }
 body.mobile .tb-card { max-width: min(250px, calc(100vw - 24px)); }
+
+/* ------------------------------------------------------------ a new block by a long press (the phone) */
+body.making-block #calendar .fc-timegrid .fc-event-mirror, body.making-block #calendar .fc-timegrid .fc-highlight { visibility: hidden; }
+body.mobile #calendar { -webkit-touch-callout: none; }
+.new-block-ghost { position: fixed; z-index: 30; pointer-events: none; box-sizing: border-box; overflow: hidden;
+  display: flex; flex-wrap: wrap; align-content: flex-start; column-gap: 6px; padding: 4px 7px 0 8px;
+  border-radius: 7px; border: 1px solid color-mix(in srgb, var(--c) 75%, transparent); border-left: 3px solid var(--c);
+  background: color-mix(in srgb, var(--c) 38%, #15141b); color: #fff; box-shadow: 0 10px 26px rgba(0, 0, 0, .55), 0 0 0 3px color-mix(in srgb, var(--c) 18%, transparent);
+  font-size: 12px; line-height: 15px; animation: nb-in .16s ease-out; transition: top .05s linear, height .05s linear; }
+.new-block-ghost[hidden] { display: none; }
+.new-block-ghost b { font-weight: 650; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.new-block-ghost small { font-size: 11px; color: rgba(255, 255, 255, .78); white-space: nowrap; }
+.new-block-ghost:not(.roomy) { padding-top: 1px; }
+.new-block-ghost.cut-top { border-top-left-radius: 0; border-top-right-radius: 0; }
+.new-block-ghost.cut-bottom { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+/* a grip on the edge the finger moves */
+.new-block-ghost.roomy::after { content: ''; position: absolute; left: 50%; bottom: 4px; width: 22px; height: 3px; margin-left: -11px; border-radius: 2px; background: rgba(255, 255, 255, .85); }
+.new-block-ghost.roomy.edge-start::after { bottom: auto; top: 4px; }
+.new-block-ghost.roomy.edge-start { padding-top: 11px; }
+.new-block-ghost.leaving { animation: nb-out .16s ease-in forwards; }
+.new-block-pill { position: fixed; z-index: 31; pointer-events: none; box-sizing: border-box; height: 20px; margin-top: -10px; padding: 0 4px;
+  border-radius: 10px; background: #fff; color: #111; border: 1.5px solid var(--c); text-align: center;
+  font-size: 11px; font-weight: 700; line-height: 17px; font-variant-numeric: tabular-nums; box-shadow: 0 2px 8px rgba(0, 0, 0, .45); }
+.new-block-pill[hidden] { display: none; }
+@keyframes nb-in { from { opacity: 0; transform: scale(.96); } }
+@keyframes nb-out { to { opacity: 0; } }

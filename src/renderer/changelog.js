@@ -2,8 +2,20 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
-  "version": "1.78.0",
+  "version": "1.79.0",
   "date": "2026-10-24",
+  "title": "Hold to make a block",
+  "items": [
+   "On the phone, press and hold an empty spot on the calendar to make a new block there. It shows up at once, half an hour long, with a small buzz.",
+   "Without lifting your finger, drag down to make it end later or up to make it start earlier, a quarter hour at a time. The block shows its times and length as it grows, and the time of the edge you are moving shows by the hours on the left.",
+   "The calendar scrolls when you drag near the top or bottom, and the block stays on its day even if your finger drifts sideways.",
+   "Lift your finger to save it: it opens right away so you can name it. If the phone takes the touch away (a call, the notification shade), nothing is made.",
+   "A long press on an existing block still picks it up to move it, and a quick swipe still scrolls."
+  ]
+ },
+ {
+  "version": "1.78.0",
+  "date": "2026-10-23",
   "title": "Tap a block, see a bubble; a softer tick",
   "items": [
    "Tapping a block on the phone highlights it and opens a small bubble beside it with the block's whole name, its time and its calendar. Tap Open in the bubble to open the block. No more double tap on the phone, which could get stuck.",

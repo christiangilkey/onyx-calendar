@@ -2,9 +2,19 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.78.0 · Tap a block, see a bubble; a softer tick
+## 1.79.0 · Hold to make a block
 
 _2026-10-24_
+
+- On the phone, press and hold an empty spot on the calendar to make a new block there. It shows up at once, half an hour long, with a small buzz.
+- Without lifting your finger, drag down to make it end later or up to make it start earlier, a quarter hour at a time. The block shows its times and length as it grows, and the time of the edge you are moving shows by the hours on the left.
+- The calendar scrolls when you drag near the top or bottom, and the block stays on its day even if your finger drifts sideways.
+- Lift your finger to save it: it opens right away so you can name it. If the phone takes the touch away (a call, the notification shade), nothing is made.
+- A long press on an existing block still picks it up to move it, and a quick swipe still scrolls.
+
+## 1.78.0 · Tap a block, see a bubble; a softer tick
+
+_2026-10-23_
 
 - Tapping a block on the phone highlights it and opens a small bubble beside it with the block's whole name, its time and its calendar. Tap Open in the bubble to open the block. No more double tap on the phone, which could get stuck.
 - The bubble always stays on screen: beside the block when there is room, otherwise above or below it (clear of the drag bars), so blocks at the far left or far right of the screen work the same.

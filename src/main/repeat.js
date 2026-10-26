@@ -52,14 +52,15 @@ function nextDate(rule, from, today = new Date(), day = parse(from).getDate()) {
   return ymd(d);
 }
 
-/** Switches repeating on (rule) or off (null) for one task. */
-function setRule(id, rule) {
+/** Switches repeating on (rule) or off (null) for one task; `until` (YYYY-MM-DD) is its last day, when it has one. */
+function setRule(id, rule, until) {
   if (rule == null || rule === '' || rule === 'none') {
     delete store.data.repeats[id];
   } else {
     if (!RULES[rule]) throw new Error('Unknown repeat.');
     const old = ruleOf(id);
-    store.data.repeats[id] = { rule, ...(old?.day ? { day: old.day } : {}) };
+    const last = until === undefined ? old?.until : until;
+    store.data.repeats[id] = { rule, ...(old?.day ? { day: old.day } : {}), ...(/^\d{4}-\d{2}-\d{2}$/.test(last || '') ? { until: last } : {}) };
   }
   store.save();
   return ruleOf(id);
@@ -92,6 +93,19 @@ async function addNext(hub, task, r) {
   const base = task.date || task.due || ymd(new Date());
   const day = r.day || parse(base).getDate();
   const due = nextDate(r.rule, base, new Date(), day);
+  // Past its last day (a habit for one phase of a goal): the repeat ends here, and the step with it.
+  if (r.until && due > r.until) {
+    delete store.data.repeats[task.id];
+    for (const g of store.data.goals) {
+      for (const s of g.steps) {
+        if (s.taskId !== task.id || !s.repeat) continue;
+        s.log = [...(s.log || []), { date: ymd(new Date()), taskId: task.id }];
+        s.ended = true;
+      }
+    }
+    store.save();
+    return null;
+  }
   // A date written in the name is what the Pi reads first, so it moves along too.
   const named = parseName(task.title);
   let title = task.title;
@@ -101,7 +115,8 @@ async function addNext(hub, task, r) {
   }
   const next = await hub.createTask({ title, due, listId: task.listId, notes: task.notes || '', tags: task.tags || [] });
   delete store.data.repeats[task.id];
-  store.data.repeats[next.id] = { rule: r.rule, day };
+  store.data.repeats[next.id] = { rule: r.rule, day, ...(r.until ? { until: r.until } : {}) };
+  if (store.data.taskMinutes?.[task.id]) store.data.taskMinutes[next.id] = store.data.taskMinutes[task.id]; // and its length on the calendar
   if (store.data.pomodoro?.[task.id]) store.data.pomodoro[next.id] = { ...store.data.pomodoro[task.id] }; // and its work/rest split
   remember(task.id, next.id);
   // A repeating step of a goal stays the goal's step, and each time it is done is logged.

@@ -119,6 +119,7 @@ const handlers = {
   'goal:update': (id, data) => goals.update(id, data),
   'goal:delete': (id, keepTasks) => goals.remove(id, { keepTasks: !!keepTasks }),
   'goal:step': (id, stepId, done) => goals.setStep(id, stepId, !!done),
+  'goal:plan': (opts) => require('./goal-magic').planGoal(opts),
   'tags:set': (id, tags) => hub.setTags(id, tags),
   'memo:set': (id, text) => hub.setMemo(id, text),
   'pomodoro:set': (id, cfg) => hub.setPomodoro(id, cfg),

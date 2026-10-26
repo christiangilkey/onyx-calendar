@@ -2,6 +2,20 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
+## 1.80.0 · Magic add goal
+
+_2026-10-26_
+
+- New Magic add goal button under Goals in the sidebar. Name the goal, set its dates and paste everything about it: an outline of what it involves, notes, and the steps you already have (mark finished ones with [x] or done).
+- Claude turns it into phases, each with its dates and a measurable milestone, and actionable, measurable tasks: every task says how much or how many, so done is obvious.
+- A Breakdown meter with 1 to 5 hammers, like in a task, sets how fine the plan is: Milestones, Weekly plan, Clear steps, Detailed, or Every day (120 to 250 small steps).
+- Anything practised or done regularly becomes a repeating task (daily, weekdays, weekly, every 2 weeks or monthly) that runs for its phase and stops after its last day.
+- Every session gets a time that is free in your calendar, for a repeating task on most of its days, and the plan never clashes with itself. A one-off task on a full day moves a day or so later.
+- Steps you already finished are added as done, so the goal's progress starts where you are.
+- You see the whole plan first: hours a week, tasks per phase, and every task with its time and length. Rename any task or leave it out, then Set goal makes them all as tasks.
+- A goal's own window has a Breakdown row too: pick the hammers and Break it down to add more steps to it. Steps are listed under their phase.
+- Big plans no longer time out on the phone.
+
 ## 1.79.0 · Hold to make a block
 
 _2026-10-24_

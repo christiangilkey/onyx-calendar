@@ -281,7 +281,8 @@
       const s = old.get(raw.id) || { id: `s${seq++}`, taskId: null };
       old.delete(s.id);
       const rule = raw.repeat || null;
-      Object.assign(s, { title: raw.title.trim(), due: rule ? s.due || ymd(new Date()) : raw.due || null, done: rule ? false : !!raw.done });
+      Object.assign(s, { title: raw.title.trim(), due: rule ? s.due || raw.due || ymd(new Date()) : raw.due || null, done: rule ? false : !!raw.done });
+      for (const k of ['phase', 'measure', 'minutes', 'until', 'time']) if (k in raw) { if (raw[k]) s[k] = raw[k]; else delete s[k]; }
       if (rule) { s.repeat = rule; s.log ||= []; } else delete s.repeat;
       const t = s.taskId && tasks.find((x) => x.id === s.taskId);
       if (t) Object.assign(t, { title: s.title, label: s.title, due: s.due, date: s.due, done: s.done, completed: s.done ? new Date().toISOString() : null });
@@ -331,9 +332,9 @@
     },
     updateGoal: async (id, d) => {
       const g = goals.find((x) => x.id === id);
-      Object.assign(g, { title: d.title, notes: d.notes, start: d.start, end: d.end, color: d.color });
+      for (const k of ['title', 'notes', 'start', 'end', 'color']) if (k in d) g[k] = d[k]; // what was sent, as the PC does
       if (d.tags) setTags(id, d.tags);
-      await syncGoalSteps(g, d.steps);
+      if ('steps' in d) await syncGoalSteps(g, d.steps);
       return { ...goalOut(g), warnings: [] };
     },
     deleteGoal: async (id) => {
@@ -574,6 +575,46 @@
     leaveDesktops: async () => { state.desktops = { linked: false, device: 'a1', name: 'DESKTOP-MAIN', invite: null, desktops: [] }; return structuredClone(state.desktops); },
     forgetDesktop: async (id) => { state.desktops.desktops = state.desktops.desktops.filter((x) => x.id !== id); return structuredClone(state.desktops); },
     tamkeen: { info: async () => ({ installed: true }), watch: async (id) => { window.lastTamkeen = id; return true; } },
+    // Magic add for goals (preview): a plan made up from the outline's lines, then the real fitting (src/main/goal-plan.js).
+    planGoal: async (o = {}) => {
+      const P = await new Promise((ok, no) => {
+        if (window.OnyxGoalPlan) return ok(window.OnyxGoalPlan);
+        const sc = document.createElement('script');
+        sc.src = '../main/goal-plan.js';
+        sc.onload = () => ok(window.OnyxGoalPlan); sc.onerror = () => no(new Error('planner not found'));
+        document.head.append(sc);
+      });
+      await new Promise((r) => setTimeout(r, 900));
+      if (!String(o.title || '').trim()) throw new Error('Give the goal a name first.');
+      const today = ymd(new Date()), start = o.start || today, end = o.end;
+      const level = o.level || 3;
+      const t0 = new Date(start + 'T00:00').getTime();
+      const span = Math.max(14, Math.round((new Date(end + 'T00:00') - t0) / 86400000));
+      const at = (days) => ymd(new Date(t0 + Math.round(days) * 86400000));
+      const phases = [
+        { name: 'Foundations', start, end: at(span / 3), milestone: 'The basics in place' },
+        { name: 'Build', start: at(span / 3), end: at((2 * span) / 3), milestone: 'Half of the work done' },
+        { name: 'Finish', start: at((2 * span) / 3), end, milestone: o.title },
+      ];
+      const lines = String(o.outline || '').split(/\r?\n/).map((l) => l.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim()).filter(Boolean);
+      const tasks = [];
+      lines.forEach((l, i) => {
+        const done = /\[x\]|✓|\bdone\b/i.test(l);
+        const name = l.replace(/\[x\]|✓|\(?\bdone\b\)?/gi, '').trim();
+        tasks.push({ title: done ? name : `Finish ${name} (1 part)`, measure: '1 part finished', phase: 1 + (i % 3), repeat: 'once', start: done ? today : at(((i % 3) + 0.5) * (span / 3)), minutes: 45, when: 'any', done });
+      });
+      const habits = [['Practise for 20 minutes', 'daily', 20, 'morning'], ['Review the week in 15 minutes', 'weekly', 15, 'evening'], ['Write 200 words', 'weekdays', 30, 'afternoon'], ['Read 10 pages', 'daily', 25, 'evening'], ['Do 1 timed drill', 'weekdays', 15, 'morning']];
+      for (let p = 0; p < 3; p++) {
+        for (const [t, r, m, w] of habits.slice(0, level)) tasks.push({ title: `${t} (${phases[p].name.toLowerCase()})`, measure: t, phase: p + 1, repeat: r, start: phases[p].start, until: phases[p].end, minutes: m, when: w });
+      }
+      const n = level * 6;
+      for (let k = 0; k < n; k++) tasks.push({ title: `Complete practice set ${k + 1} of ${n}`, measure: `Set ${k + 1} checked`, phase: 1 + Math.floor((k * 3) / n), repeat: 'once', start: at(((k + 1) * span) / (n + 1)), minutes: 40, when: 'any' });
+      const plan = P.normalize({ phases, tasks }, { start, end, today });
+      const busy = events.filter((e) => !e.allDay).map((e) => ({ start: +new Date(e.start), end: +new Date(e.end) }));
+      if (o.fit !== false) P.fitTimes(plan.steps, busy, { today, end });
+      for (const s of plan.steps) s.sessions = P.timesIn(s.repeat, s.due, s.until || s.due);
+      return { ...plan, summary: P.summary(plan.steps, { start: start > today ? start : today, end }), level };
+    },
     breakdown: async (title, opts = {}) => {
       const all = ['Clear a space to work', 'Gather what you need', `Open what "${title}" needs`, 'Do the first small part', 'Take a short look at it', 'Do the next part', 'Check it over', 'Tidy up', 'Tick it off', 'Take a breath', 'Tell someone it is done', 'Plan what comes next'];
       return all.slice(0, [3, 4, 6, 9, 12][(opts.level || 3) - 1]);

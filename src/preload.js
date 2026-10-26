@@ -42,6 +42,7 @@ contextBridge.exposeInMainWorld('onyx', {
   goals: (force) => call('goals', force),
   createGoal: (data) => call('goal:create', data),
   updateGoal: (id, data) => call('goal:update', id, data),
+  planGoal: (opts) => call('goal:plan', opts),
   deleteGoal: (id, keepTasks) => call('goal:delete', id, keepTasks),
   setGoalStep: (id, stepId, done) => call('goal:step', id, stepId, done),
   setTags: (id, tags) => call('tags:set', id, tags),

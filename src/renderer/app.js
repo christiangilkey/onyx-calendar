@@ -6272,6 +6272,7 @@
     const add = (e) => openGoal(null, e.currentTarget.getBoundingClientRect());
     box.replaceChildren(
       h('div', { class: 'group-head' }, h('span', null, 'Goals'), h('button', { class: 'link-btn', onclick: add }, '+ New goal')),
+      h('button', { class: 'magic-goal', title: 'Paste an outline and Claude turns it into measurable steps, timed into your calendar', onclick: (e) => openGoalMagic(null, e.currentTarget.getBoundingClientRect()) }, icon('sparkles'), 'Magic add goal'),
       ...goals.length
         ? goals.map((g) => {
           const p = g.progress;
@@ -6346,9 +6347,9 @@
       }
     };
 
-    const HOW_OFTEN = [['', 'Once'], ['daily', 'Daily'], ['weekdays', 'Weekdays'], ['weekly', 'Weekly']];
+    const HOW_OFTEN = [['', 'Once'], ['daily', 'Daily'], ['weekdays', 'Weekdays'], ['weekly', 'Weekly'], ['biweekly', 'Every 2 weeks'], ['monthly', 'Monthly']];
     const drawSteps = (focus) => {
-      stepBox.replaceChildren(...steps.map((s, i) => {
+      const rowOf = (s, i) => {
         const name = h('input', { type: 'text', value: s.title, placeholder: `Step ${i + 1}`, spellcheck: false, oninput: (e) => { s.title = e.target.value; } });
         name.addEventListener('keydown', (e) => {
           if (e.key === 'Enter') { e.preventDefault(); steps.splice(i + 1, 0, { title: '', due: null, done: false }); drawSteps(i + 1); }
@@ -6380,7 +6381,12 @@
           h('input', { type: 'time', class: 'step-time', value: s.time || '', step: 300, title: 'Time of day (optional): the step goes on your calendar at that time', onchange: (e) => { s.time = e.target.value || null; } }),
           timer,
           h('button', { class: 'x', title: 'Remove this step (its task is deleted)', onclick: () => { steps.splice(i, 1); drawSteps(); } }, icon('x')));
-      }));
+      };
+      // A goal planned by Magic add has phases: each starts with its name.
+      stepBox.replaceChildren(...steps.flatMap((s, i) => [
+        s.phase && (i === 0 || s.phase !== steps[i - 1].phase) ? h('div', { class: 'goal-phase' }, s.phase) : null,
+        rowOf(s, i),
+      ].filter(Boolean)));
       if (focus != null) stepBox.querySelectorAll('input[type=text]')[focus]?.focus();
     };
     if (!steps.length) steps.push({ title: '', due: null, done: false });
@@ -6403,7 +6409,10 @@
       const picked = tags.get();
       const data = {
         title: title.value.trim(), start: start.value, end: end.value, color, notes: cleanNote(notes.value), tags: picked,
-        steps: steps.filter((s) => s.title.trim()).map((s) => ({ id: s.id, title: s.title.trim(), due: s.repeat ? null : s.due || null, time: s.time || null, done: !!s.done, repeat: s.repeat || null })),
+        steps: steps.filter((s) => s.title.trim()).map((s) => ({
+          id: s.id, title: s.title.trim(), due: s.repeat ? null : s.due || null, time: s.time || null, done: !!s.done, repeat: s.repeat || null,
+          ...(s.id ? {} : { phase: s.phase || '', measure: s.measure || '', minutes: s.minutes || null, until: s.until || null }),
+        })),
         ...(listPick ? { listId: listPick.value } : {}),
       };
       try {
@@ -6433,6 +6442,20 @@
       }
     };
 
+    // Breakdown, as in a task's window: as finely as the hammers say, into Magic add for goals.
+    let gLevel = goalLevel();
+    const gHammers = h('div', { class: 'hammers', role: 'radiogroup', 'aria-label': 'How finely to break it down' });
+    const drawGHammers = () => gHammers.replaceChildren(...[1, 2, 3, 4, 5].map((n) => h('button', {
+      type: 'button', class: `hammer${n <= gLevel ? ' on' : ''}`, role: 'radio', 'aria-checked': String(n === gLevel), title: GOAL_LEVELS[n - 1].join(': '),
+      onclick: () => { gLevel = n; try { localStorage.setItem('onyx.goal-level', String(n)); } catch { /* this visit */ } drawGHammers(); },
+    }, icon('hammer'))));
+    drawGHammers();
+    const breakRow = g && h('div', { class: 'row top breakdown-row' }, icon('hammer'),
+      h('div', { class: 'txt' },
+        h('div', { class: 'breakdown-head' }, h('b', null, 'Breakdown'), gHammers,
+          h('button', { class: 'btn', onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); closePopover(); openGoalMagic(g, r, gLevel); } }, icon('hammer'), 'Break it down')),
+        h('p', { class: 'pop-meta' }, 'Paste an outline and the steps you have: Claude adds measurable steps, timed into your calendar.')));
+
     showPopover(anchor, [
       title,
       g && originRow({ kind: 'goal', listId: g.listId }),
@@ -6441,6 +6464,7 @@
       h('div', { class: 'row' }, icon('tag'), tags.el),
       h('div', { class: 'row top' }, icon('note'), notes),
       h('div', { class: 'row goal-look' }, h('span', { class: 'ico' }), swatches, listPick || null),
+      breakRow,
       h('div', { class: 'goal-steps-head' }, h('b', null, 'Steps'),
         h('div', { class: 'grow' }),
         h('button', { class: 'link-btn', title: 'Give the steps without a date evenly spaced dates up to the target', onclick: spread }, 'Spread dates'),
@@ -6456,6 +6480,177 @@
         h('button', { class: 'btn primary', onclick: save }, g ? 'Save' : 'Set goal')),
     ], null, { wide: true });
     if (!MOBILE && !g) title.focus();
+  }
+
+  // ---- Magic add for goals: a goal (new, or one that is already set), its dates and whatever is pasted about it
+  // (an outline, notes, the steps already there and the ones already done) become phases of measurable steps,
+  // one-off or repeating, as finely as the hammers say, each session at a free time in the calendar. The plan is
+  // shown first: every step can be renamed or left out, and nothing is made until "Set goal" (or "Add steps").
+  const GOAL_LEVELS = [
+    ['Milestones', 'A few big milestones and a habit or two'],
+    ['Weekly plan', 'About 10 to 25 steps, a few weekly habits'],
+    ['Clear steps', '25 to 60 steps, habits for the regular work'],
+    ['Detailed', '60 to 120 sessions of 20 to 60 minutes'],
+    ['Every day', '120 to 250 small steps: something every day'],
+  ];
+  const REPEAT_NAMES = { daily: 'Daily', weekdays: 'Weekdays', weekly: 'Weekly', biweekly: 'Every 2 weeks', monthly: 'Monthly' };
+  const goalLevel = () => { try { return Math.min(5, Math.max(1, Number(localStorage.getItem('onyx.goal-level')) || 3)); } catch { return 3; } };
+  const shortDay = (s) => fromYmd(s).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  const minutesText = (m) => (m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60}` : ''}`);
+
+  function openGoalMagic(g, anchor, startLevel) {
+    const title = h('input', { type: 'text', class: 'pop-title', placeholder: 'What do you want to achieve?', value: g ? g.title : '', spellcheck: false, disabled: !!g });
+    const start = h('input', { type: 'date', value: g ? g.start : ymd(new Date()), title: 'Starts', disabled: !!g });
+    const end = h('input', { type: 'date', value: g ? g.end : ymd(addDays(new Date(), 90)), title: 'Target date', disabled: !!g });
+    const outline = h('textarea', {
+      class: 'gm-outline', rows: MOBILE ? 6 : 8, spellcheck: true,
+      placeholder: 'Paste everything about it: an outline of what it involves, notes, links, how much time you have, and the steps you already have. Mark the ones you have finished with [x] or "done".',
+    });
+    let level = startLevel || goalLevel();
+    const hammers = h('div', { class: 'hammers', role: 'radiogroup', 'aria-label': 'How finely to break it down' });
+    const levelName = h('span', { class: 'gm-level' });
+    const drawHammers = () => {
+      hammers.replaceChildren(...[1, 2, 3, 4, 5].map((n) => h('button', {
+        type: 'button', class: `hammer${n <= level ? ' on' : ''}`, role: 'radio', 'aria-checked': String(n === level), title: GOAL_LEVELS[n - 1].join(': '),
+        onclick: () => { level = n; try { localStorage.setItem('onyx.goal-level', String(n)); } catch { /* this visit */ } drawHammers(); },
+      }, icon('hammer'))));
+      levelName.replaceChildren(h('b', null, GOAL_LEVELS[level - 1][0]), h('span', null, GOAL_LEVELS[level - 1][1]));
+    };
+    drawHammers();
+    const fit = h('input', { type: 'checkbox', checked: true });
+    const go = h('button', { class: 'btn primary gm-go', onclick: () => run() }, icon('sparkles'), g ? 'Break it down' : 'Plan it');
+    const out = h('div', { class: 'gm-out' });
+    const make = h('button', { class: 'btn primary', hidden: true, onclick: () => create() }, g ? 'Add steps' : 'Set goal');
+    let plan = null, busy = false;
+
+    const run = async () => {
+      if (busy) return;
+      if (!title.value.trim()) { title.focus(); return toast('Give the goal a name first.', 'warn'); }
+      busy = true;
+      go.disabled = true;
+      go.replaceChildren(icon('sparkles'), 'Planning…');
+      make.hidden = true;
+      out.replaceChildren(h('div', { class: 'gm-wait' }, h('span', { class: 'spinner' }),
+        h('span', null, level >= 4 ? 'Claude is writing a day-by-day plan. A big one takes a minute or two.' : 'Claude is breaking it down…')));
+      try {
+        plan = await onyx.planGoal({ title: title.value.trim(), start: start.value, end: end.value, outline: outline.value, level, fit: fit.checked, goalId: g?.id || null });
+        for (const s of plan.steps) s.on = true;
+        draw();
+      } catch (err) {
+        out.replaceChildren();
+        fail(err);
+      } finally {
+        busy = false;
+        go.disabled = false;
+        go.replaceChildren(icon('sparkles'), plan ? 'Plan again' : g ? 'Break it down' : 'Plan it');
+      }
+    };
+
+    // The plan: a line of numbers, then each phase with its steps (tick to keep, rename in place).
+    const draw = () => {
+      const picked = plan.steps.filter((s) => s.on);
+      const sum = summarize(picked);
+      const chip = (n, label) => h('span', { class: 'gm-chip' }, h('b', null, String(n)), label);
+      const phases = [...plan.phases, ...(plan.steps.some((s) => !plan.phases.some((p) => p.name === s.phase)) ? [{ name: '', start: '', end: '', milestone: '' }] : [])];
+      out.replaceChildren(
+        h('div', { class: 'gm-sum' },
+          chip(sum.tasks, sum.tasks === 1 ? ' task' : ' tasks'), chip(sum.habits, ' repeating'), chip(sum.once, ' one-off'),
+          sum.done ? chip(sum.done, ' already done') : null,
+          h('span', { class: 'gm-chip soft' }, `about ${sum.hoursPerWeek} h a week`)),
+        ...phases.map((p) => {
+          const mine = plan.steps.filter((s) => (p.name ? s.phase === p.name : !plan.phases.some((x) => x.name === s.phase)));
+          if (!mine.length) return null;
+          const allOn = mine.every((s) => s.on);
+          return h('section', { class: 'gm-phase' },
+            h('header', null,
+              h('div', { class: 'gm-ph-t' }, h('b', null, p.name || 'Other steps'), p.start ? h('span', null, `${shortDay(p.start)} – ${shortDay(p.end)}`) : null),
+              h('button', { class: 'link-btn', onclick: () => { for (const s of mine) s.on = !allOn; draw(); } }, allOn ? 'Leave all out' : 'Keep all')),
+            p.milestone && h('p', { class: 'gm-milestone' }, icon('flag'), p.milestone),
+            ...mine.map(stepRow));
+        }),
+        h('p', { class: 'pop-meta' }, fit.checked
+          ? 'Each session has a time that is free in your calendar (for a repeating step, on most of its days). Steps further out than six weeks keep their date and find their time later.'
+          : 'The steps keep their dates; give them times later from the goal.'));
+      make.hidden = !picked.length;
+      make.textContent = g ? `Add ${picked.length} ${picked.length === 1 ? 'step' : 'steps'}` : `Set goal: ${picked.length} ${picked.length === 1 ? 'task' : 'tasks'}`;
+    };
+    // The numbers for what is kept: each step knows how many sessions it has (goal-plan.js timesIn).
+    const summarize = (steps) => {
+      const live = steps.filter((s) => !s.done);
+      const from = start.value > ymd(new Date()) ? start.value : ymd(new Date());
+      const weeks = Math.max(1, (fromYmd(end.value) - fromYmd(from)) / (7 * 86400000));
+      const minutes = live.reduce((n, s) => n + (s.minutes || 0) * (s.sessions || 1), 0);
+      return { tasks: steps.length, habits: live.filter((s) => s.repeat).length, once: live.filter((s) => !s.repeat).length, done: steps.length - live.length, hoursPerWeek: Math.round((minutes / 60 / weeks) * 10) / 10 };
+    };
+    const stepRow = (s) => {
+      const box = h('input', { type: 'checkbox', checked: s.on, title: s.on ? 'Kept: untick to leave it out' : 'Left out: tick to keep it' });
+      box.onchange = () => { s.on = box.checked; draw(); };
+      const name = h('input', { type: 'text', class: 'gm-name', value: s.title, spellcheck: false, oninput: (e) => { s.title = e.target.value; } });
+      const when = s.repeat
+        ? `${REPEAT_NAMES[s.repeat]} · ${shortDay(s.due)} – ${shortDay(s.until || end.value)}`
+        : shortDay(s.due);
+      const at = s.time ? fmtTime(at2(s.due, s.time)) : '';
+      return h('div', { class: `gm-step${s.on ? '' : ' off'}${s.done ? ' done' : ''}${s.repeat ? ' habit' : ''}` },
+        box,
+        h('div', { class: 'gm-body' },
+          name,
+          h('div', { class: 'gm-meta' },
+            s.done ? h('span', { class: 'gm-tag done' }, icon('check'), 'Already done') : h('span', { class: `gm-tag${s.repeat ? ' rep' : ''}` }, s.repeat ? icon('repeat') : icon('calendar'), when),
+            !s.done && (at || s.minutes) && h('span', { class: 'gm-tag' }, icon('clock'), [at, s.minutes ? minutesText(s.minutes) : ''].filter(Boolean).join(' · ')),
+            s.clash ? h('span', { class: 'gm-tag warn', title: 'No time was free on every one of its days: it overlaps something on those' }, `busy on ${s.clash} ${s.clash === 1 ? 'day' : 'days'}`) : null,
+            s.measure && h('span', { class: 'gm-measure' }, s.measure))));
+    };
+    const at2 = (day, time) => { const [hh, mm] = time.split(':').map(Number); const d = fromYmd(day); d.setHours(hh, mm, 0, 0); return d; };
+
+    const create = async () => {
+      const picked = plan.steps.filter((s) => s.on && s.title.trim());
+      if (!picked.length) return;
+      const steps = picked.map((s) => ({
+        title: s.title.trim(), due: s.due, time: s.done ? null : s.time || null, repeat: s.repeat || null, until: s.until || null,
+        done: !!s.done, phase: s.phase || '', measure: s.measure || '', minutes: s.minutes || null,
+      }));
+      make.disabled = go.disabled = true;
+      const live = steps.filter((s) => !s.done).length;
+      make.textContent = `Making ${live} ${live === 1 ? 'task' : 'tasks'}…`;
+      try {
+        let res;
+        if (g) {
+          const kept = g.steps.map((s) => ({ id: s.id, title: s.title, due: s.repeat ? null : s.due || null, time: s.time || null, done: !!s.done, repeat: s.repeat || null }));
+          res = await onyx.updateGoal(g.id, { steps: [...kept, ...steps] });
+        } else {
+          res = await onyx.createGoal({
+            title: title.value.trim(), start: start.value, end: end.value, color: COLORS[goals.length % COLORS.length],
+            notes: cleanNote(outline.value).slice(0, 8000), tags: [...tagFilter].map((t) => tagInfo(t)?.name || t), steps,
+          });
+        }
+        if (res.warnings?.length) toast(`Saved, but: ${res.warnings.slice(0, 3).join('  ·  ')}${res.warnings.length > 3 ? ` and ${res.warnings.length - 3} more` : ''}`, 'warn');
+        else toast(g ? `${steps.length} steps added to "${g.title}"` : `Goal set: ${steps.length} steps, ${live} of them in your tasks`);
+        closePopover();
+        await loadGoals();
+        await loadTasks();
+        refetch();
+      } catch (err) {
+        make.disabled = go.disabled = false;
+        draw();
+        fail(err);
+      }
+    };
+
+    showPopover(anchor, [
+      h('div', { class: 'gm-head' }, icon('sparkles'), h('b', null, g ? 'Break down this goal' : 'Magic add goal')),
+      title,
+      h('div', { class: 'row' }, icon('calendar'), start, h('span', { class: 'dash' }, 'to'), end),
+      h('div', { class: 'row top' }, icon('note'), outline),
+      h('div', { class: 'row gm-meter' }, icon('hammer'), h('div', { class: 'txt' }, h('div', { class: 'breakdown-head' }, h('b', null, 'Breakdown'), hammers), levelName)),
+      h('label', { class: 'row gm-fit' }, fit, h('span', null, 'Give every session a free time in my calendar')),
+      h('div', { class: 'row gm-go-row' }, go),
+      out,
+      h('div', { class: 'pop-actions' },
+        h('div', { class: 'grow' }),
+        h('button', { class: 'btn ghost', onclick: () => closePopover() }, 'Cancel'),
+        make),
+    ], null, { wide: true });
+    if (!MOBILE) (g ? outline : title).focus();
   }
 
   // ------------------------------------------------------------ sidebar

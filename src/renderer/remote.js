@@ -16,6 +16,8 @@
   const LOCAL = 'onyx.phone-settings';
   const CACHE = 'onyx.cache.';
   const TIMEOUT_MS = 7000;
+  // Commands that think or make a lot on the PC: Claude planning a day or a goal, a goal making its many tasks.
+  const SLOW_MS = { 'magic:plan': 120000, 'magic:replan': 60000, 'ai:breakdown': 45000, 'goal:plan': 330000, 'goal:create': 300000, 'goal:update': 300000 };
   // Settings that belong to this phone rather than to the shared calendar.
   const PHONE_ONLY = ['view', 'tasksPanel', 'newsPanel', 'nextBar', 'popups', 'doneSound'];
 
@@ -170,7 +172,7 @@
     if (!address) { setOnline(false); throw unreachable(); }
     let body;
     try {
-      body = await post(address, name, args, op);
+      body = await post(address, name, args, op, SLOW_MS[name] || TIMEOUT_MS);
     } catch (err) {
       if (err.final) throw err;
       lastOk = 0;
@@ -632,6 +634,7 @@
     goals: (force) => call('goals', force),
     createGoal: (data) => call('goal:create', data),
     updateGoal: (id, data) => call('goal:update', id, data),
+    planGoal: (opts) => call('goal:plan', opts),
     deleteGoal: (id, keepTasks) => call('goal:delete', id, keepTasks),
     setGoalStep: (id, stepId, done) => call('goal:step', id, stepId, done),
     setTags: (id, tags) => call('tags:set', id, tags),

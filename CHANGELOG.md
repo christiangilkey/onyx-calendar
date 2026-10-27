@@ -2,9 +2,16 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.81.0 · Links on blocks, short names
+## 1.82.0 · A time line while you move a block
 
 _2026-10-27_
+
+- While you drag a block to move it, a grey line runs from where it would land across to the times on the left, with the start time it would get in the middle of the line.
+- It follows the block as it snaps to its neighbours, and goes away when you let go.
+
+## 1.81.0 · Links on blocks, short names
+
+_2026-10-26_
 
 - Link a website, a Google Drive file or a Notion page to a block: in the block's window, Links, then + Website, + Drive or + Notion (search your Drive or Notion and tap one).
 - Tap a block with links and a second bubble opens on the opposite side of the block from its name bubble, with an Open button for each link. It finds room on another side when the opposite one is off the screen.

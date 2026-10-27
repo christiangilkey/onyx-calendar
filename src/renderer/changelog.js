@@ -2,8 +2,17 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
-  "version": "1.81.0",
+  "version": "1.82.0",
   "date": "2026-10-27",
+  "title": "A time line while you move a block",
+  "items": [
+   "While you drag a block to move it, a grey line runs from where it would land across to the times on the left, with the start time it would get in the middle of the line.",
+   "It follows the block as it snaps to its neighbours, and goes away when you let go."
+  ]
+ },
+ {
+  "version": "1.81.0",
+  "date": "2026-10-26",
   "title": "Links on blocks, short names",
   "items": [
    "Link a website, a Google Drive file or a Notion page to a block: in the block's window, Links, then + Website, + Drive or + Notion (search your Drive or Notion and tap one).",

@@ -3006,6 +3006,9 @@
     float.shift = 0;
     float.box = h('div', { class: 'fc drag-float' }, copy, float.chip);
     float.box.style.transform = `translate3d(${r.left}px, ${r.top}px, 0)`;
+    // A grey line at the time it would land on, from the hours on the left to the entry, the time in its middle.
+    float.guide = h('div', { class: 'drop-guide', hidden: true, 'aria-hidden': 'true' }, h('span'));
+    document.body.append(float.guide);
     document.body.append(float.box);
     document.body.classList.add('carrying');
   }
@@ -3029,10 +3032,33 @@
       if (float.time) float.time.textContent = t;
       float.chip.textContent = t;
     }
+    dropGuide(mirror);
+  }
+
+  /** The grey line at the top of where the carried entry would land, across to the hours, with that time on it. */
+  function dropGuide(mirror) {
+    const g = float.guide;
+    if (!g) return;
+    const axis = $('#calendar .fc-timegrid-slot-label')?.getBoundingClientRect();
+    const lane0 = $('#calendar .fc-timegrid-slot-lane[data-time="00:00:00"]'), lane12 = $('#calendar .fc-timegrid-slot-lane[data-time="12:00:00"]');
+    const area = ($('#calendar .fc-timegrid-body')?.closest('.fc-scroller') || $('#calendar'))?.getBoundingClientRect();
+    if (!mirror || !axis || !lane0 || !lane12 || !area || mirror.closest('.fc-daygrid')) { g.hidden = true; return; }
+    const m = mirror.getBoundingClientRect(); // its snapped place (moved to a neighbour's edge when pulled there)
+    const top0 = lane0.getBoundingClientRect().top, perMin = (lane12.getBoundingClientRect().top - top0) / 720;
+    if (m.top < area.top || m.top > area.bottom || !perMin) { g.hidden = true; return; }
+    const minutes = float.magnet ? null : Math.round((m.top - top0) / perMin / 5) * 5;
+    const at = float.magnet ? new Date(float.magnet.start) : new Date(2000, 0, 1, Math.floor(minutes / 60), minutes % 60);
+    g.hidden = false;
+    g.style.top = `${Math.round(m.top)}px`;
+    g.style.left = `${Math.round(axis.left)}px`;
+    g.style.width = `${Math.max(0, Math.round(m.left - axis.left))}px`;
+    g.firstChild.textContent = fmtTime(at);
   }
 
   function floatStop() {
     document.body.classList.remove('carrying');
+    float.guide?.remove();
+    float.guide = null;
     const box = float.box;
     float.box = null;
     if (!box) return;

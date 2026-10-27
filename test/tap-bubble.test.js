@@ -53,3 +53,11 @@ test('the tick-off sound is quiet and can be changed or switched off', () => {
   assert.match(app, /field\('Tick-off sound'/);
   assert.match(fs.readFileSync(path.join(__dirname, '../src/renderer/remote.js'), 'utf8'), /const PHONE_ONLY = \[[^\]]*'doneSound'/);
 });
+
+test('a carried entry shows a grey line at where it would land, across to the hours, with that time on it', () => {
+  assert.match(app, /float\.guide = h\('div', \{ class: 'drop-guide', hidden: true, 'aria-hidden': 'true' \}, h\('span'\)\);/);
+  assert.match(app, /    dropGuide\(mirror\);\n  \}/);
+  assert.match(app, /g\.style\.width = `\$\{Math\.max\(0, Math\.round\(m\.left - axis\.left\)\)\}px`;/);
+  assert.match(app, /float\.guide\?\.remove\(\);/);
+  assert.match(css, /\.drop-guide \{[^}]*border-top: 1\.5px solid/);
+});

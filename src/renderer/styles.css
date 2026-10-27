@@ -2679,3 +2679,10 @@ body.mobile .gm-phase > header .link-btn { font-size: 13.5px; }
 .tap-bubble.link-bubble[data-side=right]::before { background: #1b1a22; border-color: rgba(255, 255, 255, .12); }
 .tap-bubble.link-bubble .tb-title { font-size: 13.5px; }
 body.mobile .blink-add .link-btn { font-size: 14px; padding: 6px 0; }
+
+/* ------------------------------------------------------------ the drop guide: where a carried entry would land */
+.drop-guide { position: fixed; z-index: 29; height: 0; border-top: 1.5px solid rgba(200, 200, 212, .55); pointer-events: none; }
+.drop-guide[hidden] { display: none; }
+.drop-guide span { position: absolute; left: 50%; top: 0; transform: translate(-50%, -50%); padding: 2px 8px; border-radius: 10px;
+  background: #2b2b34; border: 1px solid rgba(255, 255, 255, .2); color: #f0f0f4; font-size: 11px; font-weight: 700; line-height: 15px;
+  white-space: nowrap; font-variant-numeric: tabular-nums; box-shadow: 0 2px 8px rgba(0, 0, 0, .5); }

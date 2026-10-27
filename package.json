@@ -1,6 +1,6 @@
 {
     "name": "onyx-calendar",
-    "version": "1.80.0",
+    "version": "1.81.0",
     "description": "A sleek black desktop calendar that merges Google, Outlook and local time blocks, with Raspberry Pi call reminders and a built-in MCP server.",
     "main": "src/main/main.js",
     "author": "Onyx Calendar contributors",

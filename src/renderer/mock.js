@@ -198,6 +198,7 @@
   // Pomodoro splits (hub.js setPomodoro), with a study block that is on right now for the timer.
   const pomodoros = {};
   const blockTasks = {}, blockTicks = {}; // a block's tasks (hub.js setBlockTasks), and each day's ticks
+  const blockLinks = { 'local/blocks/1': [{ url: 'https://www.notion.so/', title: 'Study plan 2026', source: 'notion', kind: 'page', icon: '📚' }] }; // a block's links (hub.setBlockLinks)
   const eventColors = {};                  // a block's own colour (hub.js setEventColor)
   {
     const now = Date.now();
@@ -314,10 +315,12 @@
         .filter((e) => !state.settings.hidden[e.calendarId])
         .map((e) => ({ ...withTags(e), pomodoro: pomodoros[e.id] || null,
           ...(e.kind === 'event' && eventColors[e.id] ? { color: eventColors[e.id], calColor: e.color, ownColor: true } : {}),
+          ...(e.kind === 'event' && blockLinks[e.seriesId || e.id]?.length ? { links: blockLinks[e.seriesId || e.id] } : {}),
           ...(e.kind === 'event' && blockTasks[e.id]?.length ? { taskList: blockTasks[e.id].map((t) => ({ ...t, done: (blockTicks[e.id] || []).includes(t.id) })) } : {}) })),
       errors: [],
     }),
     setPomodoro: async (id, cfg) => { if (cfg) pomodoros[id] = cfg; else delete pomodoros[id]; return pomodoros[id] || null; },
+    setBlockLinks: async (key, items) => { const list = (items || []).filter((l) => /^https?:\/\//.test(l.url || '')).map((l) => ({ url: l.url, title: l.title || l.url, source: l.source || 'web', ...(l.kind ? { kind: l.kind } : {}), ...(l.icon ? { icon: l.icon } : {}) })); if (list.length) blockLinks[key] = list; else delete blockLinks[key]; return list; },
     setBlockTasks: async (key, items) => { const list = (items || []).filter((t) => t.text?.trim()).map((t) => ({ id: t.id || Math.random().toString(36).slice(2, 10), text: t.text.trim() })); if (list.length) blockTasks[key] = list; else delete blockTasks[key]; return list; },
     setEventColor: async (key, color) => { if (color) eventColors[key] = color; else delete eventColors[key]; return eventColors[key] || null; },
     tickBlockTask: async (id, taskId, done) => { const s = new Set(blockTicks[id] || []); if (done) s.add(taskId); else s.delete(taskId); blockTicks[id] = [...s]; return blockTicks[id]; },

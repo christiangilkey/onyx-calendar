@@ -165,6 +165,34 @@ function setEventColor(key, color) {
   return store.data.eventColors[key] || null;
 }
 
+// ---- what a block links to: a website, a Drive file or a Notion page, opened from the bubble by it
+const MAX_BLOCK_LINKS = 6;
+const LINK_SOURCES = ['web', 'drive', 'notion'];
+/** The links of a block, or null for none. */
+const linksOf = (e) => (store.data.blockLinks?.[keyOf(e)]?.length ? store.data.blockLinks[keyOf(e)].map((l) => ({ ...l })) : null);
+
+/** Sets a block's links, in order (an empty list takes them off). Only http(s) addresses. */
+function setBlockLinks(key, items) {
+  if (!key) throw new Error('Nothing to link it to.');
+  store.data.blockLinks ??= {};
+  const clean = [];
+  for (const it of Array.isArray(items) ? items : []) {
+    let url = String(it?.url || '').trim();
+    if (url && !/^[a-z][a-z0-9+.-]*:/i.test(url)) url = `https://${url}`; // typed without https://
+    let parsed;
+    try { parsed = new URL(url); } catch { continue; }
+    if (!/^https?:$/.test(parsed.protocol) || clean.some((x) => x.url === parsed.href)) continue;
+    const source = LINK_SOURCES.includes(it?.source) ? it.source : 'web';
+    const title = String(it?.title || '').replace(/\s+/g, ' ').trim().slice(0, 120) || parsed.hostname.replace(/^www\./, '');
+    clean.push({ url: parsed.href, title, source, ...(it?.kind ? { kind: String(it.kind).slice(0, 20) } : {}), ...(it?.icon ? { icon: String(it.icon).slice(0, 8) } : {}) });
+    if (clean.length >= MAX_BLOCK_LINKS) break;
+  }
+  if (clean.length) store.data.blockLinks[key] = clean;
+  else delete store.data.blockLinks[key];
+  store.save();
+  return clean;
+}
+
 /** A block's tasks as the window and the calendar show them: [{ id, text, done }], or null for none. */
 function taskListOf(e) {
   const items = store.data.blockTasks[keyOf(e)];
@@ -329,7 +357,7 @@ async function getEvents(start, end, { includeHidden = false, force = false } = 
   const events = lists.flat()
     .map((e) => ({
       ...e, tags: tagsOf(keyOf(e)), memo: memoOf(keyOf(e)), pomodoro: pomodoroOf(keyOf(e)),
-      ...(e.kind === 'event' ? { taskList: taskListOf(e) } : {}),
+      ...(e.kind === 'event' ? { taskList: taskListOf(e), links: linksOf(e) } : {}),
       // A block given a colour of its own wears it; its calendar's stays known for "Calendar colour".
       ...(e.kind === 'event' && store.data.eventColors[keyOf(e)] ? { color: store.data.eventColors[keyOf(e)], calColor: e.color, ownColor: true } : {}),
       // A calendar entry or block ticked off, like a task (kept in Onyx: each day of a repeat on its own).
@@ -523,6 +551,7 @@ async function updateEvent(id, patch) {
     setLeaveBy(id, null);
     if (pomodoroOf(id)) store.data.pomodoro[created.id] = pomodoroOf(id); // the split goes with it
     if (store.data.blockTasks[id]) store.data.blockTasks[created.id] = store.data.blockTasks[id]; // and the tasks, ticks and all
+    if (store.data.blockLinks?.[id]) store.data.blockLinks[created.id] = store.data.blockLinks[id]; // and its links
     if (store.data.blockTicks[id]) store.data.blockTicks[created.id] = store.data.blockTicks[id];
     if (store.data.eventColors[id]) store.data.eventColors[created.id] = store.data.eventColors[id]; // and its colour
     await deleteEvent(id);
@@ -587,6 +616,7 @@ async function deleteEvent(id, { scope = 'all', seriesId = null } = {}) {
   setMemo(id, '');
   delete store.data.pomodoro[id];
   delete store.data.blockTasks[id];
+  if (store.data.blockLinks) delete store.data.blockLinks[id];
   delete store.data.blockTicks[id];
   delete store.data.eventColors[id];
   await setPiCall({ id }, false).catch((err) => console.error('onyx: could not remove the Pi reminder:', err.message));
@@ -1323,7 +1353,7 @@ function removeLocalCalendar(id) {
 
 module.exports = {
   calendars, refreshCalendars, invalidate, getEvents, setBackburner, setEventDone, createEvent, updateEvent, deleteEvent, setLeaveBy, ackPiCall, piAlerts,
-  getTasks, archivedTasks, fetchTask, createTask, updateTask, moveTask, resizeTask, receiveTask, planTask, unplanTask, dismissInbox, deleteTask, setRepeat, setPomodoro, setBlockTasks, tickBlockTask, setEventColor, setPiCall, freeTime, setTaskMinutes, addLocalCalendar, removeLocalCalendar,
+  getTasks, archivedTasks, fetchTask, createTask, updateTask, moveTask, resizeTask, receiveTask, planTask, unplanTask, dismissInbox, deleteTask, setRepeat, setPomodoro, setBlockTasks, setBlockLinks, tickBlockTask, setEventColor, setPiCall, freeTime, setTaskMinutes, addLocalCalendar, removeLocalCalendar,
   setTags, allTags, setTagColor, renameTag, deleteTag, setMemo, MAX_NOTE,
   callNotes, piTaskList, // Hyperfocus gives the Pi its stop the same way (focus.js)
 };

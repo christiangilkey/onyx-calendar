@@ -156,3 +156,24 @@ test('the window has the Magic add button, the hammers, and keeps the plan\'s de
   const remote = require('fs').readFileSync(require('path').join(__dirname, '../src/renderer/remote.js'), 'utf8');
   assert.match(remote, /'goal:plan': 330000/);
 });
+
+test('a planned task name longer than 30 characters is cut at a word and said in full as its measure', () => {
+  const { steps } = plan.normalize({ tasks: [{ title: 'Read twenty pages of the Arabic grammar textbook', repeat: 'daily' }] }, T);
+  assert.equal(steps[0].title, 'Read twenty pages of the');
+  assert.ok(steps[0].title.length <= 30);
+  assert.equal(steps[0].measure, 'Read twenty pages of the Arabic grammar textbook');
+});
+
+test('a block keeps its links: web addresses only, in order, without repeats', () => {
+  reset();
+  store.data.blockLinks = {};
+  const out = hub.setBlockLinks('local/blocks/1', [
+    { url: 'notion.so/abc', title: 'Study plan', source: 'notion', kind: 'page' },
+    { url: 'https://drive.google.com/file/d/1', title: '', source: 'drive', kind: 'doc' },
+    { url: 'javascript:alert(1)', title: 'bad' },
+    { url: 'https://notion.so/abc', title: 'again', source: 'notion' },
+  ]);
+  assert.deepEqual(out.map((l) => [l.url, l.title, l.source]), [['https://notion.so/abc', 'Study plan', 'notion'], ['https://drive.google.com/file/d/1', 'drive.google.com', 'drive']]);
+  assert.deepEqual(hub.setBlockLinks('local/blocks/1', []), []);
+  assert.equal(store.data.blockLinks['local/blocks/1'], undefined);
+});

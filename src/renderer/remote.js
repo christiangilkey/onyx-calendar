@@ -256,7 +256,7 @@
   const QUEUEABLE = new Set([
     'event:create', 'event:update', 'event:delete', 'event:done', 'event:leaveby', 'event:call', 'event:ack',
     'task:create', 'task:update', 'task:move', 'task:resize', 'task:delete', 'task:backburner', 'task:repeat', 'inbox:dismiss',
-    'tags:set', 'memo:set', 'pomodoro:set', 'blockTasks:set', 'blockTasks:tick', 'eventColor:set',
+    'tags:set', 'memo:set', 'pomodoro:set', 'blockTasks:set', 'blockLinks:set', 'blockTasks:tick', 'eventColor:set',
     'note:create', 'note:update', 'note:delete', 'goal:step', 'goal:update', 'pin:update', 'pin:remove', 'focus:log',
   ]);
   let outbox = read(OUTBOX, []);
@@ -309,6 +309,7 @@
         else if (o.name === 'tags:set') touch(a, (e) => ({ ...e, tags: b || [] }));
         else if (o.name === 'eventColor:set') touch(a, (e) => ({ ...e, color: b || e.calColor || e.color, ownColor: !!b }));
         else if (o.name === 'blockTasks:set') touch(a, (e) => ({ ...e, taskList: (b || []).length ? b.map((t) => ({ id: t.id, text: t.text, done: !!e.taskList?.find((x) => x.id === t.id)?.done })) : null }));
+        else if (o.name === 'blockLinks:set') touch(a, (e) => ({ ...e, links: (b || []).length ? b : null }));
         else if (o.name === 'blockTasks:tick') list = list.map((e) => (e.id === a && e.taskList ? { ...e, taskList: e.taskList.map((t) => (t.id === b ? { ...t, done: !!c } : t)) } : e));
         else if (o.name === 'task:create') { const t = fakeTask(o); if (t.date) list.push(taskEntry(t)); }
         else if (o.name === 'task:update') touch(a, (e) => ({ ...e, ...(b?.title != null ? { title: b.title } : {}), ...(b && 'done' in b ? { done: !!b.done } : {}) }));
@@ -641,6 +642,7 @@
     setMemo: (id, text) => call('memo:set', id, text),
     setPomodoro: (id, cfg) => call('pomodoro:set', id, cfg),
     setBlockTasks: (key, items) => call('blockTasks:set', key, items),
+    setBlockLinks: (key, items) => call('blockLinks:set', key, items),
     tickBlockTask: (id, taskId, done) => call('blockTasks:tick', id, taskId, done),
     setEventColor: (key, color) => call('eventColor:set', key, color),
     reportBugs: (list) => call('bugs:report', list),

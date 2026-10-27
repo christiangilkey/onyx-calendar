@@ -49,6 +49,7 @@ contextBridge.exposeInMainWorld('onyx', {
   setMemo: (id, text) => call('memo:set', id, text),
   setPomodoro: (id, cfg) => call('pomodoro:set', id, cfg),
   setBlockTasks: (key, items) => call('blockTasks:set', key, items),
+  setBlockLinks: (key, items) => call('blockLinks:set', key, items),
   tickBlockTask: (id, taskId, done) => call('blockTasks:tick', id, taskId, done),
   setEventColor: (key, color) => call('eventColor:set', key, color),
   reportBugs: (list) => call('bugs:report', list),

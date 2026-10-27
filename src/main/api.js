@@ -124,6 +124,7 @@ const handlers = {
   'memo:set': (id, text) => hub.setMemo(id, text),
   'pomodoro:set': (id, cfg) => hub.setPomodoro(id, cfg),
   'blockTasks:set': (key, items) => hub.setBlockTasks(key, items),
+  'blockLinks:set': (key, items) => hub.setBlockLinks(key, items),
   'blockTasks:tick': (id, taskId, done) => hub.tickBlockTask(id, taskId, done),
   'eventColor:set': (key, color) => hub.setEventColor(key, color),
   'bugs:report': (list) => require('./bugs').fromApp(list),

@@ -298,6 +298,7 @@ final class OnyxPanel {
         quickText.setHintTextColor(FAINT);
         quickText.setTextColor(TEXT);
         quickText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        quickText.setFilters(new android.text.InputFilter[] { new android.text.InputFilter.LengthFilter(30) }); // task names: 30 characters at most
         quickText.setSingleLine(true);
         quickText.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         quickText.setImeOptions(EditorInfo.IME_ACTION_SEND);

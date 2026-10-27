@@ -22,9 +22,26 @@ test('a press on the bubble never reaches the calendar, and it goes at a drag or
 });
 
 test('it keeps to the screen: beside the entry where there is room, else above or below it', () => {
-  for (const side of ['right', 'left', 'top', 'bottom', 'over']) assert.ok(app.includes(`side = '${side}'`), side);
+  assert.match(app, /function placeTapBubble\(b, r, \{ sides = \['right', 'left', 'top', 'bottom'\], avoid = null \} = \{\}\)/);
+  for (const side of ['right', 'left', 'top', 'bottom']) assert.ok(app.includes(`if (s === '${side}')`), side);
+  assert.ok(app.includes("side = 'over';"));
   assert.match(app, /const clampX = \(x\) => Math\.max\(M, Math\.min\(innerWidth - M - bw, x\)\)/);
-  assert.match(css, /\.tb-title \{[^}]*-webkit-line-clamp: 3/);
+  // The whole name, however long: no clamp on it.
+  assert.match(css, /\.tb-title \{[^}]*overflow-wrap: anywhere; \}/);
+  assert.doesNotMatch(css, /\.tb-title \{[^}]*line-clamp/);
+});
+
+test('a block\'s links show in a bubble like it, on the opposite side, each with its own Open', () => {
+  assert.match(app, /right: \['left', 'right', 'top', 'bottom'\], left: \['right', 'left', 'top', 'bottom'\], top: \['bottom', 'top', 'left', 'right'\], bottom: \['top', 'bottom', 'left', 'right'\]/);
+  assert.match(app, /placeTapBubble\(lb, rect, \{ sides: other, avoid: b\.getBoundingClientRect\(\) \}\)/);
+  assert.match(app, /hideTapBubble\(\); onyx\.open\(l\.url\);/);
+  assert.match(app, /await onyx\.setBlockLinks\(id, links\)/);
+});
+
+test('names are 30 characters at most where they are typed', () => {
+  assert.match(app, /const NAME_MAX = 30;/);
+  for (const re of [/limitName\(h\('input', \{ type: 'text', class: 'pop-title', placeholder: 'What is this time for\?'/, /limitName\(h\('input', \{ type: 'text', class: 'pop-title', value: t\.title/, /limitName\(h\('input', \{ type: 'text', class: 'btask-in'/]) assert.match(app, re);
+  assert.match(fs.readFileSync(path.join(__dirname, '../src/renderer/index.html'), 'utf8'), /id="task-title" type="text" maxlength="30"/);
 });
 
 test('the tick-off sound is quiet and can be changed or switched off', () => {

@@ -1155,6 +1155,95 @@
     }
   }
 
+  // A task's or a block's name is kept short: 30 characters at most where it is typed. The count shows near the
+  // end (and the input just stops there). Names already longer stay as they are until edited.
+  const NAME_MAX = 30;
+  function limitName(input, { count = true } = {}) {
+    input.maxLength = NAME_MAX;
+    if (!count) return input;
+    const n = h('span', { class: 'name-count', 'aria-live': 'polite' });
+    const draw = () => {
+      const len = input.value.length;
+      n.textContent = `${len}/${NAME_MAX}`;
+      n.hidden = len < NAME_MAX - 8;
+      n.classList.toggle('full', len >= NAME_MAX);
+    };
+    input.addEventListener('input', draw);
+    draw();
+    requestAnimationFrame(() => { if (input.isConnected && !n.isConnected) input.after(n); });
+    return input;
+  }
+
+  // ---- a block's links: a website, a Drive file or a Notion page it is about, opened from the bubble beside it
+  // (showTapBubble) or from here. Kept in Onyx by the block (a repeat's by its series), on read-only calendars too.
+  const linkKindText = (l) => (l.source === 'drive' ? KIND_LABEL[l.kind] || 'Google Drive file'
+    : l.source === 'notion' ? `Notion${l.kind === 'database' ? ' database' : ' page'}` : hostOf(l.url));
+  const linkMark = (l) => h('span', { class: `link-mark ${l.source || 'web'}` }, l.icon || (l.source === 'drive' ? '▤' : l.source === 'notion' ? 'N' : icon('link')));
+  function blockLinkField(initial = []) {
+    const items = (initial || []).map((l) => ({ ...l }));
+    const list = h('div', { class: 'blink-list' });
+    const adder = h('div', { class: 'blink-adder', hidden: true });
+    const draw = () => list.replaceChildren(...items.map((l, i) => h('div', { class: 'blink' },
+      linkMark(l),
+      h('button', { type: 'button', class: 'blink-t', title: `Open ${l.url}`, onclick: () => onyx.open(l.url) }, h('b', null, l.title), h('small', null, linkKindText(l))),
+      h('button', { type: 'button', class: 'x', title: 'Take this link off', onclick: () => { items.splice(i, 1); draw(); } }, icon('x')))));
+    const add = (l) => {
+      if (items.some((x) => x.url === l.url)) return toast('That one is already linked.');
+      items.push(l);
+      draw();
+      adder.hidden = true;
+      adder.replaceChildren();
+    };
+    const web = () => {
+      const url = h('input', { type: 'url', placeholder: 'https://…', spellcheck: false, autocomplete: 'off', 'aria-label': 'Web address' });
+      const name = h('input', { type: 'text', placeholder: 'Name (optional)', spellcheck: false, maxLength: 120, 'aria-label': 'Name' });
+      const go = () => {
+        let u = url.value.trim();
+        if (!u) return url.focus();
+        if (!/^https?:\/\//i.test(u)) u = `https://${u}`;
+        try { new URL(u); } catch { return toast('That does not look like a web address.', 'warn'); }
+        add({ url: u, title: name.value.trim() || hostOf(u), source: 'web' });
+      };
+      for (const el of [url, name]) el.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+      adder.replaceChildren(url, name, h('button', { type: 'button', class: 'btn primary', onclick: go }, 'Link'));
+      adder.hidden = false;
+      if (!MOBILE) url.focus();
+    };
+    const search = (source) => {
+      const q = h('input', { type: 'text', placeholder: source === 'notion' ? 'Search your Notion pages…' : 'Search your Drive…', spellcheck: false, autocomplete: 'off' });
+      const found = h('div', { class: 'blink-found' }, h('p', { class: 'pop-meta' }, 'Loading…'));
+      let seq = 0, timer = null;
+      const run = async () => {
+        const mine = ++seq;
+        try {
+          const res = source === 'notion' ? await onyx.searchNotion(q.value) : await onyx.searchDrive(q.value);
+          if (mine !== seq) return;
+          found.replaceChildren(...(res.length ? res.slice(0, 8).map((r) => h('button', { type: 'button', class: 'blink-pick', onclick: () => add({ url: r.url, title: r.title, source, kind: r.kind, icon: r.icon }) },
+            linkMark({ ...r, source }), h('span', null, h('b', null, r.title), h('small', null, linkKindText({ ...r, source }))))) : [h('p', { class: 'pop-meta' }, source === 'notion'
+            ? 'Nothing found. Notion only shows Onyx the pages shared with it (in Notion: ••• → Connections).' : 'Nothing found.')]));
+        } catch (err) {
+          if (mine === seq) found.replaceChildren(h('p', { class: 'pop-meta problem' }, err.message));
+        }
+      };
+      q.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(run, 300); });
+      adder.replaceChildren(q, found);
+      adder.hidden = false;
+      if (!MOBILE) q.focus();
+      run();
+    };
+    const toggle = (fn, arg) => () => { if (!adder.hidden && adder.dataset.kind === String(arg)) { adder.hidden = true; return; } adder.dataset.kind = String(arg); fn(arg); };
+    draw();
+    return {
+      el: h('div', { class: 'blink-field' }, list,
+        h('div', { class: 'blink-add' },
+          h('button', { type: 'button', class: 'link-btn inline', onclick: toggle(web, 'web') }, '+ Website'),
+          h('button', { type: 'button', class: 'link-btn inline', onclick: toggle(search, 'drive') }, '+ Drive'),
+          h('button', { type: 'button', class: 'link-btn inline', onclick: toggle(search, 'notion') }, '+ Notion')),
+        adder),
+      get: () => items,
+    };
+  }
+
   function blockTaskField(initial = [], { onTick } = {}) {
     const newId = () => Math.random().toString(36).slice(2, 10);
     const on = h('input', { type: 'checkbox', checked: initial.length > 0 });
@@ -1167,7 +1256,7 @@
       count.textContent = filled.length ? `${filled.filter((li) => li.q.done).length}/${filled.length}` : '';
     };
     const addRow = (t, { focus = false, after = null } = {}) => {
-      const input = h('input', { type: 'text', class: 'btask-in', value: t?.text || '', placeholder: 'A task for this block', spellcheck: true, 'aria-label': 'Task' });
+      const input = limitName(h('input', { type: 'text', class: 'btask-in', value: t?.text || '', placeholder: 'A task for this block', spellcheck: true, 'aria-label': 'Task' }), { count: false });
       const tick = h('button', { type: 'button', class: 'btask-tick', title: 'Done' }, icon('check'));
       const grip = h('span', { class: 'btask-grip', title: 'Drag to move it' }, icon('grip'));
       const x = h('button', { type: 'button', class: 'btask-x', title: 'Take this one off', 'aria-label': 'Take this task off' }, icon('x'));
@@ -2121,14 +2210,13 @@
   // beside the entry on whichever side has room (above or below a wide one, past its stretch bars), inside the
   // calendar's visible part, with an arrow to the entry. It acts on a whole tap of its own (a click), and a press on
   // it never reaches the calendar, so nothing behind it is tapped. Gone at a tap elsewhere, a scroll or a drag.
-  const tapBubble = { el: null, src: null };
+  const tapBubble = { el: null, links: null, src: null };
   function hideTapBubble() {
-    const b = tapBubble.el;
-    if (!b) return;
-    tapBubble.el = null;
+    const b = tapBubble.el, l = tapBubble.links;
+    if (!b && !l) return;
+    tapBubble.el = tapBubble.links = null;
     tapBubble.src = null;
-    b.classList.add('leaving');
-    setTimeout(() => b.remove(), 150);
+    for (const x of [b, l]) { if (!x) continue; x.classList.add('leaving'); setTimeout(() => x.remove(), 150); }
   }
   function showTapBubble(src, blockEl) {
     hideTapBubble();
@@ -2152,12 +2240,29 @@
     for (const type of ['pointerdown', 'mousedown', 'touchstart']) b.addEventListener(type, (ev) => ev.stopPropagation(), { passive: true });
     b.style.visibility = 'hidden';
     document.body.append(b);
-    placeTapBubble(b, blockEl.getBoundingClientRect());
+    const rect = blockEl.getBoundingClientRect();
+    const side = placeTapBubble(b, rect);
     b.style.visibility = '';
     tapBubble.el = b;
     tapBubble.src = src;
+    // What the block links to: a bubble like it on the opposite side, each link with its own Open.
+    if (src.links?.length) {
+      const lb = h('div', { class: 'tap-bubble link-bubble', css: { '--c': src.color || 'var(--accent)' } },
+        ...src.links.slice(0, 3).map((l) => h('button', { type: 'button', class: 'tb-card', 'aria-label': `Open ${l.title}`, title: l.url, onclick: (ev) => { ev.stopPropagation(); hideTapBubble(); onyx.open(l.url); } },
+          linkMark(l),
+          h('span', { class: 'tb-text' }, h('span', { class: 'tb-title' }, l.title), h('span', { class: 'tb-meta' }, linkKindText(l))),
+          h('span', { class: 'tb-open' }, 'Open', h('span', { class: 'tb-chev', 'aria-hidden': 'true' })))));
+      for (const type of ['pointerdown', 'mousedown', 'touchstart']) lb.addEventListener(type, (ev) => ev.stopPropagation(), { passive: true });
+      lb.style.visibility = 'hidden';
+      document.body.append(lb);
+      const other = { right: ['left', 'right', 'top', 'bottom'], left: ['right', 'left', 'top', 'bottom'], top: ['bottom', 'top', 'left', 'right'], bottom: ['top', 'bottom', 'left', 'right'] }[side] || ['left', 'right', 'top', 'bottom'];
+      placeTapBubble(lb, rect, { sides: other, avoid: b.getBoundingClientRect() });
+      lb.style.visibility = '';
+      tapBubble.links = lb;
+    }
   }
-  function placeTapBubble(b, r) {
+  /** Puts a bubble by the entry `r` on the first of `sides` with room (and clear of `avoid`, the other bubble). Returns the side. */
+  function placeTapBubble(b, r, { sides = ['right', 'left', 'top', 'bottom'], avoid = null } = {}) {
     const M = 8, GAP = 10, BARS = 34; // the margin to the screen's edge, the gap to the entry, its stretch bar's reach
     const area = ($('#calendar .fc-timegrid-body')?.closest('.fc-scroller') || $('#calendar .fc-view-harness') || $('#calendar')).getBoundingClientRect();
     const top0 = Math.max(area.top + 4, M), bottom0 = Math.min(area.bottom - 4, innerHeight - M);
@@ -2167,20 +2272,33 @@
     // Level with the top of the entry's visible part (where its name is), when beside it.
     const vTop = Math.max(r.top, top0), vBottom = Math.min(r.bottom, bottom0);
     const aimY = vTop + Math.min(Math.max(14, vBottom - vTop), 40) / 2;
-    let side, x, y;
-    if (r.right + GAP + bw <= innerWidth - M) { side = 'right'; x = r.right + GAP; y = clampY(aimY - bh / 2); }
-    else if (r.left - GAP - bw >= M) { side = 'left'; x = r.left - GAP - bw; y = clampY(aimY - bh / 2); }
-    else {
-      x = clampX(r.left + r.width / 2 - bw / 2);
-      if (r.top - BARS - GAP - bh >= top0) { side = 'top'; y = r.top - BARS - GAP - bh; }
-      else if (r.bottom + BARS + GAP + bh <= bottom0) { side = 'bottom'; y = r.bottom + BARS + GAP; }
-      else { side = 'over'; x = clampX(r.right - bw - 10); y = clampY(vTop + 10); } // a tall, wide entry: over its corner
+    const at = (s) => {
+      if (s === 'right') return r.right + GAP + bw <= innerWidth - M ? { x: r.right + GAP, y: clampY(aimY - bh / 2) } : null;
+      if (s === 'left') return r.left - GAP - bw >= M ? { x: r.left - GAP - bw, y: clampY(aimY - bh / 2) } : null;
+      const cx = clampX(r.left + r.width / 2 - bw / 2);
+      if (s === 'top') return r.top - BARS - GAP - bh >= top0 ? { x: cx, y: r.top - BARS - GAP - bh } : null;
+      if (s === 'bottom') return r.bottom + BARS + GAP + bh <= bottom0 ? { x: cx, y: r.bottom + BARS + GAP } : null;
+      return null;
+    };
+    const clear = (p) => !avoid || p.x >= avoid.right + 4 || p.x + bw <= avoid.left - 4 || p.y >= avoid.bottom + 4 || p.y + bh <= avoid.top - 4;
+    let side = null, x, y;
+    for (const s of sides) {
+      const p = at(s);
+      if (p && clear(p)) { side = s; ({ x, y } = p); break; }
+    }
+    if (!side) {
+      side = 'over';
+      if (avoid) { // no side left: just under (or over) the other bubble
+        x = clampX(avoid.left);
+        y = avoid.bottom + 8 + bh <= bottom0 ? avoid.bottom + 8 : clampY(avoid.top - 8 - bh);
+      } else { x = clampX(r.right - bw - 10); y = clampY(vTop + 10); } // a tall, wide entry: over its corner
     }
     const arrow = side === 'left' || side === 'right' ? Math.max(14, Math.min(bh - 14, aimY - y)) : Math.max(18, Math.min(bw - 18, r.left + r.width / 2 - x));
     b.dataset.side = side;
     b.style.setProperty('--arrow', `${Math.round(arrow)}px`);
     b.style.left = `${Math.round(x)}px`;
     b.style.top = `${Math.round(y)}px`;
+    return side;
   }
   // A press anywhere but the bubble or its entry puts it away (another entry shows its own); so does a scroll.
   document.addEventListener('pointerdown', (e) => {
@@ -3253,7 +3371,7 @@
     const multiDay = !sameDay(model.start, model.allDay ? lastDay : new Date(model.end.getTime() - 1));
     let busy = false;
 
-    const title = h('input', { type: 'text', class: 'pop-title', placeholder: 'What is this time for?', value: src ? src.title : '', disabled: readOnly, spellcheck: false });
+    const title = limitName(h('input', { type: 'text', class: 'pop-title', placeholder: 'What is this time for?', value: src ? src.title : '', disabled: readOnly, spellcheck: false }));
     const date = h('input', { type: 'date', value: ymd(model.start), disabled: readOnly });
     const startTime = h('input', { type: 'time', value: hm(model.start), step: 300, disabled: readOnly });
     const endTime = h('input', { type: 'time', value: hm(model.end), step: 300, disabled: readOnly });
@@ -3337,6 +3455,7 @@
     const colorPick = colorSwatches(src?.ownColor ? src.color : null, src?.calColor || calColor(), null);
     calendarPick.addEventListener('change', () => colorPick.el.firstChild.style.setProperty('--s', calColor() || 'var(--accent)')); // the calendar's colour, as picked
     // What to get done within the block: kept in Onyx (on a read-only calendar too); a tick on a saved block saves at once.
+    const linksField = blockLinkField(src?.links || []);
     const tasksField = blockTaskField(src?.taskList || [], {
       onTick: src ? (taskId, done) => onyx.tickBlockTask(src.id, taskId, done).then(() => refetch()).catch((err) => fail(err)) : null,
     });
@@ -3430,6 +3549,9 @@
         const list = tasksField.get(), had = src?.taskList || [];
         const shape = (items) => items.map((t) => `${t.id}\t${t.text}`).join('\n');
         if (id && shape(list.items) !== shape(had)) await onyx.setBlockTasks(id, list.items);
+        // Its links: kept by the block too.
+        const links = linksField.get(), hadLinks = src?.links || [];
+        if (id && links.map((l) => `${l.url}\t${l.title}`).join('\n') !== hadLinks.map((l) => `${l.url}\t${l.title}`).join('\n')) await onyx.setBlockLinks(id, links);
         // Ticks on tasks new in this window (the others were saved as they were ticked), on this day of the block.
         const day = saved?.id || src?.id;
         for (const t of list.items) if (day && t.done && !had.some((x) => x.id === t.id)) await onyx.tickBlockTask(day, t.id, true);
@@ -3498,6 +3620,7 @@
       h('div', { class: 'row color-row' }, icon('drop'), colorPick.el),
       repeatField && h('div', { class: 'row top recur-row' }, icon('repeat'), repeatField.el),
       h('div', { class: 'row top btask-row' }, icon('tasks'), tasksField.el),
+      h('div', { class: 'row top blink-row' }, icon('link'), linksField.el),
       notes && h('div', { class: 'row top' }, icon('note'), notes),
       readOnly && src.notes && h('div', { class: 'row top pop-meta' }, icon('note'), h('div', { class: 'note-text' }, src.notes)),
       !readOnly && src?.memo && h('div', { class: 'row top pop-meta', title: 'Your notes, kept in Onyx' }, icon('note'), h('div', { class: 'note-text' }, src.memo)),
@@ -4182,7 +4305,7 @@
   }
 
   function openTask(t, anchor) {
-    const name = h('input', { type: 'text', class: 'pop-title', value: t.title, spellcheck: false });
+    const name = limitName(h('input', { type: 'text', class: 'pop-title', value: t.title, spellcheck: false }));
     const tags = tagField(t.tags);
     const st = t.call && !t.call.past
       ? (t.call.quiet ? { text: `No call: ${fmtTime(new Date(t.call.at))} is inside quiet hours.`, tone: 'warn' } : { text: `The Pi phones you at ${fmtTime(new Date(t.call.at))}.`, tone: 'ok' })
@@ -5834,7 +5957,7 @@
   function openSeries(s, anchor) {
     const copies = tasks.filter((t) => t.series?.key === s.key);
     const first = copies[0] || {};
-    const name = h('input', { type: 'text', class: 'pop-title', value: s.label, spellcheck: false });
+    const name = limitName(h('input', { type: 'text', class: 'pop-title', value: s.label, spellcheck: false }));
     const time = h('input', { type: 'time', value: s.time || '', step: 300, title: 'Time (the Pi phones about it)' });
     const notes = notesField(first.notes);
     const rule = h('select', { disabled: !s.managed, title: s.managed ? 'How often' : 'Set in Google Tasks' },
@@ -6350,7 +6473,7 @@
     const HOW_OFTEN = [['', 'Once'], ['daily', 'Daily'], ['weekdays', 'Weekdays'], ['weekly', 'Weekly'], ['biweekly', 'Every 2 weeks'], ['monthly', 'Monthly']];
     const drawSteps = (focus) => {
       const rowOf = (s, i) => {
-        const name = h('input', { type: 'text', value: s.title, placeholder: `Step ${i + 1}`, spellcheck: false, oninput: (e) => { s.title = e.target.value; } });
+        const name = limitName(h('input', { type: 'text', value: s.title, placeholder: `Step ${i + 1}`, spellcheck: false, oninput: (e) => { s.title = e.target.value; } }), { count: false });
         name.addEventListener('keydown', (e) => {
           if (e.key === 'Enter') { e.preventDefault(); steps.splice(i + 1, 0, { title: '', due: null, done: false }); drawSteps(i + 1); }
           if (e.key === 'Backspace' && !name.value && steps.length > 1) { e.preventDefault(); steps.splice(i, 1); drawSteps(Math.max(0, i - 1)); }
@@ -6585,7 +6708,7 @@
     const stepRow = (s) => {
       const box = h('input', { type: 'checkbox', checked: s.on, title: s.on ? 'Kept: untick to leave it out' : 'Left out: tick to keep it' });
       box.onchange = () => { s.on = box.checked; draw(); };
-      const name = h('input', { type: 'text', class: 'gm-name', value: s.title, spellcheck: false, oninput: (e) => { s.title = e.target.value; } });
+      const name = limitName(h('input', { type: 'text', class: 'gm-name', value: s.title, spellcheck: false, oninput: (e) => { s.title = e.target.value; } }), { count: false });
       const when = s.repeat
         ? `${REPEAT_NAMES[s.repeat]} · ${shortDay(s.due)} – ${shortDay(s.until || end.value)}`
         : shortDay(s.due);

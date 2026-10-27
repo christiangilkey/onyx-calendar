@@ -6,6 +6,7 @@
 
 const REPEATS = ['daily', 'weekdays', 'weekly', 'biweekly', 'monthly'];
 const MAX_STEPS = 400;
+const NAME_MAX = 30; // a task's name, as in the app
 const PARTS = { morning: [8 * 60, 12 * 60], afternoon: [13 * 60, 17 * 60], evening: [17 * 60, 21 * 60] };
 const SLOT = 15; // sessions start on quarter hours
 const HORIZON_DAYS = 42; // the calendar is read this far ahead to find each session's time
@@ -23,7 +24,7 @@ const LEVELS = {
 const SYSTEM = [
   'You turn someone\'s long-term goal into a plan of actionable, measurable tasks they can put on their calendar. They have ADHD: every task must be something they can start without more planning.',
   'Split the time frame into a few phases (each with its dates and a measurable milestone), then give the tasks.',
-  'Every task title starts with a verb and is measurable: it says how much or how many (pages, minutes, reps, words, items, calls), so done is obvious. Under 14 words.',
+  'Every task title starts with a verb and is measurable: it says how much or how many (pages, minutes, reps, words, items, calls), so done is obvious. A title is at most 30 characters (count them): keep it to the action and the number, and put any detail in "measure".',
   'Give each task: "title"; "measure" (one short line: how they know it is done, with a number); "phase" (the phase number, from 1); "repeat" (once, daily, weekdays, weekly, biweekly or monthly; use a repeat for anything that is practised or done regularly instead of listing it again and again); "start" (YYYY-MM-DD: the due date of a one-off task, or the first day of a repeating one); "until" (YYYY-MM-DD, the last day of a repeating task, usually the end of its phase; null for one-off tasks); "minutes" (how long one session takes, a multiple of 5 from 5 to 180); "when" (morning, afternoon, evening or any: when it suits best).',
   'They may paste an outline of what the goal involves and the steps they already have. Use all of it: every part of the outline becomes tasks. Steps they say are already finished (marked [x], ✓, done, finished, completed) are included with "done": true, as one-off tasks dated on or before today. Do not repeat steps listed as already in the plan.',
   'Spread the work realistically over the whole time frame, in a sensible order (foundations first), never before today, and leave room: a few hours a week for a hobby goal, more for a serious one, as the outline suggests.',
@@ -79,7 +80,9 @@ function normalize(answer, { start, end, today }) {
   const steps = [];
   for (const t of rawSteps) {
     if (steps.length >= MAX_STEPS) break;
-    const title = String(t?.title || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+    const full = String(t?.title || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+    // A task's name is 30 characters at most: a longer one is cut at a word, and said in full as its measure.
+    const title = full.length <= NAME_MAX ? full : (full.slice(0, NAME_MAX + 1).replace(/\s+\S*$/, '') || full.slice(0, NAME_MAX)).replace(/[\s,;:–-]+$/, '');
     if (!title || seen.has(title.toLowerCase())) continue;
     seen.add(title.toLowerCase());
     const ph = phases[Math.round(Number(t?.phase)) - 1] || null;
@@ -95,7 +98,7 @@ function normalize(answer, { start, end, today }) {
     const minutes = Number.isFinite(m) && m >= 5 ? Math.min(180, m) : null;
     const when = PARTS[t?.when] ? t.when : 'any';
     steps.push({
-      key: `k${steps.length + 1}`, title, measure: String(t?.measure || '').replace(/\s+/g, ' ').trim().slice(0, 200),
+      key: `k${steps.length + 1}`, title, measure: (String(t?.measure || '').replace(/\s+/g, ' ').trim() || (full !== title ? full : '')).slice(0, 200),
       phase: ph ? ph.name : '', phaseEnd: hi < lo ? lo : hi, repeat, due, until, minutes, when, done,
     });
   }

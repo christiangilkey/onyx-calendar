@@ -2546,8 +2546,7 @@ body.mobile .mg-seg > button, body.mobile .mg-seg > input { height: 40px; font-s
 .tb-card:active { background: #23212d; }
 .tb-card:focus-visible { outline: 2px solid #c9b8ff; outline-offset: 2px; }
 .tb-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.tb-title { font-size: 14.5px; font-weight: 650; line-height: 1.3; overflow-wrap: anywhere;
-  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.tb-title { font-size: 14.5px; font-weight: 650; line-height: 1.3; overflow-wrap: anywhere; } /* the whole name, always */
 .tb-meta { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 .tb-open { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 32px; padding: 0 10px 0 12px; border-radius: 16px;
   background: color-mix(in srgb, var(--accent) 26%, #1b1a22); color: #e4ddff; font-size: 13px; font-weight: 700; }
@@ -2647,3 +2646,36 @@ body.mobile .gm-step > input[type=checkbox] { width: 20px; height: 20px; margin-
 .gm-meta { padding-left: 0; }
 .gm-phase > header .link-btn { border: 0; background: none; padding: 2px 0; color: var(--accent); font-size: 12px; cursor: pointer; }
 body.mobile .gm-phase > header .link-btn { font-size: 13.5px; }
+
+/* ------------------------------------------------------------ names: 30 characters, a count near the end */
+.name-count { display: block; margin: -2px 2px 0 auto; text-align: right; font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.name-count[hidden] { display: none; }
+.name-count.full { color: #ffb547; }
+
+/* ------------------------------------------------------------ a block's links */
+.blink-field { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.blink-list { display: flex; flex-direction: column; gap: 4px; }
+.blink-list:empty { display: none; }
+.blink { display: flex; align-items: center; gap: 8px; padding: 5px 6px 5px 8px; border-radius: 10px; background: #121216; border: 1px solid rgba(255, 255, 255, .06); }
+.blink-t { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; border: 0; background: none; color: var(--text); text-align: left; cursor: pointer; padding: 0; font: inherit; }
+.blink-t b { font-size: 13px; font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.blink-t small, .blink-pick small { font-size: 11.5px; color: var(--muted); }
+.blink-t:hover b { text-decoration: underline; }
+.blink-add { display: flex; gap: 14px; flex-wrap: wrap; }
+.blink-adder { display: flex; flex-wrap: wrap; gap: 6px; }
+.blink-adder > input { flex: 1 1 160px; min-width: 0; height: 32px; }
+.blink-found { flex-basis: 100%; display: flex; flex-direction: column; gap: 2px; max-height: 210px; overflow-y: auto; }
+.blink-pick { display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: 9px; border: 0; background: transparent; color: var(--text); text-align: left; cursor: pointer; font: inherit; }
+.blink-pick:hover { background: rgba(255, 255, 255, .05); }
+.blink-pick > span:last-child { display: flex; flex-direction: column; min-width: 0; }
+.blink-pick b { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.link-mark { flex: none; width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; font-size: 15px; font-weight: 800; background: #1e1d26; color: #cfc8ff; }
+.link-mark .ico { width: 15px; height: 15px; }
+.link-mark.drive { background: rgba(66, 133, 244, .16); color: #8db7ff; }
+.link-mark.notion { background: #f2f2f2; color: #111; font-family: Georgia, serif; }
+/* the links' bubble: the same as the name's, each link a row with its own Open */
+.tap-bubble.link-bubble { display: flex; flex-direction: column; gap: 6px; }
+.tap-bubble.link-bubble .tb-card { border-left-width: 1px; gap: 10px; padding-left: 9px; }
+.tap-bubble.link-bubble[data-side=right]::before { background: #1b1a22; border-color: rgba(255, 255, 255, .12); }
+.tap-bubble.link-bubble .tb-title { font-size: 13.5px; }
+body.mobile .blink-add .link-btn { font-size: 14px; padding: 6px 0; }

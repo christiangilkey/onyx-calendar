@@ -2,9 +2,20 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
+## 1.81.0 · Links on blocks, short names
+
+_2026-10-27_
+
+- Link a website, a Google Drive file or a Notion page to a block: in the block's window, Links, then + Website, + Drive or + Notion (search your Drive or Notion and tap one).
+- Tap a block with links and a second bubble opens on the opposite side of the block from its name bubble, with an Open button for each link. It finds room on another side when the opposite one is off the screen.
+- Task and block names are 30 characters at most where you type them, with a count as you near the end. Names you already have stay as they are.
+- The bubble by a block now always shows its whole name, however long.
+- Names that Claude writes for goal steps and breakdowns are kept short too; the full wording goes into the step's Done when line.
+- The task box on the lock screen takes 30 characters too.
+
 ## 1.80.0 · Magic add goal
 
-_2026-10-26_
+_2026-10-25_
 
 - New Magic add goal button under Goals in the sidebar. Name the goal, set its dates and paste everything about it: an outline of what it involves, notes, and the steps you already have (mark finished ones with [x] or done).
 - Claude turns it into phases, each with its dates and a measurable milestone, and actionable, measurable tasks: every task says how much or how many, so done is obvious.

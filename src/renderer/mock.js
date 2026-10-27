@@ -121,6 +121,14 @@
     return clean;
   };
 
+  // Drive sync (cloud.js on the PC), in one of its states.
+  const mockCloud = (st, account = 'you@gmail.com') => ({
+    on: st !== 'off', state: st, account: st === 'off' ? '' : account, accounts: ['you@gmail.com', 'work@company.com'],
+    last: st === 'ok' ? Date.now() - 40000 : null, hasCode: st === 'ok',
+    error: { 'needs-code': 'Enter the sync code from one of your other PCs (Settings → Desktops on it).', error: 'Google Drive: HTTP 503', 'no-account': 'Sign in to a Google account in Settings → Calendars, then choose it here.' }[st] || '',
+    peers: [],
+  });
+
   const state = {
     version: 'preview',
     settings: {
@@ -139,7 +147,8 @@
     microsoft: { clientId: '' },
     notion: { connected: true, name: 'Onyx', workspace: 'My workspace' },
     mcp: { enabled: true, port: 4747, lan: true, running: true, error: '', token: 'preview-token', addresses: ['192.168.1.20'], peers: ['192.168.1.31:4747'] },
-    desktops: { linked: true, device: 'a1', name: 'DESKTOP-MAIN', invite: null, desktops: [
+    // ?cloud=off|needs-permission|needs-code|error shows Drive sync in that state.
+    desktops: { linked: true, device: 'a1', name: 'DESKTOP-MAIN', invite: null, cloud: mockCloud(new URLSearchParams(location.search).get('cloud') || 'ok'), desktops: [
       { id: 'a1', self: true, name: 'DESKTOP-MAIN', version: 'preview', addresses: ['192.168.1.20:4747', '100.101.12.7:4747'], online: true, seen: Date.now(), error: '' },
       { id: 'b2', self: false, name: 'LAPTOP', version: 'preview', addresses: ['192.168.1.31:4747'], online: true, seen: Date.now() - 12000, error: '' },
       { id: 'c3', self: false, name: 'OFFICE-PC', version: 'preview', addresses: ['10.0.0.8:4747'], online: false, seen: Date.now() - 3 * 86400000, error: 'Not reachable.' },
@@ -575,7 +584,16 @@
       if (String(code).replace(/[^a-z0-9]/gi, '').length !== 8) throw new Error('The code is 8 letters and numbers, like ABCD-2345.');
       return snapshot();
     },
-    leaveDesktops: async () => { state.desktops = { linked: false, device: 'a1', name: 'DESKTOP-MAIN', invite: null, desktops: [] }; return structuredClone(state.desktops); },
+    cloudOn: async (account) => { state.desktops.cloud = mockCloud('ok', account); return structuredClone(state.desktops); },
+    cloudAllow: async () => { state.desktops.cloud = mockCloud('ok'); return structuredClone(state.desktops); },
+    cloudCode: async (code) => {
+      if (String(code).replace(/[^a-z0-9]/gi, '').length !== 16) throw new Error('The sync code is 16 letters and numbers, like ABCD-EFGH-JKLM-NPQR.');
+      state.desktops.cloud = mockCloud('ok');
+      return structuredClone(state.desktops);
+    },
+    cloudShowCode: async () => 'K7QM-4XPA-RT9C-WD2H',
+    cloudOff: async () => { state.desktops.cloud = mockCloud('off'); return structuredClone(state.desktops); },
+    leaveDesktops: async () => { state.desktops = { linked: false, device: 'a1', name: 'DESKTOP-MAIN', invite: null, cloud: state.desktops.cloud, desktops: [] }; return structuredClone(state.desktops); },
     forgetDesktop: async (id) => { state.desktops.desktops = state.desktops.desktops.filter((x) => x.id !== id); return structuredClone(state.desktops); },
     tamkeen: { info: async () => ({ installed: true }), watch: async (id) => { window.lastTamkeen = id; return true; } },
     // Magic add for goals (preview): a plan made up from the outline's lines, then the real fitting (src/main/goal-plan.js).

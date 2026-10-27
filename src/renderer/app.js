@@ -7478,32 +7478,83 @@
       onyx.desktops().then((d) => {
         const m = S.mcp;
         const off = !m.running || !m.lan;
+        const c = d.cloud || { on: false, state: 'off', accounts: [] };
         const others = d.desktops.filter((x) => !x.self);
-        const linked = d.linked && others.length > 0;
         const address = h('input', { type: 'text', placeholder: 'Its address, e.g. 192.168.1.20', spellcheck: false });
         const code = h('input', { type: 'text', class: 'code-input', placeholder: 'ABCD-2345', spellcheck: false, autocomplete: 'off', maxlength: 9 });
         const join = () => run(() => onyx.joinDesktop(address.value, code.value), 'Linked. Everything is now shared with the other desktop.');
         code.addEventListener('keydown', (e) => { if (e.key === 'Enter') join(); });
-        box.replaceChildren(...[
-          off && h('div', { class: 'card' },
-            h('h4', null, 'Turn on the server first'),
-            h('p', null, 'Desktops reach each other through the MCP server, like the phone does. In the MCP server tab, switch the server on and turn on "Reachable from your network".'),
-            h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => openSettings('mcp') }, 'Open MCP server settings'))),
-          linked && h('div', { class: 'card' },
-            h('h4', null, 'Linked desktops', h('span', { class: 'badge ok' }, `${others.length + 1} PCs`)),
-            d.desktops.map((x) => h('div', { class: 'acct desk' },
-              h('span', { class: `badge ${x.self ? '' : x.online ? 'ok' : 'bad'}` }, x.self ? 'This PC' : x.online ? 'Online' : 'Offline'),
-              h('span', { class: 'who' }, x.name,
-                h('small', null, x.self
-                  ? (x.addresses.length ? x.addresses.map(short).join('  ·  ') : 'Not reachable: the server is off')
-                  : x.online ? `Synced ${ago(x.seen)}` : [x.seen ? `Last synced ${ago(x.seen)}` : 'Not synced yet', x.error].filter(Boolean).join(' · '))),
-              !x.self && !x.online && h('button', { class: 'btn', title: 'Take it off the list (a desktop that is still linked comes back when it next syncs)', onclick: () => run(() => onyx.forgetDesktop(x.id)) }, 'Remove'))),
-            h('p', { class: 'hint' }, 'Changes reach the others within seconds while they are on, and as soon as they come back otherwise. Your phone uses whichever desktop is on.'),
+
+        // Sync through Google Drive: the way that works from anywhere.
+        const pick = c.accounts.length > 1 && h('select', { class: 'cloud-account' }, c.accounts.map((a) => h('option', { value: a, selected: a === c.account }, a)));
+        const chosen = () => (pick ? pick.value : c.accounts[0]);
+        const syncCode = h('input', { type: 'text', class: 'code-input cloud-code-input', placeholder: 'ABCD-EFGH-JKLM-NPQR', spellcheck: false, autocomplete: 'off', maxlength: 19 });
+        const sendCode = () => run(() => onyx.cloudCode(syncCode.value), 'Joined. This PC now has everything from your other PCs.');
+        syncCode.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendCode(); });
+        const shown = h('div', { class: 'cloud-code', hidden: true });
+        const showCode = async (btn) => {
+          const text = await onyx.cloudShowCode();
+          shown.replaceChildren(h('div', { class: 'link-code' }, text), h('div', { class: 'row' }, copyBtn(text, 'Copy code')),
+            h('p', { class: 'hint' }, 'On each other PC: open Settings → Desktops, turn on "Sync through Google Drive" with the same Google account, and enter this code. Keep it private: it unlocks your synced sign-ins.'));
+          shown.hidden = false;
+          btn.remove();
+        };
+        const badge = { ok: ['ok', 'On'], working: ['', 'Syncing…'], 'needs-permission': ['bad', 'Needs your OK'], 'needs-code': ['bad', 'Needs the code'], 'no-account': ['bad', 'No account'], error: ['bad', 'Not syncing'], off: ['', 'Off'] }[c.state] || ['', ''];
+        const cloudCard = h('div', { class: 'card cloud-card' },
+          h('h4', null, 'Sync through Google Drive', h('span', { class: `badge ${badge[0]}` }, badge[1])),
+          !c.on && [
+            h('p', null, 'Keeps every PC the same from any network: no Tailscale, and your PCs don\'t need to be on at the same time. Onyx keeps one locked file in a hidden folder of your Google Drive that only Onyx can open.'),
+            c.accounts.length
+              ? h('div', { class: 'row' }, pick, h('button', { class: 'btn primary', onclick: () => run(() => onyx.cloudOn(chosen()), 'Drive sync is on') }, 'Turn on'))
+              : [h('p', { class: 'hint' }, 'Sign in to a Google account first.'), h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => openSettings('calendars') }, 'Open Calendars'))],
+            h('p', { class: 'hint' }, 'Use the same Google account, and the same Google credentials file, on every PC.')],
+          c.on && c.state === 'needs-permission' && [
+            h('p', null, 'Google needs your OK for Onyx to keep its sync file in your Drive. Your browser opens; sign in as ', h('b', null, c.account), ' and allow it.'),
+            h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: () => run(() => onyx.cloudAllow(), 'Drive sync is on') }, 'Allow in Google'),
+              h('button', { class: 'btn', onclick: () => run(() => onyx.cloudOff()) }, 'Cancel'))],
+          c.on && c.state === 'needs-code' && [
+            h('p', null, c.error),
+            h('div', { class: 'row' }, syncCode, h('button', { class: 'btn primary', onclick: sendCode }, 'Join')),
+            h('p', { class: 'hint' }, 'This PC then takes what your other PCs have. Where both have the same setting, theirs wins.'),
+            h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => run(() => onyx.cloudOff()) }, 'Cancel'))],
+          c.on && (c.state === 'error' || c.state === 'no-account') && [
+            h('p', null, c.error),
+            h('div', { class: 'row' },
+              c.state === 'no-account' && h('button', { class: 'btn', onclick: () => openSettings('calendars') }, 'Open Calendars'),
+              h('button', { class: 'btn', onclick: () => run(() => onyx.syncDesktops(), 'Synced') }, icon('update'), 'Try again'),
+              h('button', { class: 'btn danger', onclick: () => run(() => onyx.cloudOff()) }, 'Turn off'))],
+          c.on && (c.state === 'ok' || c.state === 'working') && [
+            h('p', null, `Through ${c.account}. `, c.last ? `Last synced ${ago(c.last)}.` : 'Syncing for the first time…'),
+            shown,
             h('div', { class: 'row' },
               h('button', { class: 'btn', onclick: () => run(() => onyx.syncDesktops(), 'Synced') }, icon('update'), 'Sync now'),
+              c.hasCode && h('button', { class: 'btn', onclick: (e) => showCode(e.currentTarget).catch(fail) }, 'Show sync code'),
               h('button', { class: 'btn danger', onclick: () => {
-                if (confirm('Unlink this desktop? It keeps what it has now, but stops sharing changes with the others.')) run(() => onyx.leaveDesktops(), 'Unlinked');
-              } }, 'Unlink this desktop'))),
+                if (confirm('Turn off Drive sync on this PC? It keeps what it has now, but stops sharing changes through Drive.')) run(() => onyx.cloudOff(), 'Drive sync is off');
+              } }, 'Turn off'))]);
+
+        const listCard = others.length > 0 && h('div', { class: 'card' },
+          h('h4', null, 'Your desktops', h('span', { class: 'badge ok' }, `${others.length + 1} PCs`)),
+          d.desktops.map((x) => h('div', { class: 'acct desk' },
+            h('span', { class: `badge ${x.self ? '' : x.online ? 'ok' : 'bad'}` }, x.self ? 'This PC' : x.online ? 'Online' : 'Offline'),
+            h('span', { class: 'who' }, x.name,
+              h('small', null, x.self
+                ? (c.on && c.state === 'ok' ? 'Syncing through Google Drive' : x.addresses.length ? x.addresses.map(short).join('  ·  ') : 'Not reachable: the server is off')
+                : [x.seen ? `${x.online ? 'Synced' : 'Last synced'} ${ago(x.seen)}` : 'Not synced yet', x.drive ? 'through Drive' : '', x.error].filter(Boolean).join(' · '))),
+            !x.self && !x.online && h('button', { class: 'btn', title: 'Take it off the list (a desktop that still syncs comes back when it next does)', onclick: () => run(() => onyx.forgetDesktop(x.id)) }, 'Remove'))),
+          h('p', { class: 'hint' }, 'Changes reach the others within seconds while they are on, and as soon as they come back otherwise. Your phone uses whichever desktop is on.'),
+          d.linked && h('div', { class: 'row' },
+            !c.on && h('button', { class: 'btn', onclick: () => run(() => onyx.syncDesktops(), 'Synced') }, icon('update'), 'Sync now'),
+            h('button', { class: 'btn danger', onclick: () => {
+              if (confirm('Unlink this desktop from the network link? It keeps what it has now. Drive sync, if on, carries on.')) run(() => onyx.leaveDesktops(), 'Unlinked');
+            } }, 'Unlink over the network')));
+
+        // The older way: straight from PC to PC, on the same wifi or over Tailscale.
+        const lanCards = [
+          off && h('div', { class: 'card' },
+            h('h4', null, 'Turn on the server first'),
+            h('p', null, 'Over the network, desktops reach each other through the MCP server, like the phone does. In the MCP server tab, switch the server on and turn on "Reachable from your network".'),
+            h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => openSettings('mcp') }, 'Open MCP server settings'))),
           h('div', { class: 'card' },
             h('h4', null, 'Link another desktop'),
             d.invite
@@ -7511,19 +7562,26 @@
                 h('div', { class: 'link-code' }, d.invite.code),
                 h('pre', { class: 'code' }, `This PC's address:  ${d.invite.addresses.map(short).join('   or   ') || '(turn on the server first)'}`),
                 h('div', { class: 'row' }, copyBtn(d.invite.code, 'Copy code'), h('button', { class: 'btn', onclick: () => run(() => onyx.cancelInvite()) }, 'Cancel'))]
-              : [h('p', null, 'Shows a one-time code to type into Onyx on the other PC. After that, both share your Google credentials and sign-ins, tags, notes, goals, repeats, memos, pins and settings.'),
+              : [h('p', null, 'Shows a one-time code to type into Onyx on the other PC. Both PCs must be on the same wifi, or both on Tailscale.'),
                 h('div', { class: 'row' }, h('button', { class: 'btn primary', disabled: off, onclick: () => run(() => onyx.inviteDesktop()) }, 'Show a link code'))]),
-          !linked && h('div', { class: 'card' },
+          !d.linked && h('div', { class: 'card' },
             h('h4', null, 'Join a linked desktop'),
-            h('p', null, 'Use this on the new PC, with the address and code shown on the PC that is already set up. This PC gets everything from that one, nothing needs setting up again. Where both have the same setting, the other PC\'s wins.'),
+            h('p', null, 'Use this on the new PC, with the address and code shown on the PC that is already set up. This PC gets everything from that one. Where both have the same setting, the other PC\'s wins.'),
             h('div', { class: 'row' }, address, code, h('button', { class: 'btn primary', disabled: off, onclick: join }, 'Join')),
             h('p', { class: 'hint' }, 'A phone paired with only this PC needs pairing again afterwards (from either PC).')),
-        ].filter(Boolean));
+        ].filter(Boolean);
+        box.replaceChildren(...[
+          cloudCard,
+          listCard,
+          d.linked || d.invite
+            ? lanCards
+            : h('details', { class: 'lan-more' }, h('summary', null, 'Or link over your network (same wifi or Tailscale)'), ...lanCards),
+        ].flat().filter(Boolean));
         if (d.invite) setTimeout(() => { if (settingsTab === 'desktops' && !$('#modal').hidden) openSettings('desktops'); }, Math.max(1000, d.invite.expires - Date.now() + 500));
       }).catch((err) => box.replaceChildren(h('div', { class: 'card' }, h('p', null, err.message))));
       return [
         h('h3', null, 'Desktops'),
-        h('p', { class: 'lead' }, 'Run Onyx on more than one PC and keep them the same. Load your Google credentials file on one, and every linked desktop has it.'),
+        h('p', { class: 'lead' }, 'Run Onyx on more than one PC and keep them the same: tags, notes, goals, repeats, memos, pins, settings and sign-ins. Google and Outlook events come from Google and Microsoft, so they always match.'),
         box,
       ];
     },

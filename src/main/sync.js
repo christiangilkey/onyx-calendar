@@ -23,7 +23,7 @@ const SECTIONS = {
   'local.calendars': LIST, 'local.events': LIST,
   'settings.hidden': MAP, 'settings.hour12': VALUE, 'settings.weekStart': VALUE, 'settings.defaultCalendar': VALUE, 'settings.pi': VALUE, 'settings.magic': VALUE,
   google: VALUE, microsoft: VALUE, notion: VALUE, news: VALUE,
-  'secrets.googleClientSecret': VALUE, 'secrets.notionToken': VALUE, 'secrets.anthropicKey': VALUE, 'secrets.twilioToken': VALUE, 'secrets.mcpToken': VALUE, 'secrets.tokens': MAP,
+  'secrets.googleClientSecret': VALUE, 'secrets.notionToken': VALUE, 'secrets.anthropicKey': VALUE, 'secrets.twilioToken': VALUE, 'secrets.mcpToken': VALUE, 'secrets.tokens': MAP, 'secrets.cloudCode': VALUE,
   desktops: MAP, // device id -> { name, addresses, version }: each PC keeps its own entry
 };
 // Files and folders pinned from one PC's disk mean nothing on another.
@@ -154,9 +154,10 @@ function createReplica(getData, save, now = Date.now) {
   /**
    * Takes in pieces from another PC; the newer of each wins. `force` (the first sync
    * after joining) takes the other PC's copy whatever its time, except that an empty
-   * value never replaces a filled-in one here. Returns { touched: sections, keys }.
+   * value never replaces a filled-in one here, nor does it replace the keys in `keep`.
+   * Returns { touched: sections, keys }.
    */
-  function apply(list, { force = false } = {}) {
+  function apply(list, { force = false, keep = null } = {}) {
     const m = meta();
     const touched = new Set();
     const keys = new Set();
@@ -173,7 +174,7 @@ function createReplica(getData, save, now = Date.now) {
       if (mine && mine[3] === h) { m.clock[key] = [t, dev, mine[2], h]; continue; }
       if (force) {
         const here = read(key);
-        if (blank(value) && !blank(here)) { stamp(m, key, hash(here)); continue; } // keep it, and pass it on
+        if ((blank(value) && !blank(here)) || (keep?.has(key) && here !== undefined)) { stamp(m, key, hash(here)); continue; } // keep it, and pass it on
       }
       write(key, value);
       m.seq += 1;
@@ -227,6 +228,7 @@ let pushTimer = null;
 let ticking = null;
 
 const group = () => store.data.secrets.group || null; // { id, key }
+const cloud = () => require('./cloud'); // syncing through Google Drive instead (or as well)
 const device = () => replica.meta().device;
 
 function seal(obj, key, aad) {
@@ -254,7 +256,7 @@ function selfEntry() {
 }
 
 function updateSelf() {
-  if (!group()) return;
+  if (!group() && !cloud().on()) return;
   const d = store.data;
   d.desktops ??= {};
   const mine = selfEntry();
@@ -468,39 +470,46 @@ async function leave() {
 }
 
 /** Takes a desktop that is gone off the list. One still linked comes back when it next syncs. */
-function forget(id) {
+async function forget(id) {
   if (id === device()) throw new Error('That is this desktop. Use Unlink instead.');
   delete store.data.desktops?.[id];
   delete replica.meta().peers[id];
   store.save();
   schedule();
+  await cloud().forget(id);
   return info();
 }
 
 /** Syncs straight away (the phone may ask too, so no link code in the answer). */
 async function syncNow() {
-  await tick();
+  await Promise.all([tick(), cloud().on() ? cloud().syncNow() : null]);
   return { ...info(), invite: null };
 }
 
 function info() {
   const m = replica.meta();
   const now = Date.now();
+  const drive = cloud().on() ? cloud().info().peers : [];
   const list = Object.entries(store.data.desktops || {}).map(([id, e]) => {
     const p = m.peers[id] || {};
     const self = id === m.device;
+    const viaCloud = drive.find((x) => x.id === id);
+    const lan = !!p.ok && now - (p.seen || 0) < ONLINE_MS;
     return {
       id, self, name: e.name || 'Desktop', version: e.version || '', addresses: e.addresses || [],
-      online: self || (!!p.ok && now - (p.seen || 0) < ONLINE_MS), seen: self ? now : p.seen || null, error: self || p.ok ? '' : p.error || '',
+      online: self || lan || !!viaCloud?.online, seen: self ? now : Math.max(p.seen || 0, viaCloud?.seen || 0) || null,
+      error: self || lan || viaCloud?.online ? '' : p.error || '', drive: !!viaCloud,
     };
   });
+  // A PC seen through Drive whose own entry has not arrived yet.
+  for (const x of drive) if (!list.some((y) => y.id === x.id)) list.push({ id: x.id, self: false, name: x.name, version: '', addresses: [], online: x.online, seen: x.seen, error: '', drive: true });
   // A desktop just joined through, before its own entry has arrived.
   for (const [id, p] of Object.entries(m.peers)) {
-    if (!list.some((x) => x.id === id) && p.addresses?.length) list.push({ id, self: false, name: p.addresses[0], version: '', addresses: p.addresses, online: false, seen: p.seen || null, error: p.error || '' });
+    if (!list.some((x) => x.id === id) && p.addresses?.length && group()) list.push({ id, self: false, name: p.addresses[0], version: '', addresses: p.addresses, online: false, seen: p.seen || null, error: p.error || '' });
   }
   list.sort((a, b) => (b.self - a.self) || a.name.localeCompare(b.name));
   return {
-    linked: !!group(), device: m.device, name: os.hostname(), desktops: list,
+    linked: !!group(), cloud: cloud().info(), device: m.device, name: os.hostname(), desktops: list,
     invite: invite && invite.expires > now ? { code: fmtCode(invite.code), expires: invite.expires, addresses: selfEntry().addresses } : null,
   };
 }
@@ -514,10 +523,11 @@ const peerAddresses = () => (group() ? [...new Set(others().flatMap(addressesOf)
  * desktops seen lately.
  */
 function leads() {
-  if (!group()) return true;
   const m = replica.meta();
   const now = Date.now();
-  return !Object.entries(m.peers).some(([id, p]) => p.ok && now - (p.seen || 0) < LEADER_MS && id < m.device);
+  const lan = group() ? Object.entries(m.peers).filter(([, p]) => p.ok).map(([id, p]) => [id, p.seen || 0]) : [];
+  const drive = cloud().on() ? Object.entries(cloud().seen()) : [];
+  return ![...lan, ...drive].some(([id, seen]) => now - seen < LEADER_MS && id < m.device);
 }
 
 async function tick() {
@@ -545,16 +555,25 @@ function start(changed) {
   if (changed) onRemote = changed;
   replica.track();
   if (!timer) {
-    store.onWrite(() => { if (replica.track() && group()) schedule(); });
-    timer = setInterval(tick, SYNC_EVERY_MS);
+    store.onWrite(() => {
+      if (!replica.track()) return;
+      if (group()) schedule();
+      cloud().changed();
+    });
+    timer = setInterval(() => { updateSelf(); tick(); }, SYNC_EVERY_MS);
     timer.unref?.();
+    updateSelf();
+    cloud().start();
   }
   schedule();
 }
 
+/** Another PC changed something (through Drive): show it. */
+const notify = (touched) => onRemote(touched);
+
 module.exports = {
-  start, info, newInvite, cancelInvite, join, leave, forget, syncNow, leads, peerAddresses,
-  handleSync, handleJoin,
+  start, info, newInvite, cancelInvite, join, leave, forget, syncNow, leads, peerAddresses, updateSelf, notify,
+  handleSync, handleJoin, replica,
   // for tests
   createReplica, adoptAccounts, SECTIONS,
 };

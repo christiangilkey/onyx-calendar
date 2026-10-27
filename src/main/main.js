@@ -14,6 +14,7 @@ const api = require('./api');
 const library = require('./library');
 const updater = require('./updater');
 const sync = require('./sync');
+const cloud = require('./cloud');
 
 const { state } = api;
 
@@ -336,6 +337,12 @@ const HANDLERS = {
     return afterAccountChange();
   },
   'account:remove': (id) => { accounts.remove(id); return afterAccountChange(); },
+  // Sync through Google Drive (cloud.js): turned on, the code typed in, and the code shown, on the PC only.
+  'cloud:on': async (account) => { await cloud.enable(account); return sync.info(); },
+  'cloud:allow': async () => { const acct = await accounts.connectGoogle(); showWindow(); await cloud.enable(acct.label); return sync.info(); },
+  'cloud:code': async (code) => { await cloud.enterCode(code); return sync.info(); },
+  'cloud:show-code': () => cloud.code(),
+  'cloud:off': async () => { await cloud.disable(); return sync.info(); },
   'update:check': () => updater.check(),
   'update:install': () => updater.install(),
   'update:state': () => updater.current(),

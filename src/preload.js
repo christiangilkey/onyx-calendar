@@ -89,6 +89,12 @@ contextBridge.exposeInMainWorld('onyx', {
   leaveDesktops: () => call('desktops:leave'),
   forgetDesktop: (id) => call('desktops:forget', id),
   syncDesktops: () => call('desktops:sync'),
+  // The same, through the user's Google Drive (any network, no Tailscale).
+  cloudOn: (account) => call('cloud:on', account),
+  cloudAllow: () => call('cloud:allow'),
+  cloudCode: (code) => call('cloud:code', code),
+  cloudShowCode: () => call('cloud:show-code'),
+  cloudOff: () => call('cloud:off'),
   globe: () => call('globe'),
   createNote: (data) => call('note:create', data),
   updateNote: (id, patch) => call('note:update', id, patch),

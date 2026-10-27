@@ -2,9 +2,18 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.82.0 · A time line while you move a block
+## 1.83.0 · Sync your PCs through Google Drive
 
 _2026-10-27_
+
+- New in Settings → Desktops: "Sync through Google Drive". Your PCs stay the same from any network, with no Tailscale, and they don't need to be on at the same time. Tags, notes, goals, repeats, memos, pins, settings and sign-ins all sync.
+- Onyx keeps one locked file in a hidden folder of your Google Drive that only Onyx can open. It's locked with a sync code made on your first PC; type that code once on each other PC to join.
+- Turning it on asks Google once for permission to keep that file (your browser opens). Use the same Google account and the same Google credentials file on every PC.
+- The list of your desktops shows PCs syncing through Drive too, and which are online. Linking over your own network (same wifi or Tailscale) still works, under "Or link over your network".
+
+## 1.82.0 · A time line while you move a block
+
+_2026-10-26_
 
 - While you drag a block to move it, a grey line runs from where it would land across to the times on the left, with the start time it would get in the middle of the line.
 - It follows the block as it snaps to its neighbours, and goes away when you let go.

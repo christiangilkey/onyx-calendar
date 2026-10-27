@@ -1001,6 +1001,14 @@ body.mobile #graph-inbox:not(.open) { width: auto; }
 
 .link-code { font: 600 30px/1.2 ui-monospace, 'Cascadia Mono', Consolas, monospace; letter-spacing: 0.12em; padding: 14px 18px; margin: 10px 0; border-radius: 12px; background: var(--panel-2, rgba(255,255,255,0.05)); border: 1px solid var(--line); text-align: center; user-select: all; }
 .code-input { text-transform: uppercase; font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; letter-spacing: 0.06em; max-width: 170px; }
+/* Sync through Google Drive (Settings → Desktops). */
+.cloud-code-input { max-width: 240px; }
+.cloud-card .link-code { font-size: 22px; }
+.cloud-account { max-width: 260px; }
+.lan-more { margin-top: 6px; }
+.lan-more > summary { cursor: pointer; color: var(--muted); padding: 8px 2px; list-style-position: inside; }
+.lan-more > summary:hover { color: var(--text); }
+.lan-more[open] > summary { margin-bottom: 8px; }
 .acct.desk .who small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; }
 .card .hint { color: var(--muted); font-size: 12.5px; margin-top: 10px; }
 

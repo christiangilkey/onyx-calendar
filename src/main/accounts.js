@@ -10,7 +10,8 @@ const GOOGLE = {
   token: 'https://oauth2.googleapis.com/token',
   // Drive: names and links only, for pinning files to the globe.
   // Gmail: starred emails read for the globe, and a block sent by email (share.js).
-  scope: 'openid email https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send',
+  // Drive app folder: Onyx's own hidden sync file, which keeps PCs the same (cloud.js).
+  scope: 'openid email https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/drive.appdata',
 };
 const MICROSOFT = {
   auth: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
@@ -37,6 +38,7 @@ function saveAccount(provider, label, tokens, extra = {}) {
       refresh: tokens.refresh_token || old.refresh,
       expires: Date.now() + (tokens.expires_in || 3600) * 1000,
       ...(extra.scope || old.scope ? { scope: extra.scope || old.scope } : {}), // what the account agreed to (Microsoft)
+      ...(provider === 'google' && (tokens.scope || old.granted) ? { granted: tokens.scope || old.granted } : {}), // what Google says it agreed to
     };
   }
   store.save();
@@ -149,4 +151,4 @@ async function request(acct, url, { method = 'GET', body, headers = {} } = {}) {
   }
 }
 
-module.exports = { connectGoogle, connectMicrosoft, addFeed, remove, request, newId };
+module.exports = { connectGoogle, connectMicrosoft, addFeed, remove, request, newId, accessToken };

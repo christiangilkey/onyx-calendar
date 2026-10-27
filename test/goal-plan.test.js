@@ -177,3 +177,71 @@ test('a block keeps its links: web addresses only, in order, without repeats', (
   assert.deepEqual(hub.setBlockLinks('local/blocks/1', []), []);
   assert.equal(store.data.blockLinks['local/blocks/1'], undefined);
 });
+
+// ---------------------------------------------------------------- details for a step's block
+
+test('Claude may give a step details for its block: a checklist, links and a tip, cleaned', () => {
+  assert.match(plan.SYSTEM, /"checklist"/);
+  assert.match(plan.SYSTEM, /never a guessed address/);
+  const today = '2026-11-01';
+  const { steps } = plan.normalize({
+    phases: [],
+    tasks: [
+      { title: 'Write 300 words', start: '2026-11-02', minutes: 30, checklist: ['  Open the draft ', 'Write 300 words', 'write 300 words', { text: 'Save it' }, ''], links: [{ title: 'Hemingway', url: 'https://hemingwayapp.com/' }, { url: 'nope' }, { url: 'javascript:alert(1)' }, { url: 'https://hemingwayapp.com/' }], tip: ' Start mid-sentence. ' },
+      { title: 'Plain step', start: '2026-11-03' },
+      { title: 'Old step', start: '2026-10-01', done: true, checklist: ['x'] },
+    ],
+  }, { start: today, end: '2026-12-31', today });
+  const by = (title) => steps.find((s) => s.title === title);
+  const [write, plain, old] = [by('Write 300 words'), by('Plain step'), by('Old step')];
+  assert.deepEqual(write.checklist, ['Open the draft', 'Write 300 words', 'Save it']);
+  assert.deepEqual(write.links, [{ title: 'Hemingway', url: 'https://hemingwayapp.com/' }]);
+  assert.equal(write.tip, 'Start mid-sentence.');
+  assert.ok(!('checklist' in plain) && !('links' in plain) && !('tip' in plain), 'none when Claude gave none');
+  assert.ok(!('checklist' in old), 'a done step has no block');
+  assert.match(plan.userMessage({ title: 'G', start: today, end: '2026-12-31', today, level: 5 }), /only to the tasks that need them most/);
+  assert.doesNotMatch(plan.userMessage({ title: 'G', start: today, end: '2026-12-31', today, level: 2 }), /need them most/);
+});
+
+test('saving puts a new step\'s checklist and links on its task\'s block, the tip in its notes; a repeat carries them on', async () => {
+  reset();
+  Object.assign(store.data, { blockTasks: {}, blockLinks: {}, blockTicks: {} });
+  const today = new Date();
+  const day = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const far = new Date(Date.now() + 30 * 86400000);
+  const end = `${far.getFullYear()}-${String(far.getMonth() + 1).padStart(2, '0')}-${String(far.getDate()).padStart(2, '0')}`;
+  const g = await goals.create({
+    title: 'Write a novel', start: day, end,
+    steps: [
+      { title: 'Write 300 words', repeat: 'daily', due: day, until: end, time: '07:00', minutes: 30, checklist: ['Open the draft', 'Write 300 words'], links: [{ title: 'Hemingway', url: 'https://hemingwayapp.com/' }], tip: 'Start mid-sentence.' },
+      { title: 'Pick a title', due: day },
+    ],
+  });
+  const [write, pick] = g.steps;
+  assert.deepEqual(store.data.blockTasks[write.taskId].map((x) => x.text), ['Open the draft', 'Write 300 words']);
+  assert.equal(store.data.blockLinks[write.taskId][0].url, 'https://hemingwayapp.com/');
+  assert.match([...tasks.values()].find((x) => x.title.startsWith('Write 300 words')).notes, /\n\nStart mid-sentence\.$/);
+  assert.equal(store.data.blockTasks[pick.taskId], undefined);
+  // The task, as the calendar and the task list see it, has them.
+  const { tasks: list } = await hub.getTasks({ force: true });
+  const t = list.find((x) => x.id === write.taskId);
+  assert.deepEqual(t.taskList.map((x) => [x.text, x.done]), [['Open the draft', false], ['Write 300 words', false]]);
+  assert.equal(t.links[0].title, 'Hemingway');
+  // Ticked today, done: tomorrow's copy has the same checklist, unticked, and the links.
+  hub.tickBlockTask(write.taskId, t.taskList[0].id, true);
+  const res = await hub.updateTask(write.taskId, { done: true });
+  assert.ok(res.next);
+  assert.deepEqual(store.data.blockTasks[res.next.id].map((x) => x.text), ['Open the draft', 'Write 300 words']);
+  assert.equal(store.data.blockLinks[res.next.id][0].url, 'https://hemingwayapp.com/');
+  assert.equal(store.data.blockTicks[res.next.id], undefined);
+});
+
+test('a task\'s window edits its block\'s checklist and links, and the goal window sends what was kept', () => {
+  const app = require('fs').readFileSync(require('path').join(__dirname, '../src/renderer/app.js'), 'utf8');
+  const openTask = app.slice(app.indexOf('function openTask('), app.indexOf('function breakdownField('));
+  assert.match(openTask, /blockTaskField\(t\.taskList \|\| \[\]/);
+  assert.match(openTask, /await onyx\.setBlockTasks\(t\.id, list\.items\)/);
+  assert.match(openTask, /await onyx\.setBlockLinks\(t\.id, links\)/);
+  assert.match(app, /checklist: s\.checklist \|\| \[\], links: s\.links \|\| \[\], tip: s\.tip \|\| ''/);
+  assert.match(app, /`On its block: \$\{parts\.join\(' · '\)\}`/);
+});

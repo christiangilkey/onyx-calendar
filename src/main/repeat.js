@@ -118,6 +118,9 @@ async function addNext(hub, task, r) {
   store.data.repeats[next.id] = { rule: r.rule, day, ...(r.until ? { until: r.until } : {}) };
   if (store.data.taskMinutes?.[task.id]) store.data.taskMinutes[next.id] = store.data.taskMinutes[task.id]; // and its length on the calendar
   if (store.data.pomodoro?.[task.id]) store.data.pomodoro[next.id] = { ...store.data.pomodoro[task.id] }; // and its work/rest split
+  // Its block's checklist (unticked: the next time starts fresh) and links.
+  if (store.data.blockTasks?.[task.id]) store.data.blockTasks[next.id] = store.data.blockTasks[task.id].map((x) => ({ ...x }));
+  if (store.data.blockLinks?.[task.id]) store.data.blockLinks[next.id] = store.data.blockLinks[task.id].map((x) => ({ ...x }));
   remember(task.id, next.id);
   // A repeating step of a goal stays the goal's step, and each time it is done is logged.
   for (const g of store.data.goals) {

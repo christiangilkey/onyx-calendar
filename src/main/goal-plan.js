@@ -27,6 +27,7 @@ const SYSTEM = [
   'Every task title starts with a verb and is measurable: it says how much or how many (pages, minutes, reps, words, items, calls), so done is obvious. A title is at most 30 characters (count them): keep it to the action and the number, and put any detail in "measure".',
   'Give each task: "title"; "measure" (one short line: how they know it is done, with a number); "phase" (the phase number, from 1); "repeat" (once, daily, weekdays, weekly, biweekly or monthly; use a repeat for anything that is practised or done regularly instead of listing it again and again); "start" (YYYY-MM-DD: the due date of a one-off task, or the first day of a repeating one); "until" (YYYY-MM-DD, the last day of a repeating task, usually the end of its phase; null for one-off tasks); "minutes" (how long one session takes, a multiple of 5 from 5 to 180); "when" (morning, afternoon, evening or any: when it suits best).',
   'They may paste an outline of what the goal involves and the steps they already have. Use all of it: every part of the outline becomes tasks. Steps they say are already finished (marked [x], ✓, done, finished, completed) are included with "done": true, as one-off tasks dated on or before today. Do not repeat steps listed as already in the plan.',
+  'A task may also have details for its block on the calendar, only where they help: "checklist" (2 to 6 short sub-steps to tick off within the session, each at most 60 characters, for a session with distinct parts); "links" (at most 2 of {"title","url"}: pages from their outline, or the official site of a tool or course you are certain exists, never a guessed address); "tip" (one short sentence on how to start or do it well). Leave them out of simple tasks.',
   'Spread the work realistically over the whole time frame, in a sensible order (foundations first), never before today, and leave room: a few hours a week for a hobby goal, more for a serious one, as the outline suggests.',
   'Write in the same language as the goal. Reply with only JSON: {"phases":[{"name":"","start":"","end":"","milestone":""}],"tasks":[...]}.',
 ].join(' ');
@@ -51,6 +52,7 @@ function userMessage({ title, start, end, today, outline = '', level = 3, existi
     String(outline).trim() ? `Their outline, notes and the steps they have:\n${String(outline).slice(0, 12000)}` : '',
     have.length ? `Already in the plan (do not repeat these):\n${have.join('\n')}` : '',
     `Break it down into ${LEVELS[n].ask}.`,
+    n >= 4 ? 'With this many tasks, give details (checklist, links, tip) only to the tasks that need them most, and keep them short.' : '',
   ].filter(Boolean).join('\n\n');
 }
 
@@ -100,6 +102,7 @@ function normalize(answer, { start, end, today }) {
     steps.push({
       key: `k${steps.length + 1}`, title, measure: (String(t?.measure || '').replace(/\s+/g, ' ').trim() || (full !== title ? full : '')).slice(0, 200),
       phase: ph ? ph.name : '', phaseEnd: hi < lo ? lo : hi, repeat, due, until, minutes, when, done,
+      ...(done ? {} : details(t)),
     });
   }
   // In the order they are done: phase by phase, its habits first, then by date (the goal's window lists them so).
@@ -107,6 +110,31 @@ function normalize(answer, { start, end, today }) {
   steps.sort((a, b) => phaseAt(a) - phaseAt(b) || Number(!!b.repeat) - Number(!!a.repeat) || a.due.localeCompare(b.due));
   steps.forEach((s, i) => { s.key = `k${i + 1}`; });
   return { phases, steps };
+}
+
+/**
+ * The details Claude gave a task for its block, cleaned: { checklist: [text], links: [{ title, url }], tip },
+ * each only when there is one. Links must be whole http(s) addresses.
+ */
+function details(t) {
+  const out = {};
+  const checklist = (Array.isArray(t?.checklist) ? t.checklist : [])
+    .map((x) => String(typeof x === 'string' ? x : x?.text || '').replace(/\s+/g, ' ').trim().slice(0, 80)).filter(Boolean);
+  const seen = new Set();
+  const uniq = checklist.filter((x) => !seen.has(x.toLowerCase()) && seen.add(x.toLowerCase())).slice(0, 8);
+  if (uniq.length) out.checklist = uniq;
+  const links = [];
+  for (const l of Array.isArray(t?.links) ? t.links : []) {
+    let u;
+    try { u = new URL(String(l?.url || '').trim()); } catch { continue; }
+    if (!/^https?:$/.test(u.protocol) || !u.hostname.includes('.') || links.some((x) => x.url === u.href)) continue;
+    links.push({ title: String(l?.title || '').replace(/\s+/g, ' ').trim().slice(0, 80) || u.hostname.replace(/^www\./, ''), url: u.href });
+    if (links.length >= 3) break;
+  }
+  if (links.length) out.links = links;
+  const tip = String(t?.tip || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+  if (tip) out.tip = tip;
+  return out;
 }
 
 /** The days a step comes up on, from `from` to `until` (inclusive), at most `max` of them. */
@@ -213,6 +241,6 @@ function summary(steps, { start, end }) {
   };
 }
 
-const api = { LEVELS, SYSTEM, REPEATS, MAX_STEPS, userMessage, parseAnswer, normalize, occurrences, timesIn, fitTimes, summary };
+const api = { LEVELS, SYSTEM, REPEATS, MAX_STEPS, userMessage, parseAnswer, normalize, details, occurrences, timesIn, fitTimes, summary };
 if (typeof module !== 'undefined' && module.exports) module.exports = api;
 else globalThis.OnyxGoalPlan = api;

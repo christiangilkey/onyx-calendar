@@ -357,7 +357,7 @@ async function getEvents(start, end, { includeHidden = false, force = false } = 
   const events = lists.flat()
     .map((e) => ({
       ...e, tags: tagsOf(keyOf(e)), memo: memoOf(keyOf(e)), pomodoro: pomodoroOf(keyOf(e)),
-      ...(e.kind === 'event' ? { taskList: taskListOf(e), links: linksOf(e) } : {}),
+      ...(e.kind === 'event' || e.kind === 'task' ? { taskList: taskListOf(e), links: linksOf(e) } : {}), // a timed task is a block too
       // A block given a colour of its own wears it; its calendar's stays known for "Calendar colour".
       ...(e.kind === 'event' && store.data.eventColors[keyOf(e)] ? { color: store.data.eventColors[keyOf(e)], calColor: e.color, ownColor: true } : {}),
       // A calendar entry or block ticked off, like a task (kept in Onyx: each day of a repeat on its own).
@@ -726,6 +726,8 @@ async function getTasks({ force = false } = {}) {
     tasks.push(...await repeat.reconcile(module.exports, open, failed, new Set(all.map((c) => c.id))));
   }
   series.annotate(tasks); // copies of a task that repeats in Google are marked as one series
+  // Its checklist and links, as its block on the calendar has them (read fresh: they change without a refetch).
+  tasks = tasks.map((t) => ({ ...t, taskList: taskListOf(t), links: linksOf(t) }));
   return { tasks, errors: [...errors], failed: [...failed], inbox: inbox.pendingIds(tasks) };
 }
 

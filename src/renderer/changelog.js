@@ -2,6 +2,17 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.84.0",
+  "date": "2026-10-27",
+  "title": "Magic add goal fills in your blocks",
+  "items": [
+   "Magic add goal can now add details to a step's block where they help: a short checklist to tick off during the session, a link or two (pages from your outline, or a tool's official site), and a tip on how to start. Simple steps stay plain.",
+   "In the plan, a step with details shows \"On its block: …\". Unfold it to see them, and take off anything you don't want before saving.",
+   "A timed task now has a checklist and links like any other block: edit them in the task's window, and tick them off there. The calendar block shows how many are ticked (like 1/3).",
+   "A repeating step brings its checklist and links to each next day, unticked."
+  ]
+ },
+ {
   "version": "1.83.0",
   "date": "2026-10-27",
   "title": "Sync your PCs through Google Drive",

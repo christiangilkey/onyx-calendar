@@ -113,17 +113,20 @@ async function syncSteps(g, incoming) {
   const warn = (s, err) => warnings.push(`"${s.title}": ${err.message}`);
   const old = new Map(g.steps.map((s) => [s.id, s]));
   const next = [];
-  const addTask = async (s) => {
+  // `more`: details Magic add gave a new step for its block (a checklist, links, a tip), put on its task.
+  const addTask = async (s, more = null) => {
     if (!g.listId || s.done) return;
     try {
       // A repeating step (or one with a time but no date) starts on the goal's first day, or today if that has passed.
       const due = s.due || (s.repeat || s.time ? [g.start, ymd(new Date())].sort().at(-1) : null);
-      const notes = `A step toward: ${g.title}${s.measure ? `\nDone when: ${s.measure}` : ''}`;
+      const notes = `A step toward: ${g.title}${s.measure ? `\nDone when: ${s.measure}` : ''}${more?.tip ? `\n\n${more.tip}` : ''}`;
       const t = await hub.createTask({ title: taskTitle(s.title, due, s.time), due, listId: g.listId, notes });
       s.taskId = t.id;
       s.due = t.date || due;
       if (s.repeat) { s.from ||= s.due; repeat.setRule(t.id, s.repeat, s.until || null); }
       if (s.time && s.minutes) hub.setTaskMinutes(t.id, s.minutes); // its block on the calendar is as long as a session
+      if (more?.checklist?.length) hub.setBlockTasks(t.id, more.checklist.map((text) => ({ text })));
+      if (more?.links?.length) hub.setBlockLinks(t.id, more.links);
     } catch (err) { warn(s, err); }
   };
   for (const raw of (incoming || []).slice(0, MAX_STEPS)) {
@@ -143,7 +146,12 @@ async function syncSteps(g, incoming) {
     if (!s) {
       s = { id: newId('s'), title, due, done, taskId: null, ...(time ? { time } : {}), ...(rule ? { repeat: rule, log: [] } : {}) };
       for (const [k, v] of Object.entries(extra)) if (v) s[k] = v;
-      await addTask(s);
+      const more = {
+        checklist: (Array.isArray(raw.checklist) ? raw.checklist : []).map((x) => String(x || '').trim()).filter(Boolean).slice(0, 12),
+        links: Array.isArray(raw.links) ? raw.links.slice(0, 6) : [],
+        tip: String(raw.tip || '').trim().slice(0, 300),
+      };
+      await addTask(s, more);
     } else {
       old.delete(s.id);
       for (const [k, v] of Object.entries(extra)) { if (v) s[k] = v; else delete s[k]; }

@@ -2652,6 +2652,24 @@ body.mobile .gm-step > input[type=checkbox] { width: 20px; height: 20px; margin-
 .gm-step input.gm-name:hover { border-color: rgba(255, 255, 255, .08); }
 .gm-step input.gm-name:focus { background: #0c0c10; border-color: rgba(255, 255, 255, .16); }
 .gm-meta { padding-left: 0; }
+/* What Magic add put on a step block: a checklist, links, a tip (folded). */
+.gm-details { font-size: 12px; color: var(--muted); }
+.gm-details > summary { cursor: pointer; display: inline-flex; align-items: center; gap: 5px; padding: 2px 6px; margin-left: -6px; border-radius: 6px; list-style: none; color: var(--muted); }
+.gm-details > summary::-webkit-details-marker { display: none; }
+.gm-details > summary:hover { color: var(--text); background: rgba(255, 255, 255, .04); }
+.gm-details > summary .ico { width: 13px; height: 13px; }
+.gm-details[open] > summary { color: var(--text); }
+.gm-d-list { list-style: none; margin: 4px 0 2px; padding: 0; }
+.gm-d-row { display: flex; align-items: center; gap: 7px; min-height: 24px; color: var(--text); }
+.gm-d-row > span:not(.gm-d-box):not(.ico) { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.gm-d-links .link-btn { text-align: left; min-width: 0; overflow-wrap: anywhere; }
+.gm-d-box { width: 11px; height: 11px; border: 1.5px solid var(--faint); border-radius: 3px; flex: none; }
+.gm-d-row .x { margin-left: auto; opacity: .45; padding: 2px; background: none; border: 0; color: inherit; cursor: pointer; }
+.gm-d-row .x:hover, .gm-d-row .x:focus-visible { opacity: 1; }
+.gm-d-row .x .ico { width: 12px; height: 12px; }
+.gm-d-links .gm-d-row > .ico { width: 13px; height: 13px; color: var(--muted); }
+.gm-d-links small { color: var(--faint); }
+.gm-tip { color: var(--muted); font-style: italic; margin-top: 4px; }
 .gm-phase > header .link-btn { border: 0; background: none; padding: 2px 0; color: var(--accent); font-size: 12px; cursor: pointer; }
 body.mobile .gm-phase > header .link-btn { font-size: 13.5px; }
 

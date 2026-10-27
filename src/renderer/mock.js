@@ -236,7 +236,14 @@
     tasks.push({ id: `g1/tl~main/stretch${n}`, listId: 'g1/tl~main', listName: 'My Tasks', color: '#f5b83d', provider: 'google', title: 'Stretch 07:30', label: 'Stretch', notes: '', due: ymd(day(n)), date: ymd(day(n)), time: '07:30', start: day(n, 7, 30).toISOString(), done: false, mirror: false, call: null });
   }
   const goalOf = (id) => { const g = goals.find((x) => x.steps.some((s) => s.taskId === id)); return g ? { id: g.id, title: g.title, color: g.color } : null; };
-  const taskOut = (t) => ({ ...withTags(t), goal: goalOf(t.id), repeat: repeats[t.id] || null, pomodoro: pomodoros[t.id] || null });
+  const taskOut = (t) => ({ ...withTags(t), goal: goalOf(t.id), repeat: repeats[t.id] || null, pomodoro: pomodoros[t.id] || null, ...blockBits(t.id) });
+  /** A block's checklist (with this day's ticks) and links, for an entry or a timed task (hub.js taskListOf, linksOf). */
+  function blockBits(id, series) {
+    return {
+      ...(blockLinks[series || id]?.length ? { links: blockLinks[series || id] } : {}),
+      ...(blockTasks[id]?.length ? { taskList: blockTasks[id].map((t) => ({ ...t, done: (blockTicks[id] || []).includes(t.id) })) } : {}),
+    };
+  }
   /** Marks copies of the same task (or ones Onyx repeats) as one series, as series.js does. */
   const withSeries = (list) => {
     const groups = new Map();
@@ -296,7 +303,12 @@
       if (rule) { s.repeat = rule; s.log ||= []; } else delete s.repeat;
       const t = s.taskId && tasks.find((x) => x.id === s.taskId);
       if (t) Object.assign(t, { title: s.title, label: s.title, due: s.due, date: s.due, done: s.done, completed: s.done ? new Date().toISOString() : null });
-      else if (!s.done) s.taskId = addTask({ title: s.title, due: s.due, notes: `A step toward: ${g.title}` }).id;
+      else if (!s.done) {
+        s.taskId = addTask({ title: s.title, due: s.due, notes: `A step toward: ${g.title}${raw.tip ? `\n\n${raw.tip}` : ''}` }).id;
+        // What Magic add gave it for its block (goals.js addTask).
+        if (raw.checklist?.length) blockTasks[s.taskId] = raw.checklist.map((text, i) => ({ id: `c${i + 1}`, text }));
+        if (raw.links?.length) blockLinks[s.taskId] = raw.links.map((l) => ({ url: l.url, title: l.title, source: 'web' }));
+      }
       if (rule) repeats[s.taskId] = rule; else delete repeats[s.taskId];
       return s;
     });
@@ -324,8 +336,7 @@
         .filter((e) => !state.settings.hidden[e.calendarId])
         .map((e) => ({ ...withTags(e), pomodoro: pomodoros[e.id] || null,
           ...(e.kind === 'event' && eventColors[e.id] ? { color: eventColors[e.id], calColor: e.color, ownColor: true } : {}),
-          ...(e.kind === 'event' && blockLinks[e.seriesId || e.id]?.length ? { links: blockLinks[e.seriesId || e.id] } : {}),
-          ...(e.kind === 'event' && blockTasks[e.id]?.length ? { taskList: blockTasks[e.id].map((t) => ({ ...t, done: (blockTicks[e.id] || []).includes(t.id) })) } : {}) })),
+          ...(e.kind === 'event' || e.kind === 'task' ? blockBits(e.id, e.seriesId) : {}) })),
       errors: [],
     }),
     setPomodoro: async (id, cfg) => { if (cfg) pomodoros[id] = cfg; else delete pomodoros[id]; return pomodoros[id] || null; },
@@ -622,11 +633,15 @@
       lines.forEach((l, i) => {
         const done = /\[x\]|✓|\bdone\b/i.test(l);
         const name = l.replace(/\[x\]|✓|\(?\bdone\b\)?/gi, '').trim();
-        tasks.push({ title: done ? name : `Finish ${name} (1 part)`, measure: '1 part finished', phase: 1 + (i % 3), repeat: 'once', start: done ? today : at(((i % 3) + 0.5) * (span / 3)), minutes: 45, when: 'any', done });
+        tasks.push({ title: done ? name : `Finish ${name} (1 part)`, measure: '1 part finished', phase: 1 + (i % 3), repeat: 'once', start: done ? today : at(((i % 3) + 0.5) * (span / 3)), minutes: 45, when: 'any', done,
+          ...(i === 0 ? { checklist: ['Open your notes on it', 'Write the outline in 5 lines', 'Do the first part', 'Note where you stopped'], tip: 'Start with the easiest part to get going.' } : {}) });
       });
       const habits = [['Practise for 20 minutes', 'daily', 20, 'morning'], ['Review the week in 15 minutes', 'weekly', 15, 'evening'], ['Write 200 words', 'weekdays', 30, 'afternoon'], ['Read 10 pages', 'daily', 25, 'evening'], ['Do 1 timed drill', 'weekdays', 15, 'morning']];
       for (let p = 0; p < 3; p++) {
-        for (const [t, r, m, w] of habits.slice(0, level)) tasks.push({ title: `${t} (${phases[p].name.toLowerCase()})`, measure: t, phase: p + 1, repeat: r, start: phases[p].start, until: phases[p].end, minutes: m, when: w });
+        for (const [t, r, m, w] of habits.slice(0, level)) tasks.push({ title: `${t} (${phases[p].name.toLowerCase()})`, measure: t, phase: p + 1, repeat: r, start: phases[p].start, until: phases[p].end, minutes: m, when: w,
+          // Like Claude's details: only some steps have them (a made-up address is dropped by goal-plan.js).
+          ...(t.startsWith('Practise') ? { checklist: ['Warm up for 2 minutes', 'Do 15 minutes of practice', 'Write down 1 thing to fix'], links: [{ title: 'Anki flashcards', url: 'https://apps.ankiweb.net/' }, { title: 'Broken', url: 'not a link' }] } : {}),
+          ...(t.startsWith('Review') ? { tip: 'Look at what you ticked off first, then pick next week\'s 3 most important steps.' } : {}) });
       }
       const n = level * 6;
       for (let k = 0; k < n; k++) tasks.push({ title: `Complete practice set ${k + 1} of ${n}`, measure: `Set ${k + 1} checked`, phase: 1 + Math.floor((k * 3) / n), repeat: 'once', start: at(((k + 1) * span) / (n + 1)), minutes: 40, when: 'any' });

@@ -4368,7 +4368,23 @@
     // Pomodoro: a start time and a length (Google Tasks have neither), split into chunks.
     const pomoTime = h('input', { type: 'time', value: t.time || '', step: 300, title: 'When it starts (written into the name, which the Pi reads)' });
     const pomo = !t.mirror && t.provider && pomodoroField(t.pomodoro, { length: true, extra: [h('span', null, 'At'), pomoTime] });
+    // Its block's checklist and links, as a calendar block has them (kept in Onyx, by the task). Magic add goal fills them in too.
+    const blockish = !t.mirror && t.provider;
+    const tasksField = blockish && blockTaskField(t.taskList || [], {
+      onTick: (taskId, done) => onyx.tickBlockTask(t.id, taskId, done).then(() => refetch()).catch((err) => fail(err)),
+    });
+    const linksField = blockish && blockLinkField(t.links || []);
     const save = () => run(async () => {
+      if (tasksField) {
+        const list = tasksField.get(), had = t.taskList || [];
+        const shape = (items) => items.map((x) => `${x.id}\t${x.text}`).join('\n');
+        if (shape(list.items) !== shape(had)) await onyx.setBlockTasks(t.id, list.items);
+        for (const x of list.items) if (x.done && !had.some((y) => y.id === x.id)) await onyx.tickBlockTask(t.id, x.id, true);
+      }
+      if (linksField) {
+        const links = linksField.get(), hadLinks = t.links || [];
+        if (links.map((l) => `${l.url}\t${l.title}`).join('\n') !== hadLinks.map((l) => `${l.url}\t${l.title}`).join('\n')) await onyx.setBlockLinks(t.id, links);
+      }
       const patch = {};
       if (name.value.trim() && name.value.trim() !== t.title) patch.title = name.value.trim();
       if (cleanNote(notes.value) !== cleanNote(t.notes)) patch.notes = cleanNote(notes.value);
@@ -4413,6 +4429,8 @@
       t.series && !t.series.managed && h('div', { class: 'row series-stop-row' },
         h('button', { class: 'btn danger', title: 'End this repeat: every open copy deleted, and the ones Google Tasks still adds', onclick: () => stopSeries(t.series) }, icon('x'), 'Stop all')),
       h('div', { class: 'row top' }, icon('note'), notes),
+      tasksField && h('div', { class: 'row top btask-row' }, icon('tasks'), tasksField.el),
+      linksField && h('div', { class: 'row top blink-row' }, icon('link'), linksField.el),
       h('div', { class: 'row' }, icon('tag'), tags.el),
       !t.mirror && breakdownField(t, notes),
       pomo && h('div', { class: 'row top' }, icon('clock'), pomo.el),
@@ -6747,8 +6765,36 @@
             s.done ? h('span', { class: 'gm-tag done' }, icon('check'), 'Already done') : h('span', { class: `gm-tag${s.repeat ? ' rep' : ''}` }, s.repeat ? icon('repeat') : icon('calendar'), when),
             !s.done && (at || s.minutes) && h('span', { class: 'gm-tag' }, icon('clock'), [at, s.minutes ? minutesText(s.minutes) : ''].filter(Boolean).join(' · ')),
             s.clash ? h('span', { class: 'gm-tag warn', title: 'No time was free on every one of its days: it overlaps something on those' }, `busy on ${s.clash} ${s.clash === 1 ? 'day' : 'days'}`) : null,
-            s.measure && h('span', { class: 'gm-measure' }, s.measure))));
+            s.measure && h('span', { class: 'gm-measure' }, s.measure)),
+          !s.done && stepDetails(s)));
     };
+    // What Claude added for the step's block (a checklist, links, a tip): shown folded, each piece can be taken off.
+    const stepDetails = (s) => {
+      const n = (s.checklist?.length || 0) + (s.links?.length || 0) + (s.tip ? 1 : 0);
+      if (!n) return null;
+      const off = (key, i) => (ev) => {
+        ev.preventDefault();
+        if (i == null) delete s[key]; else { s[key].splice(i, 1); if (!s[key].length) delete s[key]; }
+        open.add(s.key);
+        draw();
+      };
+      const x = (fn, what) => h('button', { type: 'button', class: 'x', title: `Take ${what} off`, 'aria-label': `Take ${what} off`, onclick: fn }, icon('x'));
+      const parts = [
+        s.checklist?.length && `${s.checklist.length} to tick`,
+        s.links?.length && `${s.links.length} ${s.links.length === 1 ? 'link' : 'links'}`,
+        s.tip && 'a tip',
+      ].filter(Boolean);
+      const box = h('details', { class: 'gm-details', open: open.has(s.key) },
+        h('summary', null, icon('tasks'), `On its block: ${parts.join(' · ')}`),
+        s.tip && h('div', { class: 'gm-d-row gm-tip' }, h('span', null, s.tip), x(off('tip'), 'the tip')),
+        s.checklist?.length && h('ul', { class: 'gm-d-list' }, s.checklist.map((c, i) => h('li', { class: 'gm-d-row' }, h('span', { class: 'gm-d-box' }), h('span', null, c), x(off('checklist', i), `"${c}"`)))),
+        s.links?.length && h('div', { class: 'gm-d-links' }, s.links.map((l, i) => h('div', { class: 'gm-d-row' },
+          icon('link'), h('button', { type: 'button', class: 'link-btn inline', title: l.url, onclick: () => onyx.open(l.url) }, l.title),
+          h('small', null, (() => { try { return new URL(l.url).hostname.replace(/^www\./, ''); } catch { return ''; } })()), x(off('links', i), 'this link')))));
+      box.addEventListener('toggle', () => { if (box.open) open.add(s.key); else open.delete(s.key); });
+      return box;
+    };
+    const open = new Set(); // steps whose details are unfolded, kept across redraws
     const at2 = (day, time) => { const [hh, mm] = time.split(':').map(Number); const d = fromYmd(day); d.setHours(hh, mm, 0, 0); return d; };
 
     const create = async () => {
@@ -6757,6 +6803,8 @@
       const steps = picked.map((s) => ({
         title: s.title.trim(), due: s.due, time: s.done ? null : s.time || null, repeat: s.repeat || null, until: s.until || null,
         done: !!s.done, phase: s.phase || '', measure: s.measure || '', minutes: s.minutes || null,
+        // For its block: what Claude added and was not taken off.
+        ...(s.done ? {} : { checklist: s.checklist || [], links: s.links || [], tip: s.tip || '' }),
       }));
       make.disabled = go.disabled = true;
       const live = steps.filter((s) => !s.done).length;

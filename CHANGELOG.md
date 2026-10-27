@@ -2,6 +2,15 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
+## 1.84.0 · Magic add goal fills in your blocks
+
+_2026-10-27_
+
+- Magic add goal can now add details to a step's block where they help: a short checklist to tick off during the session, a link or two (pages from your outline, or a tool's official site), and a tip on how to start. Simple steps stay plain.
+- In the plan, a step with details shows "On its block: …". Unfold it to see them, and take off anything you don't want before saving.
+- A timed task now has a checklist and links like any other block: edit them in the task's window, and tick them off there. The calendar block shows how many are ticked (like 1/3).
+- A repeating step brings its checklist and links to each next day, unticked.
+
 ## 1.83.0 · Sync your PCs through Google Drive
 
 _2026-10-27_

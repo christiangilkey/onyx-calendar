@@ -1319,6 +1319,9 @@ body.mobile.carrying .fc .fc-event-mirror { outline-width: 1px; }
 .ctx-item { border: 0; background: transparent; color: var(--text); font: inherit; font-size: 13px; text-align: left; padding: 7px 10px; border-radius: 7px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; }
 .ctx-item:hover:not(:disabled) { background: var(--raise-2, var(--raise)); }
 .ctx-item:disabled { color: var(--faint, var(--muted)); cursor: default; }
+.ctx-item.danger { color: #ff8f8f; }
+.ctx-item.danger:hover { background: color-mix(in srgb, #ff5a5a 16%, transparent); }
+.ctx-sep { height: 1px; margin: 4px 6px; background: var(--line-2, var(--line)); }
 /* Dates and times you can drag (left/right) and an AM/PM list beside a 12-hour time, so nothing is cut off. */
 #popover input.scrub { cursor: ew-resize; }
 #popover input.scrub:focus { cursor: text; }

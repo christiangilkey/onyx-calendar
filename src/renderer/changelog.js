@@ -2,6 +2,17 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.86.0",
+  "date": "2026-10-29",
+  "title": "Backspace deletes the highlighted block",
+  "items": [
+   "Click a block or a task on the calendar to highlight it, then press Backspace or Delete to delete it. Undo (Ctrl+Z) brings it back.",
+   "A repeating block isn't deleted by one key press: Onyx asks, with a \"Skip this day\" button right there.",
+   "Right-click a block for Delete at the foot of the menu. On a repeating block the menu has \"Skip this day\" and \"Delete every repeat\".",
+   "Blocks on a read-only calendar say so instead, and have no Delete in the menu."
+  ]
+ },
+ {
   "version": "1.85.0",
   "date": "2026-10-29",
   "title": "Magic add from the Tasks panel",

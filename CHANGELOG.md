@@ -2,6 +2,15 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
+## 1.86.0 · Backspace deletes the highlighted block
+
+_2026-10-29_
+
+- Click a block or a task on the calendar to highlight it, then press Backspace or Delete to delete it. Undo (Ctrl+Z) brings it back.
+- A repeating block isn't deleted by one key press: Onyx asks, with a "Skip this day" button right there.
+- Right-click a block for Delete at the foot of the menu. On a repeating block the menu has "Skip this day" and "Delete every repeat".
+- Blocks on a read-only calendar say so instead, and have no Delete in the menu.
+
 ## 1.85.0 · Magic add from the Tasks panel
 
 _2026-10-29_

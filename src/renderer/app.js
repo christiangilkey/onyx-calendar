@@ -2333,6 +2333,59 @@
     for (const el of document.querySelectorAll('#calendar .fc-event.is-selected')) el.classList.remove('is-selected');
   }
 
+  /** Deletes a calendar block; Undo brings it back with its tasks (a repeat taken whole: from this day on). */
+  async function deleteBlock(src, scope = 'all') {
+    await onyx.deleteEvent(src.id, src.seriesId ? { scope, seriesId: src.seriesId } : undefined);
+    if (src.seriesId && scope !== 'all') return;
+    const copy = { title: src.title, notes: src.notes || '', location: src.location || '', start: src.start, end: src.end, allDay: !!src.allDay, calendarId: src.calendarId, tags: src.tags || [],
+      ...(src.seriesId && src.recur ? { recur: src.recur } : {}) };
+    const list = src.taskList || [];
+    let back = null;
+    recordAction(src.seriesId ? `Deleted every repeat of "${src.title}"` : `Deleted "${src.title}"`, async () => {
+      back = await onyx.createEvent(copy);
+      if (list.length) await onyx.setBlockTasks(back.seriesId || back.id, list).catch(() => {});
+    }, () => onyx.deleteEvent(back.id, back.seriesId ? { scope: 'all', seriesId: back.seriesId } : undefined));
+  }
+
+  /** Whether an entry on the calendar can be deleted here (not a read-only calendar, a mirrored task or a goal). */
+  function deletable(src) {
+    if (src?.kind === 'task') { const t = tasks.find((x) => x.id === src.id); return !!t && !t.mirror; }
+    return src?.kind === 'event' && !!src.writable;
+  }
+
+  /**
+   * Backspace or Delete on the highlighted entry, or Delete in its right-click menu. A block or a task goes at
+   * once (Undo brings it back). A repeat goes as `scope` says ('one' this day, 'all' every day); with no scope
+   * (the key) it asks, since one key taking every day of it would be a surprise. Read-only ones say so.
+   */
+  async function deleteSelected(src, scope) {
+    const after = () => { clearSelection(); hidePeek(); refetch(); };
+    try {
+      if (src.kind === 'task') {
+        const t = tasks.find((x) => x.id === src.id);
+        if (!t) return; // a ticked-off task: it lives in the Archived tab now
+        if (t.mirror) { toast('This task is read-only here.'); return; }
+        await onyx.deleteTask(t.id);
+        const copy = { title: t.title, notes: t.notes || '', listId: t.listId, ...(t.date ? { due: t.date } : {}), tags: t.tags || [] };
+        let back = null;
+        recordAction(`Deleted "${t.label || t.title}"`, async () => { back = await onyx.createTask(copy); }, () => onyx.deleteTask(back.id));
+        after();
+        await loadTasks();
+        return;
+      }
+      if (src.kind !== 'event') return; // a goal's bar: its own window deletes it
+      if (!src.writable) { toast('This calendar is read-only here.'); return; }
+      if (src.seriesId && !scope) {
+        toast(`"${src.title}" repeats. Right-click it to delete every repeat.`, '', { label: 'Skip this day', run: () => deleteSelected(src, 'one') });
+        return;
+      }
+      await deleteBlock(src, scope || 'all');
+      after();
+    } catch (err) {
+      fail(err);
+    }
+  }
+
   /**
    * The highlighted entry shows its drag bars, top and bottom, for a quick change of time. With a mouse they
    * work at once; on a touch screen the calendar only lets a selected entry be stretched (and drops its
@@ -2689,7 +2742,8 @@
   function entryMenu(e, src) {
     closeMenu();
     const slot = slotAt(e.clientX, e.clientY);
-    const item = (label, run, off) => h('button', { class: 'ctx-item', disabled: !!off, onclick: () => { closeMenu(); run(); } }, label);
+    const item = (label, run, off, cls = '') => h('button', { class: `ctx-item ${cls}`.trim(), disabled: !!off, onclick: () => { closeMenu(); run(); } }, label);
+    const del = src && deletable(src);
     const menu = h('div', { class: 'ctx-menu', role: 'menu' },
       src && item('Open', () => (src.kind === 'task' ? openTask(tasks.find((t) => t.id === src.id) || { id: src.id, title: src.title, label: src.title, listName: src.calendarName }, pointRect(e)) : openEditor({ src, start: toDate(src.start), end: toDate(src.end), allDay: src.allDay }, pointRect(e)))),
       src && !MOBILE && !src.mirror && item('Hyperfocus…', () => openFocusSetup(focusEntry(src))),
@@ -2698,7 +2752,10 @@
       src && item('Send…', () => openSend(src)),
       src && item('Copy   Ctrl+C', () => copyEntry(src)),
       src && item('Duplicate', () => { clip.entry = src; const d = toDate(src.start); pasteEntry({ day: ymd(addDays(d, src.allDay ? 1 : 0)), time: src.allDay ? null : hm(new Date(d.getTime() + Math.max(15 * 60000, toDate(src.end) - d))) }); }),
-      item(`Paste here   Ctrl+V${clip.entry ? `: ${clip.entry.title}` : ''}`, () => pasteEntry(slot), !clip.entry || !slot));
+      item(`Paste here   Ctrl+V${clip.entry ? `: ${clip.entry.title}` : ''}`, () => pasteEntry(slot), !clip.entry || !slot),
+      del && h('div', { class: 'ctx-sep' }),
+      del && src.seriesId && src.kind === 'event' && item('Skip this day', () => deleteSelected(src, 'one'), false, 'danger'),
+      del && item(src.seriesId && src.kind === 'event' ? 'Delete every repeat' : 'Delete   Del', () => deleteSelected(src, 'all'), false, 'danger'));
     menu.style.left = `${Math.min(e.clientX, innerWidth - 230)}px`;
     menu.style.top = `${Math.min(e.clientY, innerHeight - 160)}px`;
     document.body.append(menu);
@@ -2716,6 +2773,12 @@
       const src = calendar?.getEventById(clip.selected)?.extendedProps?.src;
       const el = document.querySelector(`#calendar .fc-event[data-eid="${CSS.escape(clip.selected)}"]`);
       if (src && el) { e.preventDefault(); hidePeek(); openEntry(src, el.getBoundingClientRect()); }
+      return;
+    }
+    if ((e.key === 'Backspace' || e.key === 'Delete') && !e.ctrlKey && !e.metaKey && !e.altKey && clip.selected
+      && !e.target.closest?.('input, textarea, select, [contenteditable]') && $('#popover').hidden && $('#modal').hidden) {
+      const src = calendar?.getEventById(clip.selected)?.extendedProps?.src;
+      if (src) { e.preventDefault(); deleteSelected(src); }
       return;
     }
     if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
@@ -3619,17 +3682,7 @@
     // Undo brings a deleted block back (a repeat from this day on), with its tasks.
     const remove = async (scope = 'all') => {
       try {
-        await onyx.deleteEvent(src.id, src.seriesId ? { scope, seriesId: src.seriesId } : undefined);
-        if (!src.seriesId || scope === 'all') {
-          const copy = { title: src.title, notes: src.notes || '', location: src.location || '', start: src.start, end: src.end, allDay: !!src.allDay, calendarId: src.calendarId, tags: src.tags || [],
-            ...(src.seriesId && src.recur ? { recur: src.recur } : {}) };
-          const list = src.taskList || [];
-          let back = null;
-          recordAction(src.seriesId ? `Deleted every repeat of "${src.title}"` : `Deleted "${src.title}"`, async () => {
-            back = await onyx.createEvent(copy);
-            if (list.length) await onyx.setBlockTasks(back.seriesId || back.id, list).catch(() => {});
-          }, () => onyx.deleteEvent(back.id, back.seriesId ? { scope: 'all', seriesId: back.seriesId } : undefined));
-        }
+        await deleteBlock(src, scope);
         closePopover();
         refetch();
       } catch (err) {

@@ -2,6 +2,17 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.84.1",
+  "date": "2026-10-29",
+  "title": "Sturdier when the internet drops for a moment",
+  "items": [
+   "When your PC's connection drops for a moment (the wifi reconnecting, a VPN switching over), Onyx now tries again once by itself instead of failing straight away. Reads always get a second try; a change gets one only if it never left the PC, so nothing is made twice.",
+   "What still fails says so in plain words, like \"Couldn't reach Google from this PC (its internet connection dropped)\", in place of \"fetch failed\".",
+   "A change from your phone that reaches the PC while the PC can't reach Google now waits on the phone and goes later. Before, it was set aside as if the PC had turned it down. The phone says once that it's waiting, not on every try.",
+   "The same goes for tasks typed on the lock screen or Onyx Home."
+  ]
+ },
+ {
   "version": "1.84.0",
   "date": "2026-10-27",
   "title": "Magic add goal fills in your blocks",

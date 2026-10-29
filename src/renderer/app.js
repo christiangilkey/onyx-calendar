@@ -9476,6 +9476,7 @@
         }
         if (o.failed?.length) toast(`${o.failed.length === 1 ? 'A change' : `${o.failed.length} changes`} made offline couldn't be saved: ${o.failed[0].error}`, 'error');
         if (o.blocked) toast(o.blocked, 'error');
+        if (o.waiting) toast(o.waiting);
       });
     }
     setInterval(() => { refetch(true); loadTasks(true); }, 5 * 60000);

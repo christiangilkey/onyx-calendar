@@ -206,6 +206,8 @@ final class WidgetData {
         JSONObject body = new JSONObject().put("name", name).put("args", args == null ? new JSONArray() : args);
         if (op != null) body.put("op", op);
         JSONObject res = new JSONObject(call(ctx, "POST", "/app/rpc", body.toString()));
+        // The PC's own connection dropped: nothing was made, so it counts as out of reach (kept, sent later).
+        if (!res.optBoolean("ok", false) && res.optBoolean("retry", false)) throw new Exception("Can't reach the internet from the PC right now.");
         if (!res.optBoolean("ok", false)) throw new Exception(res.optString("error", "The PC could not do that."));
         return res.opt("value");
     }

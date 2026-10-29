@@ -10,6 +10,7 @@
 const crypto = require('crypto');
 const os = require('os');
 const zlib = require('zlib');
+const { sturdyFetch } = require('./net');
 
 const SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
 const PREFIX = 'onyx-sync-';
@@ -68,7 +69,7 @@ function googleDrive(acct, accessToken) {
   async function call(url, { method = 'GET', body, headers = {}, raw = false } = {}) {
     for (let attempt = 0; ; attempt++) {
       const token = await accessToken(acct, attempt > 0);
-      const res = await fetch(url, { method, body, headers: { Authorization: `Bearer ${token}`, ...headers } });
+      const res = await sturdyFetch(url, { method, body, headers: { Authorization: `Bearer ${token}`, ...headers } });
       if (res.status === 401 && attempt === 0) continue;
       if (res.status === 204) return null;
       if (!res.ok) {

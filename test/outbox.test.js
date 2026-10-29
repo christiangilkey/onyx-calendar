@@ -8,6 +8,7 @@ const path = require('path');
 const vm = require('node:vm');
 const store = require('../src/main/store');
 const mcp = require('../src/main/mcp');
+const { offlineError } = require('../src/main/net');
 
 store.save = () => {};
 
@@ -17,7 +18,10 @@ function makePC() {
   mcp.setAppApi({
     state: async () => ({ version: 'test', calendars: [{ id: 'cal', name: 'Mine', color: '#4aa8ff', kind: 'calendar', writable: true }] }),
     events: async () => ({ events: pc.events.map((e) => ({ ...e })), errors: [] }),
-    'event:create': async (d) => { const e = { kind: 'event', ...d, id: `cal/${++pc.seq}` }; pc.events.push(e); return e; },
+    'event:create': async (d) => {
+      if (pc.internetDown) throw offlineError(new TypeError('fetch failed'), 'https://www.googleapis.com/calendar/v3/calendars/x/events');
+      const e = { kind: 'event', ...d, id: `cal/${++pc.seq}` }; pc.events.push(e); return e;
+    },
     'event:update': async (id, patch) => {
       const e = pc.events.find((x) => x.id === id);
       if (!e) throw new Error('That event no longer exists.');
@@ -137,6 +141,27 @@ test('a change to something deleted meanwhile is let go; one the PC turns down i
   assert.equal(last.failed.length, 1);
   assert.match(last.failed[0].error, /a word or two/);
   assert.equal(phone.outbox().failed.length, 1, 'kept to look at later');
+});
+
+test('the PC answers, but its own internet dropped: the change is kept (not set aside), said once, and goes once it is back', async () => {
+  const pc = makePC(), phone = makePhone(pc);
+  await phone.state();
+  pc.internetDown = true;
+  const made = await phone.createEvent(block('Dentist'));
+  assert.match(made.id, /^offline-/, 'kept on the phone, like one made offline');
+  await phone.syncNow();
+  await phone.syncNow();
+  assert.equal(phone.outbox().pending, 1);
+  assert.equal(phone.outbox().failed.length, 0, 'not taken as turned down');
+  const told = phone.heard.filter((o) => o.waiting);
+  assert.equal(told.length, 1, 'said once, not on every try');
+  assert.match(told[0].waiting, /will sync on their own/);
+  assert.equal(pc.events.length, 0);
+
+  pc.internetDown = false;
+  await phone.syncNow();
+  assert.equal(phone.outbox().pending, 0);
+  assert.deepEqual(pc.events.map((e) => e.title), ['Dentist']);
 });
 
 test('changes go in the order they were made, and new ones queue behind waiting ones', async () => {

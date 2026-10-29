@@ -4,6 +4,7 @@
 const crypto = require('crypto');
 const store = require('./store');
 const { signIn, postForm } = require('./oauth');
+const { sturdyFetch } = require('./net');
 
 const GOOGLE = {
   auth: 'https://accounts.google.com/o/oauth2/v2/auth',
@@ -129,10 +130,19 @@ async function accessToken(acct, force = false) {
 }
 
 /** An authorised JSON request. Returns the parsed body, or null when there is none. */
-async function request(acct, url, { method = 'GET', body, headers = {} } = {}) {
+async function request(acct, url, opts = {}) {
+  try {
+    return await authorised(acct, url, opts);
+  } catch (err) {
+    if (err.network) err.message = `${acct.label}: ${err.message}`; // which account couldn't get through
+    throw err;
+  }
+}
+
+async function authorised(acct, url, { method = 'GET', body, headers = {} } = {}) {
   for (let attempt = 0; ; attempt++) {
     const token = await accessToken(acct, attempt > 0);
-    const res = await fetch(url, {
+    const res = await sturdyFetch(url, {
       method,
       headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}), ...headers },
       body: body ? JSON.stringify(body) : undefined,

@@ -237,6 +237,8 @@
     if (!body.ok) {
       // An older Onyx on the PC doesn't know the commands newer app builds send.
       if (/^Unknown command/.test(body.error || '')) throw outdated();
+      // The PC is there, but its own connection dropped: the change waits here, like one made offline.
+      if (body.retry && QUEUEABLE.has(name)) return enqueue(name, args);
       throw new Error(body.error);
     }
     if (CACHED.has(name)) write(cacheKey(name, args), body.value);
@@ -375,6 +377,7 @@
   }
 
   let flushing = false;
+  let held = false; // the PC is holding changes back (its connection dropped): said once, not every try
   /** Sends the waiting changes, oldest first; stops (and keeps the rest) as soon as no PC answers. */
   async function flush() {
     if (flushing || !outbox.length || !conn) return;
@@ -383,6 +386,7 @@
     let sent = 0;
     const failed = [];
     let blocked = null;
+    let waiting = null;
     tellOutbox({ syncing: true });
     try {
       while (outbox.length) {
@@ -395,6 +399,11 @@
           break; // no PC in reach (or this phone is no longer let in): the rest wait
         }
         if (!body.ok && /^Unknown command/.test(body.error || '')) { blocked = outdated().message; break; } // kept until the PC is updated
+        if (!body.ok && body.retry) { // nothing was made: kept, and tried again with the next round
+          if (!held) waiting = `Your PC couldn't reach the internet just now. ${outbox.length === 1 ? 'A change waits' : `${outbox.length} changes wait`} on this phone and will sync on their own.`;
+          held = true;
+          break;
+        }
         if (body.ok) {
           if (o.temp && body.value && typeof body.value === 'object' && body.value.id) {
             ids[o.temp] = body.value.id;
@@ -412,8 +421,9 @@
     } finally {
       flushing = false;
     }
+    if (sent) held = false;
     if (failed.length) write(FAILED, [...read(FAILED, []), ...failed].slice(-50));
-    tellOutbox({ sent, failed, blocked });
+    tellOutbox({ sent, failed, blocked, waiting });
     if (sent) nudgeWidget('outbox:sent');
   }
   // Tried again every 15 seconds while anything waits, and whenever the app comes back to the front.

@@ -419,6 +419,9 @@ async function appCall(msg) {
     if (!READS.has(msg.name)) onChange();
     return { ok: true, value: value ?? null };
   } catch (err) {
+    // The PC's own connection dropped (it couldn't reach Google, say): nothing was made, so the
+    // phone keeps the change and sends it again later, rather than taking it as turned down.
+    if (err.network) return { ok: false, error: err.message, retry: true };
     require('./bugs').noteError(err, msg.name);
     return { ok: false, error: err.message || String(err) };
   }

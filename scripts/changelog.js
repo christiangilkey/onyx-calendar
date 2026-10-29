@@ -62,8 +62,13 @@ function fromTags() {
       const range = i ? `${tags[i - 1]}..${tag}` : tag;
       items = bullets(git('log', '--reverse', '--format=%B', range));
     }
-    const subject = git('log', '-1', '--format=%s', tag).trim();
-    const date = git('log', '-1', '--format=%cs', tag).trim();
+    // A tag that ended up on another version's commit (v1.84.1 sits on 1.84.0's) keeps its own title and day.
+    const own = new RegExp(`^(Onyx( Calendar)? )?v?${version.replace(/\./g, '\\.')}(?![\\d.])`, 'i');
+    const tagSubject = git('for-each-ref', `refs/tags/${tag}`, '--format=%(contents:subject)').trim();
+    const commitSubject = git('log', '-1', '--format=%s', tag).trim();
+    const stray = own.test(tagSubject) && /^(Onyx( Calendar)? )?v?\d+\.\d+\.\d+/i.test(commitSubject) && !own.test(commitSubject);
+    const subject = stray ? tagSubject : commitSubject;
+    const date = stray ? git('for-each-ref', `refs/tags/${tag}`, '--format=%(taggerdate:short)').trim() : git('log', '-1', '--format=%cs', tag).trim();
     if (!items.length) items = [titleOf(subject) || 'Small fixes'];
     out.push({ version, date, title: titleOf(subject) || (i === 0 ? 'The first release' : ''), items });
   });

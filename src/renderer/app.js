@@ -3737,7 +3737,7 @@
 
   function paintInboxBadge() {
     const n = inboxIds.length;
-    for (const el of [$('#magic-add'), $('#magic-fab')]) {
+    for (const el of [$('#magic-add'), $('#magic-fab'), $('#task-magic')]) {
       if (!el) continue;
       el.querySelector('.magic-count')?.remove();
       el.classList.toggle('has-inbox', n > 0);
@@ -4082,6 +4082,7 @@
     taskTab = tab;
     for (const b of $('#task-tabs').children) b.classList.toggle('on', b.dataset.tab === tab);
     $('#task-add').hidden = tab !== 'open';
+    $('#task-magic').hidden = tab !== 'open';
     $('#archive-bar').hidden = tab !== 'archived';
     if (tab === 'archived') {
       if (!$('#archive-date').value) $('#archive-date').value = ymd(new Date());
@@ -9281,6 +9282,8 @@
     $('#magic-add').onclick = () => openMagic();
     $('#magic-fab').append(icon('sparkles'));
     $('#magic-fab').onclick = () => openMagic();
+    $('#task-magic').append(icon('sparkles'), 'Magic add tasks'); // the Tasks panel's own way in, styled as Magic add goal
+    $('#task-magic').onclick = () => openMagic();
     $('#add-calendar').onclick = () => openSettings(onyx.isPhone ? 'connection' : 'calendars');
     $('#open-settings').onclick = () => openSettings();
     $('#menu').onclick = () => document.body.classList.toggle('drawer-left');

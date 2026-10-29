@@ -2,8 +2,19 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
-  "version": "1.84.1",
+  "version": "1.85.0",
   "date": "2026-10-29",
+  "title": "Magic add from the Tasks panel",
+  "items": [
+   "New Magic add tasks button in the Tasks panel, just under where you add a task, in the same style as Magic add goal. It opens Magic add: tick tasks from your lists (No date, Backburner, From apps) or type new ones, and have them fitted into the day.",
+   "Like the Magic add button in the left sidebar, it shows how many tasks from your other apps are waiting to be planned.",
+   "It shows on the Open tab and steps aside on Archived.",
+   "This version also brings 1.84.1's fixes for an internet connection that drops for a moment."
+  ]
+ },
+ {
+  "version": "1.84.1",
+  "date": "2026-10-28",
   "title": "Sturdier when the internet drops for a moment",
   "items": [
    "When your PC's connection drops for a moment (the wifi reconnecting, a VPN switching over), Onyx now tries again once by itself instead of failing straight away. Reads always get a second try; a change gets one only if it never left the PC, so nothing is made twice.",

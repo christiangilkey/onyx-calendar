@@ -2604,6 +2604,7 @@ body.mobile #calendar { -webkit-touch-callout: none; }
 .magic-goal:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
 .magic-goal .ico { width: 14px; height: 14px; color: var(--accent); }
 body.mobile .magic-goal { padding: 11px 12px; font-size: 14px; }
+#task-magic { flex: none; width: auto; margin: 0 12px 10px; } /* Magic add tasks, under the Tasks panel's add row */
 .gm-head { display: flex; align-items: center; gap: 8px; color: #cfc6ff; font-size: 13px; letter-spacing: .2px; }
 .gm-head .ico { width: 16px; height: 16px; color: var(--accent); }
 .gm-outline { width: 100%; min-height: 120px; resize: vertical; line-height: 1.45; font: inherit; font-size: 13px; padding: 9px 11px; border-radius: 10px;

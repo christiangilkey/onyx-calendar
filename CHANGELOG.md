@@ -2,7 +2,15 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.86.2 · Onyx 1.86.2: the phone says why it couldn't connect
+## 1.87.0 · Onyx 1.87.0: Magic add starts with nothing ticked
+
+_2026-10-30_
+
+- Magic add's "From your lists" no longer ticks tasks for you. Tick the ones you want planned into the day.
+- Plan on a "new task from another app" pop-up still ticks just those new tasks, and a task another app hands over is still planned straight away.
+- Your keys and sign-ins are safer: if Onyx ever can't unlock them on start (for example after a Windows account change), it keeps a copy instead of writing over them.
+
+## 1.86.2 · The phone says why it couldn't connect
 
 _2026-10-30_
 

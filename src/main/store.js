@@ -95,6 +95,11 @@ function load() {
       secrets = JSON.parse(safeStorage.decryptString(Buffer.from(saved.secretsEnc, 'base64')));
     } catch (err) {
       console.error('onyx: could not unlock saved sign-ins, you will need to sign in again:', err.message);
+      // The next save would write over them: a copy is kept first, so the keys aren't lost for good.
+      try {
+        const copy = path.join(path.dirname(file), `onyx.secrets-locked-${Date.now()}.json`);
+        fs.writeFileSync(copy, JSON.stringify({ secretsEnc: saved.secretsEnc, at: new Date().toISOString(), error: err.message }), 'utf8');
+      } catch { /* nowhere to keep it */ }
     }
   }
   delete saved.secretsEnc;

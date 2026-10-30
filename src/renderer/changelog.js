@@ -2,9 +2,19 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.87.0",
+  "date": "2026-10-30",
+  "title": "Onyx 1.87.0: Magic add starts with nothing ticked",
+  "items": [
+   "Magic add's \"From your lists\" no longer ticks tasks for you. Tick the ones you want planned into the day.",
+   "Plan on a \"new task from another app\" pop-up still ticks just those new tasks, and a task another app hands over is still planned straight away.",
+   "Your keys and sign-ins are safer: if Onyx ever can't unlock them on start (for example after a Windows account change), it keeps a copy instead of writing over them."
+  ]
+ },
+ {
   "version": "1.86.2",
   "date": "2026-10-30",
-  "title": "Onyx 1.86.2: the phone says why it couldn't connect",
+  "title": "The phone says why it couldn't connect",
   "items": [
    "When pairing the phone fails, the Connect screen now says why, for example which PC addresses it couldn't reach. Before, the message was hidden behind the screen, so scanning the QR code seemed to do nothing.",
    "Scanning the same QR code again after a failed try now really tries again. Before, the phone ignored a code it had already used.",

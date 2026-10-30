@@ -3796,7 +3796,7 @@
     if (!fresh.length || !$('#modal').hidden) return; // the open Magic add window shows them itself
     const first = tasks.find((t) => t.id === fresh[0]);
     toast(fresh.length === 1 ? `New from ${sourceName(first)}: "${first?.label || first?.title}"` : `${fresh.length} new tasks from other apps`, '',
-      { label: 'Plan', run: () => openMagic() });
+      { label: 'Plan', run: () => openMagic({ pick: fresh }) });
   }
 
   function paintInboxBadge() {
@@ -7853,9 +7853,8 @@
 
     // Tasks to plan in along with what is typed, picked from three lists in tabs: the backburner, what other
     // apps sent, and tasks with no date. A tick stays ticked whatever tab is showing, and everything ticked, in
-    // any of the three, is planned together. Ones sent from apps are ticked to start with (not those due later).
-    const planDate = preset.date || ymd(new Date());
-    const picked = new Set(inboxTasks().filter((t) => !t.date || t.date <= planDate).map((t) => t.id));
+    // any of the three, is planned together. Nothing is ticked to start with, except a task opened here on purpose (preset.pick).
+    const picked = new Set(preset.pick || []);
     const open = (t) => !t.done && !t.mirror;
     const PICK_TABS = [
       { key: 'burner', label: 'Backburner', empty: 'Nothing on the backburner.', list: () => tasks.filter((t) => open(t) && t.backburner && !t.date) },
@@ -9507,7 +9506,7 @@
       if (d.error) { toast(d.error, 'error'); return; }
       (inboxKnown ||= new Set()).add(d.taskId); // no "new task" toast on top of the window itself
       await loadTasks(true);
-      openMagic({ date: d.date, auto: true });
+      openMagic({ date: d.date, auto: true, pick: [d.taskId] });
     };
     window.addEventListener('onyx:magic', (e) => openMagicFromLink(e.detail));
     openMagicFromLink(window.onyxPendingMagic);

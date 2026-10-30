@@ -2347,6 +2347,19 @@
     }, () => onyx.deleteEvent(back.id, back.seriesId ? { scope: 'all', seriesId: back.seriesId } : undefined));
   }
 
+  /**
+   * Whether a key press is for the highlighted entry (Enter opens it, Backspace or Delete deletes it): only with
+   * the calendar itself in focus, or nothing in particular, and nothing else open over it. A key pressed on a
+   * button, field or panel elsewhere (a chip in some window, the Tasks panel) is that control's own.
+   */
+  function calendarHasKeys(e) {
+    if (e.target.closest?.('input, textarea, select, button, a[href], [contenteditable]')) return false;
+    const at = document.activeElement;
+    if (at && at !== document.body && !at.closest?.('#calendar')) return false;
+    if (!$('#popover').hidden || !$('#modal').hidden || !$('#update-dialog').hidden || document.querySelector('.ctx-menu')) return false;
+    return !graph.on && !focus.el;
+  }
+
   /** Whether an entry on the calendar can be deleted here (not a read-only calendar, a mirrored task or a goal). */
   function deletable(src) {
     if (src?.kind === 'task') { const t = tasks.find((x) => x.id === src.id); return !!t && !t.mirror; }
@@ -2768,15 +2781,13 @@
   }
 
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && clip.selected
-      && !e.target.closest?.('input, textarea, select, button, [contenteditable]') && $('#popover').hidden && $('#modal').hidden) {
+    if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && clip.selected && calendarHasKeys(e)) {
       const src = calendar?.getEventById(clip.selected)?.extendedProps?.src;
       const el = document.querySelector(`#calendar .fc-event[data-eid="${CSS.escape(clip.selected)}"]`);
       if (src && el) { e.preventDefault(); hidePeek(); openEntry(src, el.getBoundingClientRect()); }
       return;
     }
-    if ((e.key === 'Backspace' || e.key === 'Delete') && !e.ctrlKey && !e.metaKey && !e.altKey && clip.selected
-      && !e.target.closest?.('input, textarea, select, [contenteditable]') && $('#popover').hidden && $('#modal').hidden) {
+    if ((e.key === 'Backspace' || e.key === 'Delete') && !e.ctrlKey && !e.metaKey && !e.altKey && clip.selected && calendarHasKeys(e)) {
       const src = calendar?.getEventById(clip.selected)?.extendedProps?.src;
       if (src) { e.preventDefault(); deleteSelected(src); }
       return;

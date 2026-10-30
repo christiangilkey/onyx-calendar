@@ -2,6 +2,15 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.86.1",
+  "date": "2026-10-30",
+  "title": "Backspace only deletes from the calendar",
+  "items": [
+   "Backspace and Delete now delete the highlighted block only while you're on the calendar. With a button, chip or field in focus somewhere else (a window, the Tasks panel, News), the key belongs to that, and the block stays.",
+   "The same goes for Enter, which opens the highlighted block. Neither key does anything while a window, the right-click menu, the globe or Hyperfocus is open."
+  ]
+ },
+ {
   "version": "1.86.0",
   "date": "2026-10-29",
   "title": "Backspace deletes the highlighted block",

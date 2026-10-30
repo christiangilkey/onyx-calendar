@@ -2,6 +2,13 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
+## 1.86.1 · Backspace only deletes from the calendar
+
+_2026-10-30_
+
+- Backspace and Delete now delete the highlighted block only while you're on the calendar. With a button, chip or field in focus somewhere else (a window, the Tasks panel, News), the key belongs to that, and the block stays.
+- The same goes for Enter, which opens the highlighted block. Neither key does anything while a window, the right-click menu, the globe or Hyperfocus is open.
+
 ## 1.86.0 · Backspace deletes the highlighted block
 
 _2026-10-29_

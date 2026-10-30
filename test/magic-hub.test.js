@@ -136,3 +136,42 @@ test('Magic add: reading Claude\'s answer copes with code fences and chatter', (
   assert.equal(magic.parseAnswer('no json here'), null);
   assert.equal(magic.parseAnswer('{broken'), null);
 });
+
+const MATERIAL = [{ title: 'Desk guide', url: 'https://example.com/desk', kind: 'web', text: '# Assemble\n1. Unbox\n2. Attach the legs\n3. Fix the top' }];
+
+test('Magic add: a page that was read becomes its steps, in order, each with its instructions and where it came from', withFetch(async (url, init) => {
+  const body = JSON.parse(init.body);
+  assert.match(body.messages[0].content, /Material 1: Desk guide \(https:\/\/example\.com\/desk\)\n# Assemble\n1\. Unbox/);
+  assert.match(body.system, /"source"/, 'Claude is told how to answer for material');
+  assert.equal(body.max_tokens, 10000);
+  return { ok: true, status: 200, json: async () => ({ content: [{ type: 'text', text: JSON.stringify({ tasks: [
+    { title: 'Fix the top', minutes: 30, place: 'Home', when: 'any', kind: 'chore', source: 1, step: 3, notes: 'Plug in the controller after', why: '' },
+    { title: 'Unbox the desk', minutes: 15, place: 'Home', when: 'any', kind: 'chore', source: 1, step: 1, notes: 'Check the parts list', why: '' },
+    { title: 'Attach the legs', minutes: 45, place: 'Home', when: 'any', kind: 'chore', source: 1, step: 2, notes: '4 bolts each, finger-tight', why: '' },
+    { title: 'Groceries', minutes: 45, place: 'Grocery store', when: 'afternoon', kind: 'errand', why: '' },
+  ] }) }] }) };
+}, async () => {
+  reset({ key: 'sk-ant-test-key-0000000000000000' });
+  const r = await magic.planDay('Groceries', ymd(day(1)), {}, [], MATERIAL);
+  assert.equal(r.source, 'claude');
+  const steps = r.blocks.filter((b) => b.from);
+  assert.deepEqual(steps.map((b) => b.title), ['Unbox the desk', 'Attach the legs', 'Fix the top'], 'in the page\'s order');
+  for (let i = 1; i < steps.length; i++) assert.ok(steps[i - 1].end <= steps[i].start);
+  assert.equal(steps[1].notes, '4 bolts each, finger-tight');
+  assert.deepEqual(steps[0].from, { title: 'Desk guide', url: 'https://example.com/desk' });
+  assert.equal(r.blocks.find((b) => b.title === 'Groceries').from, null);
+  // Planned again for the next day (what did not fit): the order and the notes go along.
+  const again = await magic.replan(r.tasks, [], ymd(day(2)));
+  assert.deepEqual(again.blocks.filter((b) => b.from).map((b) => b.notes), ['Check the parts list', '4 bolts each, finger-tight', 'Plug in the controller after']);
+}));
+
+test('Magic add: what was read needs Claude, and is never guessed from its words', async () => {
+  reset({ key: '' });
+  await assert.rejects(magic.planDay('', ymd(day(1)), {}, [], MATERIAL), /Claude key/);
+  reset({ key: 'sk-ant-test-key-0000000000000000' });
+  const real = global.fetch;
+  global.fetch = async () => ({ ok: false, status: 529, json: async () => ({ error: { message: 'Overloaded' } }) });
+  try {
+    await assert.rejects(magic.planDay('Groceries', ymd(day(1)), {}, [], MATERIAL), /Overloaded/);
+  } finally { global.fetch = real; }
+});

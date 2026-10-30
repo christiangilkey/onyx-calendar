@@ -7,6 +7,7 @@
 const store = require('./store');
 const hub = require('./hub');
 const plan = require('./magic-plan');
+const sources = require('./sources');
 
 const MODEL = 'claude-sonnet-5-5'; // spatial and time reasoning: worth more than the quickest model
 const API = 'https://api.anthropic.com/v1/messages';
@@ -16,6 +17,14 @@ const SYSTEM = [
   'For each task give: "title" (short, keep their words), "minutes" (realistic, for the doing itself, including setup, queues and tidy-up, multiples of 5, between 5 and 240), "place" (a short name of where it is done; reuse the exact place names from their schedule when it is the same place; "Home" for things done at home; null for things done anywhere, like a phone call), "when" (morning, midday, afternoon, evening or any: when it suits best, thinking about energy, opening hours and how people usually do it; focus work is best in the morning, errands when places are open, calls in office hours), "kind" (focus, errand, call, chore, exercise, admin or other), "after" and "before" ("HH:MM" 24-hour, only when they said a time limit; otherwise null) and "why" (one short sentence on the length or timing).',
   'Some tasks come from the person\'s own lists (sent from other apps, kept on the backburner, or with no date yet) as "[t1] title"; each of those is exactly one task: give it the field "ref" with its tag (t1), and still estimate it like the rest. Tasks the person typed have no ref.',
   'Write in the same language as the task. Reply with only JSON: {"tasks":[...]}.',
+].join(' ');
+
+// When the person hands over something to read (a webpage, a Notion page, a picture of instructions).
+const MATERIAL = [
+  'They also added material to turn into tasks: pages or pictures, written out as text, each numbered ("Material 1").',
+  'Turn it into concrete tasks for this day, each something they can do in one sitting, in the order the material gives: group tiny steps that follow each other into one task, and split anything longer than 4 hours.',
+  'Give each task that comes from material "source" (the material\'s number) and "step" (its place in that material\'s order, from 1), and put what they need to do it in "notes" (at most 400 characters: the instructions, amounts, settings or links for that step).',
+  'Leave out what is not something to do (background, ads, menus). If the material is a long course or project that cannot fit one day, plan the first part and say so in the "why" of its last task.',
 ].join(' ');
 
 const keyOf = () => String(store.data.secrets.anthropicKey || '');
@@ -54,7 +63,7 @@ async function busyOf(day) {
     .filter((b) => b.end > b.start);
 }
 
-function userMessage({ text, day, from, to, busy, arrived = [] }) {
+function userMessage({ text, day, from, to, busy, arrived = [], material = [] }) {
   const lines = (busy.length ? busy : []).slice(0, 40).sort((a, b) => a.start - b.start)
     .map((b) => `- ${hm(new Date(b.start))}-${hm(new Date(b.end))} ${String(b.title || 'Busy').slice(0, 60)}${b.place ? ` @ ${b.place}` : ''}`);
   return [
@@ -62,6 +71,7 @@ function userMessage({ text, day, from, to, busy, arrived = [] }) {
     `Already in their schedule:\n${lines.length ? lines.join('\n') : '(nothing)'}`,
     arrived.length ? `Tasks picked from their lists:\n${arrived.map((a, i) => `[t${i + 1}] ${String(a.title).slice(0, 120)}${a.minutes ? ` [expected length: ${a.minutes} min]` : ''}${a.notes ? ` (${String(a.notes).replace(/\s+/g, ' ').slice(0, 160)})` : ''}`).join('\n')}` : '',
     String(text).trim() ? `What they need to get done:\n${String(text).slice(0, 3000)}` : '',
+    material.length ? sources.promptBlock(material) : '',
   ].filter(Boolean).join('\n\n');
 }
 
@@ -72,12 +82,12 @@ function parseAnswer(text) {
   try { return JSON.parse(m[0]); } catch { return null; }
 }
 
-async function askClaude(prompt) {
+async function askClaude(prompt, { material = false } = {}) {
   const res = await fetch(API, {
     method: 'POST',
-    signal: AbortSignal.timeout(60000),
+    signal: AbortSignal.timeout(material ? 150000 : 60000),
     headers: { 'x-api-key': keyOf(), 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({ model: MODEL, max_tokens: 3000, system: SYSTEM, messages: [{ role: 'user', content: prompt }] }),
+    body: JSON.stringify({ model: MODEL, max_tokens: material ? 10000 : 3000, system: material ? `${SYSTEM} ${MATERIAL}` : SYSTEM, messages: [{ role: 'user', content: prompt }] }),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -97,7 +107,7 @@ function present(result, { tasks, travel, source, warning }) {
     source, warning: warning || '', tasks, travel,
     blocks: result.blocks.map((b) => ({
       idx: b.idx, part: b.part, ref: b.ref, title: b.title, start: toISO(b.start), end: toISO(b.end), minutes: b.minutes, travel: b.travel,
-      place: b.place, why: b.why, kind: b.kind,
+      place: b.place, why: b.why, kind: b.kind, notes: b.notes || '', from: b.from || null,
     })),
     unplaced: result.unplaced.map((u) => ({ idx: u.idx, ref: u.task.ref, title: u.task.title, minutes: u.task.minutes, reason: u.reason })),
   };
@@ -110,16 +120,29 @@ const optsOf = (o = {}) => {
 // No travel inside the blocks and no time held for lunch: the person plans those themselves.
 const LAYOUT = { home: null, travel: false, lunch: false };
 
+/** Claude's tasks from material, tied to what they came from: each material's tasks are a chain of steps, kept in order. */
+function linkMaterial(raw, material) {
+  return (Array.isArray(raw) ? raw : []).map((t, i) => {
+    const n = Number(t?.source);
+    const m = Number.isInteger(n) && n >= 1 ? material[n - 1] : null;
+    if (!m) return t;
+    return { ...t, chain: `m${n}`, step: Number.isFinite(Number(t.step)) ? Number(t.step) : i + 1, from: { title: m.title, url: m.url } };
+  });
+}
+
 /**
- * Estimates the tasks in `text` and places them on `date` ("YYYY-MM-DD").
+ * Estimates the tasks in `text` and places them on `date` ("YYYY-MM-DD"). `material`: pages and pictures read
+ * for it (sources.js: [{ title, url, kind, text }]), turned into tasks too; that needs Claude.
  * Returns { source: 'claude' | 'local', blocks, unplaced, tasks, travel (always empty now), warning }.
  */
-async function planDay(text, date, o, inboxIds = []) {
+async function planDay(text, date, o, inboxIds = [], material = []) {
   const body = String(text || '').trim();
+  const read = sources.forPrompt(material);
   // Tasks picked in the window (sent from other apps, on the backburner, or with no date): planned along with what was typed.
   const wanted = new Set(Array.isArray(inboxIds) ? inboxIds : []);
   const arrived = wanted.size ? (await hub.getTasks()).tasks.filter((t) => wanted.has(t.id) && !t.done && !t.mirror) : [];
-  if (!body && !arrived.length) throw new Error('Describe what you need to get done first.');
+  if (!body && !arrived.length && !read.length) throw new Error('Describe what you need to get done first.');
+  if (read.length && !keyOf()) throw new Error('Turning pages and pictures into tasks needs your Claude key: add it in Settings → AI.');
   const opts = optsOf(o);
   const { day, from, to } = windowOf(date, opts);
   const busy = await busyOf(day);
@@ -127,8 +150,8 @@ async function planDay(text, date, o, inboxIds = []) {
   const travel = [];
   if (keyOf()) {
     try {
-      const answer = await askClaude(userMessage({ text: body, day, from, to, busy, arrived }));
-      tasks = plan.normalizeTasks(answer.tasks);
+      const answer = await askClaude(userMessage({ text: body, day, from, to, busy, arrived, material: read }), { material: read.length > 0 });
+      tasks = plan.normalizeTasks(linkMaterial(answer.tasks, read));
       // Claude's "t1" tags are the arrived tasks: back to their real ids (and nothing it invented).
       for (const t of tasks) {
         const m = /^t(\d+)$/.exec(String(t.ref || ''));
@@ -137,6 +160,7 @@ async function planDay(text, date, o, inboxIds = []) {
       source = 'claude';
       if (!tasks.length) throw new Error('Claude found no tasks in that.');
     } catch (err) {
+      if (read.length) throw err; // a page or a picture can't be planned from guesses
       warning = `${err.message} Planned from the words alone instead.`;
     }
   }
@@ -179,4 +203,4 @@ function remember(o) {
   return info();
 }
 
-module.exports = { planDay, replan, remember, info, parseAnswer, userMessage, windowOf };
+module.exports = { planDay, replan, remember, info, parseAnswer, userMessage, windowOf, linkMaterial };

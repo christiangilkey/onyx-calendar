@@ -6714,6 +6714,131 @@
     if (!MOBILE && !g) title.focus();
   }
 
+  // ---- Reading for Magic add and Magic goal: a picture (a screenshot or photo of instructions), a webpage or a Notion
+  // page. Each is read as soon as it is added (main: sources.js) and shows as a chip with what was found; what was
+  // read goes along when planning. A picture is made small enough to send first (Claude reads about a megapixel).
+  const SOURCES_MAX = 4;
+
+  async function shrinkImage(file) {
+    const bmp = await createImageBitmap(file);
+    const draw = (max, q) => {
+      const k = Math.min(1, max / Math.max(bmp.width, bmp.height), Math.sqrt(1150000 / (bmp.width * bmp.height)));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(bmp.width * k));
+      c.height = Math.max(1, Math.round(bmp.height * k));
+      const g = c.getContext('2d');
+      g.fillStyle = '#fff'; // a see-through picture reads as on paper
+      g.fillRect(0, 0, c.width, c.height);
+      g.drawImage(bmp, 0, 0, c.width, c.height);
+      return c.toDataURL('image/jpeg', q);
+    };
+    let url = draw(1568, 0.86);
+    for (const q of [0.74, 0.62, 0.5]) { if (url.length <= 950000) break; url = draw(1568, q); } // the phone's link takes 1 MB
+    const thumb = draw(96, 0.7);
+    bmp.close?.();
+    return { data: url.slice(url.indexOf(',') + 1), type: 'image/jpeg', thumb };
+  }
+
+  /** The "Read from" row and its chips. onChange: something was added, read or removed. */
+  function sourceBox(onChange = () => {}) {
+    const items = [];
+    const list = h('div', { class: 'src-list' });
+    const file = h('input', { type: 'file', accept: 'image/*', multiple: true, hidden: true, onchange: () => { addFiles(file.files); file.value = ''; } });
+    const url = h('input', { type: 'url', class: 'src-url', placeholder: 'Paste a webpage or Notion link', spellcheck: false, autocomplete: 'off', enterkeyhint: 'go' });
+    const linkRow = h('div', { class: 'src-link' }, url,
+      h('button', { type: 'button', class: 'btn', onclick: () => takeLink() }, 'Read'),
+      h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Cancel', onclick: () => { linkRow.hidden = true; } }, icon('x')));
+    linkRow.hidden = true;
+    url.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); takeLink(); }
+      if (e.key === 'Escape') { e.stopPropagation(); linkRow.hidden = true; }
+    });
+    const takeLink = () => { if (addLink(url.value)) { url.value = ''; linkRow.hidden = true; } };
+    const el = h('div', { class: 'src-box' },
+      h('div', { class: 'src-bar' },
+        h('span', { class: 'src-lead' }, 'Read from'),
+        h('button', { type: 'button', class: 'src-add', title: 'A screenshot or photo of instructions, a list or notes', onclick: () => file.click() }, icon('camera'), 'Picture'),
+        h('button', { type: 'button', class: 'src-add', title: 'A webpage or a Notion page', onclick: () => { linkRow.hidden = !linkRow.hidden; if (!linkRow.hidden) url.focus(); } }, icon('link'), 'Link'),
+        file),
+      linkRow, list);
+
+    const status = (s) => (s.state === 'reading' ? (s.kind === 'image' ? 'Reading the picture…' : 'Reading…')
+      : s.state === 'error' ? s.error
+        : `${s.words.toLocaleString()} words${s.cut ? ', the first part' : ''}`);
+    function paint() {
+      list.replaceChildren(...items.map((s) => h('div', { class: `src-chip ${s.state}` },
+        s.thumb ? h('img', { class: 'src-thumb', src: s.thumb, alt: '' }) : h('span', { class: 'src-ico' }, icon(s.kind === 'notion' ? 'note' : s.kind === 'image' ? 'camera' : 'globe')),
+        h('span', { class: 'src-main' }, h('span', { class: 'src-t' }, s.title), h('small', null, status(s))),
+        s.state === 'reading' ? h('span', { class: 'spinner' }) : null,
+        s.state === 'error' ? h('button', { type: 'button', class: 'mg-link', onclick: () => start(s) }, 'Try again') : null,
+        h('button', { type: 'button', class: 'icon-btn', title: 'Remove', 'aria-label': `Remove ${s.title}`, onclick: () => { items.splice(items.indexOf(s), 1); paint(); } }, icon('x')))));
+      list.hidden = !items.length;
+      onChange();
+    }
+    function start(s) {
+      s.state = 'reading';
+      s.error = '';
+      s.promise = onyx.readSource(s.req).then(
+        (r) => Object.assign(s, { state: 'ready', kind: r.kind, title: r.title || s.title, url: r.url || s.url || '', text: r.text, words: r.words, cut: r.cut }),
+        (err) => Object.assign(s, { state: 'error', error: err?.message || 'Could not read it.' })).finally(paint);
+      paint();
+    }
+    function add(req, shown) {
+      if (items.length >= SOURCES_MAX) { toast(`Up to ${SOURCES_MAX} pages or pictures at a time.`, 'warn'); return false; }
+      const s = { ...shown, req, words: 0 };
+      items.push(s);
+      start(s);
+      return true;
+    }
+    function addLink(raw) {
+      let v = String(raw || '').trim();
+      if (!v) { url.focus(); return false; }
+      if (!/^https?:\/\//i.test(v)) v = `https://${v}`;
+      let u;
+      try { u = new URL(v); } catch { toast('That is not a link.', 'warn'); return false; }
+      if (!u.hostname.includes('.')) { toast('That is not a link.', 'warn'); return false; }
+      const notion = /(^|\.)notion\.(so|site)$/i.test(u.hostname);
+      return add({ kind: 'link', url: u.href }, { kind: notion ? 'notion' : 'web', title: u.hostname.replace(/^www\./, ''), url: u.href });
+    }
+    async function addFiles(files) {
+      for (const f of [...(files || [])]) {
+        if (!/^image\//.test(f.type)) { toast(`${f.name || 'That file'} is not a picture.`, 'warn'); continue; }
+        try {
+          const img = await shrinkImage(f);
+          const name = f.name && !/^(image|screenshot|img)[\w-]*\.\w+$/i.test(f.name) ? f.name.replace(/\.\w+$/, '') : 'Picture';
+          add({ kind: 'image', data: img.data, type: img.type }, { kind: 'image', title: name, thumb: img.thumb });
+        } catch {
+          toast('That picture could not be opened.', 'warn');
+        }
+      }
+    }
+    /** Pasted into a box: a picture is read, and a lone link is read rather than typed in. */
+    function paste(e) {
+      const pics = [...(e.clipboardData?.files || [])].filter((f) => /^image\//.test(f.type));
+      if (pics.length) { e.preventDefault(); addFiles(pics); return; }
+      const text = (e.clipboardData?.getData('text/plain') || '').trim();
+      if (/^https?:\/\/\S+$/i.test(text)) { e.preventDefault(); addLink(text); }
+    }
+    /** Pictures dropped anywhere on `target` are read. */
+    function dropOn(target) {
+      target.addEventListener('dragover', (e) => { if ([...(e.dataTransfer?.types || [])].includes('Files')) e.preventDefault(); });
+      target.addEventListener('drop', (e) => {
+        const pics = [...(e.dataTransfer?.files || [])];
+        if (!pics.length) return;
+        e.preventDefault();
+        addFiles(pics);
+      });
+    }
+    list.hidden = true;
+    return {
+      el, paste, dropOn,
+      count: () => items.filter((s) => s.state !== 'error').length,
+      reading: () => items.some((s) => s.state === 'reading'),
+      settle: () => Promise.allSettled(items.map((s) => s.promise)),
+      ready: () => items.filter((s) => s.state === 'ready').map((s) => ({ title: s.title, kind: s.kind, url: s.url || '', text: s.text })),
+    };
+  }
+
   // ---- Magic add for goals: a goal (new, or one that is already set), its dates and whatever is pasted about it
   // (an outline, notes, the steps already there and the ones already done) become phases of measurable steps,
   // one-off or repeating, as finely as the hammers say, each session at a free time in the calendar. The plan is
@@ -6754,6 +6879,10 @@
     const out = h('div', { class: 'gm-out' });
     const make = h('button', { class: 'btn primary', hidden: true, onclick: () => create() }, g ? 'Add steps' : 'Set goal');
     let plan = null, busy = false;
+    // A course page, a Notion plan or a picture of one, read into the plan along with the outline.
+    const src = sourceBox();
+    outline.addEventListener('paste', src.paste);
+    src.dropOn(outline);
 
     const run = async () => {
       if (busy) return;
@@ -6762,10 +6891,12 @@
       go.disabled = true;
       go.replaceChildren(icon('sparkles'), 'Planning…');
       make.hidden = true;
-      out.replaceChildren(h('div', { class: 'gm-wait' }, h('span', { class: 'spinner' }),
-        h('span', null, level >= 4 ? 'Claude is writing a day-by-day plan. A big one takes a minute or two.' : 'Claude is breaking it down…')));
+      const waiting = (t) => out.replaceChildren(h('div', { class: 'gm-wait' }, h('span', { class: 'spinner' }), h('span', null, t)));
+      if (src.reading()) waiting('Reading…');
+      await src.settle();
+      waiting(level >= 4 ? 'Claude is writing a day-by-day plan. A big one takes a minute or two.' : 'Claude is breaking it down…');
       try {
-        plan = await onyx.planGoal({ title: title.value.trim(), start: start.value, end: end.value, outline: outline.value, level, fit: fit.checked, goalId: g?.id || null });
+        plan = await onyx.planGoal({ title: title.value.trim(), start: start.value, end: end.value, outline: outline.value, sources: src.ready(), level, fit: fit.checked, goalId: g?.id || null });
         for (const s of plan.steps) s.on = true;
         draw();
       } catch (err) {
@@ -6882,7 +7013,9 @@
         } else {
           res = await onyx.createGoal({
             title: title.value.trim(), start: start.value, end: end.value, color: COLORS[goals.length % COLORS.length],
-            notes: cleanNote(outline.value).slice(0, 8000), tags: [...tagFilter].map((t) => tagInfo(t)?.name || t), steps,
+            // The outline, and where the plan was read from.
+            notes: [cleanNote(outline.value), ...src.ready().map((s) => `${s.title}${s.url ? `: ${s.url}` : ''}`)].filter(Boolean).join('\n').slice(0, 8000),
+            tags: [...tagFilter].map((t) => tagInfo(t)?.name || t), steps,
           });
         }
         if (res.warnings?.length) toast(`Saved, but: ${res.warnings.slice(0, 3).join('  ·  ')}${res.warnings.length > 3 ? ` and ${res.warnings.length - 3} more` : ''}`, 'warn');
@@ -6903,6 +7036,7 @@
       title,
       h('div', { class: 'row' }, icon('calendar'), start, h('span', { class: 'dash' }, 'to'), end),
       h('div', { class: 'row top' }, icon('note'), outline),
+      h('div', { class: 'row gm-src' }, src.el),
       h('div', { class: 'row gm-meter' }, icon('hammer'), h('div', { class: 'txt' }, h('div', { class: 'breakdown-head' }, h('b', null, 'Breakdown'), hammers), levelName)),
       h('label', { class: 'row gm-fit' }, fit, h('span', null, 'Give every session a free time in my calendar')),
       h('div', { class: 'row gm-go-row' }, go),
@@ -7924,6 +8058,9 @@
         : 'Pick up the prescription\nGroceries\nStudy Arabic for an hour and a half\nCall the bank by 4pm' });
     const grow = () => { text.style.height = 'auto'; text.style.height = `${Math.min(260, Math.max(52, text.scrollHeight))}px`; };
     text.addEventListener('input', () => { grow(); paintGo(); });
+    // Pictures and links to read, under the typing box: a picture or a lone link pasted into it is read too.
+    const src = sourceBox(() => paintGo());
+    text.addEventListener('paste', src.paste);
     setTimeout(grow, 0);
     const date = h('input', { type: 'date', value: preset.date || ymd(new Date()) });
     const start = h('input', { type: 'time', value: m.start, step: 900 });
@@ -7947,7 +8084,7 @@
     /** The button says how much it plans: the ticked tasks and the lines typed. */
     function paintGo() {
       const typed = text ? text.value.split('\n').filter((l) => l.trim()).length : 0;
-      const count = picked.size + typed;
+      const count = picked.size + typed + (src ? src.count() : 0);
       goCount.textContent = String(count);
       goCount.hidden = !count;
     }
@@ -8102,7 +8239,9 @@
             b.travel > 0 && h('span', { class: 'mr-chip travel', title: 'Inside the block: it starts when you set off' }, icon('car'), `${b.travel} min travel · leave ${fmtTime(s)}`),
             b.ref && h('span', { class: 'mr-chip from', title: 'This is the task itself: it gets this time, not a copy' }, icon('tasks'), sourceName(tasks.find((t) => t.id === b.ref))),
             b.place && h('span', { class: 'mr-chip' }, icon('pin'), b.place),
+            b.from && h('span', { class: 'mr-chip', title: b.from.url || 'Read from a picture' }, icon(b.from.url ? 'link' : 'camera'), b.from.title),
             h('span', { class: 'mr-chip' }, mins(b.minutes))),
+          b.notes && h('div', { class: 'mr-notes' }, b.notes),
           b.why && h('div', { class: 'mr-why' }, b.why)),
         h('div', { class: 'mr-ctl' },
           h('button', { class: 'icon-btn', title: 'Shorter', onclick: () => resize(-1) }, '−'),
@@ -8116,17 +8255,23 @@
 
     async function run() {
       if (working) return;
-      if (!text.value.trim() && !picked.size) { text.focus(); return; }
+      if (!text.value.trim() && !picked.size && !src.count()) { text.focus(); return; }
       working = true;
       go.disabled = true;
       go.replaceChildren(icon('sparkles'), claude ? 'Estimating…' : 'Planning…');
       msg.replaceChildren();
       view = null;
       show('plan');
-      out.replaceChildren(h('p', { class: 'magic-source' }, icon('sparkles'), claude ? 'Estimating how long each takes…' : 'Fitting them in…'));
+      const progress = (t) => out.replaceChildren(h('p', { class: 'magic-source' }, icon('sparkles'), t));
+      const fromRead = 'Turning what was read into tasks and fitting them in…';
+      progress(src.reading() ? 'Reading…' : src.count() ? fromRead : claude ? 'Estimating how long each takes…' : 'Fitting them in…');
       try {
         onyx.magicRemember?.(opts()).then((s) => { if (s?.settings) S.settings = s.settings; }).catch(() => {});
-        const r = await onyx.magicPlan(text.value, date.value, opts(), [...picked]);
+        await src.settle(); // pages and pictures still being read
+        const material = src.ready();
+        if (material.length) progress(fromRead);
+        if (!text.value.trim() && !picked.size && !material.length) throw new Error('Nothing could be read from that. Its note says why.');
+        const r = await onyx.magicPlan(text.value, date.value, opts(), [...picked], material);
         view = { date: date.value, tasks: r.tasks, travel: r.travel, result: r, busy: await dayEntries(date.value) };
         chosen = null;
         working = false;
@@ -8179,7 +8324,9 @@
           return { task: b.ref, spec: { start: b.start, minutes: Math.round((new Date(b.end) - new Date(b.start)) / 60000), leaveBy: b.travel || 0 } };
         }
         return { fields: {
-          calendarId, title: b.title, start: b.start, end: b.end, allDay: false, location: b.place || '', notes: b.why || '',
+          calendarId, title: b.title, start: b.start, end: b.end, allDay: false, location: b.place || '',
+          // A step from a page or a picture keeps its instructions, and where they came from.
+          notes: [b.notes, b.from ? `From ${b.from.title}${b.from.url ? `: ${b.from.url}` : ''}` : '', b.notes ? '' : b.why].filter(Boolean).join('\n\n'),
           ...(b.travel > 0 ? { leaveBy: b.travel } : {}),
         } };
       });
@@ -8240,7 +8387,7 @@
     function show(next) {
       stage = next;
       toggleOpts(false);
-      body.replaceChildren(...(next === 'compose' ? [text, pickBox, msg] : [out]));
+      body.replaceChildren(...(next === 'compose' ? [text, src.el, pickBox, msg] : [out]));
       body.scrollTop = 0;
       paintFoot();
     }
@@ -8263,6 +8410,7 @@
       foot));
     // A click anywhere else closes the settings panel.
     sheet.addEventListener('pointerdown', (e) => { if (!optsPop.hidden && !optsWrap.contains(e.target)) toggleOpts(false); });
+    src.dropOn(sheet); // pictures dropped on the window are read
     show('compose');
     $('#modal').replaceChildren(sheet);
     $('#modal').hidden = false;

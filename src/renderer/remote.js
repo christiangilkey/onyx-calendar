@@ -17,7 +17,7 @@
   const CACHE = 'onyx.cache.';
   const TIMEOUT_MS = 7000;
   // Commands that think or make a lot on the PC: Claude planning a day or a goal, a goal making its many tasks.
-  const SLOW_MS = { 'magic:plan': 120000, 'magic:replan': 60000, 'ai:breakdown': 45000, 'goal:plan': 330000, 'goal:create': 300000, 'goal:update': 300000 };
+  const SLOW_MS = { 'magic:plan': 180000, 'source:read': 130000, 'magic:replan': 60000, 'ai:breakdown': 45000, 'goal:plan': 330000, 'goal:create': 300000, 'goal:update': 300000 };
   // Settings that belong to this phone rather than to the shared calendar.
   const PHONE_ONLY = ['view', 'tasksPanel', 'newsPanel', 'nextBar', 'popups', 'doneSound'];
 
@@ -572,7 +572,8 @@
     focusEnd: () => call('focus:end'),
     focusNext: (info) => call('focus:next', info),
     setAiKey: (key) => call('ai:key', key),
-    magicPlan: (text, date, opts, inboxIds) => call('magic:plan', text, date, opts, inboxIds),
+    magicPlan: (text, date, opts, inboxIds, material) => call('magic:plan', text, date, opts, inboxIds, material),
+    readSource: (src) => call('source:read', src),
     magicReplan: (tasks, travel, date, opts) => call('magic:replan', tasks, travel, date, opts),
     magicRemember: (opts) => call('magic:remember', opts),
     // Onyx Home (the launcher) and Onyx on the lock screen, chosen in Settings.

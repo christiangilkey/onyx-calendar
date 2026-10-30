@@ -73,7 +73,8 @@ contextBridge.exposeInMainWorld('onyx', {
   onFocusRequest: (fn) => ipcRenderer.on('focus-request', () => fn()),
   takeFocusRequest: () => ipcRenderer.invoke('focus-request:take'),
   setAiKey: (key) => call('ai:key', key),
-  magicPlan: (text, date, opts, inboxIds) => call('magic:plan', text, date, opts, inboxIds),
+  magicPlan: (text, date, opts, inboxIds, material) => call('magic:plan', text, date, opts, inboxIds, material),
+  readSource: (src) => call('source:read', src),
   magicReplan: (tasks, travel, date, opts) => call('magic:replan', tasks, travel, date, opts),
   magicRemember: (opts) => call('magic:remember', opts),
   // On-screen popups: shown by the app, and what was pressed on them.

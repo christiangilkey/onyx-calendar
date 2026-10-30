@@ -27,7 +27,8 @@ const SYSTEM = [
   'Every task title starts with a verb and is measurable: it says how much or how many (pages, minutes, reps, words, items, calls), so done is obvious. A title is at most 30 characters (count them): keep it to the action and the number, and put any detail in "measure".',
   'Give each task: "title"; "measure" (one short line: how they know it is done, with a number); "phase" (the phase number, from 1); "repeat" (once, daily, weekdays, weekly, biweekly or monthly; use a repeat for anything that is practised or done regularly instead of listing it again and again); "start" (YYYY-MM-DD: the due date of a one-off task, or the first day of a repeating one); "until" (YYYY-MM-DD, the last day of a repeating task, usually the end of its phase; null for one-off tasks); "minutes" (how long one session takes, a multiple of 5 from 5 to 180); "when" (morning, afternoon, evening or any: when it suits best).',
   'They may paste an outline of what the goal involves and the steps they already have. Use all of it: every part of the outline becomes tasks. Steps they say are already finished (marked [x], ✓, done, finished, completed) are included with "done": true, as one-off tasks dated on or before today. Do not repeat steps listed as already in the plan.',
-  'A task may also have details for its block on the calendar, only where they help: "checklist" (2 to 6 short sub-steps to tick off within the session, each at most 60 characters, for a session with distinct parts); "links" (at most 2 of {"title","url"}: pages from their outline, or the official site of a tool or course you are certain exists, never a guessed address); "tip" (one short sentence on how to start or do it well). Leave them out of simple tasks.',
+  'They may also attach material (a webpage, a Notion page or a picture, written out as text, numbered "Material 1"). Treat it like the outline and use all of it: follow its structure (modules, chapters, lessons, steps) in its order, so every part of it becomes tasks.',
+  'A task may also have details for its block on the calendar, only where they help: "checklist" (2 to 6 short sub-steps to tick off within the session, each at most 60 characters, for a session with distinct parts); "links" (at most 2 of {"title","url"}: pages from their outline or material, or the official site of a tool or course you are certain exists, never a guessed address); "tip" (one short sentence on how to start or do it well). Leave them out of simple tasks.',
   'Spread the work realistically over the whole time frame, in a sensible order (foundations first), never before today, and leave room: a few hours a week for a hobby goal, more for a serious one, as the outline suggests.',
   'Write in the same language as the goal. Reply with only JSON: {"phases":[{"name":"","start":"","end":"","milestone":""}],"tasks":[...]}.',
 ].join(' ');
@@ -41,8 +42,12 @@ const clampDate = (s, lo, hi) => (s < lo ? lo : s > hi ? hi : s);
 const hm = (min) => `${pad(Math.floor(min / 60))}:${pad(min % 60)}`;
 const toMin = (s, fallback) => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(s || '')); return m ? Number(m[1]) * 60 + Number(m[2]) : fallback; };
 
-/** What to send Claude: the goal, its dates, today, the outline and the steps the goal already has. */
-function userMessage({ title, start, end, today, outline = '', level = 3, existing = [] }) {
+/** Material attached to the goal (sources.js forPrompt: [{ title, url, kind, text }]), numbered for Claude. */
+const materialBlock = (list) => (Array.isArray(list) ? list : []).filter((s) => s && s.text)
+  .map((s, i) => `Material ${i + 1}: ${s.title || 'Untitled'}${s.url ? ` (${s.url})` : s.kind === 'image' ? ' (from a picture)' : ''}\n${s.text}`).join('\n\n');
+
+/** What to send Claude: the goal, its dates, today, the outline, any material and the steps the goal already has. */
+function userMessage({ title, start, end, today, outline = '', level = 3, existing = [], material = [] }) {
   const n = Math.min(5, Math.max(1, Math.round(Number(level) || 3)));
   const have = existing.filter((s) => s && s.title).slice(0, 150)
     .map((s) => `- ${s.done ? '[x] ' : ''}${String(s.title).slice(0, 120)}${s.repeat ? ` (${s.repeat})` : ''}`);
@@ -50,6 +55,7 @@ function userMessage({ title, start, end, today, outline = '', level = 3, existi
     `Goal: ${String(title).slice(0, 300)}`,
     `Time frame: ${start} to ${end}. Today is ${today}.`,
     String(outline).trim() ? `Their outline, notes and the steps they have:\n${String(outline).slice(0, 12000)}` : '',
+    materialBlock(material),
     have.length ? `Already in the plan (do not repeat these):\n${have.join('\n')}` : '',
     `Break it down into ${LEVELS[n].ask}.`,
     n >= 4 ? 'With this many tasks, give details (checklist, links, tip) only to the tasks that need them most, and keep them short.' : '',

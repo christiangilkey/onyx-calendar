@@ -150,7 +150,7 @@ test('a repeating step stops after its last day, and the next task keeps its len
 test('the window has the Magic add button, the hammers, and keeps the plan\'s details when saving', () => {
   const app = require('fs').readFileSync(require('path').join(__dirname, '../src/renderer/app.js'), 'utf8');
   assert.match(app, /class: 'magic-goal'.*openGoalMagic\(null,.*'Magic add goal'\)/);
-  assert.match(app, /onyx\.planGoal\(\{ title: title\.value\.trim\(\), start: start\.value, end: end\.value, outline: outline\.value, level, fit: fit\.checked, goalId: g\?\.id \|\| null \}\)/);
+  assert.match(app, /onyx\.planGoal\(\{ title: title\.value\.trim\(\), start: start\.value, end: end\.value, outline: outline\.value, sources: src\.ready\(\), level, fit: fit\.checked, goalId: g\?\.id \|\| null \}\)/);
   assert.match(app, /openGoalMagic\(g, r, gLevel\)/);
   assert.match(app, /\['biweekly', 'Every 2 weeks'\], \['monthly', 'Monthly'\]\]/);
   const remote = require('fs').readFileSync(require('path').join(__dirname, '../src/renderer/remote.js'), 'utf8');

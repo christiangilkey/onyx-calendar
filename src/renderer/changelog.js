@@ -2,9 +2,21 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.89.0",
+  "date": "2026-10-30",
+  "title": "Onyx 1.89.0: plan from a picture, a webpage or a Notion page",
+  "items": [
+   "Magic add and Magic goal can now read things for you. Under the typing box, \"Read from\" has Picture and Link: add a screenshot or photo of instructions, a webpage, or a Notion page. You can also paste a picture or a link straight into the box, or drop a picture on the window.",
+   "Each one is read as soon as it's added and shows how much was found, or why it couldn't be read (a page behind a sign-in, say) and what to do instead.",
+   "Magic add turns what was read into tasks and fits them into your day. Steps from instructions stay in order, and each block keeps that step's instructions and a link back in its notes. Steps that don't fit today can go to the next day, still in order.",
+   "Magic goal uses what was read like your outline, following its modules or chapters in order, and keeps the links in the goal's notes.",
+   "Webpages are read on your PC. Notion pages come through your Notion connection: share the page with your integration in Notion first. Pictures are read by Claude with your key."
+  ]
+ },
+ {
   "version": "1.88.0",
   "date": "2026-10-30",
-  "title": "Onyx 1.88.0: Magic add on one screen",
+  "title": "Magic add on one screen",
   "items": [
    "Magic add is redesigned to fit on one screen. You type tasks at the top and tick tasks from your lists below. The day and the Plan button stay in a footer that doesn't scroll away.",
    "The hours to plan in and the calendar are one short line above the Plan button. Change opens a small panel to edit them.",

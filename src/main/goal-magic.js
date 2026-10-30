@@ -44,7 +44,7 @@ async function busyFrom(today, end) {
 }
 
 /**
- * Plans a goal. o: { title, start, end, outline, level (1-5), fit (give sessions free times), goalId (add to
+ * Plans a goal. o: { title, start, end, outline, sources (pages and pictures read for it), level (1-5), fit (give sessions free times), goalId (add to
  * that goal: its steps are sent so none are repeated) }. Returns { phases, steps, summary }.
  */
 async function planGoal(o = {}) {
@@ -61,7 +61,8 @@ async function planGoal(o = {}) {
   const goal = o.goalId ? store.data.goals.find((g) => g.id === o.goalId) : null;
   const existing = goal ? goal.steps.map((s) => ({ title: s.title, done: s.done, repeat: s.repeat })) : [];
 
-  const answer = await askClaude(plan.userMessage({ title, start, end, today, outline: o.outline, level, existing }), level);
+  const material = require('./sources').forPrompt(o.sources);
+  const answer = await askClaude(plan.userMessage({ title, start, end, today, outline: o.outline, level, existing, material }), level);
   const { phases, steps } = plan.normalize(answer, { start, end, today });
   if (!steps.length) throw new Error('Claude gave no steps. Add a little more about the goal and try again.');
   if (o.fit !== false) {

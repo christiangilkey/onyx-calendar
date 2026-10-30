@@ -191,7 +191,9 @@ const handlers = {
   'focus:insights': () => require('./focus').insights(),
   'focus:next': (info) => require('./focus').suggestions(info),
   // Magic add: describe the day's tasks, get them placed in the free time (replan: the same tasks, changed).
-  'magic:plan': (text, date, opts, inboxIds) => require('./magic').planDay(text, date, opts, inboxIds),
+  'magic:plan': (text, date, opts, inboxIds, material) => require('./magic').planDay(text, date, opts, inboxIds, material),
+  // A webpage, a Notion page or a picture, read into text for Magic add and Magic goal to plan from.
+  'source:read': (src) => require('./sources').read(src),
   'magic:replan': (tasks, travel, date, opts) => require('./magic').replan(tasks, travel, date, opts),
   'magic:remember': withState((opts) => require('./magic').remember(opts)),
   // Calls & alerts: the Twilio auth token (kept with the secrets), and a test call or push.

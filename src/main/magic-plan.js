@@ -130,6 +130,10 @@ function normalizeTasks(list) {
     after: hm(t?.after), before: hm(t?.before),
     why: String(t?.why || '').trim().slice(0, 160),
     ...(t?.ref ? { ref: String(t.ref).slice(0, 400) } : {}), // the task from another app this stands for
+    ...(t?.notes ? { notes: String(t.notes).trim().slice(0, 600) } : {}), // what to do, from the material it came from
+    // A step of something read (a page, a picture of instructions): its steps are planned in order.
+    ...(t?.chain ? { chain: String(t.chain).slice(0, 24), step: Number.isFinite(Number(t.step)) ? Number(t.step) : 0 } : {}),
+    ...(t?.from?.title ? { from: { title: String(t.from.title).slice(0, 120), url: /^https?:\/\//i.test(String(t.from.url || '')) ? String(t.from.url).slice(0, 2000) : '' } } : {}),
   })).filter((t) => t.title);
 }
 
@@ -245,15 +249,24 @@ function schedule(busy, tasks, opts) {
   for (const g of gaps) g.layout = { ok: true, cost: 0, items: [] };
   const longest = gaps.reduce((m, g) => Math.max(m, g.to - g.from), 0);
 
-  // The ones with a hard time first, then the long ones: they are the hardest to fit.
-  const order = tasks.map((task, i) => ({ task, i }))
+  // The steps of something read go first, each after the one before it: their order is the hardest thing to
+  // keep. Then the ones with a hard time, then the long ones: they are the hardest to fit.
+  const chained = tasks.filter((t) => t.chain)
+    .sort((a, b) => a.chain.localeCompare(b.chain) || a.step - b.step || tasks.indexOf(a) - tasks.indexOf(b));
+  const order = [...chained, ...tasks.map((task, i) => ({ task, i })).filter((x) => !x.task.chain)
     .sort((a, b) => (!!(b.task.before || b.task.after) - !!(a.task.before || a.task.after)) || b.task.minutes - a.task.minutes || a.i - b.i)
-    .map((x) => x.task);
+    .map((x) => x.task)];
+  const lastOf = new Map(); // chain -> its step placed last: the next one goes after it
+  const stuck = new Set();  // chains with a step that did not fit: the steps after it wait too
 
   const tryPlace = (task) => {
     let best = null;
-    for (const gap of gaps) {
-      for (let pos = 0; pos <= gap.seq.length; pos++) {
+    // A step goes after the one before it: in a later stretch, or later in the same one.
+    const prev = task.chain ? lastOf.get(task.chain) : null;
+    const prevGap = prev ? gaps.findIndex((g) => g.seq.includes(prev)) : -1;
+    for (let gi = Math.max(0, prevGap); gi < gaps.length; gi++) {
+      const gap = gaps[gi];
+      for (let pos = gi === prevGap ? gap.seq.indexOf(prev) + 1 : 0; pos <= gap.seq.length; pos++) {
         const seq = [...gap.seq.slice(0, pos), task, ...gap.seq.slice(pos)];
         const lay = bestLayout(gap, seq, ctx);
         if (!lay.ok) continue;
@@ -264,11 +277,16 @@ function schedule(busy, tasks, opts) {
     if (!best) return false;
     best.gap.seq = best.seq;
     best.gap.layout = best.lay;
+    if (task.chain) lastOf.set(task.chain, task);
     return true;
   };
 
   const unplaced = [];
   for (const task of order) {
+    if (task.chain && stuck.has(task.chain)) {
+      unplaced.push({ task, idx: tasks.indexOf(task), reason: 'Comes after a step that did not fit' });
+      continue;
+    }
     if (tryPlace(task)) continue;
     // Too long for any one stretch: in two or three sittings, when it is the kind of thing that can be.
     let split = false;
@@ -277,12 +295,16 @@ function schedule(busy, tasks, opts) {
         const each = clampMinutes(Math.ceil(task.minutes / n / 5) * 5);
         if (each < 30) break;
         const saved = gaps.map((g) => ({ seq: g.seq, layout: g.layout }));
+        const savedLast = new Map(lastOf);
         const parts = Array.from({ length: n }, (_, k) => ({ ...task, minutes: each, title: `${task.title} (${k + 1}/${n})`, origin: task }));
         if (parts.every(tryPlace)) { split = true; break; }
         gaps.forEach((g, i) => { g.seq = saved[i].seq; g.layout = saved[i].layout; });
+        lastOf.clear();
+        for (const [k, v] of savedLast) lastOf.set(k, v);
       }
     }
     if (!split) {
+      if (task.chain) stuck.add(task.chain);
       unplaced.push({ task, idx: tasks.indexOf(task), reason: task.minutes * 60000 > longest ? 'Longer than any free stretch in the window' : 'No room left in the window' });
     }
   }
@@ -291,6 +313,7 @@ function schedule(busy, tasks, opts) {
     task: it.task, idx: tasks.indexOf(it.task.origin || it.task), part: !!it.task.origin,
     title: it.task.title, start: it.start, end: it.end, minutes: it.task.minutes, travel: it.travel,
     place: it.task.place, why: it.task.why, kind: it.task.kind, ref: it.task.ref,
+    notes: it.task.notes || '', from: it.task.from || null,
   })).sort((a, b) => a.start - b.start);
   return { blocks, unplaced };
 }

@@ -162,7 +162,7 @@
   };
   // Magic add (preview): loads the real planner file once, then plans like the PC does without Claude.
   let magicLib = null;
-  async function magicRun(text, date, o, given, travel, inboxIds = []) {
+  async function magicRun(text, date, o, given, travel, inboxIds = [], material = []) {
     magicLib ||= await new Promise((ok, no) => {
       if (window.OnyxMagicPlan) return ok(window.OnyxMagicPlan);
       const sc = document.createElement('script');
@@ -185,13 +185,17 @@
     // The tasks that arrived from other apps and were picked: each is one task, keeping its id.
     const arrived = inboxIds.map((id) => tasks.find((t) => t.id === id)).filter(Boolean)
       .flatMap((t) => magicLib.estimateLocal(t.label).slice(0, 1).map((g) => ({ ...g, ref: t.id, ...(t.minutes ? { minutes: t.minutes, why: 'Length given by the app that sent it' } : {}) })));
-    const list = magicLib.normalizeTasks(given || [...arrived, ...(text && text.trim() ? magicLib.estimateLocal(text) : [])]);
+    // What was read (preview): its list lines become the steps, in order, as Claude would make them.
+    const step = /^\s*(?:[-*]|\d+[.)])\s+/;
+    const fromRead = (material || []).flatMap((m, n) => m.text.split('\n').filter((l) => step.test(l)).slice(0, 12)
+      .map((l, k) => ({ ...magicLib.estimateLocal(l.replace(step, ''))[0], chain: `m${n + 1}`, step: k + 1, notes: l.replace(step, ''), from: { title: m.title, url: m.url } })));
+    const list = magicLib.normalizeTasks(given || [...arrived, ...fromRead, ...(text && text.trim() ? magicLib.estimateLocal(text) : [])]);
     if (!list.length) throw new Error('No tasks found in that. Put one on each line.');
     const r = magicLib.schedule(busy, list, { day, from, to, home: null, travel: false, lunch: false }); // like the PC: no travel, no lunch held
     const iso = (ms) => new Date(ms).toISOString();
     return {
       source: given ? 'edited' : 'local', warning: '', tasks: list, travel: [],
-      blocks: r.blocks.map((b) => ({ idx: b.idx, part: b.part, ref: b.ref, title: b.title, start: iso(b.start), end: iso(b.end), minutes: b.minutes, travel: b.travel, place: b.place, why: b.why, kind: b.kind })),
+      blocks: r.blocks.map((b) => ({ idx: b.idx, part: b.part, ref: b.ref, title: b.title, start: iso(b.start), end: iso(b.end), minutes: b.minutes, travel: b.travel, place: b.place, why: b.why, kind: b.kind, notes: b.notes || '', from: b.from || null })),
       unplaced: r.unplaced.map((u) => ({ idx: u.idx, ref: u.task.ref, title: u.task.title, minutes: u.task.minutes, reason: u.reason })),
     };
   }
@@ -674,7 +678,16 @@
         .map((x) => ({ ...x, task: { id: x.task.id, title: x.task.label || x.task.title, minutes: x.task.minutes || null } }));
     },
     // Magic add: the same planner the PC uses (src/main/magic-plan.js), with the offline estimate.
-    magicPlan: async (text, date, o = {}, inboxIds = []) => magicRun(text, date, o, null, null, inboxIds),
+    magicPlan: async (text, date, o = {}, inboxIds = [], material = []) => magicRun(text, date, o, null, null, inboxIds, material),
+    // Preview: a link or a picture "read" after a moment, as made-up instructions (a link with "fail" in it can't be read).
+    readSource: async (src = {}) => {
+      await new Promise((r) => setTimeout(r, 900));
+      if (src.kind === 'link' && /fail/.test(src.url)) throw new Error('That page needs a sign-in, or doesn\'t let apps read it. Add a screenshot of it instead, or paste its text.');
+      const notion = src.kind === 'link' && /notion\.(so|site)/.test(src.url);
+      const text = ['# Set up the standing desk', '1. Unbox the frame and check the parts list', '2. Attach the legs to the crossbar (4 bolts each)',
+        '3. Mount the motor box under the top', '4. Fix the top to the frame and plug in the controller', '5. Run the reset: hold down for 10 seconds'].join('\n');
+      return { kind: src.kind === 'image' ? 'image' : notion ? 'notion' : 'web', title: src.kind === 'image' ? 'Desk assembly steps' : notion ? 'Desk setup (Notion)' : 'How to assemble your desk', url: src.kind === 'link' ? src.url : '', text, words: text.split(/\s+/).length, cut: false };
+    },
     magicReplan: async (tasks, travel, date, o = {}) => magicRun(null, date, o, tasks, travel),
     magicRemember: async (o) => { Object.assign(state.settings.magic ||= {}, o); return snapshot(); },
     syncDesktops: async () => structuredClone({ ...state.desktops, invite: null }),

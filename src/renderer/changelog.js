@@ -2,9 +2,19 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.89.1",
+  "date": "2026-10-30",
+  "title": "Paste screenshots into Magic add",
+  "items": [
+   "Magic add and Magic goal: press Ctrl+V to add a screenshot from your clipboard (for example one taken with Win+Shift+S). It's read wherever the cursor is in the window, not only in the typing box.",
+   "While a Magic window is open, Ctrl+V no longer pastes a copied calendar entry behind it.",
+   "The typing boxes and the \"Read from\" row now mention that you can paste a screenshot."
+  ]
+ },
+ {
   "version": "1.89.0",
   "date": "2026-10-30",
-  "title": "Onyx 1.89.0: plan from a picture, a webpage or a Notion page",
+  "title": "Plan from a picture, a webpage or a Notion page",
   "items": [
    "Magic add and Magic goal can now read things for you. Under the typing box, \"Read from\" has Picture and Link: add a screenshot or photo of instructions, a webpage, or a Notion page. You can also paste a picture or a link straight into the box, or drop a picture on the window.",
    "Each one is read as soon as it's added and shows how much was found, or why it couldn't be read (a page behind a sign-in, say) and what to do instead.",

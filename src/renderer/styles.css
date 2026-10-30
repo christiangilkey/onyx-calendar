@@ -2781,6 +2781,7 @@ body.mobile .mg-footer .magic-total { display: none; }
   border: 1px solid rgba(255, 255, 255, .09); background: rgba(255, 255, 255, .04); color: var(--soft); font-size: 12.5px; font-weight: 600; cursor: pointer; }
 .src-add:hover { color: var(--text); border-color: color-mix(in srgb, #8b7cff 45%, transparent); }
 .src-add .ico { width: 14px; height: 14px; color: #c9b8ff; }
+.src-tip { color: var(--muted); font-size: 12px; margin-left: 2px; }
 .src-link { display: flex; align-items: center; gap: 6px; }
 .src-link[hidden] { display: none; }
 .src-url { flex: 1; min-width: 0; height: 36px; border-radius: 10px; background: #0c0c10; border: 1px solid rgba(255, 255, 255, .1); padding: 0 12px; color: var(--text); font-size: 13.5px; }

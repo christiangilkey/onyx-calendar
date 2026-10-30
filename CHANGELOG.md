@@ -2,7 +2,15 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.89.0 · Onyx 1.89.0: plan from a picture, a webpage or a Notion page
+## 1.89.1 · Paste screenshots into Magic add
+
+_2026-10-30_
+
+- Magic add and Magic goal: press Ctrl+V to add a screenshot from your clipboard (for example one taken with Win+Shift+S). It's read wherever the cursor is in the window, not only in the typing box.
+- While a Magic window is open, Ctrl+V no longer pastes a copied calendar entry behind it.
+- The typing boxes and the "Read from" row now mention that you can paste a screenshot.
+
+## 1.89.0 · Plan from a picture, a webpage or a Notion page
 
 _2026-10-30_
 

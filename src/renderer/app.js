@@ -2798,7 +2798,7 @@
     if (k === 'c' && clip.selected) {
       const src = calendar?.getEventById(clip.selected)?.extendedProps?.src;
       if (src) { e.preventDefault(); copyEntry(src); }
-    } else if (k === 'v' && clip.entry) {
+    } else if (k === 'v' && clip.entry && $('#modal').hidden && $('#popover').hidden) { // a Magic window takes Ctrl+V for its pictures
       e.preventDefault();
       pasteEntry();
     }
@@ -6759,6 +6759,7 @@
         h('span', { class: 'src-lead' }, 'Read from'),
         h('button', { type: 'button', class: 'src-add', title: 'A screenshot or photo of instructions, a list or notes', onclick: () => file.click() }, icon('camera'), 'Picture'),
         h('button', { type: 'button', class: 'src-add', title: 'A webpage or a Notion page', onclick: () => { linkRow.hidden = !linkRow.hidden; if (!linkRow.hidden) url.focus(); } }, icon('link'), 'Link'),
+        !MOBILE && h('span', { class: 'src-tip' }, 'or Ctrl+V a screenshot'),
         file),
       linkRow, list);
 
@@ -6812,11 +6813,15 @@
         }
       }
     }
-    /** Pasted into a box: a picture is read, and a lone link is read rather than typed in. */
+    /** Ctrl+V while this window is open: a picture (a screenshot) is read wherever the cursor is, and a lone
+     *  link pasted into the typing box is read rather than typed in. */
     function paste(e) {
-      const pics = [...(e.clipboardData?.files || [])].filter((f) => /^image\//.test(f.type));
+      const dt = e.clipboardData;
+      let pics = [...(dt?.files || [])].filter((f) => /^image\//.test(f.type));
+      if (!pics.length) pics = [...(dt?.items || [])].filter((i) => i.kind === 'file' && /^image\//.test(i.type)).map((i) => i.getAsFile()).filter(Boolean);
       if (pics.length) { e.preventDefault(); addFiles(pics); return; }
-      const text = (e.clipboardData?.getData('text/plain') || '').trim();
+      if (!api.box || e.target !== api.box) return;
+      const text = (dt?.getData('text/plain') || '').trim();
       if (/^https?:\/\/\S+$/i.test(text)) { e.preventDefault(); addLink(text); }
     }
     /** Pictures dropped anywhere on `target` are read. */
@@ -6830,14 +6835,20 @@
       });
     }
     list.hidden = true;
-    return {
+    const api = {
       el, paste, dropOn,
+      box: null, // the typing box: a link pasted there is read
       count: () => items.filter((s) => s.state !== 'error').length,
       reading: () => items.some((s) => s.state === 'reading'),
       settle: () => Promise.allSettled(items.map((s) => s.promise)),
       ready: () => items.filter((s) => s.state === 'ready').map((s) => ({ title: s.title, kind: s.kind, url: s.url || '', text: s.text })),
     };
+    pasteInto = api;
+    return api;
   }
+  // The Magic window open now (the newest one made); a paste anywhere goes to it while its "Read from" row is showing.
+  let pasteInto = null;
+  document.addEventListener('paste', (e) => { if (pasteInto?.el.isConnected) pasteInto.paste(e); });
 
   // ---- Magic add for goals: a goal (new, or one that is already set), its dates and whatever is pasted about it
   // (an outline, notes, the steps already there and the ones already done) become phases of measurable steps,
@@ -6861,7 +6872,7 @@
     const end = h('input', { type: 'date', value: g ? g.end : ymd(addDays(new Date(), 90)), title: 'Target date', disabled: !!g });
     const outline = h('textarea', {
       class: 'gm-outline', rows: MOBILE ? 6 : 8, spellcheck: true,
-      placeholder: 'Paste everything about it: an outline of what it involves, notes, links, how much time you have, and the steps you already have. Mark the ones you have finished with [x] or "done".',
+      placeholder: `Paste everything about it: an outline of what it involves, notes, links${MOBILE ? '' : ', screenshots'}, how much time you have, and the steps you already have. Mark the ones you have finished with [x] or "done".`,
     });
     let level = startLevel || goalLevel();
     const hammers = h('div', { class: 'hammers', role: 'radiogroup', 'aria-label': 'How finely to break it down' });
@@ -6881,7 +6892,7 @@
     let plan = null, busy = false;
     // A course page, a Notion plan or a picture of one, read into the plan along with the outline.
     const src = sourceBox();
-    outline.addEventListener('paste', src.paste);
+    src.box = outline;
     src.dropOn(outline);
 
     const run = async () => {
@@ -8054,13 +8065,13 @@
       paintGo();
     }
     const text = h('textarea', { class: 'magic-text', rows: 2, spellcheck: true, value: preset.text || '',
-      placeholder: PICK_TABS.some((s) => s.list().length) ? 'Type tasks, one per line, or tick some below'
-        : 'Pick up the prescription\nGroceries\nStudy Arabic for an hour and a half\nCall the bank by 4pm' });
+      placeholder: PICK_TABS.some((s) => s.list().length) ? `Type tasks, one per line${MOBILE ? '' : ', paste a screenshot'}, or tick some below`
+        : `Pick up the prescription\nGroceries\nStudy Arabic for an hour and a half\nCall the bank by 4pm${MOBILE ? '' : '\n…or paste a screenshot of instructions (Ctrl+V)'}` });
     const grow = () => { text.style.height = 'auto'; text.style.height = `${Math.min(260, Math.max(52, text.scrollHeight))}px`; };
     text.addEventListener('input', () => { grow(); paintGo(); });
     // Pictures and links to read, under the typing box: a picture or a lone link pasted into it is read too.
     const src = sourceBox(() => paintGo());
-    text.addEventListener('paste', src.paste);
+    src.box = text;
     setTimeout(grow, 0);
     const date = h('input', { type: 'date', value: preset.date || ymd(new Date()) });
     const start = h('input', { type: 'time', value: m.start, step: 900 });

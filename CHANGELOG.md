@@ -2,7 +2,16 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.87.0 · Onyx 1.87.0: Magic add starts with nothing ticked
+## 1.88.0 · Onyx 1.88.0: Magic add on one screen
+
+_2026-10-30_
+
+- Magic add is redesigned to fit on one screen. You type tasks at the top and tick tasks from your lists below. The day and the Plan button stay in a footer that doesn't scroll away.
+- The hours to plan in and the calendar are one short line above the Plan button. Change opens a small panel to edit them.
+- Magic add no longer adds travel time to blocks or keeps lunchtime free. The Getting around, Starting from and Keep lunch free settings are gone: put travel and lunch in your calendar yourself, and Magic add plans around them.
+- The planned day replaces the task list, scrolled to your first new block, with Add to my calendar in the footer. Edit goes back to your tasks with everything kept.
+
+## 1.87.0 · Magic add starts with nothing ticked
 
 _2026-10-30_
 

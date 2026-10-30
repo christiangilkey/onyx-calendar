@@ -26,7 +26,7 @@ function reset({ key = '' } = {}) {
   d.calendars = { g1: [{ rawId: 'primary', kind: 'calendar', name: 'Personal', color: '#4aa8ff', writable: true }] };
   d.local.events = [];
   d.settings.hidden = {};
-  d.settings.magic = { home: 'Home', mode: 'drive', start: '08:00', end: '21:00', lunch: true };
+  d.settings.magic = { start: '08:00', end: '21:00' };
   d.secrets.anthropicKey = key;
   hub.invalidate();
 }
@@ -43,15 +43,15 @@ const CLAUDE_ANSWER = '```json\n' + JSON.stringify({
     { title: 'Write report', minutes: 90, place: 'Home', when: 'morning', kind: 'focus', after: null, before: null, why: 'Needs a clear head' },
     { title: 'Call dentist', minutes: 10, place: null, when: 'any', kind: 'call', after: null, before: '16:00', why: 'Office hours' },
   ],
-  travel: [{ from: 'Home', to: 'Pharmacy', minutes: 12 }, { from: 'Office', to: 'Pharmacy', minutes: 8 }, { from: 'Office', to: 'Home', minutes: 20 }],
 }) + '\n```';
 
-test('Magic add with Claude: estimates come back, travel is counted, the day\'s entries are respected', withFetch(async (url, init) => {
+test('Magic add with Claude: estimates come back, the day\'s entries are respected, no travel or lunch is added', withFetch(async (url, init) => {
   const body = JSON.parse(init.body);
   assert.equal(url, 'https://api.anthropic.com/v1/messages');
   assert.equal(init.headers['x-api-key'], 'sk-ant-test-key-0000000000000000');
   assert.match(body.messages[0].content, /10:00-11:00 Team sync @ Office/, 'the day\'s entries, with their places, are sent');
-  assert.match(body.messages[0].content, /Home base: Home/);
+  assert.doesNotMatch(body.messages[0].content, /Home base|get around/, 'travel is not asked about');
+  assert.doesNotMatch(body.system, /"travel"/);
   assert.match(body.messages[0].content, /Write report/);
   assert.ok(!JSON.stringify(body).includes('sk-ant'), 'the key is never in the body');
   return { ok: true, status: 200, json: async () => ({ content: [{ type: 'text', text: CLAUDE_ANSWER }] }) };
@@ -65,10 +65,23 @@ test('Magic add with Claude: estimates come back, travel is counted, the day\'s 
   assert.equal(r.unplaced.length, 0);
   for (const b of r.blocks) assert.ok(hm(b.end) <= '10:00' || hm(b.start) >= '11:00', `${b.title} ${hm(b.start)}-${hm(b.end)} overlaps the 10:00 meeting`);
   const rx = r.blocks.find((b) => b.title === 'Pick up prescription');
-  assert.ok(rx.travel === 10 || rx.travel === 15, `a trip from where you are, in 5-minute steps (got ${rx.travel})`);
+  for (const b of r.blocks) assert.equal(b.travel, 0, `${b.title}: no travel added to the block`);
+  assert.equal(rx.minutes, 15);
   assert.ok(hm(rx.end) <= '17:30', 'the "before 17:30" limit is kept');
   assert.equal(r.blocks.find((b) => b.title === 'Call dentist').place, null);
-  assert.ok(r.tasks.length === 3 && r.travel.length === 3, 'what the screen needs to lay it out again');
+  assert.ok(r.tasks.length === 3 && r.travel.length === 0, 'what the screen needs to lay it out again');
+}));
+
+test('Magic add: lunchtime is not held free, so the first free time is used', withFetch(async () => ({ ok: true, status: 200, json: async () => ({ content: [{ type: 'text', text: JSON.stringify({ tasks: [
+  { title: 'Sort the paperwork', minutes: 45, place: 'Home', when: 'any', kind: 'other', after: null, before: null, why: '' },
+] }) }] }) }), async () => {
+  reset({ key: 'sk-ant-test-key-0000000000000000' });
+  // Free 12:30-13:15 (lunchtime) and from 14:00. Holding lunch used to push it to 14:00.
+  fake.events.set('a', { rawId: 'a', cal: 'primary', title: 'Morning', start: day(1, 8).toISOString(), end: day(1, 12, 30).toISOString(), allDay: false, location: '', notes: '' });
+  fake.events.set('b', { rawId: 'b', cal: 'primary', title: 'Meeting', start: day(1, 13, 15).toISOString(), end: day(1, 14).toISOString(), allDay: false, location: '', notes: '' });
+  const r = await magic.planDay('Sort the paperwork', ymd(day(1)));
+  assert.equal(hm(r.blocks[0].start), '12:30');
+  assert.equal(r.blocks[0].travel, 0);
 }));
 
 test('Magic add: when Claude fails it plans from the words and says so', withFetch(async () => ({ ok: false, status: 500, json: async () => ({ error: { message: 'overloaded' } }) }), async () => {

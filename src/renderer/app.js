@@ -7843,7 +7843,7 @@
     if (graph.on) closeGraph();
     closePopover();
     closeDrawers();
-    const m = { home: '', mode: 'drive', start: '08:00', end: '21:00', lunch: true, ...(S.settings.magic || {}) };
+    const m = { start: '08:00', end: '21:00', ...(S.settings.magic || {}) };
     const dayName = (d) => (d === ymd(new Date()) ? 'today' : d === ymd(addDays(new Date(), 1)) ? 'tomorrow' : fmtDay(fromYmd(d)));
     const mins = (n) => (n >= 60 ? `${Math.floor(n / 60)} h${n % 60 ? ` ${n % 60} min` : ''}` : `${n} min`);
     const writable = S.calendars.filter((c) => c.kind === 'calendar' && c.writable);
@@ -7865,7 +7865,7 @@
       } },
     ];
     let pickTab = preset.tab || (inboxTasks().length ? 'apps' : PICK_TABS[0].list().length ? 'burner' : 'nodate');
-    const pickBox = h('section', { class: 'mg-card magic-pick' });
+    const pickBox = h('section', { class: 'magic-pick' });
     const ROWS_SHOWN = 5; // a tab's first few; the rest one tap away (no scrolling box inside the page)
     const pickOpen = new Set(); // tabs showing all their tasks
     const pickMeta = (t, key) => [
@@ -7902,7 +7902,6 @@
       const rows = lists[tab.key];
       const all = pickOpen.has(tab.key) || rows.length <= ROWS_SHOWN + 1;
       pickBox.replaceChildren(
-        h('div', { class: 'mg-label' }, 'From your lists'),
         h('div', { class: 'mg-seg', role: 'tablist', 'aria-label': 'Tasks to plan in' }, PICK_TABS.map((s) => {
           const ticked = lists[s.key].filter((t) => picked.has(t.id)).length;
           return h('button', {
@@ -7915,13 +7914,13 @@
             rows.length > ROWS_SHOWN + 1 && h('button', { type: 'button', class: 'mg-more', onclick: () => { if (all) pickOpen.delete(tab.key); else pickOpen.add(tab.key); paintPick(); } },
               all ? 'Show fewer' : `Show ${rows.length - ROWS_SHOWN} more`))
           : h('p', { class: 'mg-empty' }, tab.empty),
-        h('div', { class: 'mg-foot' },
-          h('span', null, n ? h('b', null, `${n} ticked`) : 'Tick the ones to plan', n ? ' to plan into the day' : null),
-          n ? h('button', { type: 'button', class: 'mg-link', onclick: () => { picked.clear(); paintPick(); } }, 'Untick all') : null));
+        n ? h('div', { class: 'mg-foot' },
+          h('span', null, h('b', null, `${n} ticked`)),
+          h('button', { type: 'button', class: 'mg-link', onclick: () => { picked.clear(); paintPick(); } }, 'Untick all')) : '');
       paintGo();
     }
     const text = h('textarea', { class: 'magic-text', rows: 2, spellcheck: true, value: preset.text || '',
-      placeholder: PICK_TABS.some((s) => s.list().length) ? 'Anything else? One task per line'
+      placeholder: PICK_TABS.some((s) => s.list().length) ? 'Type tasks, one per line, or tick some below'
         : 'Pick up the prescription\nGroceries\nStudy Arabic for an hour and a half\nCall the bank by 4pm' });
     const grow = () => { text.style.height = 'auto'; text.style.height = `${Math.min(260, Math.max(52, text.scrollHeight))}px`; };
     text.addEventListener('input', () => { grow(); paintGo(); });
@@ -7929,10 +7928,6 @@
     const date = h('input', { type: 'date', value: preset.date || ymd(new Date()) });
     const start = h('input', { type: 'time', value: m.start, step: 900 });
     const end = h('input', { type: 'time', value: m.end, step: 900 });
-    const home = h('input', { type: 'text', value: m.home, spellcheck: false, placeholder: 'Your area or home address (for travel times)' });
-    const mode = h('select', null, [['drive', 'Drive'], ['walk', 'Walk'], ['transit', 'Public transport'], ['bike', 'Bike']]
-      .map(([v, n]) => h('option', { value: v, selected: v === m.mode }, n)));
-    const lunch = h('input', { type: 'checkbox', checked: m.lunch !== false });
     const calendarPick = h('select', null, writable.map((c) => h('option', { value: c.id }, c.account === 'local' || !c.accountLabel ? c.name : `${c.name}  ·  ${c.accountLabel}`)));
     calendarPick.value = writable.some((c) => c.id === S.settings.defaultCalendar) ? S.settings.defaultCalendar : writable[0]?.id;
     const todayBtn = h('button', { type: 'button', onclick: () => { date.value = ymd(new Date()); paintDay(); } }, 'Today');
@@ -7959,7 +7954,8 @@
     const out = h('div', { class: 'magic-out' });
     const claude = S.ai?.ready;
 
-    const opts = () => ({ home: home.value.trim(), mode: mode.value, start: start.value || '08:00', end: end.value || '21:00', lunch: lunch.checked });
+    // Only the hours: travel and lunch are left to the person to put in the calendar themselves.
+    const opts = () => ({ start: start.value || '08:00', end: end.value || '21:00' });
 
     // The plan as a day: what is already in it, dimmed, and the new blocks over it. A block is dragged to
     // move it and by its foot to change its length (5-minute steps); a tap picks it, and its details and
@@ -7978,7 +7974,7 @@
     }
 
     function paint() {
-      if (!view) { out.replaceChildren(); return; }
+      if (!view) { out.replaceChildren(); paintFoot(); return; }
       const { result } = view;
       const kids = [];
       if (result.warning) kids.push(h('p', { class: 'magic-warn' }, result.warning));
@@ -8000,11 +7996,8 @@
             h('button', { class: 'btn', onclick: later }, 'Plan these for the next day'),
             h('button', { class: 'btn ghost', onclick: addAsTasks }, 'Add them as tasks'))));
       }
-      const n = result.blocks.length;
-      kids.push(h('div', { class: 'magic-foot' },
-        h('span', { class: 'magic-total' }, n ? `${n} block${n > 1 ? 's' : ''} · ${mins(result.blocks.reduce((t, b) => t + b.minutes + b.travel, 0))}` : 'Nothing fits in that window'),
-        h('button', { class: 'btn primary', disabled: !n || working, onclick: commit }, icon('plus'), n ? `Add ${n} to my calendar` : 'Add')));
       out.replaceChildren(...kids);
+      paintFoot();
     }
 
     function dayPreview() {
@@ -8127,7 +8120,10 @@
       working = true;
       go.disabled = true;
       go.replaceChildren(icon('sparkles'), claude ? 'Estimating…' : 'Planning…');
-      out.replaceChildren(h('p', { class: 'magic-source' }, icon('sparkles'), claude ? 'Estimating the lengths and the travel…' : 'Fitting them in…'));
+      msg.replaceChildren();
+      view = null;
+      show('plan');
+      out.replaceChildren(h('p', { class: 'magic-source' }, icon('sparkles'), claude ? 'Estimating how long each takes…' : 'Fitting them in…'));
       try {
         onyx.magicRemember?.(opts()).then((s) => { if (s?.settings) S.settings = s.settings; }).catch(() => {});
         const r = await onyx.magicPlan(text.value, date.value, opts(), [...picked]);
@@ -8135,13 +8131,18 @@
         chosen = null;
         working = false;
         paint();
-        out.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        // The first new block in view, a little of what comes before it above.
+        const first = body.querySelector('.md-magic');
+        if (first) body.scrollTop = Math.max(0, first.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop - 90);
       } catch (err) {
-        out.replaceChildren(h('p', { class: 'magic-warn' }, err.message));
+        working = false;
+        msg.replaceChildren(h('p', { class: 'magic-warn' }, err.message));
+        show('compose');
       }
       working = false;
       go.disabled = false;
-      go.replaceChildren(icon('sparkles'), view ? 'Plan again' : 'Plan my day');
+      go.replaceChildren(icon('sparkles'), h('span', { class: 'mg-go-t' }, view ? 'Plan again' : 'Plan my day'), goCount);
+      paintGo();
     }
 
     async function later() {
@@ -8205,38 +8206,64 @@
 
     const row = (label, ...kids) => h('label', { class: 'magic-field' }, h('span', null, label), ...kids);
     paintPick();
-    // What the hours, travel and lunch are set to, on their folded row.
-    const optsNote = h('small');
+    // One screen: what to plan in the middle (it scrolls), and a footer that stays put with the day and
+    // Plan. The hours and the calendar are one line there, which opens a small panel to change them.
+    const msg = h('div', { class: 'mg-msg' });
+    const body = h('div', { class: 'mg-body' });
+    const foot = h('footer', { class: 'mg-footer' });
+    let stage = 'compose'; // or 'plan': the planned day, with Add
     const timeOf = (v) => fmtTime(at(ymd(new Date()), v || '00:00'));
+    const calName = () => writable.find((c) => c.id === calendarPick.value)?.name || '';
+    const optsNote = h('span', { class: 'mg-opts-note' });
     const paintOpts = () => {
-      optsNote.textContent = [`${timeOf(start.value || '08:00')} – ${timeOf(end.value || '21:00')}`, mode.selectedOptions[0]?.textContent, lunch.checked ? 'lunch kept free' : null].filter(Boolean).join(' · ');
+      optsNote.textContent = [`${timeOf(start.value || '08:00')} – ${timeOf(end.value || '21:00')}`, writable.length > 1 ? calName() : null].filter(Boolean).join(' · ');
     };
-    for (const el of [start, end, mode, lunch]) el.addEventListener('change', paintOpts);
+    for (const el of [start, end, calendarPick]) el.addEventListener('change', paintOpts);
     paintOpts();
-    lunch.classList.add('mg-switch');
+    const optsPop = h('div', { class: 'mg-pop', role: 'dialog', 'aria-label': 'Hours and calendar' });
+    optsPop.hidden = true;
+    const optsBtn = h('button', { type: 'button', class: 'mg-opts-btn', 'aria-expanded': 'false', title: 'The hours to plan in, and the calendar',
+      onclick: () => toggleOpts() }, icon('clock'), optsNote, h('span', { class: 'mg-opts-edit' }, 'Change'));
+    function toggleOpts(on = optsPop.hidden) {
+      optsPop.hidden = !on;
+      optsBtn.setAttribute('aria-expanded', String(on));
+      if (on) start.focus({ preventScroll: true });
+    }
+    optsPop.append(
+      h('div', { class: 'magic-grid' },
+        row('Hours', h('span', { class: 'magic-hours' }, start, h('i', null, 'to'), end)),
+        writable.length > 1 ? row('Add to', calendarPick) : null),
+      h('div', { class: 'mg-pop-foot' },
+        h('small', null, claude ? 'Claude estimates how long each takes. It is sent these tasks and the day\'s entries.' : 'Lengths are guessed from the words. Add a Claude key in Settings for better estimates.'),
+        h('button', { type: 'button', class: 'btn', onclick: () => toggleOpts(false) }, 'Done')));
+    const optsWrap = h('div', { class: 'mg-opts-wrap' }, optsPop, optsBtn);
+    function show(next) {
+      stage = next;
+      toggleOpts(false);
+      body.replaceChildren(...(next === 'compose' ? [text, pickBox, msg] : [out]));
+      body.scrollTop = 0;
+      paintFoot();
+    }
+    function paintFoot() {
+      if (stage === 'compose') { foot.replaceChildren(optsWrap, h('div', { class: 'mg-foot-row' }, dayChips, go)); return; }
+      const n = view?.result.blocks.length || 0;
+      foot.replaceChildren(h('div', { class: 'mg-foot-row' },
+        h('button', { type: 'button', class: 'btn ghost mg-back', disabled: working, onclick: () => show('compose') }, '‹ Edit'),
+        h('span', { class: 'magic-total' }, !view ? '' : n ? `${n} block${n > 1 ? 's' : ''} · ${mins(view.result.blocks.reduce((t, b) => t + b.minutes + b.travel, 0))}` : 'Nothing fits in that window'),
+        h('button', { class: 'btn primary mg-add', disabled: !n || working, onclick: commit }, icon('plus'), n ? `Add ${n} to my calendar` : 'Add')));
+    }
     paintGo();
     const sheet = h('div', { class: 'sheet magic' }, h('div', { class: 'pane mg-pane' },
       h('button', { class: 'icon-btn close', onclick: closeSettings, 'aria-label': 'Close' }, icon('x')),
       h('header', { class: 'mg-head' },
         h('span', { class: 'mg-badge' }, icon('sparkles')),
         h('div', null, h('h3', { class: 'mg-h' }, 'Magic add'),
-          h('p', { class: 'mg-sub' }, 'Pick tasks or type new ones, and Onyx fits them around your day, travel included.'))),
-      pickBox,
-      h('section', { class: 'mg-card mg-type' }, h('div', { class: 'mg-label' }, 'Something new'), text),
-      h('section', { class: 'mg-card' },
-        h('div', { class: 'mg-label' }, 'When'),
-        dayChips,
-        row('Add to', calendarPick),
-        h('details', { class: 'mg-opts', open: !MOBILE },
-          h('summary', null, h('span', { class: 'mg-opts-t' }, h('span', null, 'Hours, travel and lunch'), optsNote)),
-          h('div', { class: 'magic-grid' },
-            row('Hours', h('span', { class: 'magic-hours' }, start, h('i', null, 'to'), end)),
-            row('Getting around', mode),
-            row('Starting from', home),
-            h('label', { class: 'mg-toggle' }, h('span', null, 'Keep lunch free'), lunch)))),
-      h('div', { class: 'mg-run' }, go,
-        h('small', null, claude ? 'Claude estimates the lengths and travel. It is sent these tasks and the day\'s entries.' : 'Lengths are guessed from the words. Add a Claude key in Settings for better estimates and travel times.')),
-      out));
+          h('p', { class: 'mg-sub' }, 'Onyx fits them into the free time in your day.'))),
+      body,
+      foot));
+    // A click anywhere else closes the settings panel.
+    sheet.addEventListener('pointerdown', (e) => { if (!optsPop.hidden && !optsWrap.contains(e.target)) toggleOpts(false); });
+    show('compose');
     $('#modal').replaceChildren(sheet);
     $('#modal').hidden = false;
     setTimeout(() => (picked.size ? go : text).focus({ preventScroll: true }), 50);

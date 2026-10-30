@@ -229,7 +229,7 @@ function bestLayout(gap, seq, ctx) {
  * Puts the tasks in the day.
  *  busy:  [{ start, end, place?, title? }] the fixed entries (ms)
  *  tasks: normalized tasks
- *  opts:  { day: Date/ms of the day, from, to (the window, ms), home, travel: [{from,to,minutes}], lunch: bool }
+ *  opts:  { day: Date/ms of the day, from, to (the window, ms), home, travel: [{from,to,minutes}] or false (no travel at all), lunch: bool }
  * Returns { blocks, unplaced }: each block { task, title, start, end, minutes, travel, place }.
  */
 function schedule(busy, tasks, opts) {
@@ -237,7 +237,7 @@ function schedule(busy, tasks, opts) {
   day.setHours(0, 0, 0, 0);
   const from = ceilTo(opts.from, GRID), to = opts.to;
   const ctx = {
-    day: day.getTime(), from, travel: travelBetween(opts.travel),
+    day: day.getTime(), from, travel: opts.travel === false ? () => 0 : travelBetween(opts.travel),
     lunch: opts.lunch === false ? null : [clock('12:30', day), clock('13:15', day)],
     focusPart: validPart(opts.focusPart),
   };

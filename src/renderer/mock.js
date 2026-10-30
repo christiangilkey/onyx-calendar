@@ -171,7 +171,6 @@
       document.head.append(sc);
     });
     const m = state.settings.magic || {};
-    const home = o.home ?? m.home ?? '';
     const [y, mo, d] = date.split('-').map(Number);
     const day = new Date(y, mo - 1, d);
     const at = (hm) => { const [h, mi] = hm.split(':').map(Number); return new Date(y, mo - 1, d, h, mi).getTime(); };
@@ -188,10 +187,10 @@
       .flatMap((t) => magicLib.estimateLocal(t.label).slice(0, 1).map((g) => ({ ...g, ref: t.id, ...(t.minutes ? { minutes: t.minutes, why: 'Length given by the app that sent it' } : {}) })));
     const list = magicLib.normalizeTasks(given || [...arrived, ...(text && text.trim() ? magicLib.estimateLocal(text) : [])]);
     if (!list.length) throw new Error('No tasks found in that. Put one on each line.');
-    const r = magicLib.schedule(busy, list, { day, from, to, home: home || 'Home', travel: travel || [], lunch: (o.lunch ?? m.lunch) !== false });
+    const r = magicLib.schedule(busy, list, { day, from, to, home: null, travel: false, lunch: false }); // like the PC: no travel, no lunch held
     const iso = (ms) => new Date(ms).toISOString();
     return {
-      source: given ? 'edited' : 'local', warning: '', tasks: list, travel: travel || [],
+      source: given ? 'edited' : 'local', warning: '', tasks: list, travel: [],
       blocks: r.blocks.map((b) => ({ idx: b.idx, part: b.part, ref: b.ref, title: b.title, start: iso(b.start), end: iso(b.end), minutes: b.minutes, travel: b.travel, place: b.place, why: b.why, kind: b.kind })),
       unplaced: r.unplaced.map((u) => ({ idx: u.idx, ref: u.task.ref, title: u.task.title, minutes: u.task.minutes, reason: u.reason })),
     };

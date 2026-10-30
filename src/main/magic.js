@@ -1,7 +1,8 @@
 // Magic add: describe what you need to get done and it lands in the day's free time. Claude
-// (with the user's own API key, like Breakdown) estimates each task's length, where it is done,
-// the best time of day for it and the travel between the places; magic-plan.js then places them
-// around what is already in the calendar. Without a key the estimate is a guess from the words.
+// (with the user's own API key, like Breakdown) estimates each task's length, where it is done and
+// the best time of day for it; magic-plan.js then places them around what is already in the
+// calendar. Without a key the estimate is a guess from the words. Travel and lunch are not added:
+// the person puts those in their calendar themselves.
 
 const store = require('./store');
 const hub = require('./hub');
@@ -12,19 +13,20 @@ const API = 'https://api.anthropic.com/v1/messages';
 
 const SYSTEM = [
   'You help someone plan one day. They describe things they need to get done; you work out how long each takes and where and when it fits best.',
-  'For each task give: "title" (short, keep their words), "minutes" (realistic, door-to-door for the doing itself not the travel, including setup, queues and tidy-up, multiples of 5, between 5 and 240), "place" (a short name of where it is done; reuse the exact place names from their schedule when it is the same place; "Home" for things done at home; null for things done anywhere, like a phone call), "when" (morning, midday, afternoon, evening or any: when it suits best, thinking about energy, opening hours and how people usually do it; focus work is best in the morning, errands when places are open, calls in office hours), "kind" (focus, errand, call, chore, exercise, admin or other), "after" and "before" ("HH:MM" 24-hour, only when they said a time limit; otherwise null) and "why" (one short sentence on the length or timing).',
-  'Also give "travel": the minutes of door-to-door travel between every two different places that matter (each pair once): the places of your tasks, the places in their schedule and their home base. Use their way of getting around and their area. If you do not know the area, assume a typical town.',
+  'For each task give: "title" (short, keep their words), "minutes" (realistic, for the doing itself, including setup, queues and tidy-up, multiples of 5, between 5 and 240), "place" (a short name of where it is done; reuse the exact place names from their schedule when it is the same place; "Home" for things done at home; null for things done anywhere, like a phone call), "when" (morning, midday, afternoon, evening or any: when it suits best, thinking about energy, opening hours and how people usually do it; focus work is best in the morning, errands when places are open, calls in office hours), "kind" (focus, errand, call, chore, exercise, admin or other), "after" and "before" ("HH:MM" 24-hour, only when they said a time limit; otherwise null) and "why" (one short sentence on the length or timing).',
   'Some tasks come from the person\'s own lists (sent from other apps, kept on the backburner, or with no date yet) as "[t1] title"; each of those is exactly one task: give it the field "ref" with its tag (t1), and still estimate it like the rest. Tasks the person typed have no ref.',
-  'Write in the same language as the task. Reply with only JSON: {"tasks":[...],"travel":[{"from":"","to":"","minutes":0}]}.',
+  'Write in the same language as the task. Reply with only JSON: {"tasks":[...]}.',
 ].join(' ');
 
 const keyOf = () => String(store.data.secrets.anthropicKey || '');
-const settings = () => ({ home: '', mode: 'drive', start: '08:00', end: '21:00', lunch: true, ...(store.data.settings.magic || {}) });
+const settings = () => {
+  const s = store.data.settings.magic || {};
+  return { start: s.start || '08:00', end: s.end || '21:00' };
+};
 const info = () => ({ ready: !!keyOf(), model: MODEL, ...settings() });
 
 const pad = (n) => String(n).padStart(2, '0');
 const hm = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-const MODES = { drive: 'by car', walk: 'on foot', transit: 'by public transport', bike: 'by bike' };
 
 /** The day's window in ms: the chosen hours, and from now on when the day is today. */
 function windowOf(date, opts) {
@@ -52,12 +54,11 @@ async function busyOf(day) {
     .filter((b) => b.end > b.start);
 }
 
-function userMessage({ text, day, from, to, busy, home, mode, arrived = [] }) {
+function userMessage({ text, day, from, to, busy, arrived = [] }) {
   const lines = (busy.length ? busy : []).slice(0, 40).sort((a, b) => a.start - b.start)
     .map((b) => `- ${hm(new Date(b.start))}-${hm(new Date(b.end))} ${String(b.title || 'Busy').slice(0, 60)}${b.place ? ` @ ${b.place}` : ''}`);
   return [
     `Day: ${day.toDateString()}. Free window to plan in: ${hm(new Date(from))} to ${hm(new Date(to))}.`,
-    `Home base: ${home || 'not given'}. They get around ${MODES[mode] || MODES.drive}.`,
     `Already in their schedule:\n${lines.length ? lines.join('\n') : '(nothing)'}`,
     arrived.length ? `Tasks picked from their lists:\n${arrived.map((a, i) => `[t${i + 1}] ${String(a.title).slice(0, 120)}${a.minutes ? ` [expected length: ${a.minutes} min]` : ''}${a.notes ? ` (${String(a.notes).replace(/\s+/g, ' ').slice(0, 160)})` : ''}`).join('\n')}` : '',
     String(text).trim() ? `What they need to get done:\n${String(text).slice(0, 3000)}` : '',
@@ -104,15 +105,14 @@ function present(result, { tasks, travel, source, warning }) {
 
 const optsOf = (o = {}) => {
   const s = settings();
-  return {
-    home: String(o.home ?? s.home ?? '').trim().slice(0, 120), mode: o.mode in MODES ? o.mode : s.mode,
-    start: o.start || s.start, end: o.end || s.end, lunch: o.lunch ?? s.lunch,
-  };
+  return { start: o.start || s.start, end: o.end || s.end };
 };
+// No travel inside the blocks and no time held for lunch: the person plans those themselves.
+const LAYOUT = { home: null, travel: false, lunch: false };
 
 /**
  * Estimates the tasks in `text` and places them on `date` ("YYYY-MM-DD").
- * Returns { source: 'claude' | 'local', blocks, unplaced, tasks, travel, warning }.
+ * Returns { source: 'claude' | 'local', blocks, unplaced, tasks, travel (always empty now), warning }.
  */
 async function planDay(text, date, o, inboxIds = []) {
   const body = String(text || '').trim();
@@ -123,17 +123,17 @@ async function planDay(text, date, o, inboxIds = []) {
   const opts = optsOf(o);
   const { day, from, to } = windowOf(date, opts);
   const busy = await busyOf(day);
-  let tasks, travel = [], source = 'local', warning = '';
+  let tasks, source = 'local', warning = '';
+  const travel = [];
   if (keyOf()) {
     try {
-      const answer = await askClaude(userMessage({ text: body, day, from, to, busy, home: opts.home, mode: opts.mode, arrived }));
+      const answer = await askClaude(userMessage({ text: body, day, from, to, busy, arrived }));
       tasks = plan.normalizeTasks(answer.tasks);
       // Claude's "t1" tags are the arrived tasks: back to their real ids (and nothing it invented).
       for (const t of tasks) {
         const m = /^t(\d+)$/.exec(String(t.ref || ''));
         if (m && arrived[Number(m[1]) - 1]) t.ref = arrived[Number(m[1]) - 1].id; else delete t.ref;
       }
-      travel = (Array.isArray(answer.travel) ? answer.travel : []).slice(0, 120);
       source = 'claude';
       if (!tasks.length) throw new Error('Claude found no tasks in that.');
     } catch (err) {
@@ -157,24 +157,24 @@ async function planDay(text, date, o, inboxIds = []) {
     }
   }
   if (!tasks.length) throw new Error('No tasks found in that. Put one on each line.');
-  const result = plan.schedule(busy, tasks, { day, from, to, home: opts.home || 'Home', travel, lunch: opts.lunch, focusPart: require('./focus').bestFocusPart() });
+  const result = plan.schedule(busy, tasks, { day, from, to, ...LAYOUT, focusPart: require('./focus').bestFocusPart() });
   return present(result, { tasks, travel, source, warning });
 }
 
-/** The same tasks (changed lengths, some removed) and travel, laid out again without asking Claude. */
+/** The same tasks (changed lengths, some removed), laid out again without asking Claude. */
 async function replan(tasks, travel, date, o) {
   const opts = optsOf(o);
   const { day, from, to } = windowOf(date, opts);
   const busy = await busyOf(day);
   const list = plan.normalizeTasks(tasks);
-  const result = plan.schedule(busy, list, { day, from, to, home: opts.home || 'Home', travel, lunch: opts.lunch, focusPart: require('./focus').bestFocusPart() });
-  return present(result, { tasks: list, travel: Array.isArray(travel) ? travel : [], source: 'edited' });
+  const result = plan.schedule(busy, list, { day, from, to, ...LAYOUT, focusPart: require('./focus').bestFocusPart() });
+  return present(result, { tasks: list, travel: [], source: 'edited' });
 }
 
-/** Keeps the hours, home base and way of travelling for next time. */
+/** Keeps the hours for next time. */
 function remember(o) {
   const s = store.data.settings;
-  s.magic = { ...settings(), ...Object.fromEntries(Object.entries(optsOf(o)).filter(([k]) => ['home', 'mode', 'start', 'end', 'lunch'].includes(k))) };
+  s.magic = { ...(s.magic || {}), ...optsOf(o) };
   store.save();
   return info();
 }

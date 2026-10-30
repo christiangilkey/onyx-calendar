@@ -2,9 +2,20 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.88.0",
+  "date": "2026-10-30",
+  "title": "Onyx 1.88.0: Magic add on one screen",
+  "items": [
+   "Magic add is redesigned to fit on one screen. You type tasks at the top and tick tasks from your lists below. The day and the Plan button stay in a footer that doesn't scroll away.",
+   "The hours to plan in and the calendar are one short line above the Plan button. Change opens a small panel to edit them.",
+   "Magic add no longer adds travel time to blocks or keeps lunchtime free. The Getting around, Starting from and Keep lunch free settings are gone: put travel and lunch in your calendar yourself, and Magic add plans around them.",
+   "The planned day replaces the task list, scrolled to your first new block, with Add to my calendar in the footer. Edit goes back to your tasks with everything kept."
+  ]
+ },
+ {
   "version": "1.87.0",
   "date": "2026-10-30",
-  "title": "Onyx 1.87.0: Magic add starts with nothing ticked",
+  "title": "Magic add starts with nothing ticked",
   "items": [
    "Magic add's \"From your lists\" no longer ticks tasks for you. Tick the ones you want planned into the day.",
    "Plan on a \"new task from another app\" pop-up still ticks just those new tasks, and a task another app hands over is still planned straight away.",

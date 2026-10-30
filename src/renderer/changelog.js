@@ -2,8 +2,18 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
-  "version": "1.86.1",
+  "version": "1.86.2",
   "date": "2026-10-30",
+  "title": "Onyx 1.86.2: the phone says why it couldn't connect",
+  "items": [
+   "When pairing the phone fails, the Connect screen now says why, for example which PC addresses it couldn't reach. Before, the message was hidden behind the screen, so scanning the QR code seemed to do nothing.",
+   "Scanning the same QR code again after a failed try now really tries again. Before, the phone ignored a code it had already used.",
+   "A failed try no longer leaves the phone thinking the PC is out of reach, so the next try reaches it at once."
+  ]
+ },
+ {
+  "version": "1.86.1",
+  "date": "2026-10-29",
   "title": "Backspace only deletes from the calendar",
   "items": [
    "Backspace and Delete now delete the highlighted block only while you're on the calendar. With a button, chip or field in focus somewhere else (a window, the Tasks panel, News), the key belongs to that, and the block stays.",

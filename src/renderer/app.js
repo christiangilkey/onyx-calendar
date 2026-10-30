@@ -9402,14 +9402,14 @@
   };
 
   /** Opens the phone's QR scanner; a scanned pairing code connects and restarts the app. */
-  async function scanToPair(button) {
+  async function scanToPair(button, say = fail) {
     const label = [...button.childNodes];
     button.disabled = true;
     button.replaceChildren('Scanning…');
     try {
       if (await onyx.scan()) { location.reload(); return; }
     } catch (err) {
-      fail(err);
+      say(err);
     }
     button.disabled = false;
     button.replaceChildren(...label);
@@ -9418,6 +9418,15 @@
   // Android, before it is paired with a PC (or when the PC can't be reached at all).
   function showConnect(problem) {
     window.onyxReady = true; // the page is up (the phone app's watch over its start: MainActivity)
+    // Why connecting failed goes on this screen: a toast would sit underneath it.
+    const said = h('p', { class: 'problem' });
+    said.hidden = true;
+    const say = (err) => {
+      said.textContent = err?.message || String(err || '') || 'Could not connect to the PC.';
+      said.hidden = false;
+    };
+    if (window.onyxPairError) say(window.onyxPairError);
+    window.onyxPairFailed = (e) => say(e.detail);
     const address = h('input', { type: 'text', placeholder: 'PC address, e.g. 192.168.1.20', spellcheck: false, autocomplete: 'off', inputMode: 'url' });
     const token = h('input', { type: 'text', placeholder: 'Token', spellcheck: false, autocomplete: 'off' });
     const go = h('button', { class: 'btn primary wide', type: 'submit' }, 'Connect');
@@ -9431,16 +9440,17 @@
         else await onyx.pair({ addresses: value.split(/[\s,]+/), token: token.value });
         location.reload();
       } catch (err) {
-        fail(err);
+        say(err);
         go.disabled = false;
         go.textContent = 'Connect';
       }
     } }, address, token, go);
-    const scan = h('button', { class: 'btn primary wide scan-btn', onclick: () => scanToPair(scan) }, icon('qr'), 'Scan QR code');
+    const scan = h('button', { class: 'btn primary wide scan-btn', onclick: () => scanToPair(scan, say) }, icon('qr'), 'Scan QR code');
     $('#connect').replaceChildren(h('div', { class: 'connect-card' },
       h('div', { class: 'brand big' }, h('span', { class: 'mark' }), 'Onyx'),
       h('h2', null, onyx.paired() ? 'Can\'t reach your PC' : 'Connect to your PC'),
       problem && h('p', { class: 'problem' }, problem),
+      said,
       h('ol', null,
         h('li', null, 'On your PC, open Onyx Calendar, then Settings → Phone.'),
         h('li', null, onyx.canScan ? 'Tap Scan QR code below and point this phone at the code.' : 'Enter the address and token shown there.')),
@@ -9455,6 +9465,8 @@
     document.body.classList.toggle('mobile', MOBILE);
     document.body.classList.toggle('phone', !!onyx.isPhone);
     window.addEventListener('onyx:toast', (e) => toast(e.detail, 'error'));
+    // A pairing link that failed: the Connect screen says why (or a toast, once connected).
+    window.addEventListener('onyx:pair-failed', (e) => (window.onyxPairFailed && !$('#connect').hidden ? window.onyxPairFailed(e) : toast(e.detail, 'error')));
     if (onyx.isPhone && !onyx.paired()) return showConnect();
     try {
       S = await onyx.state();

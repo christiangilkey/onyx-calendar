@@ -50,8 +50,8 @@ function makePC() {
 }
 
 /** The phone app's onyx object (remote.js), paired with that PC, with its own storage. */
-function makePhone(pc) {
-  const kept = new Map([['onyx.connection', JSON.stringify({ addresses: ['192.168.1.20:4747'], token: 'token', last: '' })]]);
+function makePhone(pc, { paired = true } = {}) {
+  const kept = new Map(paired ? [['onyx.connection', JSON.stringify({ addresses: ['192.168.1.20:4747'], token: 'token', last: '' })]] : []);
   const localStorage = {
     getItem: (k) => (kept.has(k) ? kept.get(k) : null), setItem: (k, v) => kept.set(k, String(v)), removeItem: (k) => kept.delete(k),
     key: (i) => [...kept.keys()][i], get length() { return kept.size; },
@@ -249,4 +249,17 @@ test('offline, the goals show what was kept; a command that needs the PC says so
   pc.up = false;
   assert.deepEqual(plain((await phone.goals()).map((g) => g.title)), ['Learn Arabic']);
   await assert.rejects(phone.breakdown ? phone.breakdown('x') : phone.news(), (err) => err.offline === true && err.message === phone.offlineText);
+});
+
+test('pairing that cannot reach the PC says where it tried, and the next try really tries', async () => {
+  const pc = makePC(), phone = makePhone(pc, { paired: false });
+  const link = 'http://192.168.1.20:4747/pair#a=192.168.1.20%3A4747%2C100.100.1.2%3A4747&t=token';
+  pc.up = false;
+  await assert.rejects(phone.pairLink(link), /couldn't reach your PC at 192.168.1.20:4747 or 100.100.1.2:4747.*Tailscale/);
+  assert.equal(phone.paired(), false);
+  pc.up = true;
+  const before = pc.tries;
+  await phone.pairLink(link);
+  assert.ok(pc.tries > before, 'the second scan asks the PC, not the memory of the first one failing');
+  assert.equal(phone.paired(), true);
 });

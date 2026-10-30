@@ -107,7 +107,7 @@ function reset() {
 
 test('a planned goal keeps each step\'s phase, measure, length and last day; done ones make no task', async () => {
   reset();
-  const far = new Date(Date.now() + 30 * 86400000);
+  const far = new Date(); far.setDate(far.getDate() + 30); // 30 calendar days, across a clock change too
   const end = `${far.getFullYear()}-${String(far.getMonth() + 1).padStart(2, '0')}-${String(far.getDate()).padStart(2, '0')}`;
   const today = new Date();
   const day = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
@@ -208,7 +208,7 @@ test('saving puts a new step\'s checklist and links on its task\'s block, the ti
   Object.assign(store.data, { blockTasks: {}, blockLinks: {}, blockTicks: {} });
   const today = new Date();
   const day = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  const far = new Date(Date.now() + 30 * 86400000);
+  const far = new Date(); far.setDate(far.getDate() + 30); // 30 calendar days, across a clock change too
   const end = `${far.getFullYear()}-${String(far.getMonth() + 1).padStart(2, '0')}-${String(far.getDate()).padStart(2, '0')}`;
   const g = await goals.create({
     title: 'Write a novel', start: day, end,

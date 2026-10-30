@@ -450,6 +450,9 @@
     if (!clean.length || !token.trim()) throw new Error('Enter the PC\'s address and the token.');
     const previous = conn;
     conn = { addresses: clean, token: token.trim(), last: '' };
+    // A new PC to try: an earlier attempt that couldn't reach one mustn't stop this one before it starts.
+    online = true;
+    lastOk = 0;
     try {
       const state = await call('state');
       if (!online) throw new Error('Could not reach the PC at that address.');
@@ -458,6 +461,11 @@
       return state;
     } catch (err) {
       conn = previous;
+      if (err instanceof Unreachable) {
+        const anywhere = clean.some(isTailscale);
+        throw new Error(`This phone couldn't reach your PC at ${clean.join(' or ')}. Check that Onyx is open on the PC and the phone is on the same Wi-Fi`
+          + (anywhere ? ', or has Tailscale on.' : '.'));
+      }
       throw err;
     }
   }
@@ -766,7 +774,11 @@
         await window.onyx.pairLink(url);
         location.reload();
       } catch (err) {
-        window.dispatchEvent(new CustomEvent('onyx:toast', { detail: err.message }));
+        // Scanning the same code again tries again, and the Connect screen says what went wrong
+        // (it may not be up yet: it picks this up when it is).
+        write('onyx.used-link', '');
+        window.onyxPairError = err.message || 'Could not connect to the PC.';
+        window.dispatchEvent(new CustomEvent('onyx:pair-failed', { detail: window.onyxPairError }));
       }
     };
     App.addListener('appUrlOpen', (e) => handle(e.url));

@@ -2,9 +2,17 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.86.1 · Backspace only deletes from the calendar
+## 1.86.2 · Onyx 1.86.2: the phone says why it couldn't connect
 
 _2026-10-30_
+
+- When pairing the phone fails, the Connect screen now says why, for example which PC addresses it couldn't reach. Before, the message was hidden behind the screen, so scanning the QR code seemed to do nothing.
+- Scanning the same QR code again after a failed try now really tries again. Before, the phone ignored a code it had already used.
+- A failed try no longer leaves the phone thinking the PC is out of reach, so the next try reaches it at once.
+
+## 1.86.1 · Backspace only deletes from the calendar
+
+_2026-10-29_
 
 - Backspace and Delete now delete the highlighted block only while you're on the calendar. With a button, chip or field in focus somewhere else (a window, the Tasks panel, News), the key belongs to that, and the block stays.
 - The same goes for Enter, which opens the highlighted block. Neither key does anything while a window, the right-click menu, the globe or Hyperfocus is open.

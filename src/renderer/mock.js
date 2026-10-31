@@ -184,7 +184,7 @@
       .map((e) => ({ start: +new Date(e.start), end: +new Date(e.end), place: e.location || null, title: e.title }));
     // The tasks that arrived from other apps and were picked: each is one task, keeping its id.
     const arrived = inboxIds.map((id) => tasks.find((t) => t.id === id)).filter(Boolean)
-      .flatMap((t) => magicLib.estimateLocal(t.label).slice(0, 1).map((g) => ({ ...g, ref: t.id, ...(t.minutes ? { minutes: t.minutes, why: 'Length given by the app that sent it' } : {}) })));
+      .flatMap((t) => [magicLib.readLine(t.label)].map((g) => ({ ...g, ref: t.id, ...(t.minutes ? { minutes: t.minutes, why: 'Length given by the app that sent it' } : {}) })));
     // What was read (preview): its list lines become the steps, in order, as Claude would make them.
     const step = /^\s*(?:[-*]|\d+[.)])\s+/;
     const fromRead = (material || []).flatMap((m, n) => m.text.split('\n').filter((l) => step.test(l)).slice(0, 12)

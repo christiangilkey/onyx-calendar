@@ -3835,7 +3835,8 @@
   let inboxKnown = null; // the ones seen so far, to say when a new one arrives
   const inboxTasks = () => inboxIds.map((id) => tasks.find((t) => t.id === id)).filter(Boolean);
   const FROM_NAME = { mcp: 'another app', tamkeen: 'Tamkeen' };
-  const sourceName = (t) => (t?.from ? FROM_NAME[t.from] || t.from.replace(/^./, (c) => c.toUpperCase())
+  const appName = (from) => FROM_NAME[from] || String(from || 'another app').replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase());
+  const sourceName = (t) => (t?.from ? appName(t.from)
     : t?.provider === 'microsoft' ? 'Microsoft To Do' : t?.provider === 'google' ? 'Google Tasks' : t?.listName || 'another app');
 
   function noteInbox(ids) {
@@ -3845,8 +3846,10 @@
     paintInboxBadge();
     if (!fresh.length || !$('#modal').hidden) return; // the open Magic add window shows them itself
     const first = tasks.find((t) => t.id === fresh[0]);
+    // Plan opens the day they were sent for (a day still to come), when they share one.
+    const when = first?.date && first.date >= ymd(new Date()) && fresh.every((id) => tasks.find((t) => t.id === id)?.date === first.date) ? first.date : null;
     toast(fresh.length === 1 ? `New from ${sourceName(first)}: "${first?.label || first?.title}"` : `${fresh.length} new tasks from other apps`, '',
-      { label: 'Plan', run: () => openMagic({ pick: fresh }) });
+      { label: 'Plan', run: () => openMagic({ pick: fresh, tab: 'apps', ...(when ? { date: when } : {}) }) });
   }
 
   function paintInboxBadge() {
@@ -8340,6 +8343,10 @@
     const date = h('input', { type: 'date', value: preset.date || ymd(new Date()) });
     const start = h('input', { type: 'time', value: m.start, step: 900 });
     const end = h('input', { type: 'time', value: m.end, step: 900 });
+    // What happens to tasks other apps send through the MCP tool magic_add. Kept as soon as it is changed.
+    const incoming = h('select', { onchange: () => onyx.magicRemember?.(opts()).then((s) => { if (s?.settings) S.settings = s.settings; }).catch((err) => toast(err.message, 'error')) },
+      [['review', 'Wait here for me to review'], ['auto', 'Place them right away (with undo)']]
+        .map(([v, n]) => h('option', { value: v, selected: v === (m.incoming === 'auto' ? 'auto' : 'review') }, n)));
     const calendarPick = h('select', null, writable.map((c) => h('option', { value: c.id }, c.account === 'local' || !c.accountLabel ? c.name : `${c.name}  ·  ${c.accountLabel}`)));
     calendarPick.value = writable.some((c) => c.id === S.settings.defaultCalendar) ? S.settings.defaultCalendar : writable[0]?.id;
     const todayBtn = h('button', { type: 'button', onclick: () => { date.value = ymd(new Date()); paintDay(); } }, 'Today');
@@ -8367,7 +8374,7 @@
     const claude = S.ai?.ready;
 
     // Only the hours: travel and lunch are left to the person to put in the calendar themselves.
-    const opts = () => ({ start: start.value || '08:00', end: end.value || '21:00' });
+    const opts = () => ({ start: start.value || '08:00', end: end.value || '21:00', incoming: incoming.value });
 
     // The plan as a day: what is already in it, dimmed, and the new blocks over it. A block is dragged to
     // move it and by its foot to change its length (5-minute steps); a tap picks it, and its details and
@@ -8654,7 +8661,8 @@
     optsPop.append(
       h('div', { class: 'magic-grid' },
         row('Hours', h('span', { class: 'magic-hours' }, start, h('i', null, 'to'), end)),
-        writable.length > 1 ? row('Add to', calendarPick) : null),
+        writable.length > 1 ? row('Add to', calendarPick) : null,
+        row('Tasks from other apps', incoming)),
       h('div', { class: 'mg-pop-foot' },
         h('small', null, claude ? 'Claude estimates how long each takes. It is sent these tasks and the day\'s entries.' : 'Lengths are guessed from the words. Add a Claude key in Settings for better estimates.'),
         h('button', { type: 'button', class: 'btn', onclick: () => toggleOpts(false) }, 'Done')));
@@ -9980,6 +9988,16 @@
       } catch { /* offline: keep what is shown */ }
       refetch();
       loadTasks();
+    });
+    // Another app's tasks were placed right away (magic_add, "Place them right away"): one undo takes them all out.
+    onyx.onMagicPlaced?.((d) => {
+      const made = (d?.events || []).map((e) => ({ ...e }));
+      if (!made.length) return;
+      const day = d.date === ymd(new Date()) ? 'today' : d.date === ymd(addDays(new Date(), 1)) ? 'tomorrow' : fmtDay(fromYmd(d.date));
+      recordAction(`${appName(d.source)}: ${made.length} block${made.length > 1 ? 's' : ''} fitted into ${day}`,
+        async () => { for (const m of made) await onyx.deleteEvent(m.id); refetch(true); },
+        async () => { for (const m of made) m.id = (await onyx.createEvent(m.fields)).id; refetch(true); });
+      refetch(true);
     });
     if (onyx.onOnline) {
       onyx.onOnline((ok) => {

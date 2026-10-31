@@ -233,6 +233,46 @@ const TOOLS = [
     })),
   },
   {
+    name: 'magic_add',
+    description: 'Hand tasks for one day to Magic add, which fits them into the free time around what is already in the calendar '
+      + '(lengths, time of day, travel between places, deadlines; long ones may be split). The user chooses in Onyx what happens next: '
+      + 'by default they wait in Magic add for the user to review and add (mode "review"); with "place them right away" they are '
+      + `added at once as time blocks the user can undo (mode "placed"). At most ${require('./magic').MAX_ITEMS} items per call; one call per day.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        date: { type: 'string', description: 'The day to fit them into, YYYY-MM-DD.' },
+        items: {
+          type: 'array',
+          description: 'The tasks, in any order.',
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string', description: 'What it is, e.g. "Dinner: lentil soup".' },
+              minutes: { type: 'number', description: 'How long it takes (5-240). Left out: estimated from the title.' },
+              notes: { type: 'string' },
+              tags: TAGS_PARAM,
+              preferred: { type: 'string', description: 'HH:MM the sender planned it for: placed as near to it as the day allows.' },
+              not_before: { type: 'string', description: 'HH:MM: never starts earlier.' },
+              not_after: { type: 'string', description: 'HH:MM: must be finished by then.' },
+              id: { type: 'string', description: 'The sender\'s own id for it. Sending the same id again updates the waiting task, or keeps the placed block, instead of adding a second one.' },
+            },
+            required: ['title'],
+          },
+        },
+        source: { type: 'string', description: 'Short name of the sending app, e.g. "food-planner" (a-z, 0-9, -). Shown to the user.' },
+      },
+      required: ['date', 'items'],
+    },
+    write: true,
+    run: async (a) => {
+      const r = await require('./magic').receive({ date: a.date, items: a.items, source: a.source });
+      if (r.already_planned) r.already_planned = r.already_planned.map((p) => ({ ...p, start: localStamp(p.start) }));
+      if (r.placed) r.placed = r.placed.map((p) => ({ ...p, start: localStamp(p.start), end: localStamp(p.end) }));
+      return r;
+    },
+  },
+  {
     name: 'complete_task',
     description: 'Mark a task as done.',
     inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'Task id from list_tasks.' } }, required: ['id'] },

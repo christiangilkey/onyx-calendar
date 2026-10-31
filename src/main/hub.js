@@ -964,7 +964,16 @@ async function receiveTask(link) {
   while (linkSent.length && now - linkSent[0] > 60000) linkSent.shift();
   if (linkSent.length >= 12) throw new Error('Too many tasks were sent at once. Try again in a minute.');
   linkSent.push(now);
+  const { task, created } = await keepForMagic(t);
+  return { taskId: task.id, title: t.title, date: task.date || t.due || localDate(new Date()), minutes: t.minutes, from: t.from, created };
+}
 
+/**
+ * A task another app hands over ({ title, notes, due, minutes, from, id?, tags?, limits? }) made, or with the
+ * same from+id updated, and kept for Magic add. `limits` are the times it gave ({ preferred, after, before },
+ * "HH:MM"). One that was already planned into a block keeps its time. Returns { task, created }.
+ */
+async function keepForMagic(t) {
   store.data.linkedTasks ??= {};
   const key = t.id ? `${t.from}:${t.id}` : null;
   const due = t.due || localDate(new Date());
@@ -975,20 +984,30 @@ async function receiveTask(link) {
       const cur = await fetchTask(known);
       if (cur && !cur.done) {
         // Already planned into a block: its time stays; otherwise it is brought up to date.
-        task = cur.start ? cur : await updateTask(known, { title: t.title, notes: t.notes, due });
+        task = cur.start ? cur : await updateTask(known, { title: t.title, notes: t.notes, due, ...(t.tags ? { tags: t.tags } : {}) });
       }
     } catch { /* gone: made again below */ }
   }
   if (!task) {
-    task = await createTask({ title: t.title, notes: t.notes, due, inbox: t.from });
+    task = await createTask({ title: t.title, notes: t.notes, due, inbox: t.from, ...(t.tags ? { tags: t.tags } : {}) });
     created = true;
     if (key) store.data.linkedTasks[key] = task.id;
   }
   if (t.minutes) setTaskMinutes(task.id, t.minutes);
   if (!task.start) inbox.mark(task.id, 'new'); // sent again after "Not now": it is wanted
-  if (!store.data.inboxItems[task.id]?.from) store.data.inboxItems[task.id] = { ...store.data.inboxItems[task.id], at: now, from: t.from };
+  const item = store.data.inboxItems[task.id];
+  store.data.inboxItems[task.id] = { ...item, at: item?.from ? item.at : Date.now(), from: item?.from || t.from };
+  if (!task.start) {
+    if (t.limits) store.data.inboxItems[task.id].limits = t.limits; else delete store.data.inboxItems[task.id].limits;
+  }
   store.save();
-  return { taskId: task.id, title: t.title, date: task.date || due, minutes: t.minutes, from: t.from, created };
+  return { task, created };
+}
+
+/** keepForMagic for the MCP tool magic_add: { taskId, planned, start? } (planned: it already has its time). */
+async function queueTask(t) {
+  const { task } = await keepForMagic(t);
+  return { taskId: task.id, planned: !!task.start, ...(task.start ? { start: task.start } : {}) };
 }
 
 /** "Not now": the task stays in its list but leaves the Magic add inbox. */
@@ -1355,7 +1374,7 @@ function removeLocalCalendar(id) {
 
 module.exports = {
   calendars, refreshCalendars, invalidate, getEvents, setBackburner, setEventDone, createEvent, updateEvent, deleteEvent, setLeaveBy, ackPiCall, piAlerts,
-  getTasks, archivedTasks, fetchTask, createTask, updateTask, moveTask, resizeTask, receiveTask, planTask, unplanTask, dismissInbox, deleteTask, setRepeat, setPomodoro, setBlockTasks, setBlockLinks, tickBlockTask, setEventColor, setPiCall, freeTime, setTaskMinutes, addLocalCalendar, removeLocalCalendar,
+  getTasks, archivedTasks, fetchTask, createTask, updateTask, moveTask, resizeTask, receiveTask, queueTask, planTask, unplanTask, dismissInbox, deleteTask, setRepeat, setPomodoro, setBlockTasks, setBlockLinks, tickBlockTask, setEventColor, setPiCall, freeTime, setTaskMinutes, addLocalCalendar, removeLocalCalendar,
   setTags, allTags, setTagColor, renameTag, deleteTag, setMemo, MAX_NOTE,
   callNotes, piTaskList, // Hyperfocus gives the Pi its stop the same way (focus.js)
 };

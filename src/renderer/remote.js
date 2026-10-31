@@ -37,6 +37,23 @@
   }
 
   async function post(address, name, args, op, timeout = TIMEOUT_MS) {
+    // In the app, through Android's own network stack: Android's WebView now quietly drops a page's
+    // requests to private addresses (wifi and Tailscale ones alike), so fetch never leaves the phone.
+    const http = native && window.Capacitor?.Plugins?.CapacitorHttp;
+    if (http) {
+      const res = await http.request({
+        url: `http://${address}/app/rpc`, method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${conn.token}` },
+        data: { name, args, ...(op ? { op } : {}) },
+        responseType: 'text', connectTimeout: Math.min(timeout, 7000), readTimeout: timeout,
+      });
+      if (res.status === 401) {
+        throw Object.assign(new Error('The PC no longer accepts this phone. Pair it again from Onyx on the PC: Settings → Phone.'), { final: true });
+      }
+      const body = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+      if (!body || typeof body !== 'object') throw new Error(`The PC answered ${res.status}`);
+      return body;
+    }
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), timeout);
     try {

@@ -2,9 +2,15 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.91.0 · Other apps hand Magic add a day's tasks
+## 1.91.1 · Phone reaches the PC again
 
 _2026-10-31_
+
+- Fixed: the phone app couldn't reach the PC at all, even with Tailscale on and the PC answering. Android's built-in browser engine now quietly drops an app page's requests to private addresses (home Wi-Fi and Tailscale ones alike), so nothing ever left the phone. The phone now talks to the PC through Android's own networking, which isn't affected.
+
+## 1.91.0 · Other apps hand Magic add a day's tasks
+
+_2026-10-30_
 
 - Other apps can now hand Magic add a whole day of tasks through the MCP server's new magic_add tool: each task with its length and, if it has one, the time it was planned for. Magic add fits them around what's already in your day instead of each landing as a fixed block.
 - A new setting, Tasks from other apps (behind the hours button in Magic add), picks what happens: they wait in Magic add's From apps tab for you to review and add (the default), or they're placed right away, with one Undo that takes them all back out.
@@ -14,7 +20,7 @@ _2026-10-31_
 
 ## 1.90.0 · Breakdown with a timeline
 
-_2026-10-31_
+_2026-10-30_
 
 - Breakdown (the hammer in a block's or task's window) now gives each step a length and lays the steps out in the time it already has: across the block, or in the free time of the task's day.
 - When that time is clearly too little, a second option, More realistic, uses realistic lengths and carries on in your free time after it (the next days too), in order and around what's already on your calendar.

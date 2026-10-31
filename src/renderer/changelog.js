@@ -2,8 +2,16 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
-  "version": "1.91.0",
+  "version": "1.91.1",
   "date": "2026-10-31",
+  "title": "Phone reaches the PC again",
+  "items": [
+   "Fixed: the phone app couldn't reach the PC at all, even with Tailscale on and the PC answering. Android's built-in browser engine now quietly drops an app page's requests to private addresses (home Wi-Fi and Tailscale ones alike), so nothing ever left the phone. The phone now talks to the PC through Android's own networking, which isn't affected."
+  ]
+ },
+ {
+  "version": "1.91.0",
+  "date": "2026-10-30",
   "title": "Other apps hand Magic add a day's tasks",
   "items": [
    "Other apps can now hand Magic add a whole day of tasks through the MCP server's new magic_add tool: each task with its length and, if it has one, the time it was planned for. Magic add fits them around what's already in your day instead of each landing as a fixed block.",
@@ -15,7 +23,7 @@ window.OnyxChangelog = [
  },
  {
   "version": "1.90.0",
-  "date": "2026-10-31",
+  "date": "2026-10-30",
   "title": "Breakdown with a timeline",
   "items": [
    "Breakdown (the hammer in a block's or task's window) now gives each step a length and lays the steps out in the time it already has: across the block, or in the free time of the task's day.",

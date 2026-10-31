@@ -56,6 +56,7 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
     private FocusScene scene; // Hyperfocus: in place of the big clock
     private View root, clockView, dateView;
     private LinearLayout notifs; // your other apps' notifications, under the panel
+    private NowPlaying music; // what is playing, between the panel and the notifications
     private final Runnable notifsChanged = () -> ui.post(this::renderNotifs);
     private boolean resumed, unlocking;
     private GestureDetector swipe;
@@ -121,6 +122,7 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
         if (scene != null) scene.resume();
         OnyxNotificationListener.watch(notifsChanged);
         renderNotifs();
+        if (music != null) music.start();
         ui.removeCallbacks(ticker);
         ui.post(ticker);
     }
@@ -131,6 +133,7 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
         resumed = false;
         ui.removeCallbacks(ticker);
         OnyxNotificationListener.unwatch(notifsChanged);
+        if (music != null) music.stop();
         if (scene != null) scene.pause();
     }
 
@@ -201,10 +204,15 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
         content.addView(scene.root);
         content.addView(panel.root);
 
+        music = new NowPlaying(this, ui, (pi) -> unlock(() -> openNotif(pi)));
+        LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        mp.topMargin = dp(14);
+        content.addView(music.root, mp);
+
         notifs = new LinearLayout(this);
         notifs.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        np.topMargin = dp(14);
+        np.topMargin = dp(6);
         content.addView(notifs, np);
 
         TextView unlock = new TextView(this);

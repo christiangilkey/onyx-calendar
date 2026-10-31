@@ -599,6 +599,7 @@
       info: () => Widget.launcherInfo(),
       set: (show) => Widget.setLauncher({ show }),
       setAlarm: (alarm) => Widget.setLauncher({ alarm }),
+      setCover: (cover) => Widget.setLauncher({ cover }),
       open: (what) => Widget.launcherOpen({ what }),
       // The doomscroll saver (DoomscrollService): on or off, after how many minutes, and a ten-second look at its card.
       setDoomscroll: ({ on, minutes } = {}) => Widget.setLauncher({ ...(on != null ? { doomscroll: !!on } : {}), ...(minutes ? { doomMinutes: Math.round(minutes) } : {}) }),

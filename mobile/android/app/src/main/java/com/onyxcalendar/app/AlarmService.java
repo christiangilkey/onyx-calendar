@@ -70,7 +70,8 @@ public class AlarmService extends Service {
             }
             ring();
             // The screen: Android shows it from the notification's full-screen intent when it allows; ask too.
-            try {
+            // Full-screen pop-ups off: the notification and its buttons are all (Hyperfocus's stop still covers it).
+            if (covers(intent)) try {
                 startActivity(new Intent(this, AlarmActivity.class).putExtras(intent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP));
             } catch (Exception ignored) {
                 // the notification is up either way
@@ -228,7 +229,7 @@ public class AlarmService extends Service {
         Intent screen = new Intent(this, AlarmActivity.class).putExtras(extras).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         PendingIntent full = PendingIntent.getActivity(this, 4502, screen, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         boolean task = "task".equals(extras.getStringExtra(AlarmActivity.EXTRA_KIND));
-        return new Notification.Builder(this, CHANNEL)
+        Notification.Builder b = new Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_onyx)
             .setContentTitle(title == null || title.isEmpty() ? "Onyx alarm" : title)
             .setContentText("Starts " + time + ". Ringing until you press a button.")
@@ -236,12 +237,17 @@ public class AlarmService extends Service {
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .setOngoing(true)
             .setAutoCancel(false)
-            .setFullScreenIntent(full, true)
             .setContentIntent(full)
             .addAction(new Notification.Action.Builder(Icon.createWithResource(this, R.drawable.ic_w_check), "Stop", action(ACTION_STOP, 4503)).build())
             .addAction(new Notification.Action.Builder(Icon.createWithResource(this, R.drawable.ic_w_next), "Snooze 5 min", action(ACTION_SNOOZE, 4504)).build())
-            .addAction(new Notification.Action.Builder(Icon.createWithResource(this, R.drawable.ic_w_open), task ? "Done" : "Leaving now", action(ACTION_LEAVING, 4505)).build())
-            .build();
+            .addAction(new Notification.Action.Builder(Icon.createWithResource(this, R.drawable.ic_w_open), task ? "Done" : "Leaving now", action(ACTION_LEAVING, 4505)).build());
+        if (covers(extras)) b.setFullScreenIntent(full, true);
+        return b.build();
+    }
+
+    /** Whether this alarm may cover the screen: with Full-screen pop-ups on, or Hyperfocus's own stop. */
+    private boolean covers(Intent what) {
+        return LauncherData.coverOn(this) || "hyperfocus-stop".equals(what.getStringExtra(AlarmActivity.EXTRA_ID));
     }
 
     /** "Leaving now" (or Done, for a task): no more calls about it, through Onyx on the PC. */

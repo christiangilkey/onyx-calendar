@@ -74,6 +74,19 @@ final class LauncherData {
         return prefs(ctx).getBoolean("alarm", false);
     }
 
+    /**
+     * Full-screen pop-ups as things come due (off unless turned on): off, an alarm rings as a notification
+     * with its buttons instead of covering the screen, and the app's due screen stays away. Hyperfocus
+     * keeps its own full screens either way.
+     */
+    static boolean coverOn(Context ctx) {
+        return prefs(ctx).getBoolean("cover", false);
+    }
+
+    static void setCover(Context ctx, boolean on) {
+        prefs(ctx).edit().putBoolean("cover", on).apply();
+    }
+
     static void setAlarm(Context ctx, boolean on) {
         prefs(ctx).edit().putBoolean("alarm", on).apply();
         AlarmActivity.cancel(ctx);
@@ -130,6 +143,7 @@ final class LauncherData {
             o.put("fullScreen", fullScreenAllowed(ctx));
             o.put("notiflist", OnyxNotificationListener.allowed(ctx));
             o.put("alarm", prefs(ctx).getBoolean("alarm", false));
+            o.put("cover", coverOn(ctx));
             // The doomscroll saver: on in Onyx, its minutes, and whether Android's Accessibility switch for it is on.
             o.put("doomscroll", DoomscrollService.on(ctx));
             o.put("doomMinutes", DoomscrollService.minutes(ctx));

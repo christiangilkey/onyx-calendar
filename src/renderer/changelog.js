@@ -2,6 +2,15 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.92.0",
+  "date": "2026-10-31",
+  "title": "Music on the lock screen, and no full-screen pop-ups",
+  "items": [
+   "The Onyx panel over the lock screen now shows what's playing under your Onyx data and above your notifications: the art, the song and artist, with previous, play/pause and next. Tap the card to unlock and open the app. It uses the Notification access the notification list already has.",
+   "New phone setting, Full-screen pop-ups (Settings → Home & lock screen → Alarms), off by default. Off, nothing covers your screen when something is due: the bars at the top show it, the due screen and the full-screen reminder cards stay away, and an entry set to Alarm rings as a notification with Stop, Snooze and Done instead of filling the screen. Hyperfocus keeps its own screens either way."
+  ]
+ },
+ {
   "version": "1.91.2",
   "date": "2026-10-31",
   "title": "Clearer lock screen setup",

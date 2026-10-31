@@ -310,9 +310,17 @@
   // takes over the app: what it is, a countdown that grows more urgent, and what to do.
   const due = { el: null, key: '', hidden: new Map() }; // key -> hidden until (ms)
   const DUE_AHEAD = 10 * 60000, DUE_AFTER = 15 * 60000;
+  // Full-screen pop-ups (the phone's Settings → Home & lock screen), off unless turned on: then the due
+  // screen and the full-screen cards stay away, and the bars at the top say what is due. Hyperfocus keeps its own.
+  const cover = { on: false };
+  onyx.launcher?.info?.().then((i) => { cover.on = !!i?.cover; }).catch(() => {});
 
   function tickDue() {
     if (!MOBILE || !nextRun.loaded) return;
+    if (!cover.on) {
+      if (due.el) { due.el.remove(); due.el = null; due.key = ''; document.body.classList.remove('due-on'); }
+      return;
+    }
     const now = Date.now();
     // The one that matters most: about to start (soonest first), else just started.
     const list = nextRun.items.map((e) => ({ e, s: new Date(e.start).getTime(), f: new Date(e.end).getTime() }))
@@ -1012,7 +1020,10 @@
   }
 
   function showAlertOverlay(a) {
-    if (['call', 'push', 'leave'].includes(a.kind)) return showActionCard(a);
+    if (['call', 'push', 'leave'].includes(a.kind)) {
+      if (onyx.isPhone && !cover.on) return; // no full-screen card: the bars at the top and the phone's notification say it
+      return showActionCard(a);
+    }
     let box = $('#alert-stack');
     if (!box) { box = h('div', { id: 'alert-stack' }); document.body.append(box); }
     if (box.querySelector(`[data-key="${CSS.escape(a.key)}"]`)) return;
@@ -7923,8 +7934,8 @@
               button('overlay', 'Allow'), { extra: !info.overlay && greyedOut() }),
           ];
           if ('notiflist' in info) {
-            steps.push(step(3, info.notiflist, 'Show my other notifications under it',
-              'Android hides its own list behind the panel, so Onyx lists your other apps\' notifications: tap one to unlock and open it, hold it to clear it. Private ones show only "Contents hidden". Needs Notification access.',
+            steps.push(step(3, info.notiflist, 'Show my music and notifications under it',
+              'Android hides its own lock screen behind the panel, so Onyx shows what is playing (Spotify and the like, with its controls) and your other apps\' notifications under it: tap one to unlock and open it, hold a notification to clear it. Private ones show only "Contents hidden". Needs Notification access.',
               button('notiflist', 'Allow', false), { optional: true, extra: info.overlay && info.notiflist === false && greyedOut() }));
           }
           cards.push(setup('Set up your lock screen', 'Onyx is on your lock screen. Turn the screen off and on to see it.', left, steps));
@@ -7945,6 +7956,8 @@
         cards.push(h('div', { class: 'card' },
           h('h4', null, 'Alarms'),
           h('p', null, 'These ring wherever Onyx shows.'),
+          field('Full-screen pop-ups', 'Off: nothing covers your screen when something is due. The bars at the top show it, and an alarm rings as a notification with its buttons. Hyperfocus keeps its own screens either way.',
+            toggle(info.cover === true, (v) => onyx.launcher.setCover(v).then((i) => { cover.on = !!i?.cover; draw(i); }).catch((err) => fail(err)))),
           field('Alarm for everything as it starts', 'On top of each entry\'s own Escalation: every timed entry and task rings the full-screen alarm as it starts. Off, only entries set to Alarm ring your phone.',
             toggle(info.alarm === true, (v) => onyx.launcher.setAlarm(v).then(draw).catch((err) => fail(err)))),
           field('Full-screen alarms', 'An alarm (and a call from the Pi) wakes the phone and fills the screen. Without it, it still rings and shakes, as a notification.',

@@ -108,6 +108,7 @@ public class OnyxWidgetPlugin extends Plugin {
     public void setLauncher(PluginCall call) {
         if (call.hasOption("show")) LauncherData.setShow(getContext(), call.getString("show", LauncherData.SHOW_HOME));
         if (call.hasOption("alarm")) LauncherData.setAlarm(getContext(), Boolean.TRUE.equals(call.getBoolean("alarm", true)));
+        if (call.hasOption("cover")) LauncherData.setCover(getContext(), Boolean.TRUE.equals(call.getBoolean("cover", false)));
         // The doomscroll saver: on or off, and after how many minutes on social media.
         if (call.hasOption("doomscroll") || call.hasOption("doomMinutes")) {
             DoomscrollService.set(getContext(),

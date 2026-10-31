@@ -2,6 +2,16 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
+## 1.91.0 · Other apps hand Magic add a day's tasks
+
+_2026-10-31_
+
+- Other apps can now hand Magic add a whole day of tasks through the MCP server's new magic_add tool: each task with its length and, if it has one, the time it was planned for. Magic add fits them around what's already in your day instead of each landing as a fixed block.
+- A new setting, Tasks from other apps (behind the hours button in Magic add), picks what happens: they wait in Magic add's From apps tab for you to review and add (the default), or they're placed right away, with one Undo that takes them all back out.
+- A task sent with its own time goes as close to that time as the day allows, even before or after your planning hours (a late dinner, a bedtime routine). Everything else still keeps to your hours.
+- Meals and bedtime steps are recognised from their names when there's no Claude key, and a lunch is no longer pushed away from lunchtime.
+- Sending the same task again (same id) updates the waiting one, or leaves the placed block where it is, instead of adding a second copy.
+
 ## 1.90.0 · Breakdown with a timeline
 
 _2026-10-31_

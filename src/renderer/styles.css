@@ -1338,6 +1338,25 @@ body.mobile.carrying .fc .fc-event-mirror { outline-width: 1px; }
 .restricted-guide { margin: 4px 0 10px; padding: 10px 12px; border-radius: 10px; background: var(--raise); border: 1px solid var(--line); font-size: 12.5px; }
 .restricted-guide p { margin: 4px 0; color: var(--muted); }
 .restricted-guide ol { margin: 4px 0 8px 18px; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+details.restricted-guide { margin: 8px 0 0; }
+details.restricted-guide summary { cursor: pointer; font-weight: 600; color: var(--text); }
+/* Home & lock screen (phone settings): where Onyx shows, then each screen's numbered steps. */
+.ls-pick { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.ls-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; text-align: left; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--raise); color: var(--text); font: inherit; cursor: pointer; }
+.ls-opt b { font-weight: 600; font-size: 14px; }
+.ls-opt small { color: var(--muted); font-size: 11.5px; line-height: 1.4; }
+.ls-opt.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--raise)); box-shadow: inset 0 0 0 1px var(--accent); }
+.ls-card h4 { font-size: 15px; }
+.ls-status { font-weight: 600; color: var(--warn) !important; margin-bottom: 6px !important; }
+.ls-status.ok { color: var(--ok) !important; }
+.ls-step { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+.ls-num { flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 13px; background: var(--accent); color: #fff; }
+.ls-step.done .ls-num { background: color-mix(in srgb, var(--ok) 20%, transparent); color: var(--ok); }
+.ls-txt { flex: 1 1 170px; min-width: 0; }
+.ls-txt b { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.ls-txt small { display: block; color: var(--muted); margin-top: 2px; line-height: 1.5; }
+.ls-step.done .ls-txt small { display: none; }
+.ls-step > .btn, .ls-step > .row, .ls-step > .badge { flex: none; align-self: center; }
 /* The arrows at the calendar's sides: shown as the pointer comes near, a click turns to the next or previous days. */
 .edge-hover { position: absolute; top: 50%; z-index: 7; width: 38px; height: 64px; margin-top: -32px; border: 1px solid var(--line-2, var(--line)); border-radius: 12px; background: color-mix(in srgb, var(--panel) 88%, transparent); color: var(--text); font-size: 28px; line-height: 1; cursor: pointer; opacity: 0; pointer-events: none; transition: opacity .15s, transform .15s; backdrop-filter: blur(6px); box-shadow: 0 6px 18px rgba(0,0,0,.4); }
 .edge-hover.prev { left: 58px; transform: translateX(-6px); }

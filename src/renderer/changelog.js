@@ -2,6 +2,17 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.91.2",
+  "date": "2026-10-31",
+  "title": "Clearer lock screen setup",
+  "items": [
+   "Settings → Home & lock screen on the phone is laid out as steps now. First pick where Onyx shows (Lock screen, Home screen, Both or Neither), then that screen's numbered steps follow, each marked Done once allowed, with how many are left and a line saying when it's all set.",
+   "The lock screen steps come right under the choice instead of below Onyx Home and the alarm switch. The \"switch is greyed out\" help sits inside the step it belongs to.",
+   "With Lock screen picked while Onyx Home is still the phone's home app, it says so, with a button to change the home app back.",
+   "The alarm settings have a card of their own at the bottom, since they ring wherever Onyx shows."
+  ]
+ },
+ {
   "version": "1.91.1",
   "date": "2026-10-31",
   "title": "Phone reaches the PC again",

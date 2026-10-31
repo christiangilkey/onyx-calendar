@@ -7865,51 +7865,100 @@
       ];
     },
 
-    // Onyx Home (the phone's launcher) and Onyx on the lock screen: the Android app only.
+    // Onyx Home (the phone's launcher) and Onyx on the lock screen: the Android app only. Where Onyx shows is
+    // picked first; then each screen gets its own numbered steps, each showing whether it is done, and a line
+    // saying when it is all set. The alarms, which ring wherever Onyx is, come last, on their own.
     launcher() {
-      const box = h('div', { class: 'card' }, h('p', null, 'Checking…'));
-      const allow = (on, what, label) => (on
-        ? h('span', { class: 'badge ok' }, 'On')
-        : h('button', { class: 'btn', onclick: () => onyx.launcher.open(what) }, label || 'Allow'));
+      const box = h('div', { class: 'ls' }, h('div', { class: 'card' }, h('p', null, 'Checking…')));
+      const WHERE = [
+        ['lock', 'Lock screen', 'Comes up each time you turn the screen on'],
+        ['home', 'Home screen', 'Onyx Home takes the place of your home screen'],
+        ['both', 'Both', 'Lock screen and home screen'],
+        ['off', 'Neither', 'Just the app'],
+      ];
+      const button = (what, label, primary = true) => h('button', { class: primary ? 'btn primary' : 'btn', onclick: () => onyx.launcher.open(what) }, label);
+      /** One step: its number (a tick once done), what it does, and its button, or Done. */
+      const step = (n, done, title, hint, action, { optional = false, extra = null } = {}) => h('div', { class: `ls-step${done ? ' done' : ''}` },
+        h('span', { class: 'ls-num', 'aria-hidden': 'true' }, done ? '✓' : String(n)),
+        h('div', { class: 'ls-txt' },
+          h('b', null, title, optional && h('span', { class: 'badge' }, 'Optional')),
+          h('small', null, hint), extra),
+        done ? h('span', { class: 'badge ok' }, 'Done') : action);
+      const greyedOut = () => h('details', { class: 'restricted-guide' },
+        h('summary', null, 'The switch is greyed out?'),
+        h('p', null, 'Android locks it for apps installed from a download. To unlock it:'),
+        h('ol', null,
+          h('li', null, 'Tap App info below (Settings → Apps → Onyx Calendar).'),
+          h('li', null, 'Tap ⋮ at the top right, then Allow restricted settings, and confirm with your PIN or fingerprint.'),
+          h('li', null, 'If that option is missing, tap the greyed-out switch once first, then look again.'),
+          h('li', null, 'Come back here and tap Allow: the switch turns on now.')),
+        button('appinfo', 'App info', false));
+      /** A screen's card: its heading, how far along it is, and its steps. */
+      const setup = (title, ready, left, steps) => h('div', { class: 'card ls-card' },
+        h('h4', null, title),
+        h('p', { class: `ls-status${left ? '' : ' ok'}` }, left ? `${left} ${left === 1 ? 'step' : 'steps'} left` : ready),
+        ...steps);
+
       const draw = (info) => {
         const lock = info.show === 'lock' || info.show === 'both';
-        box.replaceChildren(...[
-          field('Show Onyx on', 'Your progress bars, the time until your next task, and the Pi\'s calls as they ring.',
-            h('select', { onchange: (e) => onyx.launcher.set(e.target.value).then(draw).catch((err) => fail(err)) },
-              [['home', 'Home screen'], ['lock', 'Lock screen'], ['both', 'Home and lock screen'], ['off', 'Neither']]
-                .map(([v, n]) => h('option', { value: v, selected: v === info.show }, n)))),
-          field('Onyx Home', info.isHome
-            ? 'Onyx Home is your home screen: your apps (swipe up), a dock, widgets and search. Hold an empty spot for its options.'
-            : 'A plain home screen with Onyx on it: your apps (swipe up), a dock, widgets and search. Make it your home app to use it.',
-            h('div', { class: 'row' },
-              h('button', { class: 'btn', onclick: () => onyx.launcher.open('launcher') }, 'Preview'),
-              h('button', { class: info.isHome ? 'btn' : 'btn primary', onclick: () => onyx.launcher.open('home') }, info.isHome ? 'Change home app' : 'Make it my home app'))),
+        const home = info.show === 'home' || info.show === 'both';
+        const cards = [
+          h('div', { class: 'card' },
+            h('h4', null, 'Where should Onyx show?'),
+            h('p', null, 'Your progress bars, the time until your next task, and the Pi\'s calls as they ring.'),
+            h('div', { class: 'ls-pick', role: 'radiogroup', 'aria-label': 'Where Onyx shows' },
+              WHERE.map(([v, name, sub]) => h('button', {
+                type: 'button', class: `ls-opt${v === info.show ? ' on' : ''}`, role: 'radio', 'aria-checked': String(v === info.show),
+                onclick: () => { if (v !== info.show) onyx.launcher.set(v).then(draw).catch((err) => fail(err)); },
+              }, h('b', null, name), h('small', null, sub))))),
+        ];
+        if (lock) {
+          const left = [info.notifications, info.overlay].filter((x) => !x).length;
+          const steps = [
+            step(1, info.notifications, 'Allow notifications',
+              'What is on now, its progress bar and a countdown to the next thing, on the lock screen.',
+              button('notifications', 'Allow')),
+            step(2, info.overlay, 'Allow Onyx over the lock screen',
+              'Brings the full Onyx panel up each time the screen turns on. Android calls this "Display over other apps": switch Onyx Calendar on, then come back.',
+              button('overlay', 'Allow'), { extra: !info.overlay && greyedOut() }),
+          ];
+          if ('notiflist' in info) {
+            steps.push(step(3, info.notiflist, 'Show my other notifications under it',
+              'Android hides its own list behind the panel, so Onyx lists your other apps\' notifications: tap one to unlock and open it, hold it to clear it. Private ones show only "Contents hidden". Needs Notification access.',
+              button('notiflist', 'Allow', false), { optional: true, extra: info.overlay && info.notiflist === false && greyedOut() }));
+          }
+          cards.push(setup('Set up your lock screen', 'Onyx is on your lock screen. Turn the screen off and on to see it.', left, steps));
+        }
+        if (home) {
+          cards.push(setup('Set up your home screen', 'Onyx Home is your home screen. Hold an empty spot on it for its options.', info.isHome ? 0 : 1, [
+            step(1, info.isHome, 'Make Onyx Home your home app',
+              'A plain home screen with Onyx on it: your apps (swipe up), a dock, widgets and search. Android asks which home app to use: pick Onyx Calendar.',
+              h('div', { class: 'row' }, button('launcher', 'Preview', false), button('home', 'Make it my home app'))),
+          ]));
+        } else if (info.isHome) {
+          // Onyx Home is still the phone's home app though the home screen wasn't picked: say so, and how to go back.
+          cards.push(h('div', { class: 'card ls-card' },
+            h('h4', null, 'Onyx Home is still your home app'),
+            h('p', null, 'So Onyx still shows on your home screen. To stop that, pick your phone\'s own home app.'),
+            button('home', 'Change home app')));
+        }
+        cards.push(h('div', { class: 'card' },
+          h('h4', null, 'Alarms'),
+          h('p', null, 'These ring wherever Onyx shows.'),
           field('Alarm for everything as it starts', 'On top of each entry\'s own Escalation: every timed entry and task rings the full-screen alarm as it starts. Off, only entries set to Alarm ring your phone.',
             toggle(info.alarm === true, (v) => onyx.launcher.setAlarm(v).then(draw).catch((err) => fail(err)))),
-          lock && field('Notifications', 'The lock screen shows what is on now, its progress bar and a countdown to the next thing as a live notification.', allow(info.notifications, 'notifications')),
-          lock && field('Over the lock screen', 'Brings the full Onyx panel up over the lock screen each time the screen turns on ("Display over other apps").', allow(info.overlay, 'overlay')),
-          lock && 'notiflist' in info && field('My notifications under the panel', 'Android hides its own notification list behind the Onyx panel, so Onyx lists your other apps\' notifications under it: tap one to unlock and open it, hold it to clear it. Private ones show only "Contents hidden", and your lock screen settings for notifications are kept. Needs Notification access.',
-            allow(info.notiflist, 'notiflist')),
-          lock && (!info.overlay || info.notiflist === false) && h('div', { class: 'restricted-guide' },
-            h('b', null, 'Switch greyed out?'),
-            h('p', null, 'Android locks this switch for apps installed from a download. To unlock it:'),
-            h('ol', null,
-              h('li', null, 'Tap App info below (Settings → Apps → Onyx Calendar).'),
-              h('li', null, 'Tap ⋮ at the top right, then Allow restricted settings, and confirm with your PIN or fingerprint.'),
-              h('li', null, 'If that option is missing, tap the greyed-out switch once first, then look again.'),
-              h('li', null, 'Come back here and tap Allow: the switch turns on now.')),
-            h('button', { class: 'btn', onclick: () => onyx.launcher.open('appinfo') }, 'App info')),
-          field('Full-screen alarms', 'An alarm (and a call from the Pi) wakes the phone and fills the screen. Without it, it still rings and shakes, as a notification.', allow(info.fullScreen, 'fullscreen')),
-        ].filter(Boolean));
+          field('Full-screen alarms', 'An alarm (and a call from the Pi) wakes the phone and fills the screen. Without it, it still rings and shakes, as a notification.',
+            info.fullScreen ? h('span', { class: 'badge ok' }, 'On') : button('fullscreen', 'Allow', false))));
+        box.replaceChildren(...cards);
       };
-      const load = () => onyx.launcher.info().then(draw).catch(() => box.replaceChildren(h('p', null, 'Update the Onyx app to use this.')));
+      const load = () => onyx.launcher.info().then(draw).catch(() => box.replaceChildren(h('div', { class: 'card' }, h('p', null, 'Update the Onyx app to use this.'))));
       load();
       // Back from Android's settings: show what changed.
       const back = () => { if (!box.isConnected) document.removeEventListener('visibilitychange', back); else if (!document.hidden) load(); };
       document.addEventListener('visibilitychange', back);
       return [
         h('h3', null, 'Home & lock screen'),
-        h('p', { class: 'lead' }, 'Onyx on the screen you see most: your home screen, your lock screen, or both.'),
+        h('p', { class: 'lead' }, 'Onyx on the screen you see most: pick where, then follow its steps.'),
         box,
       ];
     },

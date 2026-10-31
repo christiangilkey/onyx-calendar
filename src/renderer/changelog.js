@@ -2,6 +2,14 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.92.1",
+  "date": "2026-10-31",
+  "title": "Stretching a block shows the time it saves",
+  "items": [
+   "Fixed: stretching a block on the phone by its bar showed the block longer (or shorter) than the time it would save, and a small stretch snapped back when you let go. The bars sit just outside the block, and the moving outline followed the finger rather than how far it moved. Now the outline's edge moves exactly as far as your finger does, so it, the time label and the saved time agree."
+  ]
+ },
+ {
   "version": "1.92.0",
   "date": "2026-10-31",
   "title": "Music on the lock screen, and no full-screen pop-ups",

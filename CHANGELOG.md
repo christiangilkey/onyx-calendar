@@ -2,6 +2,12 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
+## 1.92.1 · Stretching a block shows the time it saves
+
+_2026-10-31_
+
+- Fixed: stretching a block on the phone by its bar showed the block longer (or shorter) than the time it would save, and a small stretch snapped back when you let go. The bars sit just outside the block, and the moving outline followed the finger rather than how far it moved. Now the outline's edge moves exactly as far as your finger does, so it, the time label and the saved time agree.
+
 ## 1.92.0 · Music on the lock screen, and no full-screen pop-ups
 
 _2026-10-31_

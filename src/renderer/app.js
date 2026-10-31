@@ -2987,7 +2987,11 @@
   // ---- stretching an entry by its top or bottom edge
   // The grid snaps the new time to 15 minutes (the dashed outline). A copy of the entry follows the
   // pointer exactly, smoothly, with the time it will land on, and settles into place when let go.
-  const stretch = { box: null, chip: null, edge: 'end', rect: null, y: 0, frame: 0, perMin: 0, magnet: null };
+  // `off`: how far from the edge the finger took hold. A selected entry's bars sit outside it (styles.css), so the
+  // finger starts some way past the edge; the copy's edge keeps that distance, moving exactly as far as the finger
+  // does, which is how far the calendar moves the time. (Drawn to the finger itself, it showed a longer entry than
+  // the one saved, and a short stretch that looked like a quarter hour saved nothing.)
+  const stretch = { box: null, chip: null, edge: 'end', rect: null, y: 0, off: 0, frame: 0, perMin: 0, magnet: null };
 
   function stretchStart(info) {
     stretchStop();
@@ -2999,6 +3003,8 @@
       : ((info.jsEvent?.touches?.[0] || info.jsEvent)?.clientY ?? r.bottom) < r.top + r.height / 2 ? 'start' : 'end';
     stretch.rect = r;
     stretch.y = stretch.edge === 'start' ? r.top : r.bottom;
+    const grabY = (info.jsEvent?.touches?.[0] || info.jsEvent?.changedTouches?.[0] || info.jsEvent)?.clientY;
+    stretch.off = Number.isFinite(grabY) ? grabY - stretch.y : 0;
     const slot = $('#calendar .fc-timegrid-slot-lane') || $('#calendar .fc-timegrid-slot');
     stretch.perMin = (slot?.getBoundingClientRect().height || 28) / 30; // pixels in a minute of the grid
     const copy = el.cloneNode(true);
@@ -3015,7 +3021,7 @@
   function stretchMove(e) {
     const p = e.touches?.[0] || e;
     if (p.clientY == null) return;
-    stretch.y = p.clientY;
+    stretch.y = p.clientY - stretch.off;
     if (!stretch.frame) stretch.frame = requestAnimationFrame(stretchFrame);
   }
 

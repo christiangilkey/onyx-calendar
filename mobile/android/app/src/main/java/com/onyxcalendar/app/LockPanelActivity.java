@@ -57,6 +57,8 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
     private View root, clockView, dateView;
     private LinearLayout notifs; // your other apps' notifications, under the panel
     private NowPlaying music; // what is playing, between the panel and the notifications
+    private org.json.JSONObject layout = new org.json.JSONObject(); // the lock screen editor's settings (LockLayout)
+    private boolean clockOff, showDate = true;
     private final Runnable notifsChanged = () -> ui.post(this::renderNotifs);
     private boolean resumed, unlocking;
     private GestureDetector swipe;
@@ -179,41 +181,77 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
         content.setOrientation(LinearLayout.VERTICAL);
         scroll.addView(content, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
+        // Its parts, in the order (and with the look) set in the app's lock screen editor (LockLayout).
+        layout = LockLayout.get(this);
+        int gravity = "left".equals(layout.optString("align")) ? Gravity.START : Gravity.CENTER_HORIZONTAL;
+
+        LinearLayout clockPart = section();
         TextClock clock = new TextClock(this);
         clock.setFormat12Hour("h:mm");
         clock.setFormat24Hour("H:mm");
-        clock.setTextSize(TypedValue.COMPLEX_UNIT_SP, 76);
+        clock.setTextSize(TypedValue.COMPLEX_UNIT_SP, LockLayout.clockSp(layout));
         clock.setTextColor(Color.WHITE);
         clock.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
-        clock.setGravity(Gravity.CENTER);
-        content.addView(clock, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        clock.setGravity(gravity);
+        clockPart.addView(clock, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         clockView = clock;
         TextClock date = new TextClock(this);
         date.setFormat12Hour("EEEE, MMMM d");
         date.setFormat24Hour("EEEE, MMMM d");
         date.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
         date.setTextColor(0xEEFFFFFF);
-        date.setGravity(Gravity.CENTER);
+        date.setGravity(gravity);
         date.setPadding(0, 0, 0, dp(20));
-        content.addView(date, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        clockPart.addView(date, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         dateView = date;
 
         panel = new OnyxPanel(this, this, true);
-        content.addView(panel.top); // the Pi's call, above everything
+        content.addView(panel.top); // the Pi's call, above everything, wherever the rest goes
         scene = new FocusScene(this, true, v -> openOnyx(null));
-        content.addView(scene.root);
-        content.addView(panel.root);
+        clockPart.addView(scene.root); // Hyperfocus takes the clock's place
 
+        LinearLayout onyxPart = section();
+        onyxPart.addView(panel.root);
+
+        LinearLayout shortcutsPart = section();
+        View row = LockShortcuts.row(this, (s) -> unlock(() -> {
+            if (!LockShortcuts.open(this, s)) Toast.makeText(this, "Nothing on this phone can open " + LockShortcuts.labelOf(s) + ".", Toast.LENGTH_LONG).show();
+        }));
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rp.gravity = gravity;
+        rp.topMargin = dp(12);
+        shortcutsPart.addView(row, rp);
+
+        LinearLayout musicPart = section();
         music = new NowPlaying(this, ui, (pi) -> unlock(() -> openNotif(pi)));
         LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         mp.topMargin = dp(14);
-        content.addView(music.root, mp);
+        musicPart.addView(music.root, mp);
 
+        LinearLayout notifsPart = section();
         notifs = new LinearLayout(this);
         notifs.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         np.topMargin = dp(6);
-        content.addView(notifs, np);
+        notifsPart.addView(notifs, np);
+
+        java.util.Map<String, View> parts = new java.util.HashMap<>();
+        parts.put("clock", clockPart);
+        parts.put("onyx", onyxPart);
+        parts.put("shortcuts", shortcutsPart);
+        parts.put("music", musicPart);
+        parts.put("notifications", notifsPart);
+        org.json.JSONArray order = layout.optJSONArray("order");
+        for (int i = 0; order != null && i < order.length(); i++) {
+            View p = parts.get(order.optString(i));
+            if (p != null) content.addView(p);
+        }
+        showDate = layout.optBoolean("date", true);
+        if (!LockLayout.shows(layout, "clock")) { clockOff = true; }
+        if (!LockLayout.shows(layout, "onyx")) onyxPart.setVisibility(View.GONE);
+        if (!LockLayout.shows(layout, "shortcuts")) shortcutsPart.setVisibility(View.GONE);
+        if (!LockLayout.shows(layout, "music")) { musicPart.setVisibility(View.GONE); music = null; }
+        if (!LockLayout.shows(layout, "notifications")) { notifsPart.setVisibility(View.GONE); notifs = null; }
 
         TextView unlock = new TextView(this);
         unlock.setText("︿  Unlock");
@@ -259,9 +297,17 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
         LauncherData.Focus f = LauncherData.focus(this);
         scene.show(f);
         boolean on = f != null;
-        clockView.setVisibility(on ? View.GONE : View.VISIBLE);
-        dateView.setVisibility(on ? View.GONE : View.VISIBLE);
-        root.setBackgroundColor(on ? FocusScene.BACKDROP : 0xCC000000);
+        clockView.setVisibility(on || clockOff ? View.GONE : View.VISIBLE);
+        dateView.setVisibility(on || clockOff || !showDate ? View.GONE : View.VISIBLE);
+        root.setBackgroundColor(on ? FocusScene.BACKDROP : LockLayout.backdrop(layout));
+    }
+
+    /** One part of the panel, moved as a whole by the lock screen editor's order. */
+    private LinearLayout section() {
+        LinearLayout s = new LinearLayout(this);
+        s.setOrientation(LinearLayout.VERTICAL);
+        s.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return s;
     }
 
     /** Your other apps' notifications, newest first: a tap unlocks and opens it, a long press clears it. */

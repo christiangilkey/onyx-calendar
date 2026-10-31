@@ -2,6 +2,17 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.93.0",
+  "date": "2026-10-31",
+  "title": "Lock screen editor and shortcuts",
+  "items": [
+   "New on the phone: Settings → Lock screen editor, with a live picture of your lock screen. Put its parts (clock and date, now and next, shortcuts, now playing, notifications) in any order, and show or hide each. Choose the clock's size (S to XL), centre or left, the date on or off, and how dark the screen behind is. Changes save as you make them and show the next time the screen turns on.",
+   "Shortcuts on the lock screen: your own buttons, each with an icon (an emoji, or the app's own) and a name. Each opens a link (a web page, or an app's own link like spotify:, tel:, mailto: or a maps link), an app, or a file you pick on the phone. A tap unlocks and opens it. Add, edit, try, remove and reorder them in the editor, up to 12.",
+   "The Pi's calls still come first, and Hyperfocus still takes the clock's place while it runs.",
+   "Settings → Home & lock screen has a button to the editor."
+  ]
+ },
+ {
   "version": "1.92.1",
   "date": "2026-10-31",
   "title": "Stretching a block shows the time it saves",

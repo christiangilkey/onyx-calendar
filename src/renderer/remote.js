@@ -604,6 +604,12 @@
       // The doomscroll saver (DoomscrollService): on or off, after how many minutes, and a ten-second look at its card.
       setDoomscroll: ({ on, minutes } = {}) => Widget.setLauncher({ ...(on != null ? { doomscroll: !!on } : {}), ...(minutes ? { doomMinutes: Math.round(minutes) } : {}) }),
       previewDoomscroll: () => (Widget.doomscrollPreview ? Widget.doomscrollPreview() : Promise.resolve({ shown: false })),
+      // The lock screen editor: the panel's layout and your shortcuts on it (LockLayout, LockShortcuts).
+      lockSetup: () => (Widget.lockSetup ? Widget.lockSetup() : Promise.reject(new Error('Update the Onyx app to use this.'))),
+      setLockSetup: (o) => Widget.setLockSetup(o),
+      shortcutApps: () => Widget.shortcutApps().then((r) => r.apps || []),
+      pickShortcutFile: () => Widget.pickShortcutFile(),
+      tryShortcut: (shortcut) => Widget.tryShortcut({ shortcut }),
       // A Hyperfocus session on this phone, shown on Onyx Home and the lock screen (null: it is over).
       focus: (s) => Widget.setFocus?.(s ? { goal: s.goal, startedAt: s.startedAt, plannedEnd: s.plannedEnd } : { clear: true })?.catch?.(() => {}),
     } : null,

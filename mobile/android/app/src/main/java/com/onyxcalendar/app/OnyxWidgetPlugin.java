@@ -15,7 +15,10 @@ import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
+
+import androidx.activity.result.ActivityResult;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -159,6 +162,80 @@ public class OnyxWidgetPlugin extends Plugin {
             return;
         }
         LauncherData.open(getActivity(), call.getString("what", ""));
+        call.resolve();
+    }
+
+    // ---- the lock screen editor: the panel's layout (LockLayout) and your shortcuts on it (LockShortcuts)
+
+    private JSObject lockSetup() {
+        JSObject o = new JSObject();
+        try {
+            o.put("layout", LockLayout.get(getContext()));
+            o.put("shortcuts", LockShortcuts.list(getContext()));
+            o.put("max", LockShortcuts.MAX);
+        } catch (Exception ignored) {
+            // plain values
+        }
+        return o;
+    }
+
+    /** { layout, shortcuts, max }. */
+    @PluginMethod
+    public void lockSetup(PluginCall call) {
+        call.resolve(lockSetup());
+    }
+
+    /** Saves either or both ({ layout?, shortcuts? }); the panel shows them the next time the screen turns on. */
+    @PluginMethod
+    public void setLockSetup(PluginCall call) {
+        if (call.hasOption("layout")) LockLayout.save(getContext(), call.getObject("layout"));
+        if (call.hasOption("shortcuts")) LockShortcuts.save(getContext(), call.getArray("shortcuts"));
+        call.resolve(lockSetup());
+    }
+
+    /** The apps a shortcut can open: { apps: [{ pkg, label }] }. */
+    @PluginMethod
+    public void shortcutApps(PluginCall call) {
+        JSObject o = new JSObject();
+        o.put("apps", LockShortcuts.apps(getContext()));
+        call.resolve(o);
+    }
+
+    /** Android's file picker; { uri, name, type } of the file picked (kept openable after a restart), or { cancelled }. */
+    @PluginMethod
+    public void pickShortcutFile(PluginCall call) {
+        Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        startActivityForResult(call, pick, "pickedShortcutFile");
+    }
+
+    @ActivityCallback
+    private void pickedShortcutFile(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        Intent data = result.getData();
+        Uri uri = data == null ? null : data.getData();
+        JSObject o = new JSObject();
+        if (result.getResultCode() != android.app.Activity.RESULT_OK || uri == null) {
+            o.put("cancelled", true);
+            call.resolve(o);
+            return;
+        }
+        LockShortcuts.keep(getContext(), uri);
+        o.put("uri", uri.toString());
+        o.put("name", LockShortcuts.nameOf(getContext(), uri));
+        String type = getContext().getContentResolver().getType(uri);
+        o.put("type", type == null ? "" : type);
+        call.resolve(o);
+    }
+
+    /** Opens a shortcut now, as the lock screen would ({ shortcut }): to try one while setting it up. */
+    @PluginMethod
+    public void tryShortcut(PluginCall call) {
+        JSObject s = call.getObject("shortcut");
+        if (s == null || !LockShortcuts.open(getContext(), s)) {
+            call.reject("Nothing on this phone can open that.");
+            return;
+        }
         call.resolve();
     }
 

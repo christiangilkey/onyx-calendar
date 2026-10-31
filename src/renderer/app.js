@@ -7944,6 +7944,7 @@
               'Android hides its own lock screen behind the panel, so Onyx shows what is playing (Spotify and the like, with its controls) and your other apps\' notifications under it: tap one to unlock and open it, hold a notification to clear it. Private ones show only "Contents hidden". Needs Notification access.',
               button('notiflist', 'Allow', false), { optional: true, extra: info.overlay && info.notiflist === false && greyedOut() }));
           }
+          steps.push(h('div', { class: 'ls-more' }, h('button', { class: 'btn', onclick: () => openSettings('lockeditor') }, 'Edit how it looks, and add shortcuts')));
           cards.push(setup('Set up your lock screen', 'Onyx is on your lock screen. Turn the screen off and on to see it.', left, steps));
         }
         if (home) {
@@ -7978,6 +7979,141 @@
       return [
         h('h3', null, 'Home & lock screen'),
         h('p', { class: 'lead' }, 'Onyx on the screen you see most: pick where, then follow its steps.'),
+        box,
+      ];
+    },
+    // The lock screen editor (the Android app): how the Onyx panel over the lock screen looks, with a live
+    // picture of it. Its parts in any order, each shown or not; the clock's size and side, the date, how dark
+    // the screen behind is; and your own shortcuts on it, each opening a link, an app or a file. Every change
+    // is saved at once and shows the next time the screen turns on.
+    lockeditor() {
+      const box = h('div', { class: 'le' }, h('div', { class: 'card' }, h('p', null, 'Checking…')));
+      const PARTS = { clock: 'Clock and date', onyx: 'Now and next', shortcuts: 'Shortcuts', music: 'Now playing', notifications: 'Notifications' };
+      const KINDS = { link: 'Link', app: 'App', file: 'File' };
+      let setup = null, apps = null, editing = null; // editing: the shortcut in the form (a copy), and its place (-1: new)
+      const save = (patch) => onyx.launcher.setLockSetup(patch).then((s) => { setup = s; draw(); }).catch((err) => fail(err));
+      const L = () => setup.layout;
+      const shows = (p) => !L().hidden.includes(p);
+      const setLayout = (patch) => save({ layout: { ...L(), ...patch } });
+      const move = (list, i, by) => { const out = [...list]; const j = i + by; if (j < 0 || j >= out.length) return out; [out[i], out[j]] = [out[j], out[i]]; return out; };
+      const kindIcon = (s) => s.icon || (s.kind === 'file' ? '📄' : s.kind === 'app' ? '▦' : '🔗');
+      const labelOf = (s) => s.label || s.name || (s.kind === 'app' ? apps?.find((a) => a.pkg === s.target)?.label : '') || s.target;
+      const what = (s) => (s.kind === 'app' ? `App · ${apps?.find((a) => a.pkg === s.target)?.label || s.target}` : s.kind === 'file' ? `File · ${s.name || 'picked file'}` : s.target);
+
+      /** The picture of the lock screen, drawn from the settings as they are. */
+      const preview = () => {
+        const l = L();
+        const next = nextRun.items.find((e) => new Date(e.end) > Date.now());
+        const left = l.align === 'left';
+        const now = new Date();
+        const parts = {
+          clock: h('div', { class: 'lp-clock' },
+            h('div', { class: `lp-time ${l.clockSize}` }, now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: S.settings.hour12 }).replace(/\s?[AP]M$/i, '')),
+            l.date && h('div', { class: 'lp-date' }, now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }))),
+          onyx: h('div', { class: 'lp-card' }, h('small', null, next && new Date(next.start) <= Date.now() ? 'NOW' : 'NEXT'), h('b', null, next?.title || 'What is on now and next'), h('i')),
+          shortcuts: setup.shortcuts.length
+            ? h('div', { class: 'lp-chips' }, setup.shortcuts.map((s) => h('span', { class: 'lp-chip' }, h('em', null, kindIcon(s)), labelOf(s))))
+            : h('div', { class: 'lp-chips' }, h('span', { class: 'lp-chip ghost' }, 'Your shortcuts')),
+          music: h('div', { class: 'lp-card lp-music' }, h('span', { class: 'lp-art' }), h('div', null, h('small', null, 'NOW PLAYING'), h('b', null, 'When something plays')), h('span', { class: 'lp-play' }, '▶')),
+          notifications: h('div', { class: 'lp-notes' }, h('small', null, 'NOTIFICATIONS'), h('div', { class: 'lp-card' }), h('div', { class: 'lp-card' })),
+        };
+        return h('div', { class: `lp-phone${left ? ' left' : ''}`, css: { '--dim': String(l.dim / 100) }, 'aria-label': 'How your lock screen will look' },
+          h('div', { class: 'lp-inner' }, l.order.filter(shows).map((p) => parts[p])),
+          h('div', { class: 'lp-unlock' }, '︿ Unlock'));
+      };
+
+      /** One shortcut being made or changed. */
+      const form = () => {
+        const s = editing.s;
+        const err = h('small', { class: 'le-err' });
+        const target = s.kind === 'link'
+          ? h('input', { type: 'url', value: s.target || '', placeholder: 'https://… or spotify:, tel:, mailto:…', spellcheck: false, autocapitalize: 'off', oninput: (e) => { s.target = e.target.value.trim(); } })
+          : s.kind === 'app'
+            ? (apps ? h('select', { onchange: (e) => { s.target = e.target.value; } },
+              h('option', { value: '' }, 'Choose an app…'), apps.map((a) => h('option', { value: a.pkg, selected: a.pkg === s.target }, a.label)))
+              : h('small', null, 'Loading your apps…'))
+            : h('div', { class: 'row' },
+              h('button', { type: 'button', class: 'btn', onclick: async () => {
+                const f = await onyx.launcher.pickShortcutFile().catch((e) => { fail(e); return null; });
+                if (!f || f.cancelled) return;
+                Object.assign(s, { target: f.uri, name: f.name, type: f.type });
+                draw();
+              } }, s.target ? 'Choose another file' : 'Choose a file'),
+              s.target && h('small', null, s.name || 'File chosen'));
+        if (s.kind === 'app' && !apps) onyx.launcher.shortcutApps().then((a) => { apps = a; draw(); }).catch(() => { apps = []; draw(); });
+        const done = () => {
+          if (!s.target) { err.textContent = s.kind === 'link' ? 'Type the link it opens.' : s.kind === 'app' ? 'Choose the app it opens.' : 'Choose the file it opens.'; return; }
+          const list = [...setup.shortcuts];
+          if (editing.at < 0) list.push(s); else list[editing.at] = s;
+          editing = null;
+          save({ shortcuts: list });
+        };
+        return h('div', { class: 'card le-form' },
+          h('h4', null, editing.at < 0 ? 'New shortcut' : 'Change shortcut'),
+          h('div', { class: 'le-kinds', role: 'radiogroup', 'aria-label': 'What it opens' },
+            Object.entries(KINDS).map(([k, name]) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(s.kind === k), class: `le-kind${s.kind === k ? ' on' : ''}`,
+              onclick: () => { if (s.kind !== k) { Object.assign(s, { kind: k, target: '', name: '', type: '' }); draw(); } } }, name))),
+          h('label', { class: 'le-lbl' }, s.kind === 'link' ? 'Link' : s.kind === 'app' ? 'App' : 'File', target),
+          h('div', { class: 'le-two' },
+            h('label', { class: 'le-lbl le-icon' }, 'Icon', h('input', { type: 'text', value: s.icon || '', maxLength: 4, placeholder: kindIcon({ kind: s.kind }), oninput: (e) => { s.icon = e.target.value.trim(); } })),
+            h('label', { class: 'le-lbl' }, 'Name', h('input', { type: 'text', value: s.label || '', maxLength: 30, placeholder: s.kind === 'app' ? 'The app\'s name' : s.kind === 'file' ? 'The file\'s name' : 'e.g. Workout playlist', oninput: (e) => { s.label = e.target.value; } }))),
+          h('small', { class: 'le-hint' }, s.kind === 'app' ? 'Leave the icon empty for the app\'s own.' : 'An emoji works well as the icon.'),
+          err,
+          h('div', { class: 'row' },
+            h('button', { type: 'button', class: 'btn primary', onclick: done }, 'Save'),
+            s.target && h('button', { type: 'button', class: 'btn', onclick: () => onyx.launcher.tryShortcut(s).catch((e) => fail(e)) }, 'Try it'),
+            h('button', { type: 'button', class: 'btn', onclick: () => { editing = null; draw(); } }, 'Cancel')));
+      };
+
+      const draw = () => {
+        if (!setup) return;
+        const l = L();
+        const size = (v, name) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(l.clockSize === v), class: `le-kind${l.clockSize === v ? ' on' : ''}`, onclick: () => setLayout({ clockSize: v }) }, name);
+        box.replaceChildren(
+          h('div', { class: 'le-top' }, preview(), h('small', { class: 'le-saved' }, 'Changes save as you make them, and show the next time your screen turns on.')),
+          h('div', { class: 'card' },
+            h('h4', null, 'What shows, and in what order'),
+            h('p', null, 'The Pi\'s calls always come first, and Hyperfocus takes the clock\'s place while it runs.'),
+            h('div', { class: 'le-parts' }, l.order.map((p, i) => h('div', { class: `le-part${shows(p) ? '' : ' off'}` },
+              h('div', { class: 'le-move' },
+                h('button', { type: 'button', class: 'icon-btn', title: 'Move up', 'aria-label': `Move ${PARTS[p]} up`, disabled: i === 0, onclick: () => setLayout({ order: move(l.order, i, -1) }) }, '▲'),
+                h('button', { type: 'button', class: 'icon-btn', title: 'Move down', 'aria-label': `Move ${PARTS[p]} down`, disabled: i === l.order.length - 1, onclick: () => setLayout({ order: move(l.order, i, 1) }) }, '▼')),
+              h('b', null, PARTS[p]),
+              toggle(shows(p), (v) => setLayout({ hidden: v ? l.hidden.filter((x) => x !== p) : [...l.hidden, p] })))))),
+          h('div', { class: 'card' },
+            h('h4', null, 'Look'),
+            field('Clock size', null, h('div', { class: 'le-kinds', role: 'radiogroup', 'aria-label': 'Clock size' }, size('small', 'S'), size('medium', 'M'), size('large', 'L'), size('huge', 'XL'))),
+            field('Clock and shortcuts on', null, h('div', { class: 'le-kinds', role: 'radiogroup', 'aria-label': 'Side' },
+              ['center', 'left'].map((v) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(l.align === v), class: `le-kind${l.align === v ? ' on' : ''}`, onclick: () => setLayout({ align: v }) }, v === 'center' ? 'Center' : 'Left')))),
+            field('Date under the clock', null, toggle(l.date, (v) => setLayout({ date: v }))),
+            field('Background', `${l.dim}% dark: lower lets your wallpaper show through.`,
+              h('input', { type: 'range', min: 0, max: 100, step: 5, value: l.dim, class: 'le-range',
+                oninput: (e) => { box.querySelector('.lp-phone')?.style.setProperty('--dim', String(e.target.value / 100)); },
+                onchange: (e) => setLayout({ dim: +e.target.value }) }))),
+          h('div', { class: 'card' },
+            h('h4', null, 'Shortcuts'),
+            h('p', null, 'Tap one on the lock screen to unlock and open it: a web page, an app\'s link (spotify:, tel:, mailto:, a maps link), an app, or a file.'),
+            setup.shortcuts.length ? h('div', { class: 'le-list' }, setup.shortcuts.map((s, i) => h('div', { class: 'le-sc' },
+              h('div', { class: 'le-move' },
+                h('button', { type: 'button', class: 'icon-btn', 'aria-label': `Move ${labelOf(s)} left`, disabled: i === 0, onclick: () => save({ shortcuts: move(setup.shortcuts, i, -1) }) }, '▲'),
+                h('button', { type: 'button', class: 'icon-btn', 'aria-label': `Move ${labelOf(s)} right`, disabled: i === setup.shortcuts.length - 1, onclick: () => save({ shortcuts: move(setup.shortcuts, i, 1) }) }, '▼')),
+              h('span', { class: 'le-ic' }, kindIcon(s)),
+              h('div', { class: 'le-txt' }, h('b', null, labelOf(s)), h('small', null, what(s))),
+              h('button', { type: 'button', class: 'btn', onclick: () => onyx.launcher.tryShortcut(s).catch((e) => fail(e)) }, 'Try'),
+              h('button', { type: 'button', class: 'btn', onclick: () => { editing = { at: i, s: { ...s } }; draw(); } }, 'Edit'),
+              h('button', { type: 'button', class: 'icon-btn', title: 'Remove', 'aria-label': `Remove ${labelOf(s)}`, onclick: () => save({ shortcuts: setup.shortcuts.filter((_, j) => j !== i) }) }, '×'))))
+              : h('p', { class: 'le-none' }, 'None yet.'),
+            !editing && (setup.shortcuts.length < setup.max
+              ? h('button', { type: 'button', class: 'btn primary', onclick: () => { editing = { at: -1, s: { id: `s${Date.now().toString(36)}`, kind: 'link', target: '', label: '', icon: '' } }; draw(); } }, 'Add a shortcut')
+              : h('small', null, `That's the most (${setup.max}). Remove one to add another.`))),
+          editing && form());
+        if (!apps && setup.shortcuts.some((s) => s.kind === 'app')) onyx.launcher.shortcutApps().then((a) => { apps = a; draw(); }).catch(() => { apps = []; });
+      };
+      onyx.launcher.lockSetup().then((s) => { setup = s; draw(); })
+        .catch(() => box.replaceChildren(h('div', { class: 'card' }, h('p', null, 'Update the Onyx app to use the lock screen editor.'))));
+      return [
+        h('h3', null, 'Lock screen editor'),
+        h('p', { class: 'lead' }, 'Make the Onyx lock screen look the way you want: what shows, in what order, and your own shortcuts.'),
         box,
       ];
     },
@@ -8290,7 +8426,7 @@
   let settingsTab = onyx.isPhone ? 'connection' : 'calendars';
   function openSettings(tab = settingsTab) {
     const tabs = onyx.isPhone
-      ? [['connection', 'Connection'], ['keys', 'Keys & accounts'], ['pi', 'Calls & alerts'], ...(onyx.launcher ? [['launcher', 'Home & lock screen'], ['doomscroll', 'Doomscroll saver']] : []), ['general', 'General'], ['changelog', 'Changelog']]
+      ? [['connection', 'Connection'], ['keys', 'Keys & accounts'], ['pi', 'Calls & alerts'], ...(onyx.launcher ? [['launcher', 'Home & lock screen'], ['lockeditor', 'Lock screen editor'], ['doomscroll', 'Doomscroll saver']] : []), ['general', 'General'], ['changelog', 'Changelog']]
       : [['calendars', 'Calendars'], ['connections', 'Notion, Drive & AI'], ['phone', 'Phone'], ['desktops', 'Desktops'], ['pi', 'Calls & alerts'], ['mcp', 'MCP server'], ['general', 'General'], ['changelog', 'Changelog']];
     if (!tabs.some(([id]) => id === tab)) tab = tabs[0][0];
     settingsTab = tab;

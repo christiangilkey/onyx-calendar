@@ -14,6 +14,7 @@ const api = require('./api');
 const library = require('./library');
 const updater = require('./updater');
 const sync = require('./sync');
+const cloud = require('./cloud');
 
 const { state } = api;
 
@@ -287,6 +288,44 @@ function watchInTamkeen(id, seconds) {
   });
 }
 
+// Tamkeen's player inside Onyx's News panel: Tamkeen serves just its player and clickable captions on
+// http://127.0.0.1:<port>/embed while it runs. Its port is in instance.json; it is asked from here (it
+// refuses pages with another origin), started hidden when it isn't running, and an older Tamkeen (no
+// embed) or one that does not answer gets the tamkeen:// link instead ({ fallback: true }).
+const TAMKEEN_INSTANCE = path.join(process.env.APPDATA || '', 'ArabicPodcastStudio', 'instance.json');
+async function tamkeenAt() {
+  try {
+    const { port } = JSON.parse(fs.readFileSync(TAMKEEN_INSTANCE, 'utf8'));
+    if (!port) return null;
+    const r = await fetch(`http://127.0.0.1:${port}/api/app/info`, { signal: AbortSignal.timeout(1500) });
+    if (r.status === 404) return { port, old: true };
+    if (!r.ok) return null;
+    const info = await r.json().catch(() => ({}));
+    return { port, old: !info.embed };
+  } catch {
+    return null; // no file, or nothing answering yet
+  }
+}
+async function tamkeenEmbed(id, seconds) {
+  if (!/^[w-]{11}$/.test(String(id || ''))) throw new Error('That is not a YouTube video.');
+  if (!tamkeenInstalled()) return { fallback: true };
+  // A Tamkeen without the embed (it never wrote instance.json) is remembered until it is updated: no slow try each time.
+  let stamp = 0;
+  try { stamp = Math.round(fs.statSync(TAMKEEN_EXE).mtimeMs); } catch { /* checked above */ }
+  if (store.data.tamkeenNoEmbed === stamp) return { fallback: true };
+  const noEmbed = () => { store.data.tamkeenNoEmbed = stamp; store.save(); return { fallback: true }; };
+  let at = await tamkeenAt();
+  if (!at) {
+    try {
+      spawn(TAMKEEN_EXE, ['--background'], { detached: true, stdio: 'ignore', cwd: path.dirname(TAMKEEN_EXE), windowsHide: true }).unref();
+    } catch { return { fallback: true }; }
+    for (let i = 0; i < 60 && !at; i++) { await new Promise((r) => setTimeout(r, 500)); at = await tamkeenAt(); } // up to 30 s on a first start
+  }
+  if (!at || at.old) return noEmbed();
+  const t = Number(seconds) > 0 ? `&t=${Math.floor(Number(seconds))}` : '';
+  return { url: `http://127.0.0.1:${at.port}/embed?v=${id}${t}&from=onyx` };
+}
+
 // The shared commands (api.js), plus the ones only the desktop can do.
 const HANDLERS = {
   ...api.handlers,
@@ -300,6 +339,12 @@ const HANDLERS = {
     return afterAccountChange();
   },
   'account:remove': (id) => { accounts.remove(id); return afterAccountChange(); },
+  // Sync through Google Drive (cloud.js): turned on, the code typed in, and the code shown, on the PC only.
+  'cloud:on': async (account) => { await cloud.enable(account); return sync.info(); },
+  'cloud:allow': async () => { const acct = await accounts.connectGoogle(); showWindow(); await cloud.enable(acct.label); return sync.info(); },
+  'cloud:code': async (code) => { await cloud.enterCode(code); return sync.info(); },
+  'cloud:show-code': () => cloud.code(),
+  'cloud:off': async () => { await cloud.disable(); return sync.info(); },
   'update:check': () => updater.check(),
   'update:install': () => updater.install(),
   'update:state': () => updater.current(),
@@ -322,6 +367,7 @@ const HANDLERS = {
   // Tamkeen on this PC (not offered to the phone, which opens its own Tamkeen).
   'tamkeen:info': () => ({ installed: tamkeenInstalled() }),
   'tamkeen:watch': (id, seconds) => watchInTamkeen(id, seconds),
+  'tamkeen:embed': (id, seconds) => tamkeenEmbed(id, seconds),
 };
 
 function registerIpc() {
@@ -331,6 +377,7 @@ function registerIpc() {
       try {
         return { ok: true, value: await fn(...args) };
       } catch (err) {
+        require('./bugs').noteError(err, name);
         return { ok: false, error: err.message || String(err) };
       }
     });

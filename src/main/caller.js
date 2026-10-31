@@ -65,26 +65,53 @@ async function push(title, message, urgent) {
   if (!res.ok) throw new Error(`ntfy answered ${res.status}`);
 }
 
-async function phoneCall(message) {
+const twilioAuth = (c, token) => ({ Authorization: `Basic ${Buffer.from(`${c.twilioSid}:${token}`).toString('base64')}` });
+
+/** Places a call; gives its Twilio id. `detect`: tell a person from voicemail (for "was it answered?"). */
+async function phoneCall(message, { detect = false } = {}) {
   const c = calls();
   const token = store.data.secrets.twilioToken;
   if (!c.twilioSid || !token || !c.twilioFrom || !c.callTo) throw new Error('Fill in the Twilio account SID, auth token, your Twilio number and the number to call.');
   const twiml = `<Response><Say>${esc(message)}</Say><Pause length="1"/><Say>${esc(message)}</Say></Response>`;
   const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(c.twilioSid)}/Calls.json`, {
     method: 'POST', signal: AbortSignal.timeout(20000),
-    headers: { Authorization: `Basic ${Buffer.from(`${c.twilioSid}:${token}`).toString('base64')}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ To: c.callTo, From: c.twilioFrom, Twiml: twiml }),
+    headers: { ...twilioAuth(c, token), 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ To: c.callTo, From: c.twilioFrom, Twiml: twiml, ...(detect ? { MachineDetection: 'Enable' } : {}) }),
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.message ? `Twilio: ${body.message}` : `Twilio answered ${res.status}`);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.message ? `Twilio: ${body.message}` : `Twilio answered ${res.status}`);
+  return body.sid || null;
+}
+
+/**
+ * Whether a call was picked up by a person: watched until it ends (a few minutes at most). Not by
+ * voicemail or a machine, and not one rung out, busy or failed. Null when Twilio can't be asked.
+ */
+async function wasAnswered(sid, { every = 5000, upTo = 4 * 60000, fetchImpl = fetch } = {}) {
+  const c = calls();
+  const token = store.data.secrets.twilioToken;
+  if (!sid || !c.twilioSid || !token) return null;
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(c.twilioSid)}/Calls/${encodeURIComponent(sid)}.json`;
+  const until = Date.now() + upTo;
+  while (Date.now() < until) {
+    const res = await fetchImpl(url, { headers: twilioAuth(c, token), signal: AbortSignal.timeout(15000) }).catch(() => null);
+    const call = res?.ok ? await res.json().catch(() => null) : null;
+    if (call) {
+      const by = String(call.answered_by || '');
+      if (/^machine|^fax/.test(by)) return false;
+      if (by === 'human' && (call.status === 'in-progress' || call.status === 'completed')) return true;
+      if (['busy', 'failed', 'no-answer', 'canceled'].includes(call.status)) return false;
+      if (call.status === 'completed') return Number(call.duration) >= 4; // answered, with no word on who
+    }
+    await new Promise((r) => setTimeout(r, every));
   }
+  return null;
 }
 
 /** Sends one reminder the way it is set up: a call (Twilio) or a push (ntfy). */
-async function send(kind, title, message) {
+async function send(kind, title, message, { detect = false } = {}) {
   const m = method();
-  if (m === 'twilio' && kind !== 'push') return phoneCall(message);
+  if (m === 'twilio' && kind !== 'push') return phoneCall(message, { detect });
   if (m === 'twilio' && kind === 'push') {
     if (calls().ntfyTopic) return push(title, message, false);
     return phoneCall(message); // no push set up: a call is the next best thing
@@ -144,7 +171,12 @@ async function tick() {
       const when = mins > 1 ? `starts in ${mins} minutes, at ${clock(start)}` : mins >= -1 ? 'is starting now' : `started ${-mins} minutes ago`;
       const leave = e.leaveBy ? ` It starts with ${e.leaveBy} minutes of travel: leave at ${clock(start)}, there by ${clock(new Date(start.getTime() + e.leaveBy * 60000))}.` : '';
       try {
-        await send(a.kind, e.title, `Reminder: ${e.title} ${when}.${leave}`);
+        const critical = a.critical ? ` This is call ${a.critical} of ${(e.piAlerts || []).filter((x) => x.critical).length}.` : '';
+        const sid = await send(a.kind, e.title, `Reminder: ${e.title} ${when}.${leave}${critical}`, { detect: !!a.critical });
+        // Critical: a call answered (by you, not voicemail) is as good as "Leaving now": no more calls about it.
+        if (a.critical && sid && method() === 'twilio') {
+          wasAnswered(sid).then((yes) => (yes ? hub.ackPiCall(e.id) : null)).catch((err) => console.error('onyx: could not check the call:', err.message));
+        }
       } catch (err) {
         console.error('onyx: could not send a reminder:', err.message);
       }
@@ -164,4 +196,4 @@ function start(h) {
   timer.unref?.();
 }
 
-module.exports = { METHODS, method, sendsHere, info, setTwilioToken, test, send, tick, start };
+module.exports = { METHODS, method, sendsHere, info, setTwilioToken, test, send, wasAnswered, tick, start };

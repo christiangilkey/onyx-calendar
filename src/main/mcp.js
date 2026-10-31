@@ -416,7 +416,7 @@ function send(res, code, body, headers = {}) {
 
 // Commands the Android app may run (see api.js), set by main.js.
 let appApi = {};
-const READS = new Set(['state', 'events', 'tasks', 'refresh', 'emails']);
+const READS = new Set(['ping', 'state', 'goal:plan', 'source:read', 'ai:breakdownPlan', 'events', 'tasks', 'refresh', 'emails', 'bugs:report', 'share:senders', 'share:pages', 'share:email', 'share:notion']);
 
 async function appRpc(req, res) {
   if (req.method !== 'POST') return send(res, 405, { error: 'Use POST.' }, { Allow: 'POST' });
@@ -426,14 +426,44 @@ async function appRpc(req, res) {
   } catch {
     return send(res, 400, { ok: false, error: 'Bad request.' });
   }
+  if (!Object.hasOwn(appApi, msg?.name)) return send(res, 404, { ok: false, error: `Unknown command: ${msg?.name}` });
+  return send(res, 200, await appCall(msg));
+}
+
+// A change the phone made while no PC was in reach comes with the id its outbox gave it. Each is
+// made once: one sent again (its answer was lost on the way, or it went to another linked PC) gets
+// the answer it got the first time. Remembered on every linked PC (sync.js), for 30 days.
+const OPS_KEPT_MS = 30 * 86400000;
+const MAX_OPS = 2000;
+const opId = (v) => (typeof v === 'string' && /^[\w-]{6,64}$/.test(v) ? v : null);
+/** What an answer is remembered as: enough to answer again (a made entry's id), not the whole of it. */
+const brief = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(['id', 'seriesId', 'title', 'start', 'end'].filter((k) => k in v).map((k) => [k, v[k]])) : v ?? null);
+
+/** Runs one of the app's commands ({ name, args, op? }); its answer, { ok, value } or { ok: false, error }. */
+async function appCall(msg) {
   const fn = Object.hasOwn(appApi, msg?.name) ? appApi[msg.name] : null;
-  if (!fn) return send(res, 404, { ok: false, error: `Unknown command: ${msg?.name}` });
+  if (!fn) return { ok: false, error: `Unknown command: ${msg?.name}` };
+  const op = opId(msg.op);
+  const done = op && store.data.opsDone?.[op];
+  if (done) return { ok: true, value: done.value ?? null, again: true };
   try {
     const value = await fn(...(Array.isArray(msg.args) ? msg.args : []));
+    if (op) {
+      const ops = (store.data.opsDone ??= {});
+      ops[op] = { at: new Date().toISOString(), value: brief(value) };
+      const cut = Date.now() - OPS_KEPT_MS;
+      const keys = Object.keys(ops);
+      for (const k of keys) if (Date.parse(ops[k]?.at) < cut || keys.length - keys.indexOf(k) > MAX_OPS) delete ops[k];
+      store.save();
+    }
     if (!READS.has(msg.name)) onChange();
-    return send(res, 200, { ok: true, value: value ?? null });
+    return { ok: true, value: value ?? null };
   } catch (err) {
-    return send(res, 200, { ok: false, error: err.message || String(err) });
+    // The PC's own connection dropped (it couldn't reach Google, say): nothing was made, so the
+    // phone keeps the change and sends it again later, rather than taking it as turned down.
+    if (err.network) return { ok: false, error: err.message, retry: true };
+    require('./bugs').noteError(err, msg.name);
+    return { ok: false, error: err.message || String(err) };
   }
 }
 
@@ -542,4 +572,4 @@ function info() {
   return { enabled, port, lan, ...status, token: store.data.secrets.mcpToken, addresses: lan ? addresses : [] };
 }
 
-module.exports = { start, stop, info, rpc, TOOLS, setAppApi: (handlers) => { appApi = handlers; } };
+module.exports = { start, stop, info, rpc, TOOLS, appCall, setAppApi: (handlers) => { appApi = handlers; } };

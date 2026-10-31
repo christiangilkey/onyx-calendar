@@ -70,4 +70,61 @@ function disconnect() {
 
 const info = () => ({ connected: !!token(), ...(store.data.notion || {}) });
 
-module.exports = { search, connect, disconnect, info };
+/** Adds blocks at the end of a page shared with the integration (share.js: a calendar block sent there). */
+async function append(pageId, children) {
+  return call(`/blocks/${encodeURIComponent(pageId)}/children`, { method: 'PATCH', body: { children } });
+}
+
+const MAX_BLOCKS = 800; // a long page is read this far
+const MAX_DEPTH = 3;    // nested lists and toggles, this deep
+
+/** One block as a line of text: headings with #, lists with - and 1., to-dos with [ ] or [x]. Null: nothing to read. */
+function blockLine(b, depth, n) {
+  const ind = '  '.repeat(depth);
+  const body = b[b.type] || {};
+  const t = plain(body.rich_text);
+  switch (b.type) {
+    case 'heading_1': return `\n# ${t}`;
+    case 'heading_2': return `\n## ${t}`;
+    case 'heading_3': return `\n### ${t}`;
+    case 'paragraph': return t ? ind + t : '';
+    case 'bulleted_list_item': case 'toggle': return `${ind}- ${t}`;
+    case 'numbered_list_item': return `${ind}${n}. ${t}`;
+    case 'to_do': return `${ind}- [${body.checked ? 'x' : ' '}] ${t}`;
+    case 'quote': case 'callout': return `${ind}> ${t}`;
+    case 'code': return t ? `${ind}${t}` : null;
+    case 'divider': return '---';
+    case 'child_page': return `${ind}(page) ${body.title || ''}`;
+    case 'child_database': return `${ind}(database) ${body.title || ''}`;
+    case 'bookmark': case 'embed': case 'link_preview': return body.url ? `${ind}${body.url}` : null;
+    case 'table_row': return ind + (body.cells || []).map((c) => plain(c)).join(' | ');
+    case 'equation': return body.expression ? ind + body.expression : null;
+    case 'image': case 'video': case 'file': case 'pdf': { const cap = plain(body.caption); return cap ? `${ind}(${b.type}) ${cap}` : null; }
+    default: return t ? ind + t : null;
+  }
+}
+
+/** A page shared with the integration, as text: { title, url, text }. Nested blocks are read a few levels deep. */
+async function readPage(id) {
+  const page = await call(`/pages/${encodeURIComponent(id)}`);
+  const lines = [];
+  let count = 0;
+  const walk = async (blockId, depth) => {
+    let cursor = null, n = 0;
+    do {
+      const res = await call(`/blocks/${encodeURIComponent(blockId)}/children?page_size=100${cursor ? `&start_cursor=${encodeURIComponent(cursor)}` : ''}`);
+      for (const b of res.results || []) {
+        if (++count > MAX_BLOCKS) return;
+        n = b.type === 'numbered_list_item' ? n + 1 : 0;
+        const line = blockLine(b, depth, n);
+        if (line != null) lines.push(line);
+        if (b.has_children && depth < MAX_DEPTH && b.type !== 'child_page' && b.type !== 'child_database') await walk(b.id, depth + 1);
+      }
+      cursor = res.has_more ? res.next_cursor : null;
+    } while (cursor);
+  };
+  await walk(id, 0);
+  return { title: titleOf(page), url: page.url || '', text: lines.join('\n').replace(/\n{3,}/g, '\n\n').trim() };
+}
+
+module.exports = { search, connect, disconnect, info, append, readPage, blockLine };

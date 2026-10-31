@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://i.ytimg.com; font-src 'self' data:; frame-src https://www.youtube-nocookie.com">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://i.ytimg.com; font-src 'self' data:; frame-src 'self' https://www.youtube-nocookie.com http://127.0.0.1:*">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <title>Onyx Calendar</title>
   <link rel="stylesheet" href="styles.css">
@@ -84,7 +84,7 @@
       </div>
       <form id="task-add">
         <div class="task-add-row">
-          <input id="task-title" type="text" placeholder="Add a task…  e.g. Dentist 3pm" autocomplete="off" spellcheck="false">
+          <input id="task-title" type="text" maxlength="30" placeholder="Add a task…  e.g. Dentist 3pm" autocomplete="off" spellcheck="false">
           <select id="task-list" title="Task list"></select>
           <button type="submit" class="btn primary" id="task-submit">Add</button>
         </div>
@@ -94,6 +94,7 @@
           <button type="button" class="btn quick-date" data-days="1">Tomorrow</button>
         </div>
       </form>
+      <button id="task-magic" type="button" class="magic-goal" title="Tick tasks from your lists or type new ones, and have them fitted into the day (P)"></button>
       <div id="task-items"></div>
     </aside>
 
@@ -129,6 +130,7 @@
   <script src="remote.js"></script>
   <script src="mock.js"></script>
   <script src="graph.js"></script>
+  <script src="changelog.js"></script>
   <script src="focus-plan.js"></script>
   <script src="app.js"></script>
 </body>

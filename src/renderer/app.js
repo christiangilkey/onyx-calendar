@@ -44,6 +44,14 @@
     globe: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.6 2.3 3.9 5.1 3.9 8.5s-1.3 6.2-3.9 8.5c-2.6-2.3-3.9-5.1-3.9-8.5s1.3-6.2 3.9-8.5z"/>',
     link: '<path d="M14 5h5v5M19 5l-8 8M11 7H6v11h11v-5"/>',
     update: '<path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/><path d="M12 8v6M9.5 11.5L12 14l2.5-2.5"/>',
+    camera: '<path d="M4 8.5A2.5 2.5 0 0 1 6.5 6H8l1.5-2h5L16 6h1.5A2.5 2.5 0 0 1 20 8.5v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z"/><circle cx="12" cy="12.5" r="3.5"/>',
+    shield: '<path d="M12 3.5l7 2.8v5.2c0 4.3-2.9 7.6-7 9-4.1-1.4-7-4.7-7-9V6.3z"/><path d="M9 12.2l2.2 2.2 4-4.3"/>',
+    cloudoff: '<path d="M8 18.5h8.5a3.8 3.8 0 0 0 1.6-7.2M15.6 7.1A5.5 5.5 0 0 0 7.7 9a4.8 4.8 0 0 0-.4 9.4"/><path d="M4 4l16 16"/>',
+    pin: '<path d="M12 21s-6-5.4-6-10.5a6 6 0 0 1 12 0C18 15.6 12 21 12 21z"/><circle cx="12" cy="10.5" r="2.2"/>',
+    monitor: '<rect x="3.5" y="4.5" width="17" height="11.5" rx="2"/><path d="M9 20h6M12 16v4"/>',
+    grip: '<path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"/>',
+    drop: '<path d="M12 3.5s-6 6.6-6 11a6 6 0 0 0 12 0c0-4.4-6-11-6-11z"/>',
+    send: '<path d="M20.5 3.5L3.5 10.6l6.8 2.6 2.6 6.8z"/><path d="M10.3 13.2l4.4-4.4"/>',
     qr: '<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><rect x="8" y="8" width="3" height="3"/><rect x="13" y="8" width="3" height="3"/><rect x="8" y="13" width="3" height="3"/><path d="M13 13h3v3"/>',
   };
   const COLORS = ['#8b7cff', '#4aa8ff', '#3fd0c9', '#5fd38d', '#f5b83d', '#ff9f4a', '#ff6b6b', '#ff7eb6', '#b9b9c2'];
@@ -166,19 +174,9 @@
   // A block of time split into work and rest chunks (hub.js setPomodoro). The calendar
   // draws the chunks inside the block, and the top bar runs the timer while it is on.
 
-  /** The chunks of a block `total` minutes long: [{ kind: 'work'|'rest', from, to }] in minutes. */
+  /** The chunks of a block `total` minutes long: [{ kind: 'work'|'rest', from, to }] in minutes (focus-plan.js). */
   function pomodoroChunks(total, p) {
-    const out = [];
-    for (let t = 0; t < total;) {
-      const w = Math.min(p.work, total - t);
-      out.push({ kind: 'work', from: t, to: t + w });
-      t += w;
-      if (t >= total) break;
-      const r = Math.min(p.rest, total - t);
-      out.push({ kind: 'rest', from: t, to: t + r });
-      t += r;
-    }
-    return out;
+    return OnyxFocus.pomodoroChunks(total, p);
   }
   const chunkSummary = (total, p) => {
     const chunks = pomodoroChunks(total, p);
@@ -245,8 +243,12 @@
       const start = new Date(e.start).getTime();
       const base = { id: e.id, title: e.title, start, kind: e.kind };
       if (start > now) list.push({ ...base, at: start, why: 'start' });
-      if (e.callMode === 'alarm' && !e.callAck) {
-        for (const a of e.piAlerts || []) { const at = new Date(a.at).getTime(); if (at > now) list.push({ ...base, at, why: 'alarm' }); }
+      if (!e.callAck) {
+        for (const a of e.piAlerts || []) {
+          if (a.kind !== 'alarm') continue; // an alarm among its escalation's modes: the phone rings for it
+          const at = new Date(a.at).getTime();
+          if (at > now) list.push({ ...base, at, why: 'alarm' });
+        }
       }
     }
     const f = focus.s;
@@ -1106,6 +1108,238 @@
   const cleanNote = (s) => String(s || '').replace(/\s+$/, '');
 
   /** A notes box that grows with what is written in it. */
+  /**
+   * A block's tasks, in its window: a "Tasks" box that, ticked, opens the list of what to get done
+   * within the block. Each task can be ticked off (for that day of the block), dragged by its handle
+   * to a new place (or moved with Alt+Up / Alt+Down), and taken off with ×; + (or Enter) adds another.
+   * `onTick(id, done)` saves a tick at once, on a block already saved. get() gives { on, items } in order.
+   */
+  /** Colours a block can wear in place of its calendar's: bright enough on the dark grid, apart from each other. */
+  const BLOCK_COLORS = [
+    ['#8b7cff', 'Violet'], ['#4aa8ff', 'Blue'], ['#3fd0c9', 'Teal'], ['#5fd38d', 'Green'], ['#c3e35a', 'Lime'],
+    ['#f5d04a', 'Yellow'], ['#ff9f4a', 'Orange'], ['#ff6b6b', 'Red'], ['#ff7eb6', 'Pink'], ['#c69a6d', 'Brown'], ['#9aa0a8', 'Grey'],
+  ];
+
+  /**
+   * A row of colour swatches: the calendar's own colour first (a block with none of its own), then the
+   * palette. `pick(color | null)` is told each choice; get() gives the one chosen.
+   */
+  function colorSwatches(current, calColor, pick) {
+    let chosen = current || null;
+    const sw = (color, name) => h('button', { type: 'button', class: `bcolor${color ? '' : ' cal'}`, title: name, 'aria-label': name,
+      css: { '--s': color || calColor || 'var(--accent)' }, onclick: (e) => { e.stopPropagation(); chosen = color; draw(); pick?.(color); } });
+    const row = h('div', { class: 'bcolors', role: 'radiogroup', 'aria-label': 'Colour' },
+      sw(null, 'The calendar\'s colour'), BLOCK_COLORS.map(([c, n]) => sw(c, n)));
+    const draw = () => {
+      [...row.children].forEach((b, i) => {
+        const on = i === 0 ? !chosen : chosen === BLOCK_COLORS[i - 1][0];
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-checked', String(on));
+        b.setAttribute('role', 'radio');
+      });
+    };
+    draw();
+    return { el: row, get: () => chosen };
+  }
+
+  /** Gives a block its own colour (or its calendar's again), from the right-click menu: undoable. */
+  async function colorBlock(src, color) {
+    const key = src.seriesId || src.id, before = src.ownColor ? src.color : null;
+    if ((color || null) === before) return;
+    try {
+      await onyx.setEventColor(key, color);
+      recordAction(color ? `Coloured "${src.title}"` : `"${src.title}" in its calendar's colour`, () => onyx.setEventColor(key, before), () => onyx.setEventColor(key, color));
+      refetch();
+    } catch (err) {
+      fail(err);
+    }
+  }
+
+  // A task's or a block's name is kept short: 30 characters at most where it is typed. The count shows near the
+  // end (and the input just stops there). Names already longer stay as they are until edited.
+  const NAME_MAX = 30;
+  function limitName(input, { count = true } = {}) {
+    input.maxLength = NAME_MAX;
+    if (!count) return input;
+    const n = h('span', { class: 'name-count', 'aria-live': 'polite' });
+    const draw = () => {
+      const len = input.value.length;
+      n.textContent = `${len}/${NAME_MAX}`;
+      n.hidden = len < NAME_MAX - 8;
+      n.classList.toggle('full', len >= NAME_MAX);
+    };
+    input.addEventListener('input', draw);
+    draw();
+    requestAnimationFrame(() => { if (input.isConnected && !n.isConnected) input.after(n); });
+    return input;
+  }
+
+  // ---- a block's links: a website, a Drive file or a Notion page it is about, opened from the bubble beside it
+  // (showTapBubble) or from here. Kept in Onyx by the block (a repeat's by its series), on read-only calendars too.
+  const linkKindText = (l) => (l.source === 'drive' ? KIND_LABEL[l.kind] || 'Google Drive file'
+    : l.source === 'notion' ? `Notion${l.kind === 'database' ? ' database' : ' page'}` : hostOf(l.url));
+  const linkMark = (l) => h('span', { class: `link-mark ${l.source || 'web'}` }, l.icon || (l.source === 'drive' ? '▤' : l.source === 'notion' ? 'N' : icon('link')));
+  function blockLinkField(initial = []) {
+    const items = (initial || []).map((l) => ({ ...l }));
+    const list = h('div', { class: 'blink-list' });
+    const adder = h('div', { class: 'blink-adder', hidden: true });
+    const draw = () => list.replaceChildren(...items.map((l, i) => h('div', { class: 'blink' },
+      linkMark(l),
+      h('button', { type: 'button', class: 'blink-t', title: `Open ${l.url}`, onclick: () => onyx.open(l.url) }, h('b', null, l.title), h('small', null, linkKindText(l))),
+      h('button', { type: 'button', class: 'x', title: 'Take this link off', onclick: () => { items.splice(i, 1); draw(); } }, icon('x')))));
+    const add = (l) => {
+      if (items.some((x) => x.url === l.url)) return toast('That one is already linked.');
+      items.push(l);
+      draw();
+      adder.hidden = true;
+      adder.replaceChildren();
+    };
+    const web = () => {
+      const url = h('input', { type: 'url', placeholder: 'https://…', spellcheck: false, autocomplete: 'off', 'aria-label': 'Web address' });
+      const name = h('input', { type: 'text', placeholder: 'Name (optional)', spellcheck: false, maxLength: 120, 'aria-label': 'Name' });
+      const go = () => {
+        let u = url.value.trim();
+        if (!u) return url.focus();
+        if (!/^https?:\/\//i.test(u)) u = `https://${u}`;
+        try { new URL(u); } catch { return toast('That does not look like a web address.', 'warn'); }
+        add({ url: u, title: name.value.trim() || hostOf(u), source: 'web' });
+      };
+      for (const el of [url, name]) el.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+      adder.replaceChildren(url, name, h('button', { type: 'button', class: 'btn primary', onclick: go }, 'Link'));
+      adder.hidden = false;
+      if (!MOBILE) url.focus();
+    };
+    const search = (source) => {
+      const q = h('input', { type: 'text', placeholder: source === 'notion' ? 'Search your Notion pages…' : 'Search your Drive…', spellcheck: false, autocomplete: 'off' });
+      const found = h('div', { class: 'blink-found' }, h('p', { class: 'pop-meta' }, 'Loading…'));
+      let seq = 0, timer = null;
+      const run = async () => {
+        const mine = ++seq;
+        try {
+          const res = source === 'notion' ? await onyx.searchNotion(q.value) : await onyx.searchDrive(q.value);
+          if (mine !== seq) return;
+          found.replaceChildren(...(res.length ? res.slice(0, 8).map((r) => h('button', { type: 'button', class: 'blink-pick', onclick: () => add({ url: r.url, title: r.title, source, kind: r.kind, icon: r.icon }) },
+            linkMark({ ...r, source }), h('span', null, h('b', null, r.title), h('small', null, linkKindText({ ...r, source }))))) : [h('p', { class: 'pop-meta' }, source === 'notion'
+            ? 'Nothing found. Notion only shows Onyx the pages shared with it (in Notion: ••• → Connections).' : 'Nothing found.')]));
+        } catch (err) {
+          if (mine === seq) found.replaceChildren(h('p', { class: 'pop-meta problem' }, err.message));
+        }
+      };
+      q.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(run, 300); });
+      adder.replaceChildren(q, found);
+      adder.hidden = false;
+      if (!MOBILE) q.focus();
+      run();
+    };
+    const toggle = (fn, arg) => () => { if (!adder.hidden && adder.dataset.kind === String(arg)) { adder.hidden = true; return; } adder.dataset.kind = String(arg); fn(arg); };
+    draw();
+    return {
+      el: h('div', { class: 'blink-field' }, list,
+        h('div', { class: 'blink-add' },
+          h('button', { type: 'button', class: 'link-btn inline', onclick: toggle(web, 'web') }, '+ Website'),
+          h('button', { type: 'button', class: 'link-btn inline', onclick: toggle(search, 'drive') }, '+ Drive'),
+          h('button', { type: 'button', class: 'link-btn inline', onclick: toggle(search, 'notion') }, '+ Notion')),
+        adder),
+      get: () => items,
+    };
+  }
+
+  function blockTaskField(initial = [], { onTick } = {}) {
+    const newId = () => Math.random().toString(36).slice(2, 10);
+    const on = h('input', { type: 'checkbox', checked: initial.length > 0 });
+    const list = h('ol', { class: 'btask-list' });
+    const count = h('span', { class: 'btask-count' });
+    const note = h('small', { class: 'btask-note', hidden: true }, 'Unticked, the list comes off this block when you save.');
+    const rows = () => [...list.children];
+    const drawCount = () => {
+      const filled = rows().filter((li) => li.q.input.value.trim());
+      count.textContent = filled.length ? `${filled.filter((li) => li.q.done).length}/${filled.length}` : '';
+    };
+    const addRow = (t, { focus = false, after = null } = {}) => {
+      const input = limitName(h('input', { type: 'text', class: 'btask-in', value: t?.text || '', placeholder: 'A task for this block', spellcheck: true, 'aria-label': 'Task' }), { count: false });
+      const tick = h('button', { type: 'button', class: 'btask-tick', title: 'Done' }, icon('check'));
+      const grip = h('span', { class: 'btask-grip', title: 'Drag to move it' }, icon('grip'));
+      const x = h('button', { type: 'button', class: 'btask-x', title: 'Take this one off', 'aria-label': 'Take this task off' }, icon('x'));
+      const li = h('li', { class: 'btask' }, grip, tick, input, x);
+      li.q = { id: t?.id || newId(), done: !!t?.done, saved: !!t?.id, input };
+      const drawTick = () => { li.classList.toggle('done', li.q.done); tick.setAttribute('aria-pressed', String(li.q.done)); };
+      tick.addEventListener('click', () => {
+        li.q.done = !li.q.done;
+        drawTick();
+        drawCount();
+        if (li.q.done) doneSound();
+        if (li.q.saved && input.value.trim()) onTick?.(li.q.id, li.q.done);
+      });
+      x.addEventListener('click', () => {
+        const near = li.nextElementSibling || li.previousElementSibling;
+        li.remove();
+        drawCount();
+        near?.q.input.focus();
+      });
+      input.addEventListener('input', drawCount);
+      input.addEventListener('keydown', (e) => {
+        e.stopPropagation(); // Enter here is a new task, not "save the block"
+        if (e.key === 'Enter') { e.preventDefault(); addRow(null, { focus: true, after: li }); }
+        else if (e.key === 'Backspace' && !input.value && list.children.length > 1) {
+          e.preventDefault();
+          const near = li.previousElementSibling || li.nextElementSibling;
+          li.remove();
+          drawCount();
+          near?.q.input.focus();
+        } else if (e.altKey && e.key === 'ArrowUp' && li.previousElementSibling) {
+          e.preventDefault();
+          li.previousElementSibling.before(li);
+          input.focus();
+        } else if (e.altKey && e.key === 'ArrowDown' && li.nextElementSibling) {
+          e.preventDefault();
+          li.nextElementSibling.after(li);
+          input.focus();
+        }
+      });
+      // Dragged by its handle, with a mouse, a pen or a finger: it takes the place of the row it passes.
+      grip.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        try { grip.setPointerCapture(e.pointerId); } catch { /* a pointer the page made up: it moves without the capture */ }
+        li.classList.add('dragging');
+        const move = (ev) => {
+          const before = rows().find((r) => r !== li && ev.clientY < r.getBoundingClientRect().top + r.getBoundingClientRect().height / 2);
+          if (before) { if (li.nextElementSibling !== before) before.before(li); } else if (list.lastElementChild !== li) list.append(li);
+        };
+        const up = () => {
+          li.classList.remove('dragging');
+          grip.removeEventListener('pointermove', move);
+          grip.removeEventListener('pointerup', up);
+          grip.removeEventListener('pointercancel', up);
+        };
+        grip.addEventListener('pointermove', move);
+        grip.addEventListener('pointerup', up);
+        grip.addEventListener('pointercancel', up);
+      });
+      drawTick();
+      if (after) after.after(li); else list.append(li);
+      if (focus) input.focus();
+      drawCount();
+      return li;
+    };
+    const add = h('button', { type: 'button', class: 'btask-add', onclick: () => addRow(null, { focus: true }) }, icon('plus'), 'Add a task');
+    const panel = h('div', { class: 'btask-panel' }, list, add);
+    for (const t of initial) addRow(t);
+    const sync = () => {
+      panel.hidden = !on.checked;
+      note.hidden = on.checked || !initial.length;
+      if (on.checked && !list.children.length) addRow(null, { focus: !MOBILE });
+    };
+    on.addEventListener('change', sync);
+    sync();
+    return {
+      el: h('div', { class: 'btask-field' }, h('label', { class: 'check' }, on, 'Tasks', count), panel, note),
+      get: () => ({
+        on: on.checked,
+        items: on.checked ? rows().map((li) => ({ id: li.q.id, text: li.q.input.value.trim(), done: li.q.done })).filter((t) => t.text) : [],
+      }),
+    };
+  }
+
   function notesField(value, placeholder = 'Notes: anything you want to remember about this') {
     const box = h('textarea', { class: 'notes-field', rows: 2, placeholder, value: value || '', spellcheck: true });
     const fit = () => { box.style.height = 'auto'; box.style.height = `${Math.min(box.scrollHeight + 2, 260)}px`; };
@@ -1124,7 +1358,15 @@
   const quietLabel = () => `${fmtTime(at('2000-01-01', S.settings.pi.quietStart))} to ${fmtTime(at('2000-01-01', S.settings.pi.quietEnd))}`;
 
   /** `action` ({ label, run }) adds a button to the toast, like Undo. */
+  let toldOffline = 0;
   function toast(message, kind = '', action) {
+    // The phone with its PC out of reach: the title bar says so already. Something tapped that needs the PC
+    // gets a short, calm word (not an error), and not again and again.
+    if (onyx.offlineText && message === onyx.offlineText) {
+      if (Date.now() - toldOffline < 30000) return;
+      toldOffline = Date.now();
+      kind = '';
+    }
     const ms = action ? 8000 : kind ? 7000 : 3200;
     // The same message again (a button tapped twice) keeps the one already showing up for longer.
     const same = !action && [...$('#toasts').children].find((t) => !t.classList.contains('has-action') && t.textContent === String(message));
@@ -1137,6 +1379,44 @@
       action && h('button', { class: 'toast-action', onclick: () => { el.remove(); action.run(); } }, action.label));
     $('#toasts').append(el);
     el._timer = setTimeout(() => el.remove(), ms);
+  }
+
+  // ---- bugs: a slip in Onyx's own code (not a refusal from Google, the PC or the network) shows as a
+  // short word, not a line of code. What happened is kept, and sent to the PC (bugs.js), so it can be fixed.
+  const BUG_RE = /Cannot read propert|Cannot set propert|is not a function|is not defined|is not iterable|Cannot access '|before initialization|Maximum call stack|Invalid time value|Invalid array length/;
+  const BUGS = 'onyx.bugs';
+  /** Says why something didn't work: the message as it is, or, for a bug, a short word (and the bug is kept). */
+  function fail(err, kind = 'error') {
+    const message = err?.message || String(err || '');
+    if (!BUG_RE.test(message)) return toast(message || 'Something went wrong.', kind);
+    noteBug(err);
+    toast('Something went wrong there. Onyx noted it so it can be fixed.', kind);
+  }
+  function noteBug(err) {
+    console.error(err);
+    try {
+      const list = JSON.parse(localStorage.getItem(BUGS) || '[]');
+      list.push({ at: new Date().toISOString(), where: onyx.isPhone ? 'phone' : 'window', version: S?.version || '',
+        message: String(err?.message || err).slice(0, 300), stack: String(err?.stack || '').slice(0, 3000) });
+      localStorage.setItem(BUGS, JSON.stringify(list.slice(-30)));
+    } catch { /* not kept */ }
+    setTimeout(sendBugs, 0);
+  }
+  let sendingBugs = false;
+  /** Hands the bugs kept here to the PC; kept until it is in reach. */
+  async function sendBugs() {
+    if (sendingBugs || !onyx.reportBugs) return;
+    let list;
+    try { list = JSON.parse(localStorage.getItem(BUGS) || '[]'); } catch { return; }
+    if (!list.length) return;
+    sendingBugs = true;
+    try {
+      await onyx.reportBugs(list);
+      const now = JSON.parse(localStorage.getItem(BUGS) || '[]');
+      localStorage.setItem(BUGS, JSON.stringify(now.slice(list.length)));
+    } catch { /* kept for the next time */ } finally {
+      sendingBugs = false;
+    }
   }
 
   // The phone talking to an older Onyx on the PC: say so once, not on every reload.
@@ -1181,27 +1461,30 @@
   const hasGoogleTasks = () => S.calendars.some((c) => c.kind === 'tasklist' && c.provider === 'google');
 
   /** When the Pi reaches out (mirrors piAlerts in hub.js): the last look before the leave-by or picked time. */
-  function ladderTimes(start, before, leaveBy, mode) {
+  /** When an escalation reaches out (hub.js piAlerts): the first time, and critical's three calls, 10 minutes apart. */
+  function ladderTimes(start, before, leaveBy, modes) {
     const base = before != null ? start.getTime() - before * 60000 : leaveBy ? start.getTime() : null;
-    if (base == null) return [];
-    const there = start.getTime() + (before == null && leaveBy ? leaveBy * 60000 : 0);
+    if (base == null || !modes.length) return [];
     const grid = ((S.settings.calls?.method || S.calls?.method || 'pi') === 'pi' ? Math.max(1, Number(S.settings.pi?.checkEvery) || 30) : 1) * 60000;
     const first = Math.floor(base / grid) * grid;
-    const out = [new Date(first)];
-    if (mode === 'critical' && first + Math.max(grid, 600000) < there) out.push(new Date(first + Math.max(grid, 600000)));
-    return out;
+    if (!modes.includes('critical')) return [new Date(first)];
+    return [0, 1, 2].map((i) => new Date(first + i * Math.max(grid, 600000)));
   }
 
-  function ladderText(times, mode) {
+  /** What the window says each chosen mode will do, in order, said the way reminders go out (Settings → Calls & alerts). */
+  function ladderText(times, modes) {
     const t = times.map((d) => fmtTime(d));
-    // Said the way reminders go out (Settings → Calls & alerts).
     const how = S.settings.calls?.method || S.calls?.method || 'pi';
     const caller = { pi: 'The Pi phones you', twilio: 'Onyx phones you', ntfy: 'Onyx sends a loud push', alarm: 'Your phone rings an alarm' }[how];
     const pusher = { pi: 'The Pi sends a push alert', twilio: S.calls?.ntfyTopic ? 'Onyx sends a push' : 'Onyx phones you', ntfy: 'Onyx sends a push', alarm: 'Your phone rings an alarm' }[how];
-    if (mode === 'push') return `${pusher} at ${t[0]}.`;
-    if (mode === 'alarm') return `Your phone rings an alarm at ${t[0]}, until you press a button.`;
-    if (mode === 'critical') return t.length > 1 ? `${caller} at ${t[0]}, and again at ${t[1]} unless you tap Leaving now.` : `${caller} at ${t[0]}.`;
-    return `${caller} at ${t[0]}.`;
+    const list = (xs) => (xs.length < 2 ? xs[0] : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`);
+    const out = [];
+    if (modes.includes('push')) out.push(`${pusher} at ${t[0]}.`);
+    if (modes.includes('call')) out.push(`${caller} at ${t[0]}.`);
+    // Twilio can tell an answered call (a person, not voicemail): the rest stop. Otherwise "Leaving now" stops them.
+    if (modes.includes('critical')) out.push(`${caller} at ${list(t)}, ${how === 'twilio' ? 'stopping once you answer (or tap Leaving now)' : 'unless you tap Leaving now'}.`);
+    if (modes.includes('alarm')) out.push(`Your phone rings an alarm at ${t[0]}, until you press a button.`);
+    return out.join(' ');
   }
 
   /** The Pi's looks it could phone at for something starting at `start` (at least 15 minutes apart): from the day before up to the start. */
@@ -1234,20 +1517,38 @@
       editable: e.kind === 'task' ? !!e.movable : e.writable && e.kind === 'event',
       // An entry or a timed task can be stretched by its top or bottom edge.
       durationEditable: (e.kind === 'event' && e.writable) || (e.kind === 'task' && !!e.movable && !e.allDay),
-      classNames: [e.kind === 'task' ? 'is-task' : e.kind === 'goal' ? 'is-goal' : 'is-event', e.kind === 'goal' ? '' : 'can-tick', e.done ? 'is-done' : '', matchesFilter(e.tags) ? '' : 'is-dim'],
+      classNames: [e.kind === 'task' ? 'is-task' : e.kind === 'goal' ? 'is-goal' : 'is-event', e.kind === 'goal' ? '' : 'can-tick', e.done ? 'is-done' : '', matchesFilter(e.tags) ? '' : 'is-dim', e.offline ? 'is-offline' : ''],
       extendedProps: { src: e },
     };
+  }
+
+  // A pasted entry shows at once, as it will look, while it is made (in Google or Outlook that takes a
+  // moment): a stand-in, not to be opened or moved, until a load of the calendar brings the real one.
+  const pending = new Set();
+  function showPending(e) {
+    const fc = toFc({ ...e, id: `pending:${Math.random().toString(36).slice(2)}`, pending: true, writable: false, movable: false });
+    const ev = calendar.addEvent({ ...fc, editable: false, durationEditable: false, classNames: [...fc.classNames, 'is-pending'] });
+    if (ev) pending.add(ev);
+    return ev;
+  }
+  function dropPending(ev) {
+    if (!ev) return;
+    pending.delete(ev);
+    ev.remove();
   }
 
   async function source(info, ok) {
     try {
       const force = forceNext;
       forceNext = false;
+      const began = Date.now();
       const { events, errors } = await onyx.events(info.start.toISOString(), info.end.toISOString(), force);
       showProblems(errors);
-      ok(events.filter((e) => e.kind !== 'goal' && visible(e.calendarId) && !carriedOver(e)).map(toFc).concat(transitionBuffers(events)));
+      ok(events.filter((e) => e.kind !== 'goal' && visible(e.calendarId) && !carriedOver(e)).map(toFc));
+      // A stand-in goes once a load that started after its entry was made has brought the real one.
+      for (const ev of [...pending]) if (ev.extendedProps.madeAt && ev.extendedProps.madeAt <= began) dropPending(ev);
     } catch (err) {
-      toast(err.message, 'error');
+      if (!err.offline) fail(err);
       ok([]);
     }
   }
@@ -1266,36 +1567,10 @@
   }
 
 
-  // ---- transition buffers: the only stripes on the calendar
-  // 15 minutes after a meeting that another meeting follows (within two hours, the same day),
-  // drawn behind the grid as a striped band: time to get from one to the next. When the next
-  // one starts sooner, the band runs into it and says so.
-  const BUFFER_MIN = 15;
-  function transitionBuffers(events) {
-    if (S.settings.buffers === false) return [];
-    const hard = events.filter((e) => e.kind === 'event' && !e.allDay && e.end && visible(e.calendarId))
-      .map((e) => ({ e, s: new Date(e.start).getTime(), f: new Date(e.end).getTime() })).sort((a, b) => a.s - b.s);
-    const out = [];
-    for (const a of hard) {
-      const b = hard.find((x) => x !== a && x.s >= a.f && x.s - a.f < 2 * 3600000 && sameDay(new Date(x.s), new Date(a.f)));
-      if (!b) continue;
-      const tight = b.s - a.f < BUFFER_MIN * 60000;
-      out.push({
-        id: `buffer|${a.e.id}|${a.e.start}`, start: new Date(a.f).toISOString(), end: new Date(a.f + BUFFER_MIN * 60000).toISOString(),
-        display: 'background', classNames: ['transition-buffer', tight ? 'tight' : ''], extendedProps: { buffer: true, tight, next: b.e.title },
-      });
-    }
-    return out;
-  }
-
   /** An open task from an earlier day: it waits in the Rollover tray, not on the timeline. */
   const carriedOver = (e) => e.kind === 'task' && !e.done && !!e.start && (e.allDay ? e.start : ymd(new Date(e.start))) < ymd(new Date());
 
   function eventContent(arg) {
-    if (arg.event.extendedProps.buffer) {
-      const p = arg.event.extendedProps;
-      return { domNodes: [h('span', { class: 'buffer-label', title: `Time to get to "${p.next}"` }, p.tight ? 'Transition · tight' : 'Transition')] };
-    }
     const src = arg.event.extendedProps.src;
     // The block being dragged out has no entry behind it yet: show just its times.
     if (!src) return { domNodes: [h('div', { class: 'ev' }, h('div', { class: 'ev-title' }, h('span', { class: 't' }, arg.timeText || 'New block')))] };
@@ -1315,6 +1590,9 @@
       // A repeating block wears its repeat as a tag.
       src.kind === 'event' && (src.recur || src.seriesId) && h('span', { class: 'ev-recur', title: recurText(src.recur) }, icon('repeat')),
       src.pomodoro && h('span', { class: 'ev-pomo', title: `Pomodoro: ${src.pomodoro.work} min work, ${src.pomodoro.rest} min rest` }, icon('clock')),
+      src.taskList?.length > 0 && h('span', { class: `ev-tasks${src.taskList.every((t) => t.done) ? ' all' : ''}`,
+        title: src.taskList.map((t) => `${t.done ? '✓' : '○'} ${t.text}`).join('\n') },
+        icon('tasks'), `${src.taskList.filter((t) => t.done).length}/${src.taskList.length}`),
       src.piCall && icon('phone'),
       notes && icon('note'),
       src.kind === 'event' && !src.writable && icon('lock'),
@@ -1397,9 +1675,47 @@
     arg.el.prepend(bands);
   }
 
+  /**
+   * Entries fit together: one carried up meets the entry above it (it starts where that one ends), one carried
+   * down meets the entry below it (it ends where that one starts); a top edge stretched meets the end of the
+   * entry above, a bottom edge the start of the entry below. Only once it comes within SNAP_MS of that edge
+   * (either side), so small changes anywhere else stay as fine as the grid's 15 minutes. `edge` is 'move'
+   * (with `from`, where it started, for the way it is going), 'start' or 'end'. { start, end, by } or null.
+   */
+  const SNAP_MS = 10 * 60000;
+  function magnetFor(dragged, start, end, { from = null, edge = 'move' } = {}) {
+    if (!start || !end || dragged.allDay) return null;
+    const len = end - start;
+    const dir = edge === 'move' && from ? Math.sign(start - from) : 0;
+    if (edge === 'move' && !dir) return null; // back where it started: nothing to meet
+    let best = null;
+    const take = (gap, s, e, by) => { if (gap > 0 && gap < SNAP_MS && (!best || gap < best.gap)) best = { gap, start: s, end: e, by }; };
+    for (const o of calendar.getEvents()) {
+      if (o.id === dragged.id || o.allDay || o.display === 'background' || !o.end || !o.extendedProps?.src || o.extendedProps.src.pending) continue;
+      // The entry above: its end, met by this one's start.
+      if ((edge === 'start' || dir < 0) && sameDay(o.end, start)) {
+        take(Math.abs(o.end - start), new Date(+o.end), edge === 'start' ? new Date(+end) : new Date(+o.end + len), o.title);
+      }
+      // The entry below: its start, met by this one's end.
+      if ((edge === 'end' || dir > 0) && sameDay(o.start, new Date(end - 1))) {
+        take(Math.abs(o.start - end), edge === 'end' ? new Date(+start) : new Date(+o.start - len), new Date(+o.start), o.title);
+      }
+    }
+    if (!best || best.end - best.start < 5 * 60000) return null; // a stretch never snaps it down to nothing
+    return best;
+  }
+  /** How long a calendar Duration is, in ms (zero for none). */
+  const durMs = (d) => (d ? (d.milliseconds || 0) + (d.days || 0) * 86400000 + (d.months || 0) * 30 * 86400000 + (d.years || 0) * 365 * 86400000 : 0);
+
   async function onMove(info) {
     const e = info.event;
     const src = e.extendedProps.src;
+    // Let go close to another entry: it meets it (carried up or down, or stretched by an edge).
+    if (!e.allDay) {
+      const edge = info.delta ? 'move' : durMs(info.startDelta) ? 'start' : durMs(info.endDelta) ? 'end' : null;
+      const m = edge && magnetFor(e, e.start, e.end || new Date(e.start.getTime() + 3600000), { from: info.oldEvent?.start, edge });
+      if (m) e.setDates(m.start, m.end);
+    }
     if (src.kind === 'task') return moveTaskTo(info);
     const end = e.end || (e.allDay ? addDays(e.start, 1) : new Date(e.start.getTime() + 3600000));
     try {
@@ -1421,7 +1737,7 @@
       refetch();
     } catch (err) {
       info.revert();
-      toast(err.message, 'error');
+      fail(err);
     }
   }
 
@@ -1444,8 +1760,195 @@
       loadTasks(true);
     } catch (err) {
       info.revert();
-      toast(err.message, 'error');
+      fail(err);
     }
+  }
+
+  // ---- dragging a task from the list (with a mouse): onto the calendar to schedule it (a time on the time
+  // grid, snapped to 15 minutes, with an outline of where it lands; a day in the month or the all-day row),
+  // onto the backburner to keep it for later, out of it (anywhere else in the list) to bring it back, onto
+  // Today to give it today, onto No date to take its day off. Each one can be undone.
+  let taskDropDone = () => {};
+  function taskDrops() {
+    const cal = $('#calendar');
+    const ghost = h('div', { class: 'task-drop-ghost', hidden: true }, h('b'), h('small'));
+    document.body.append(ghost);
+    const lengthOf = (t) => (t.minutes || 30);
+
+    /** The spot under the pointer: { day, minutes? } and where its outline goes. */
+    const spotAt = (x, y) => {
+      const under = document.elementsFromPoint(x, y);
+      const col = under.find((el) => el.matches?.('#calendar .fc-timegrid-col[data-date]'));
+      if (col) {
+        const lanes = [...cal.querySelectorAll('.fc-timegrid-slot-lane[data-time]')];
+        const lane = lanes.find((l) => { const r = l.getBoundingClientRect(); return y >= r.top && y < r.bottom; });
+        if (!lane) return null;
+        const r = lane.getBoundingClientRect(), c = col.getBoundingClientRect();
+        const [hh, mm] = lane.dataset.time.split(':').map(Number);
+        const slot = 30; // slotDuration
+        const minutes = hh * 60 + mm + Math.min(slot - 15, Math.floor(((y - r.top) / r.height) * (slot / 15)) * 15);
+        const perMin = r.height / slot;
+        return { day: col.dataset.date, minutes, box: { left: c.left + 2, top: r.top + (minutes - hh * 60 - mm) * perMin, width: c.width - 4, height: Math.max(18, lengthOf(draggedTask) * perMin) } };
+      }
+      const cell = under.find((el) => el.matches?.('#calendar .fc-daygrid-day[data-date]'));
+      if (cell) {
+        const c = cell.getBoundingClientRect();
+        return { day: cell.dataset.date, box: { left: c.left + 2, top: c.top + 2, width: c.width - 4, height: Math.min(c.height - 4, 26) } };
+      }
+      return null;
+    };
+    const when = (spot) => (spot.minutes != null
+      ? `${fmtDay(fromYmd(spot.day))}, ${fmtTime(at(spot.day, hhmm(spot.minutes)))}` : fmtDay(fromYmd(spot.day)));
+    const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+    const showGhost = (spot) => {
+      Object.assign(ghost.style, { left: `${spot.box.left}px`, top: `${spot.box.top}px`, width: `${spot.box.width}px`, height: `${spot.box.height}px` });
+      ghost.style.setProperty('--c', draggedTask.color || 'var(--accent)');
+      ghost.firstChild.textContent = draggedTask.label;
+      ghost.lastChild.textContent = when(spot);
+      ghost.hidden = false;
+    };
+
+    cal.addEventListener('dragover', (e) => {
+      if (!draggedTask || graph.on || draggedTask.mirror) return;
+      const spot = spotAt(e.clientX, e.clientY);
+      if (!spot) { ghost.hidden = true; return; }
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      showGhost(spot);
+    });
+    cal.addEventListener('dragleave', (e) => { if (!cal.contains(e.relatedTarget)) ghost.hidden = true; });
+    cal.addEventListener('drop', async (e) => {
+      const t = draggedTask;
+      if (!t) return;
+      e.preventDefault();
+      const spot = spotAt(e.clientX, e.clientY);
+      ghost.hidden = true;
+      if (!spot) return;
+      const to = spot.minutes != null ? { start: at(spot.day, hhmm(spot.minutes)).toISOString() } : { date: spot.day };
+      await taskMoved(t, () => onyx.moveTask(t.id, to), `Scheduled "${t.label}" for ${when(spot)}`, () => onyx.moveTask(t.id, to));
+    });
+
+    // The task list: the backburner, Today and No date take a dropped task.
+    const box = $('#task-items');
+    let lit = null;
+    const light = (el) => { if (lit === el) return; lit?.classList.remove('drop-on'); lit = el; el?.classList.add('drop-on'); };
+    const today = () => ymd(new Date());
+    const targetOf = (e) => {
+      const t = draggedTask;
+      if (!t || t.mirror) return null;
+      const el = e.target.closest?.('[data-drop]');
+      const kind = el?.dataset.drop;
+      if (kind === 'burner') return t.backburner ? null : { el, kind };
+      if (kind === 'today') return t.date === today() ? null : { el, kind };
+      if (kind === 'nodate') return !t.date && !t.backburner ? null : { el, kind };
+      if (t.backburner && !e.target.closest?.('[data-drop="burner"]')) return { el: box, kind: 'nodate' }; // out of the backburner
+      return null;
+    };
+    box.addEventListener('dragover', (e) => {
+      const target = targetOf(e);
+      if (!target) { light(null); return; }
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      light(target.el);
+    });
+    box.addEventListener('dragleave', (e) => { if (!box.contains(e.relatedTarget)) light(null); });
+    box.addEventListener('drop', async (e) => {
+      const target = targetOf(e);
+      light(null);
+      if (!target) return;
+      e.preventDefault();
+      const t = draggedTask;
+      if (target.kind === 'burner') {
+        await taskMoved(t, () => taskToBackburner(t));
+      } else if (target.kind === 'today') {
+        await taskMoved(t, () => moveToDay(t, today()), `"${t.label}" moved to today`, () => moveToDay(t, today()));
+      } else if (t.backburner) {
+        await taskMoved(t, () => offBackburner(t));
+      } else {
+        await taskMoved(t, () => onyx.updateTask(t.id, noDatePatch(t)), `"${t.label}" has no date now`, () => onyx.updateTask(t.id, noDatePatch(t)));
+      }
+    });
+    taskDropDone = () => { ghost.hidden = true; light(null); };
+  }
+
+  /** A task's day off: a date or time written in its name goes with it (as when it goes to the backburner). */
+  const noDatePatch = (t) => (t.dateInName || t.time ? { title: t.label, due: null } : { due: null });
+
+  /** Where over the task list a point is: 'burner' (the backburner bar), 'list' (anywhere else in it), or null. */
+  function listTargetAt(x, y) {
+    const panel = $('#tasks');
+    if (!panel || graph.on || x == null) return null;
+    const r = panel.getBoundingClientRect();
+    if (!r.width || x < r.left || x > r.right || y < r.top || y > r.bottom || getComputedStyle(panel).display === 'none') return null;
+    const b = $('#task-items [data-drop="burner"]')?.getBoundingClientRect();
+    return b && x >= b.left && x <= b.right && y >= b.top && y <= b.bottom ? 'burner' : 'list';
+  }
+  let listLit = null;
+  function listHover(kind) {
+    const el = kind === 'burner' ? $('#task-items [data-drop="burner"]') : kind === 'list' ? $('#task-items') : null;
+    if (el === listLit) return;
+    listLit?.classList.remove('drop-on');
+    listLit = el;
+    el?.classList.add('drop-on');
+  }
+
+  /**
+   * An entry from the calendar let go over the task list, to do another time: a task loses its day and time
+   * (onto the backburner, over that); a block becomes a task with no date, its name, notes, tags and length
+   * kept (as its Backburner button does). Undo puts either back where it was.
+   */
+  async function laterFromCalendar(src, where) {
+    if (!src || src.pending) return;
+    if (src.kind === 'task') {
+      const t = tasks.find((x) => x.id === src.id) || { id: src.id, title: src.title, label: src.title, start: src.allDay ? null : src.start, date: ymd(toDate(src.start)) };
+      if (where === 'burner') return taskMoved(t, () => taskToBackburner(t));
+      return taskMoved(t, () => onyx.updateTask(t.id, noDatePatch(t)), `"${t.label}" waits with no date`, () => onyx.updateTask(t.id, noDatePatch(t)));
+    }
+    if (src.kind !== 'event') return;
+    if (!src.writable) return toast(`"${src.calendarName}" is read-only here, so this stays on the calendar.`, 'warn');
+    if (src.seriesId) return toast('A repeating block stays on the calendar: skip a day of it from its menu instead.', 'warn');
+    const burner = where === 'burner';
+    try {
+      const minutes = Math.round((new Date(src.end) - new Date(src.start)) / 60000);
+      const keep = { title: src.title, notes: src.notes || src.memo || '', tags: src.tags || [], ...(burner ? { backburner: true } : {}) };
+      let task = await onyx.createTask(keep);
+      if (!src.allDay && minutes >= 5) await onyx.resizeTask(task.id, { minutes }).catch(() => {}); // Magic add plans it at this length
+      await onyx.deleteEvent(src.id);
+      const copy = { title: src.title, notes: src.notes || '', location: src.location || '', start: src.start, end: src.end, allDay: !!src.allDay, calendarId: src.calendarId, tags: src.tags || [] };
+      let back = null;
+      recordAction(burner ? `"${src.title}" on the backburner` : `"${src.title}" waits as a task with no date`,
+        async () => { back = await onyx.createEvent(copy); await onyx.deleteTask(task.id); },
+        async () => { task = await onyx.createTask(keep); await onyx.deleteEvent(back.id); });
+    } catch (err) {
+      fail(err);
+    }
+    refetch(true);
+    loadTasks(true);
+  }
+
+  /**
+   * Does a change to a dropped task and shows it. With `label`, it is recorded for Undo here (which puts the
+   * task back where it was: its day and time, no date, or the backburner); without, `run` records its own.
+   */
+  async function taskMoved(t, run, label, redo) {
+    const was = t.start ? { start: t.start } : t.date ? { date: t.date } : null;
+    const burner = !!t.backburner;
+    try {
+      await run();
+      if (label) {
+        recordAction(label, async () => {
+          if (was) await onyx.moveTask(t.id, was);
+          else {
+            await onyx.updateTask(t.id, { due: null });
+            if (burner) await onyx.setBackburner(t.id, true);
+          }
+        }, redo);
+      }
+    } catch (err) {
+      fail(err);
+    }
+    await loadTasks(true);
+    refetch(true);
   }
 
   /** Why a block cannot be moved (null when nothing is known): said when someone tries to drag it. */
@@ -1490,7 +1993,7 @@
       loadTasks(true);
     } catch (err) {
       info.revert();
-      toast(err.message, 'error');
+      fail(err);
     }
   }
 
@@ -1551,6 +2054,9 @@
       ...timeFormats(),
       // Drag across the grid to block out time; the highlight stays until the editor closes.
       selectable: true,
+      // On the phone a long press on an empty spot makes a new block, shown at once, that the finger then
+      // stretches to the time it wants (newBlockMove, called at every step of the selection).
+      selectAllow: (info) => { if (MOBILE) newBlockMove(info); return true; },
       // A real drag blocks out time; a click (even one that wobbles a little over an entry) never
       // turns into a new block by mistake. A plain click on an empty slot still opens one (dateClick).
       selectMinDistance: MOBILE ? 0 : 6,
@@ -1564,6 +2070,7 @@
           return;
         }
         if (info.jsEvent.target.closest?.('.fc-event, .fc-more-link')) return;
+        if (Date.now() - clickOff.at < 1000) return; // this click only put the open entry away
         const start = info.date;
         const end = info.allDay ? addDays(start, 1) : new Date(start.getTime() + 30 * 60000);
         openEditor({ start, end, allDay: info.allDay }, pointRect(info.jsEvent));
@@ -1595,11 +2102,20 @@
         ? { domNodes: [h('span', { class: 'dh-dow' }, arg.text)] }
         : { domNodes: [h('span', { class: 'dh-dow' }, arg.date.toLocaleDateString([], { weekday: 'short' })), h('span', { class: 'dh-num' }, arg.date.getDate())] }),
       select: (info) => {
+        if (MOBILE && holdNew.on && !info.allDay) {
+          // The touch was taken away (the system took the gesture): nothing is made.
+          if (holdNew.cancelled) { newBlockStop(); calendar.unselect(); return; }
+          const range = { start: new Date(holdNew.start), end: new Date(holdNew.end), allDay: false };
+          const r = holdNew.ghost?.getBoundingClientRect();
+          newBlockStop(true);
+          return blockOut(range, r || pointRect(info.jsEvent));
+        }
         const marked = $('.fc-event-mirror') || $('.fc-highlight');
         const anchor = marked ? marked.getBoundingClientRect() : pointRect(info.jsEvent);
-        openEditor({ start: info.start, end: info.end, allDay: info.allDay }, anchor);
+        blockOut(info, anchor);
       },
       eventClick: (info) => {
+        if (info.event.extendedProps.src?.pending) return; // a pasted entry still being made
         info.jsEvent.preventDefault();
         hidePeek();
         const src = info.event.extendedProps.src;
@@ -1625,21 +2141,39 @@
           });
           return;
         }
-        if (src.kind === 'task') openTask(tasks.find((t) => t.id === src.id) || { id: src.id, title: src.title, label: src.title, listName: src.calendarName }, anchor);
-        else if (src.kind === 'goal') openGoalById(src.id, anchor);
-        else openEditor({ src, start: toDate(src.start), end: toDate(src.end), allDay: src.allDay }, anchor);
+        // One tap (or click) highlights the entry, ready to drag, stretch or copy, with a bubble beside it that
+        // shows its whole name and opens it. On the PC a double click opens it too (on a phone a quick second tap
+        // fights the calendar's own touch handling, so the bubble is the way in). A goal opens at once.
+        if (src.kind === 'event' || src.kind === 'task') {
+          const again = !MOBILE && lastTap.id === src.id && Date.now() - lastTap.at < DOUBLE_TAP_MS;
+          lastTap.id = again ? null : src.id;
+          lastTap.at = Date.now();
+          if (!again) { showTapBubble(src, info.el); return; }
+        }
+        openEntry(src, anchor);
       },
       eventDrop: onMove,
+      // While carried: where it would land, pulled to the end of an entry just above it (shown live).
+      eventAllow: (drop, dragged) => { carryAt(dragged, drop); return true; },
       eventResize: onMove,
       // Held at the right (or left) edge while dragging, the calendar turns to the next (or
       // previous) week, so an entry can be carried there and dropped.
       // While it is carried, the entry itself follows the pointer freely; where it will land
       // (snapped to the grid) shows as an outline, and it snaps there when dropped.
-      eventDragStart: (info) => { hidePeek(); edgeNavStart(); floatStart(info); },
-      eventDragStop: () => { edgeNavStop(); floatStop(); afterDrag(); },
-      eventResizeStart: (info) => { hidePeek(); stretchStart(info); },
-      eventResizeStop: () => { stretchStop(); afterDrag(); },
+      eventDragStart: (info) => { hidePeek(); hideTapBubble(); edgeNavStart(); floatStart(info); },
+      eventDragStop: (info) => {
+        // Let go over the task list: off the calendar, to do another time (the calendar puts it back first).
+        const p = info.jsEvent?.changedTouches?.[0] || info.jsEvent;
+        const toList = MOBILE || !p ? null : listTargetAt(p.clientX, p.clientY);
+        edgeNavStop();
+        floatStop();
+        afterDrag(info);
+        if (toList) laterFromCalendar(info.event.extendedProps.src, toList);
+      },
+      eventResizeStart: (info) => { hidePeek(); hideTapBubble(); stretchStart(info); },
+      eventResizeStop: (info) => { stretchStop(); afterDrag(info); },
       datesSet: (info) => {
+        hideTapBubble();
         if (!graph.on) $('#range').textContent = MOBILE ? shortTitle(info.view.currentStart, info.view.currentEnd, info.view.type) : info.view.title;
         for (const b of document.querySelectorAll('[data-view]')) b.classList.toggle('on', !graph.on && b.dataset.view === info.view.type);
         if (S.settings.view !== info.view.type) saveSettings({ view: info.view.type }, true);
@@ -1650,6 +2184,14 @@
     calendar.render();
     explainLocked();
     swipeToChangeDates($('#calendar'));
+    if (MOBILE) {
+      // A long press is the calendar's: the phone's own long-press menu never interrupts it.
+      $('#calendar').addEventListener('contextmenu', (e) => { if (!e.target.closest('.fc-event')) e.preventDefault(); });
+      const lifted = () => { if (holdNew.on) setTimeout(() => { if (holdNew.on) newBlockStop(); }, 0); };
+      document.addEventListener('touchend', lifted, { capture: true, passive: true });
+      document.addEventListener('touchcancel', () => { if (holdNew.on) holdNew.cancelled = true; lifted(); }, { capture: true, passive: true });
+    }
+    if (!MOBILE) taskDrops();
     touchDragWatchdog();
     if (!MOBILE) {
       edgeArrows();
@@ -1661,6 +2203,126 @@
   // ---- copy and paste: a click highlights an entry; Ctrl+C (or right-click → Copy) copies it,
   // and Ctrl+V (or right-click → Paste here) makes a copy where the pointer is on the calendar.
   const clip = { selected: null, entry: null, x: 0, y: 0 };
+  const DOUBLE_TAP_MS = 450;
+  const lastTap = { id: null, at: 0 };
+
+  // ---- the bubble by a highlighted entry: its whole name, its time and calendar, and a tap to open it. It sits
+  // beside the entry on whichever side has room (above or below a wide one, past its stretch bars), inside the
+  // calendar's visible part, with an arrow to the entry. It acts on a whole tap of its own (a click), and a press on
+  // it never reaches the calendar, so nothing behind it is tapped. Gone at a tap elsewhere, a scroll or a drag.
+  const tapBubble = { el: null, links: null, src: null };
+  function hideTapBubble() {
+    const b = tapBubble.el, l = tapBubble.links;
+    if (!b && !l) return;
+    tapBubble.el = tapBubble.links = null;
+    tapBubble.src = null;
+    for (const x of [b, l]) { if (!x) continue; x.classList.add('leaving'); setTimeout(() => x.remove(), 150); }
+  }
+  function showTapBubble(src, blockEl) {
+    hideTapBubble();
+    hidePeek();
+    if (!blockEl?.isConnected) return;
+    const s = toDate(src.start), e = toDate(src.end || src.start);
+    const when = src.allDay ? 'All day' : `${fmtTime(s)} – ${fmtTime(e)}`;
+    const open = () => {
+      const now = document.querySelector(`#calendar .fc-event[data-eid="${CSS.escape(src.id)}"]`) || blockEl;
+      const r = now.getBoundingClientRect();
+      hideTapBubble();
+      openEntry(src, r);
+    };
+    // What is written in it (its notes, and yours on a read-only calendar), as far as fits; Open shows the rest.
+    const notes = notesOf(src);
+    const b = h('div', { class: 'tap-bubble', css: { '--c': src.color || 'var(--accent)' } },
+      h('button', { type: 'button', class: `tb-card${notes ? ' has-notes' : ''}`, 'aria-label': `Open ${src.title || 'this entry'}`, onclick: (ev) => { ev.stopPropagation(); open(); } },
+        h('span', { class: 'tb-text' },
+          h('span', { class: 'tb-title' }, src.title || (src.kind === 'task' ? 'Untitled task' : 'Untitled block')),
+          h('span', { class: 'tb-meta' }, [when, src.calendarName].filter(Boolean).join(' · ')),
+          notes && h('span', { class: 'tb-notes' }, notes.length > 600 ? `${notes.slice(0, 600)}…` : notes)),
+        h('span', { class: 'tb-open' }, 'Open', h('span', { class: 'tb-chev', 'aria-hidden': 'true' }))));
+    // A press on the bubble stays with the bubble: the calendar (and its touch handling) never hears of it.
+    for (const type of ['pointerdown', 'mousedown', 'touchstart']) b.addEventListener(type, (ev) => ev.stopPropagation(), { passive: true });
+    b.style.visibility = 'hidden';
+    document.body.append(b);
+    const rect = blockEl.getBoundingClientRect();
+    const side = placeTapBubble(b, rect);
+    b.style.visibility = '';
+    tapBubble.el = b;
+    tapBubble.src = src;
+    // What the block links to: a bubble like it on the opposite side, each link with its own Open.
+    if (src.links?.length) {
+      const lb = h('div', { class: 'tap-bubble link-bubble', css: { '--c': src.color || 'var(--accent)' } },
+        ...src.links.slice(0, 3).map((l) => h('button', { type: 'button', class: 'tb-card', 'aria-label': `Open ${l.title}`, title: l.url, onclick: (ev) => { ev.stopPropagation(); hideTapBubble(); onyx.open(l.url); } },
+          linkMark(l),
+          h('span', { class: 'tb-text' }, h('span', { class: 'tb-title' }, l.title), h('span', { class: 'tb-meta' }, linkKindText(l))),
+          h('span', { class: 'tb-open' }, 'Open', h('span', { class: 'tb-chev', 'aria-hidden': 'true' })))));
+      for (const type of ['pointerdown', 'mousedown', 'touchstart']) lb.addEventListener(type, (ev) => ev.stopPropagation(), { passive: true });
+      lb.style.visibility = 'hidden';
+      document.body.append(lb);
+      const other = { right: ['left', 'right', 'top', 'bottom'], left: ['right', 'left', 'top', 'bottom'], top: ['bottom', 'top', 'left', 'right'], bottom: ['top', 'bottom', 'left', 'right'] }[side] || ['left', 'right', 'top', 'bottom'];
+      placeTapBubble(lb, rect, { sides: other, avoid: b.getBoundingClientRect() });
+      lb.style.visibility = '';
+      tapBubble.links = lb;
+    }
+  }
+  /** Puts a bubble by the entry `r` on the first of `sides` with room (and clear of `avoid`, the other bubble). Returns the side. */
+  function placeTapBubble(b, r, { sides = ['right', 'left', 'top', 'bottom'], avoid = null } = {}) {
+    const M = 8, GAP = 10, BARS = 34; // the margin to the screen's edge, the gap to the entry, its stretch bar's reach
+    const area = ($('#calendar .fc-timegrid-body')?.closest('.fc-scroller') || $('#calendar .fc-view-harness') || $('#calendar')).getBoundingClientRect();
+    const top0 = Math.max(area.top + 4, M), bottom0 = Math.min(area.bottom - 4, innerHeight - M);
+    const bw = b.offsetWidth, bh = b.offsetHeight;
+    const clampX = (x) => Math.max(M, Math.min(innerWidth - M - bw, x));
+    const clampY = (y) => Math.max(top0, Math.min(bottom0 - bh, y));
+    // Level with the top of the entry's visible part (where its name is), when beside it.
+    const vTop = Math.max(r.top, top0), vBottom = Math.min(r.bottom, bottom0);
+    const aimY = vTop + Math.min(Math.max(14, vBottom - vTop), 40) / 2;
+    const at = (s) => {
+      if (s === 'right') return r.right + GAP + bw <= innerWidth - M ? { x: r.right + GAP, y: clampY(aimY - bh / 2) } : null;
+      if (s === 'left') return r.left - GAP - bw >= M ? { x: r.left - GAP - bw, y: clampY(aimY - bh / 2) } : null;
+      const cx = clampX(r.left + r.width / 2 - bw / 2);
+      if (s === 'top') return r.top - BARS - GAP - bh >= top0 ? { x: cx, y: r.top - BARS - GAP - bh } : null;
+      if (s === 'bottom') return r.bottom + BARS + GAP + bh <= bottom0 ? { x: cx, y: r.bottom + BARS + GAP } : null;
+      return null;
+    };
+    const clear = (p) => !avoid || p.x >= avoid.right + 4 || p.x + bw <= avoid.left - 4 || p.y >= avoid.bottom + 4 || p.y + bh <= avoid.top - 4;
+    let side = null, x, y;
+    for (const s of sides) {
+      const p = at(s);
+      if (p && clear(p)) { side = s; ({ x, y } = p); break; }
+    }
+    if (!side) {
+      side = 'over';
+      if (avoid) { // no side left: just under (or over) the other bubble
+        x = clampX(avoid.left);
+        y = avoid.bottom + 8 + bh <= bottom0 ? avoid.bottom + 8 : clampY(avoid.top - 8 - bh);
+      } else { x = clampX(r.right - bw - 10); y = clampY(vTop + 10); } // a tall, wide entry: over its corner
+    }
+    const arrow = side === 'left' || side === 'right' ? Math.max(14, Math.min(bh - 14, aimY - y)) : Math.max(18, Math.min(bw - 18, r.left + r.width / 2 - x));
+    b.dataset.side = side;
+    b.style.setProperty('--arrow', `${Math.round(arrow)}px`);
+    b.style.left = `${Math.round(x)}px`;
+    b.style.top = `${Math.round(y)}px`;
+    return side;
+  }
+  // A press anywhere but the bubble or its entry puts it away (another entry shows its own); so does a scroll.
+  document.addEventListener('pointerdown', (e) => {
+    if (!tapBubble.el || e.target.closest?.('.tap-bubble')) return;
+    const own = tapBubble.src && e.target.closest?.(`.fc-event[data-eid="${CSS.escape(tapBubble.src.id)}"]`);
+    if (!own) hideTapBubble();
+  }, true);
+  // Only the calendar moving (or the page) takes it away, not some other list scrolling by itself.
+  document.addEventListener('scroll', (e) => {
+    if (tapBubble.el && (e.target === document || e.target.closest?.('#calendar'))) hideTapBubble();
+  }, { capture: true, passive: true });
+  addEventListener('resize', hideTapBubble);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideTapBubble(); });
+
+  /** Opens an entry on the calendar: its editor (an event), its card (a task) or its goal. */
+  function openEntry(src, anchor) {
+    hideTapBubble();
+    if (src.kind === 'task') openTask(tasks.find((t) => t.id === src.id) || { id: src.id, title: src.title, label: src.title, listName: src.calendarName }, anchor);
+    else if (src.kind === 'goal') openGoalById(src.id, anchor);
+    else openEditor({ src, start: toDate(src.start), end: toDate(src.end), allDay: src.allDay }, anchor);
+  }
   document.addEventListener('mousemove', (e) => { clip.x = e.clientX; clip.y = e.clientY; }, { passive: true });
 
   function selectEntry(src) {
@@ -1672,6 +2334,72 @@
   function clearSelection() {
     clip.selected = null;
     for (const el of document.querySelectorAll('#calendar .fc-event.is-selected')) el.classList.remove('is-selected');
+  }
+
+  /** Deletes a calendar block; Undo brings it back with its tasks (a repeat taken whole: from this day on). */
+  async function deleteBlock(src, scope = 'all') {
+    await onyx.deleteEvent(src.id, src.seriesId ? { scope, seriesId: src.seriesId } : undefined);
+    if (src.seriesId && scope !== 'all') return;
+    const copy = { title: src.title, notes: src.notes || '', location: src.location || '', start: src.start, end: src.end, allDay: !!src.allDay, calendarId: src.calendarId, tags: src.tags || [],
+      ...(src.seriesId && src.recur ? { recur: src.recur } : {}) };
+    const list = src.taskList || [];
+    let back = null;
+    recordAction(src.seriesId ? `Deleted every repeat of "${src.title}"` : `Deleted "${src.title}"`, async () => {
+      back = await onyx.createEvent(copy);
+      if (list.length) await onyx.setBlockTasks(back.seriesId || back.id, list).catch(() => {});
+    }, () => onyx.deleteEvent(back.id, back.seriesId ? { scope: 'all', seriesId: back.seriesId } : undefined));
+  }
+
+  /**
+   * Whether a key press is for the highlighted entry (Enter opens it, Backspace or Delete deletes it): only with
+   * the calendar itself in focus, or nothing in particular, and nothing else open over it. A key pressed on a
+   * button, field or panel elsewhere (a chip in some window, the Tasks panel) is that control's own.
+   */
+  function calendarHasKeys(e) {
+    if (e.target.closest?.('input, textarea, select, button, a[href], [contenteditable]')) return false;
+    const at = document.activeElement;
+    if (at && at !== document.body && !at.closest?.('#calendar')) return false;
+    if (!$('#popover').hidden || !$('#modal').hidden || !$('#update-dialog').hidden || document.querySelector('.ctx-menu')) return false;
+    return !graph.on && !focus.el;
+  }
+
+  /** Whether an entry on the calendar can be deleted here (not a read-only calendar, a mirrored task or a goal). */
+  function deletable(src) {
+    if (src?.kind === 'task') { const t = tasks.find((x) => x.id === src.id); return !!t && !t.mirror; }
+    return src?.kind === 'event' && !!src.writable;
+  }
+
+  /**
+   * Backspace or Delete on the highlighted entry, or Delete in its right-click menu. A block or a task goes at
+   * once (Undo brings it back). A repeat goes as `scope` says ('one' this day, 'all' every day); with no scope
+   * (the key) it asks, since one key taking every day of it would be a surprise. Read-only ones say so.
+   */
+  async function deleteSelected(src, scope) {
+    const after = () => { clearSelection(); hidePeek(); refetch(); };
+    try {
+      if (src.kind === 'task') {
+        const t = tasks.find((x) => x.id === src.id);
+        if (!t) return; // a ticked-off task: it lives in the Archived tab now
+        if (t.mirror) { toast('This task is read-only here.'); return; }
+        await onyx.deleteTask(t.id);
+        const copy = { title: t.title, notes: t.notes || '', listId: t.listId, ...(t.date ? { due: t.date } : {}), tags: t.tags || [] };
+        let back = null;
+        recordAction(`Deleted "${t.label || t.title}"`, async () => { back = await onyx.createTask(copy); }, () => onyx.deleteTask(back.id));
+        after();
+        await loadTasks();
+        return;
+      }
+      if (src.kind !== 'event') return; // a goal's bar: its own window deletes it
+      if (!src.writable) { toast('This calendar is read-only here.'); return; }
+      if (src.seriesId && !scope) {
+        toast(`"${src.title}" repeats. Right-click it to delete every repeat.`, '', { label: 'Skip this day', run: () => deleteSelected(src, 'one') });
+        return;
+      }
+      await deleteBlock(src, scope || 'all');
+      after();
+    } catch (err) {
+      fail(err);
+    }
   }
 
   /**
@@ -1728,11 +2456,15 @@
     if (!slot) return toast('Point at a day or time on the calendar, then paste.');
     const start = toDate(src.start), end = toDate(src.end || src.start);
     const length = Math.max(15 * 60000, end - start);
+    let stand = null;
     try {
       if (src.kind === 'task') {
         const t = tasks.find((x) => x.id === src.id) || { label: src.title, listId: src.calendarId, notes: src.notes };
         const fields = { title: t.label || src.title, listId: t.listId || src.calendarId, notes: t.notes || '', due: slot.day, tags: src.tags || [] };
         const time = slot.time || (src.allDay ? null : hm(start));
+        const begin = time ? at(slot.day, time) : null;
+        stand = showPending({ ...src, title: fields.title, allDay: !begin, start: begin ? begin.toISOString() : slot.day,
+          end: begin ? new Date(begin.getTime() + length).toISOString() : ymd(addDays(fromYmd(slot.day), 1)), done: false });
         let made = null;
         const make = async () => {
           made = await onyx.createTask(fields);
@@ -1740,7 +2472,10 @@
         };
         await make();
         recordAction(`Pasted "${src.title}"`, () => onyx.deleteTask(made.id), make);
-        await loadTasks(true);
+        stand?.setExtendedProp('madeAt', Date.now());
+        loadTasks(true);
+        refetch(true); // a task moved to a time: its own read, to be sure of the time
+        return;
       } else {
         const allDay = !!src.allDay;
         let s, e;
@@ -1754,26 +2489,289 @@
         }
         const cal = S.calendars.find((c) => c.id === src.calendarId && c.kind === 'calendar' && c.writable) ? src.calendarId : undefined;
         const fields = { title: src.title, notes: src.notes || '', location: src.location || '', start: s, end: e, allDay, calendarId: cal, tags: src.tags || [] };
+        stand = showPending({ ...src, ...fields, calendarId: cal || src.calendarId, done: false });
         let made = await onyx.createEvent(fields);
         recordAction(`Pasted "${src.title}"`, () => onyx.deleteEvent(made.id), async () => { made = await onyx.createEvent(fields); });
+        // Its tasks go with it.
+        if (src.taskList?.length) await onyx.setBlockTasks(made.seriesId || made.id, src.taskList.map(({ id, text }) => ({ id, text }))).catch(() => {});
+        stand?.setExtendedProp('madeAt', Date.now());
       }
-      refetch(true);
+      // Making it marked its calendar changed, so this load reads just that one again, not every calendar.
+      refetch();
     } catch (err) {
-      toast(err.message, 'error');
+      dropPending(stand);
+      fail(err);
     }
+  }
+
+  /**
+   * Time dragged out on the calendar is kept at once, as a blank block (no Save needed): it shows straight away,
+   * is made in the usual calendar, and its editor opens on it to name it now. Left as it is, it stays blank, to
+   * fill in later. Undo takes it away.
+   */
+  /** Where a new block is kept: the calendar picked in Settings, or the first one that can be written to. */
+  function newBlockCalendar() {
+    const writable = S.calendars.filter((c) => c.kind === 'calendar' && c.writable);
+    return writable.find((c) => c.id === S.settings.defaultCalendar) || writable[0];
+  }
+
+  // ---- a new block by a long press (the phone). The press makes a half-hour block there at once, with a buzz;
+  // without lifting, the finger stretches it, down for a later end or up for an earlier start, a quarter hour at a
+  // time, while its times show on it and by the hours. It stays on its day, though the finger drifts sideways.
+  // Lifting saves it and opens it. FullCalendar does the pressing, the scrolling at the edges and the finding of
+  // the time under the finger; its own outline is hidden for this one (styles.css: making-block).
+  const NB_SNAP = 15 * 60000;
+  const holdNew = { on: false, cancelled: false, a: 0, day: null, moved: false, start: 0, end: 0, edge: 'end', ghost: null, pill: null, cal: null };
+  const minuteOfDay = (t, day) => Math.round((t - day) / 60000);
+  const midnight = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  function newBlockMove(info) {
+    if (info.allDay || !calendar.view.type.startsWith('timeGrid')) return;
+    const s = +info.start, e = +info.end;
+    if (!holdNew.on) {
+      holdNew.on = true;
+      holdNew.a = s;
+      holdNew.day = midnight(info.start);
+      holdNew.moved = false;
+      holdNew.cancelled = false;
+      holdNew.cal = newBlockCalendar();
+      hideTapBubble();
+      clearSelection();
+      const c = holdNew.cal?.color || 'var(--accent)';
+      holdNew.ghost = h('div', { class: 'new-block-ghost', css: { '--c': c }, 'aria-hidden': 'true' }, h('b'), h('small'));
+      holdNew.pill = h('div', { class: 'new-block-pill', css: { '--c': c }, 'aria-hidden': 'true' });
+      document.body.append(holdNew.ghost, holdNew.pill);
+      document.body.classList.add('making-block');
+      document.addEventListener('scroll', newBlockDraw, { capture: true, passive: true });
+      try { navigator.vibrate?.(12); } catch { /* no buzz on this device */ }
+    }
+    const a = holdNew.a, day = +holdNew.day, dayEnd = +addDays(holdNew.day, 1);
+    // Until the finger leaves the spot it pressed, the block is half an hour from there.
+    if (!holdNew.moved && !(s === a && e === a + NB_SNAP)) holdNew.moved = true;
+    if (!holdNew.moved) {
+      holdNew.start = a;
+      holdNew.end = Math.min(a + 2 * NB_SNAP, dayEnd);
+      holdNew.edge = 'end';
+    } else {
+      // The quarter hour under the finger (the end of the selection that is not the pressed one), on the block's day.
+      const finger = s === a ? e - NB_SNAP : s;
+      const f = day + minuteOfDay(finger, +midnight(new Date(finger))) * 60000;
+      holdNew.start = Math.min(a, f);
+      holdNew.end = Math.min(Math.max(a, f) + NB_SNAP, dayEnd);
+      holdNew.edge = f >= a ? 'end' : 'start';
+    }
+    newBlockDraw();
+  }
+  function newBlockDraw() {
+    const g = holdNew.ghost, pill = holdNew.pill;
+    if (!holdNew.on || !g) return;
+    const lane0 = $('#calendar .fc-timegrid-slot-lane[data-time="00:00:00"]'), lane12 = $('#calendar .fc-timegrid-slot-lane[data-time="12:00:00"]');
+    const col = $(`#calendar .fc-timegrid-col[data-date="${ymd(holdNew.day)}"]`);
+    const scroller = $('#calendar .fc-timegrid-body')?.closest('.fc-scroller');
+    if (!lane0 || !lane12 || !col || !scroller) { g.hidden = pill.hidden = true; return; }
+    const top0 = lane0.getBoundingClientRect().top, perMin = (lane12.getBoundingClientRect().top - top0) / 720;
+    const day = +holdNew.day;
+    const y = (t) => top0 + minuteOfDay(t, day) * perMin;
+    const area = scroller.getBoundingClientRect(), c = col.getBoundingClientRect();
+    const y0 = y(holdNew.start), y1 = y(holdNew.end);
+    const top = Math.max(y0, area.top), bottom = Math.min(y1, area.bottom);
+    g.hidden = bottom - top < 2;
+    Object.assign(g.style, { left: `${c.left + 2}px`, width: `${c.width - 5}px`, top: `${top}px`, height: `${Math.max(0, bottom - top)}px` });
+    g.classList.toggle('cut-top', y0 < area.top);
+    g.classList.toggle('cut-bottom', y1 > area.bottom);
+    g.classList.toggle('edge-start', holdNew.edge === 'start');
+    g.classList.toggle('roomy', y1 - y0 >= 34);
+    const mins = Math.round((holdNew.end - holdNew.start) / 60000);
+    g.firstChild.textContent = `${fmtTime(new Date(holdNew.start))} – ${fmtTime(new Date(holdNew.end))}`;
+    g.lastChild.textContent = mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)} h${mins % 60 ? ` ${mins % 60} min` : ''}`;
+    // The time of the edge being moved, by the hours on the left.
+    const edgeAt = holdNew.edge === 'start' ? holdNew.start : holdNew.end, ey = y(edgeAt);
+    const axis = $('#calendar .fc-timegrid-slot-label')?.getBoundingClientRect();
+    pill.hidden = !axis || ey < area.top || ey > area.bottom;
+    if (!pill.hidden) {
+      pill.textContent = new Date(edgeAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: S.settings.hour12 }).replace(/\s?[AP]M$/i, '');
+      Object.assign(pill.style, { top: `${ey}px`, left: `${axis.left + 2}px`, width: `${Math.max(30, axis.width - 4)}px` });
+    }
+  }
+  function newBlockStop(saved) {
+    if (!holdNew.on) return;
+    holdNew.on = false;
+    document.removeEventListener('scroll', newBlockDraw, { capture: true });
+    document.body.classList.remove('making-block');
+    const g = holdNew.ghost, pill = holdNew.pill;
+    holdNew.ghost = holdNew.pill = null;
+    pill?.remove();
+    if (!g) return;
+    // Saved: the block itself takes its place; let go elsewhere: it fades.
+    if (saved) setTimeout(() => g.remove(), 120);
+    else { g.classList.add('leaving'); setTimeout(() => g.remove(), 160); }
+  }
+
+  async function blockOut(info, anchor) {
+    const cal = newBlockCalendar();
+    if (!cal) return openEditor({ start: info.start, end: info.end, allDay: info.allDay }, anchor); // nowhere to keep it: the editor says so
+    const fields = info.allDay
+      ? { title: '', blank: true, start: ymd(info.start), end: ymd(info.end), allDay: true, calendarId: cal.id }
+      : { title: '', blank: true, start: info.start.toISOString(), end: info.end.toISOString(), allDay: false, calendarId: cal.id };
+    calendar.unselect();
+    const stand = showPending({ kind: 'event', ...fields, color: cal.color, calendarName: cal.name, writable: true, done: false, tags: [] });
+    try {
+      let made = await onyx.createEvent(fields);
+      stand?.setExtendedProp('madeAt', Date.now());
+      recordAction('Added a block', () => onyx.deleteEvent(made.id), async () => { made = await onyx.createEvent(fields); });
+      refetch();
+      const src = { kind: 'event', writable: true, calendarId: cal.id, calendarName: cal.name, color: cal.color, tags: [], notes: '', ...made, title: '' };
+      openEditor({ src, start: toDate(src.start), end: toDate(src.end), allDay: !!src.allDay }, anchor);
+    } catch (err) {
+      dropPending(stand);
+      fail(err);
+    }
+  }
+
+  /**
+   * Sends a block to someone: by email from any connected Gmail or Outlook account, to whoever is typed (the
+   * ones sent to before are offered), with its details and an invite to add it to their calendar; or onto a
+   * Notion page shared with the Notion integration, as a to-do with its time. All of it is done on the PC.
+   */
+  async function openSend(src) {
+    const s = toDate(src.start), e = toDate(src.end || src.start);
+    const when = src.allDay ? fmtDay(s) : `${fmtDay(s)}, ${fmtTime(s)} – ${fmtTime(e)}`;
+    const entry = {
+      title: src.title || 'A block', start: src.start, end: src.end, allDay: !!src.allDay, when,
+      location: src.location || '', notes: notesOf(src).replace(/<[^>]+>/g, ''),
+    };
+    let tab = 'email', busy = false;
+    const pane = h('div', { class: 'pane send-pane' });
+    const sheet = h('div', { class: 'sheet send' }, pane);
+    let info = { senders: [], recents: [] };
+    try { info = await onyx.shareSenders(); } catch { /* shown as no accounts */ }
+
+    // By email
+    const lastFrom = (() => { try { return localStorage.getItem('onyx.send-from') || ''; } catch { return ''; } })();
+    const from = h('select', null, info.senders.map((a) => h('option', { value: a.id }, `${a.label}  ·  ${a.provider === 'microsoft' ? 'Outlook' : 'Gmail'}`)));
+    if (info.senders.some((a) => a.id === lastFrom)) from.value = lastFrom;
+    const to = h('input', { type: 'text', inputMode: 'email', autocomplete: 'email', spellcheck: false, list: 'send-recents', placeholder: 'name@example.com (more with commas)' });
+    const recents = h('datalist', { id: 'send-recents' }, (info.recents || []).map((a) => h('option', { value: a })));
+    const note = h('textarea', { rows: 3, placeholder: 'A note to go with it (optional)' });
+    const problem = h('div', { class: 'send-problem', hidden: true });
+    const say = (text, reconnect) => {
+      problem.hidden = !text;
+      problem.replaceChildren(text ? h('span', null, text) : '',
+        reconnect ? h('button', { class: 'btn', onclick: () => { closeSettings(); openSettings('calendars'); } }, 'Open Settings') : '');
+    };
+    const sendEmail = async () => {
+      if (busy) return;
+      busy = true;
+      say('');
+      goEmail.disabled = true;
+      try {
+        const r = await onyx.shareEmail({ accountId: from.value, to: to.value, note: note.value, entry });
+        try { localStorage.setItem('onyx.send-from', from.value); } catch { /* this visit only */ }
+        closeSettings();
+        toast(`Sent "${entry.title}" to ${r.to.join(', ')}`);
+      } catch (err) {
+        say(err.message, !!err.message && /connect it again/.test(err.message));
+      }
+      busy = false;
+      goEmail.disabled = false;
+    };
+    const goEmail = h('button', { class: 'btn primary', onclick: sendEmail }, icon('send'), 'Send email');
+    to.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); sendEmail(); } });
+    const emailPart = info.senders.length
+      ? h('div', { class: 'send-part' },
+        h('label', { class: 'magic-field' }, h('span', null, 'From'), from),
+        h('label', { class: 'magic-field' }, h('span', null, 'To'), to, recents),
+        h('label', { class: 'magic-field' }, h('span', null, 'Note'), note),
+        h('div', { class: 'send-go' }, goEmail, h('small', null, 'They get its details and an invite to add it to their calendar.')))
+      : h('div', { class: 'send-part' }, h('p', { class: 'hint' }, 'Connect a Google or Outlook account to send blocks by email.'),
+        h('button', { class: 'btn', onclick: () => { closeSettings(); openSettings('calendars'); } }, 'Connect an account'));
+
+    // Onto a Notion page
+    let picked = null, timer = 0;
+    const find = h('input', { type: 'search', placeholder: 'Find a page by its name…', spellcheck: false });
+    const pages = h('div', { class: 'send-pages' });
+    const goNotion = h('button', { class: 'btn primary', disabled: true, onclick: async () => {
+      if (busy || !picked) return;
+      busy = true;
+      goNotion.disabled = true;
+      say('');
+      try {
+        await onyx.shareNotion({ pageId: picked.ref, entry });
+        closeSettings();
+        toast(`Added "${entry.title}" to ${picked.title} in Notion`, '', { label: 'Open', run: () => onyx.open(picked.url) });
+      } catch (err) {
+        say(err.message);
+        goNotion.disabled = false;
+      }
+      busy = false;
+    } }, icon('send'), 'Add to the page');
+    const look = async () => {
+      pages.replaceChildren(h('p', { class: 'hint' }, 'Looking…'));
+      try {
+        const r = await onyx.sharePages(find.value);
+        if (!r.connected) {
+          pages.replaceChildren(h('p', { class: 'hint' }, 'Connect Notion to send blocks to its pages.'),
+            h('button', { class: 'btn', onclick: () => { closeSettings(); openSettings('connections'); } }, 'Connect Notion'));
+          return;
+        }
+        if (!r.pages.length) {
+          pages.replaceChildren(h('p', { class: 'hint' }, find.value ? 'No page by that name. Pages show here once they are shared with your Onyx integration in Notion.'
+            : 'No pages yet. In Notion, open a page, then ••• → Connections → your Onyx integration.'));
+          return;
+        }
+        pages.replaceChildren(...r.pages.map((p) => h('button', {
+          type: 'button', class: `send-page${picked?.ref === p.ref ? ' on' : ''}`,
+          onclick: (ev) => {
+            picked = p;
+            for (const b of pages.querySelectorAll('.send-page')) b.classList.toggle('on', b === ev.currentTarget);
+            goNotion.disabled = false;
+          },
+        }, h('span', { class: 'sp-icon' }, p.icon || '📄'), h('span', { class: 'sp-title' }, p.title))));
+      } catch (err) {
+        pages.replaceChildren(h('p', { class: 'hint' }, err.message));
+      }
+    };
+    find.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(look, 300); });
+    const notionPart = h('div', { class: 'send-part' }, find, pages,
+      h('div', { class: 'send-go' }, goNotion, h('small', null, 'It goes at the end of the page as a to-do with its time.')));
+
+    const tabs = h('div', { class: 'mp-tabs', role: 'tablist' });
+    const body = h('div');
+    const paint = () => {
+      tabs.replaceChildren(...[['email', 'Email'], ['notion', 'Notion page']].map(([k, label]) => h('button', {
+        type: 'button', role: 'tab', class: `mp-tab${tab === k ? ' on' : ''}`, 'aria-selected': String(tab === k),
+        onclick: () => { tab = k; say(''); paint(); if (k === 'notion' && !pages.childElementCount) look(); },
+      }, label)));
+      body.replaceChildren(tab === 'email' ? emailPart : notionPart);
+    };
+    paint();
+    pane.append(
+      h('button', { class: 'icon-btn close', onclick: closeSettings }, icon('x')),
+      h('h3', { class: 'magic-h' }, icon('send'), 'Send'),
+      h('div', { class: 'send-what' }, h('b', null, entry.title), h('small', null, when)),
+      tabs, body, problem);
+    $('#modal').replaceChildren(sheet);
+    $('#modal').hidden = false;
+    setTimeout(() => (info.senders.length ? to : find).focus({ preventScroll: true }), 50);
   }
 
   /** The right-click menu: on an entry (copy, paste, duplicate, open) or on an empty spot (paste here). */
   function entryMenu(e, src) {
     closeMenu();
     const slot = slotAt(e.clientX, e.clientY);
-    const item = (label, run, off) => h('button', { class: 'ctx-item', disabled: !!off, onclick: () => { closeMenu(); run(); } }, label);
+    const item = (label, run, off, cls = '') => h('button', { class: `ctx-item ${cls}`.trim(), disabled: !!off, onclick: () => { closeMenu(); run(); } }, label);
+    const del = src && deletable(src);
     const menu = h('div', { class: 'ctx-menu', role: 'menu' },
       src && item('Open', () => (src.kind === 'task' ? openTask(tasks.find((t) => t.id === src.id) || { id: src.id, title: src.title, label: src.title, listName: src.calendarName }, pointRect(e)) : openEditor({ src, start: toDate(src.start), end: toDate(src.end), allDay: src.allDay }, pointRect(e)))),
       src && !MOBILE && !src.mirror && item('Hyperfocus…', () => openFocusSetup(focusEntry(src))),
+      src?.kind === 'event' && h('div', { class: 'ctx-colors' },
+        colorSwatches(src.ownColor ? src.color : null, src.calColor || src.color, (c) => { closeMenu(); colorBlock(src, c); }).el),
+      src && item('Send…', () => openSend(src)),
       src && item('Copy   Ctrl+C', () => copyEntry(src)),
       src && item('Duplicate', () => { clip.entry = src; const d = toDate(src.start); pasteEntry({ day: ymd(addDays(d, src.allDay ? 1 : 0)), time: src.allDay ? null : hm(new Date(d.getTime() + Math.max(15 * 60000, toDate(src.end) - d))) }); }),
-      item(`Paste here   Ctrl+V${clip.entry ? `: ${clip.entry.title}` : ''}`, () => pasteEntry(slot), !clip.entry || !slot));
+      item(`Paste here   Ctrl+V${clip.entry ? `: ${clip.entry.title}` : ''}`, () => pasteEntry(slot), !clip.entry || !slot),
+      del && h('div', { class: 'ctx-sep' }),
+      del && src.seriesId && src.kind === 'event' && item('Skip this day', () => deleteSelected(src, 'one'), false, 'danger'),
+      del && item(src.seriesId && src.kind === 'event' ? 'Delete every repeat' : 'Delete   Del', () => deleteSelected(src, 'all'), false, 'danger'));
     menu.style.left = `${Math.min(e.clientX, innerWidth - 230)}px`;
     menu.style.top = `${Math.min(e.clientY, innerHeight - 160)}px`;
     document.body.append(menu);
@@ -1786,13 +2784,24 @@
   }
 
   document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && clip.selected && calendarHasKeys(e)) {
+      const src = calendar?.getEventById(clip.selected)?.extendedProps?.src;
+      const el = document.querySelector(`#calendar .fc-event[data-eid="${CSS.escape(clip.selected)}"]`);
+      if (src && el) { e.preventDefault(); hidePeek(); openEntry(src, el.getBoundingClientRect()); }
+      return;
+    }
+    if ((e.key === 'Backspace' || e.key === 'Delete') && !e.ctrlKey && !e.metaKey && !e.altKey && clip.selected && calendarHasKeys(e)) {
+      const src = calendar?.getEventById(clip.selected)?.extendedProps?.src;
+      if (src) { e.preventDefault(); deleteSelected(src); }
+      return;
+    }
     if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
     if (e.target.closest?.('input, textarea, select, [contenteditable]')) return;
     const k = e.key.toLowerCase();
     if (k === 'c' && clip.selected) {
       const src = calendar?.getEventById(clip.selected)?.extendedProps?.src;
       if (src) { e.preventDefault(); copyEntry(src); }
-    } else if (k === 'v' && clip.entry) {
+    } else if (k === 'v' && clip.entry && $('#modal').hidden && $('#popover').hidden) { // a Magic window takes Ctrl+V for its pictures
       e.preventDefault();
       pasteEntry();
     }
@@ -1855,7 +2864,9 @@
       floatMove(drag.x, drag.y);
       if (!drag.rect) dragMeasure();
       const r = drag.rect;
-      setEdge(drag.x >= r.right - EDGE_ZONE ? 1 : drag.x <= r.left + drag.axis ? -1 : 0);
+      const toList = MOBILE ? null : listTargetAt(drag.x, drag.y);
+      listHover(toList);
+      setEdge(toList ? 0 : drag.x >= r.right - EDGE_ZONE && drag.x <= r.right ? 1 : drag.x <= r.left + drag.axis ? -1 : 0);
     });
   }
 
@@ -1891,6 +2902,7 @@
   }
 
   function edgeNavStop() {
+    listHover(null);
     document.body.classList.remove('dragging-entry');
     document.removeEventListener(MOVE_EVENT, edgeMove, { capture: true });
     cancelAnimationFrame(drag.frame);
@@ -1915,8 +2927,11 @@
     && !document.querySelector('#calendar .fc-event-dragging, #calendar .fc-event-resizing');
 
   // A reload that waited for a drag runs once it is over.
-  function afterDrag() {
+  function afterDrag(info) {
     setTimeout(() => { if (refetch.later && !midDrag()) refetch(); }, 60);
+    // The entry just carried or stretched is the highlighted one (its bars outside it, ready for more).
+    const src = info?.event?.extendedProps?.src;
+    if (src && (src.kind === 'event' || src.kind === 'task') && !src.pending) setTimeout(() => selectEntry(src), 80);
   }
 
   // A backstop for touch: once every finger is off the screen, a drag still going (its end got
@@ -1961,10 +2976,11 @@
   // ---- stretching an entry by its top or bottom edge
   // The grid snaps the new time to 15 minutes (the dashed outline). A copy of the entry follows the
   // pointer exactly, smoothly, with the time it will land on, and settles into place when let go.
-  const stretch = { box: null, chip: null, edge: 'end', rect: null, y: 0, frame: 0, perMin: 0 };
+  const stretch = { box: null, chip: null, edge: 'end', rect: null, y: 0, frame: 0, perMin: 0, magnet: null };
 
   function stretchStart(info) {
     stretchStop();
+    stretch.magnet = null;
     const el = info.el;
     const r = el.getBoundingClientRect();
     const target = info.jsEvent?.target;
@@ -2009,10 +3025,12 @@
     box.style.width = `${base.width}px`;
     box.style.top = `${top}px`;
     box.style.height = `${height}px`;
-    // Where it will land: the snapped times, and how long that makes it.
-    const mins = mirror ? Math.round(mirror.getBoundingClientRect().height / stretch.perMin / 15) * 15 : 0;
-    const when = mirror?.querySelector('.ev-time')?.textContent?.trim();
-    stretch.chip.textContent = [when, mins > 0 ? (mins >= 60 ? `${Math.floor(mins / 60)} h${mins % 60 ? ` ${mins % 60} min` : ''}` : `${mins} min`) : ''].filter(Boolean).join(' · ');
+    // Where it will land: the snapped times (met with a neighbour it comes close to), and how long that makes it.
+    const m = stretch.magnet;
+    const mins = m ? Math.round((m.end - m.start) / 60000) : mirror ? Math.round(mirror.getBoundingClientRect().height / stretch.perMin / 15) * 15 : 0;
+    const when = m ? calendar.formatRange(m.start, m.end, { ...timeFormats().eventTimeFormat, separator: ' - ' }) : mirror?.querySelector('.ev-time')?.textContent?.trim();
+    stretch.chip.textContent = [when, mins > 0 ? (mins >= 60 ? `${Math.floor(mins / 60)} h${mins % 60 ? ` ${mins % 60} min` : ''}` : `${mins} min`) : '', m ? `meets ${m.by}` : ''].filter(Boolean).join(' · ');
+    stretch.chip.classList.toggle('snapped', !!m);
   }
 
   function stretchStop() {
@@ -2028,7 +3046,20 @@
   }
 
   // ---- the carried entry: a copy that follows the pointer exactly
-  const float = { box: null, dx: 0, dy: 0 };
+  const float = { box: null, dx: 0, dy: 0, time: null, chip: null, last: '', magnet: null, shift: 0 };
+
+  /** Where a carried entry would land, met with a neighbour it comes close to (the outline moves to it in floatMove). */
+  function carryAt(dragged, drop) {
+    if (stretch.box) {
+      // Stretched by an edge: the time it will land on, met with a neighbour's edge it comes close to (stretchFrame).
+      stretch.magnet = drop.allDay ? null : magnetFor(dragged, drop.start, drop.end, { edge: stretch.edge });
+      return;
+    }
+    if (!float.box) return;
+    const m = drop.allDay ? null : magnetFor(dragged, drop.start, drop.end, { from: dragged.start, edge: 'move' });
+    float.magnet = m;
+    float.shift = m ? (m.start - drop.start) / 60000 : 0;
+  }
 
   function floatStart(info) {
     floatStop();
@@ -2042,19 +3073,69 @@
     for (const extra of copy.querySelectorAll('.ev-timer')) extra.remove(); // the drain pie redraws every frame
     copy.style.width = `${r.width}px`;
     copy.style.height = `${r.height}px`;
+    copy.style.transformOrigin = `${float.dx}px ${float.dy}px`; // it shrinks toward the pointer, so it stays under it
     // Inside an element with the "fc" class, so it keeps the calendar's look.
-    float.box = h('div', { class: 'fc drag-float' }, copy);
+    // The time it would land on, live: its own time line, and a label above it (a finger covers the entry on a phone).
+    float.time = copy.querySelector('.ev-time');
+    float.chip = h('div', { class: 'stretch-chip start drag-chip' });
+    float.last = '';
+    float.magnet = null;
+    float.shift = 0;
+    float.box = h('div', { class: 'fc drag-float' }, copy, float.chip);
     float.box.style.transform = `translate3d(${r.left}px, ${r.top}px, 0)`;
+    // A grey line at the time it would land on, from the hours on the left to the entry, the time in its middle.
+    float.guide = h('div', { class: 'drop-guide', hidden: true, 'aria-hidden': 'true' }, h('span'));
+    document.body.append(float.guide);
     document.body.append(float.box);
     document.body.classList.add('carrying');
   }
 
   function floatMove(x, y) {
-    if (float.box) float.box.style.transform = `translate3d(${x - float.dx}px, ${y - float.dy}px, 0)`;
+    if (!float.box) return;
+    float.box.style.transform = `translate3d(${x - float.dx}px, ${y - float.dy}px, 0)`;
+    // The snapped outline holds the time it would land on (it keeps the last one while over no day); pulled to
+    // the end of an entry just above, the outline moves there and the time says so.
+    const mirror = $('#calendar .fc-event-mirror');
+    if (mirror) {
+      const slot = $('#calendar .fc-timegrid-slot-lane') || $('#calendar .fc-timegrid-slot');
+      const perMin = (slot?.getBoundingClientRect().height || 28) / 30;
+      mirror.style.transform = float.shift ? `translateY(${(float.shift * perMin).toFixed(1)}px)` : '';
+    }
+    const t = float.magnet
+      ? calendar.formatRange(float.magnet.start, float.magnet.end, { ...timeFormats().eventTimeFormat, separator: ' - ' })
+      : mirror?.querySelector('.ev-time')?.textContent?.trim();
+    if (t && t !== float.last) {
+      float.last = t;
+      if (float.time) float.time.textContent = t;
+      float.chip.textContent = t;
+    }
+    dropGuide(mirror);
+  }
+
+  /** The grey line at the top of where the carried entry would land, across to the hours, with that time on it. */
+  function dropGuide(mirror) {
+    const g = float.guide;
+    if (!g) return;
+    const axis = $('#calendar .fc-timegrid-slot-label')?.getBoundingClientRect();
+    const lane0 = $('#calendar .fc-timegrid-slot-lane[data-time="00:00:00"]'), lane12 = $('#calendar .fc-timegrid-slot-lane[data-time="12:00:00"]');
+    const area = ($('#calendar .fc-timegrid-body')?.closest('.fc-scroller') || $('#calendar'))?.getBoundingClientRect();
+    if (!mirror || !axis || !lane0 || !lane12 || !area || mirror.closest('.fc-daygrid')) { g.hidden = true; return; }
+    const m = mirror.getBoundingClientRect(); // its snapped place (moved to a neighbour's edge when pulled there)
+    const top0 = lane0.getBoundingClientRect().top, perMin = (lane12.getBoundingClientRect().top - top0) / 720;
+    if (m.top < area.top || m.top > area.bottom || !perMin) { g.hidden = true; return; }
+    const minutes = float.magnet ? null : Math.round((m.top - top0) / perMin / 5) * 5;
+    const at = float.magnet ? new Date(float.magnet.start) : new Date(2000, 0, 1, Math.floor(minutes / 60), minutes % 60);
+    g.hidden = false;
+    g.style.top = `${Math.round(m.top)}px`;
+    g.style.left = `${Math.round(axis.left)}px`;
+    g.style.width = `${Math.max(0, Math.round(m.left - axis.left))}px`;
+    g.firstChild.textContent = fmtTime(at);
   }
 
   function floatStop() {
     document.body.classList.remove('carrying');
+    float.guide?.remove();
+    float.guide = null;
     const box = float.box;
     float.box = null;
     if (!box) return;
@@ -2077,7 +3158,7 @@
       v.style.transform = x ? `translateX(${x}px)` : '';
       v.style.opacity = x ? String(Math.max(0.35, 1 - Math.abs(x) / el.clientWidth)) : '';
     };
-    const busy = () => el.querySelector('.fc-event-mirror, .fc-event-dragging, .fc-event-resizing');
+    const busy = () => holdNew.on || el.querySelector('.fc-event-mirror, .fc-event-dragging, .fc-event-resizing');
 
     el.addEventListener('touchstart', (e) => {
       const p = e.touches[0];
@@ -2294,8 +3375,14 @@
     refit.observe(pop);
   }
 
+  // A click on the calendar's background while an entry is open (or highlighted) puts it away and deselects it:
+  // that click does nothing more (it used to open a new block's window there, so the window seemed to jump).
+  const clickOff = { at: 0 };
   document.addEventListener('pointerdown', (e) => {
-    if (!$('#popover').hidden && !$('#popover').contains(e.target)) closePopover();
+    const onGrid = !!e.target.closest?.('#calendar') && !e.target.closest('.fc-event');
+    const open = !$('#popover').hidden && !$('#popover').contains(e.target);
+    if (open) closePopover();
+    if (onGrid && (open || clip.selected)) { clearSelection(); clickOff.at = Date.now(); }
   });
 
   // ------------------------------------------------------------ block editor
@@ -2387,7 +3474,7 @@
     const multiDay = !sameDay(model.start, model.allDay ? lastDay : new Date(model.end.getTime() - 1));
     let busy = false;
 
-    const title = h('input', { type: 'text', class: 'pop-title', placeholder: 'What is this time for?', value: src ? src.title : '', disabled: readOnly, spellcheck: false });
+    const title = limitName(h('input', { type: 'text', class: 'pop-title', placeholder: 'What is this time for?', value: src ? src.title : '', disabled: readOnly, spellcheck: false }));
     const date = h('input', { type: 'date', value: ymd(model.start), disabled: readOnly });
     const startTime = h('input', { type: 'time', value: hm(model.start), step: 300, disabled: readOnly });
     const endTime = h('input', { type: 'time', value: hm(model.end), step: 300, disabled: readOnly });
@@ -2403,24 +3490,31 @@
     // Notes are saved with the entry; on a read-only calendar yours are kept in Onyx instead.
     const notes = !readOnly && notesField(src ? src.notes : '');
     const memo = readOnly && notesField(src.memo, 'Your notes: kept in Onyx, since this calendar is read-only');
-    // The escalation ladder: how the Pi reaches out (off, a push alert, a call, or calls that
-    // keep coming until "Leaving now"), at the leave-by time when there is one.
-    let mode = src?.piCall ? src.callMode || 'call' : 'off';
-    const call = h('input', { type: 'checkbox', checked: mode !== 'off', hidden: true });
+    // The escalation: how you are reached (none, or any of a push, a call, critical calls that stop
+    // once one is answered, and the phone's alarm), at the leave-by time when there is one.
+    let modes = src?.piCall ? [...(src.callModes?.length ? src.callModes : [src.callMode || 'call'])] : [];
+    const call = h('input', { type: 'checkbox', checked: modes.length > 0, hidden: true });
     // Each says what it really does, with the way reminders go out (Settings → Calls & alerts).
     const via = { pi: 'the Pi', twilio: 'Onyx (Twilio)', ntfy: 'ntfy', alarm: 'your phone' }[S.settings.calls?.method || S.calls?.method || 'pi'];
     const LADDER = [
       ['off', 'bell-off', 'Off', 'No reminder'],
       ['push', 'bell', 'Push only', 'A notification on your phone, no ringing'],
       ['call', 'phone', 'Voice call', `One phone call from ${via}`],
-      ['critical', 'phone', 'Critical', 'A call, then a second one 10 minutes later unless you tap Leaving now'],
+      ['critical', 'phone', 'Critical', 'A call every 10 minutes, up to 3 times, until you answer'],
       ['alarm', 'clock', 'Alarm', 'Your phone rings and vibrates full screen until you press a button'],
     ];
-    const ladder = h('div', { class: 'ladder-list', role: 'radiogroup', 'aria-label': 'Escalation' },
+    // One or more: each tap adds or takes away one; Off clears them. Critical's calls take the place of a single call.
+    const ladder = h('div', { class: 'ladder-list', role: 'group', 'aria-label': 'Escalation: pick one or more' },
       LADDER.map(([value, ico, label, hint]) => h('button', {
-        type: 'button', class: 'ladder-opt', 'data-mode': value, role: 'radio',
-        onclick: () => { mode = value; call.checked = value !== 'off'; sync(); },
-      }, h('span', { class: 'lo-ico' }, icon(ico)), h('span', { class: 'lo-txt' }, h('b', null, label), h('small', null, hint)), h('span', { class: 'lo-dot' }))));
+        type: 'button', class: 'ladder-opt', 'data-mode': value, role: value === 'off' ? 'radio' : 'checkbox',
+        onclick: () => {
+          if (value === 'off') modes = [];
+          else if (modes.includes(value)) modes = modes.filter((m) => m !== value);
+          else modes = [...modes.filter((m) => !(value === 'critical' && m === 'call') && !(value === 'call' && m === 'critical')), value];
+          call.checked = modes.length > 0;
+          sync();
+        },
+      }, h('span', { class: 'lo-ico' }, icon(ico)), h('span', { class: 'lo-txt' }, h('b', null, label), h('small', null, hint)), h('span', { class: 'lo-dot' }, value === 'off' ? null : icon('check')))));
     // Travel time: the first part of the block is getting there. It shows as its own band on the
     // calendar, and the call to set off comes as the block starts.
     let leaveBy = src?.leaveBy ?? null;
@@ -2459,6 +3553,15 @@
     const blockMinutes = () => { const r = range(); return r.allDay ? 0 : Math.round((new Date(r.end) - new Date(r.start)) / 60000); };
     const pomo = pomodoroField(src?.pomodoro, { duration: blockMinutes });
     const pomoRow = h('div', { class: 'row top' }, icon('clock'), pomo.el);
+    // Its colour: the calendar's, or one of its own (kept in Onyx, so read-only calendars too; a repeat's for every day).
+    const calColor = () => S.calendars.find((c) => c.id === (calendarPick?.value || src?.calendarId))?.color || src?.calColor || src?.color;
+    const colorPick = colorSwatches(src?.ownColor ? src.color : null, src?.calColor || calColor(), null);
+    calendarPick.addEventListener('change', () => colorPick.el.firstChild.style.setProperty('--s', calColor() || 'var(--accent)')); // the calendar's colour, as picked
+    // What to get done within the block: kept in Onyx (on a read-only calendar too); a tick on a saved block saves at once.
+    const linksField = blockLinkField(src?.links || []);
+    const tasksField = blockTaskField(src?.taskList || [], {
+      onTick: src ? (taskId, done) => onyx.tickBlockTask(src.id, taskId, done).then(() => refetch()).catch((err) => fail(err)) : null,
+    });
 
     const sync = () => {
       const r = range();
@@ -2472,19 +3575,22 @@
         : '';
       leaveHint.classList.toggle('warn', !!leaveBy && !r.allDay && there >= new Date(r.end).getTime());
       for (const b of ladder.children) {
-        b.classList.toggle('on', b.dataset.mode === mode);
-        b.setAttribute('aria-checked', String(b.dataset.mode === mode));
+        const on = b.dataset.mode === 'off' ? !modes.length : modes.includes(b.dataset.mode);
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-checked', String(on));
       }
+      const off = !modes.length;
       const st = piStatus(r.at, r.allDay, callBefore);
-      const times = mode === 'off' ? [] : ladderTimes(r.at, callBefore, leaveBy, mode);
-      callHint.textContent = mode === 'off' ? 'No reminder from the Pi.'
+      const times = off ? [] : ladderTimes(r.at, callBefore, leaveBy, modes);
+      const only = modes.length === 1 ? modes[0] : '';
+      callHint.textContent = off ? 'No reminder.'
         : !st.allowed ? st.text
-        : times.length ? ladderText(times, mode)
-        : st.text.replace('The Pi phones you', mode === 'push' ? 'The Pi sends a push alert' : mode === 'alarm' ? 'Your phone rings an alarm' : 'The Pi phones you');
-      callHint.className = mode === 'off' ? '' : st.tone;
-      ladder.classList.toggle('disabled', !st.allowed && mode === 'off');
+        : times.length ? ladderText(times, modes)
+        : st.text.replace('The Pi phones you', only === 'push' ? 'The Pi sends a push alert' : only === 'alarm' ? 'Your phone rings an alarm' : 'The Pi phones you');
+      callHint.className = off ? '' : st.tone;
+      ladder.classList.toggle('disabled', !st.allowed && off);
       // With a leave-by time, that is when it reaches out; otherwise a time can be picked.
-      callWhen.hidden = mode === 'off' || !st.allowed || !!leaveBy;
+      callWhen.hidden = off || !st.allowed || !!leaveBy;
       // Any time of day, kept as minutes before the start (after it, too); not while it's being typed.
       if (!callWhen.hidden && document.activeElement !== callWhen) callWhen.value = hm(new Date(r.at.getTime() - (callBefore ?? 0) * 60000));
     };
@@ -2500,11 +3606,12 @@
         title: title.value.trim(), start: r.start, end: r.end, allDay: r.allDay, calendarId: calendarPick.value,
         ...(notes ? { notes: cleanNote(notes.value) } : {}), piCall: call.checked && !r.allDay, tags: tags.get(),
       };
-      data.piCall = mode !== 'off' && !r.allDay;
+      data.piCall = modes.length > 0 && !r.allDay;
       const leaveChanged = (leaveBy || null) !== (src?.leaveBy ?? null);
       if (leaveChanged) data.leaveBy = leaveBy;
-      const modeChanged = data.piCall && mode !== (src?.callMode || 'call');
-      if (data.piCall) data.callMode = mode;
+      const had = src?.callModes?.length ? src.callModes : [src?.callMode || 'call'];
+      const modeChanged = data.piCall && [...modes].sort().join('+') !== [...had].sort().join('+');
+      if (data.piCall) data.callMode = modes;
       const callChanged = data.piCall && (callBefore !== (src?.callBefore ?? null) || modeChanged || leaveChanged);
       if (callChanged) data.callBefore = callBefore;
       const rule = repeatField ? repeatField.get() : undefined;
@@ -2520,7 +3627,7 @@
         } else if (readOnly) {
           // A read-only calendar can still carry tags and a phone reminder: both live in Onyx.
           if (leaveChanged) await onyx.setLeaveBy(src.id, leaveBy);
-          if (data.piCall !== !!src.piCall || callChanged) await onyx.setCall({ id: src.id, title: src.title, start: src.start, allDay: src.allDay }, data.piCall, data.piCall ? callBefore : null, data.piCall ? mode : undefined);
+          if (data.piCall !== !!src.piCall || callChanged) await onyx.setCall({ id: src.id, title: src.title, start: src.start, allDay: src.allDay }, data.piCall, data.piCall ? callBefore : null, data.piCall ? modes : undefined);
           if (!sameTags(data.tags, src.tags)) await onyx.setTags(src.seriesId || src.id, data.tags);
           if (cleanNote(memo.value) !== (src.memo || '')) await onyx.setMemo(src.seriesId || src.id, memo.value);
         } else {
@@ -2538,15 +3645,69 @@
         const split = r.allDay ? null : pomo.get();
         const id = src?.seriesId || saved?.seriesId || saved?.id || src?.id; // a repeat's split is the series'
         if (id && !samePomodoro(split, saved?.pomodoro ?? src?.pomodoro)) await savePomodoro(id, split);
+        // Its colour, kept in Onyx by the block (a repeat's by its series).
+        const color = colorPick.get();
+        if (id && color !== (src?.ownColor ? src.color : null)) await onyx.setEventColor(id, color);
+        // The block's tasks: kept by the block (a repeat's by its series, the same every day).
+        const list = tasksField.get(), had = src?.taskList || [];
+        const shape = (items) => items.map((t) => `${t.id}\t${t.text}`).join('\n');
+        if (id && shape(list.items) !== shape(had)) await onyx.setBlockTasks(id, list.items);
+        // Its links: kept by the block too.
+        const links = linksField.get(), hadLinks = src?.links || [];
+        if (id && links.map((l) => `${l.url}\t${l.title}`).join('\n') !== hadLinks.map((l) => `${l.url}\t${l.title}`).join('\n')) await onyx.setBlockLinks(id, links);
+        // Ticks on tasks new in this window (the others were saved as they were ticked), on this day of the block.
+        const day = saved?.id || src?.id;
+        for (const t of list.items) if (day && t.done && !had.some((x) => x.id === t.id)) await onyx.tickBlockTask(day, t.id, true);
         closePopover();
         refetch();
         refreshPomodoros();
         if (!sameTags(data.tags, src?.tags)) reloadTags();
-        if (typeof then === 'function') then({ ...src, ...data, ...saved });
+        if (typeof then === 'function') then({ ...src, ...data, ...saved, taskList: tasksField.get().items });
       } catch (err) {
         busy = false;
-        toast(err.message, 'error');
+        fail(err);
       }
+    };
+
+    // Breakdown's steps on the calendar, each a block of its own in this block's calendar (yours, when it is read-only),
+    // with its colour and tags; then this block (this day of a repeat) comes off. Undo puts it back.
+    const blockToSteps = async (rows) => {
+      const calId = !readOnly && calendarPick.value ? calendarPick.value
+        : (writable.some((c) => c.id === S.settings.defaultCalendar) ? S.settings.defaultCalendar : writable[0]?.id);
+      if (!calId) throw new Error('Connect a calendar you can write to first.');
+      const name = title.value.trim() || src?.title || 'Steps';
+      const original = cleanNote(notes ? notes.value : [src?.notes, memo?.value].filter(Boolean).join('\n\n'));
+      const color = colorPick.get(), links = linksField.get(), tagList = tags.get();
+      const datas = rows.map((r, i) => ({
+        title: r.title, start: r.start.toISOString(), end: new Date(r.start.getTime() + r.minutes * 60000).toISOString(), allDay: false,
+        calendarId: calId, notes: stepNotes(r, i, rows.length, name, original), tags: tagList,
+      }));
+      const make = async () => {
+        const made = [];
+        for (const d of datas) made.push(await onyx.createEvent(d));
+        if (color) for (const m of made) await onyx.setEventColor(m.seriesId || m.id, color).catch(() => {});
+        if (links.length && made[0]) await onyx.setBlockLinks(made[0].id, links).catch(() => {});
+        return made;
+      };
+      let made = await make();
+      const replaced = !!src && !readOnly;
+      if (replaced) await onyx.deleteEvent(src.id, src.seriesId ? { scope: 'one', seriesId: src.seriesId } : undefined);
+      // Undo: the steps go and the block comes back (a repeat's day as a block of its own).
+      const copy = src && { title: src.title, notes: src.notes || '', location: src.location || '', start: src.start, end: src.end, allDay: !!src.allDay, calendarId: src.calendarId, tags: src.tags || [] };
+      let back = null;
+      recordAction(`Broke "${name}" into ${rows.length} steps`, async () => {
+        for (const m of made) await onyx.deleteEvent(m.id).catch(() => {});
+        if (replaced) {
+          back = await onyx.createEvent(copy);
+          if (src.taskList?.length) await onyx.setBlockTasks(back.id, src.taskList).catch(() => {});
+        }
+      }, async () => {
+        made = await make();
+        if (back) await onyx.deleteEvent(back.id);
+      });
+      closePopover();
+      refetch();
+      toast(`${rows.length} steps on the calendar${replaced ? ` in place of "${name}"` : ''}.`);
     };
 
     const blockToBackburner = async () => {
@@ -2568,25 +3729,19 @@
         loadTasks(true);
       } catch (err) {
         busy = false;
-        toast(err.message, 'error');
+        fail(err);
       }
     };
 
-    // A repeat: "Delete" takes every day of it (after asking), "Skip this day" just this one.
+    // A repeat: "Delete" takes every day of it, "Skip this day" just this one. No asking first:
+    // Undo brings a deleted block back (a repeat from this day on), with its tasks.
     const remove = async (scope = 'all') => {
-      if (src.seriesId && scope === 'all' && !confirm(`Delete every repeat of "${src.title}"?`)) return;
       try {
-        await onyx.deleteEvent(src.id, src.seriesId ? { scope, seriesId: src.seriesId } : undefined);
-        // A one-off can be brought back (as a new entry with the same details).
-        if (!src.seriesId) {
-          const copy = { title: src.title, notes: src.notes || '', location: src.location || '', start: src.start, end: src.end, allDay: !!src.allDay, calendarId: src.calendarId, tags: src.tags || [] };
-          let back = null;
-          recordAction(`Deleted "${src.title}"`, async () => { back = await onyx.createEvent(copy); }, () => onyx.deleteEvent(back.id));
-        }
+        await deleteBlock(src, scope);
         closePopover();
         refetch();
       } catch (err) {
-        toast(err.message, 'error');
+        fail(err);
       }
     };
 
@@ -2596,22 +3751,31 @@
       h('div', { class: 'row' }, icon('clock'), date, startTime, dash, endTime),
       untilRow,
       h('div', { class: 'row' }, icon('calendar'), calendarPick, h('label', { class: 'check' }, allDay, 'All day')),
+      h('div', { class: 'row color-row' }, icon('drop'), colorPick.el),
       repeatField && h('div', { class: 'row top recur-row' }, icon('repeat'), repeatField.el),
+      h('div', { class: 'row top btask-row' }, icon('tasks'), tasksField.el),
+      h('div', { class: 'row top blink-row' }, icon('link'), linksField.el),
       notes && h('div', { class: 'row top' }, icon('note'), notes),
       readOnly && src.notes && h('div', { class: 'row top pop-meta' }, icon('note'), h('div', { class: 'note-text' }, src.notes)),
       !readOnly && src?.memo && h('div', { class: 'row top pop-meta', title: 'Your notes, kept in Onyx' }, icon('note'), h('div', { class: 'note-text' }, src.memo)),
       memo && h('div', { class: 'row top' }, icon('note'), memo),
       h('div', { class: 'row' }, icon('tag'), tags.el),
-      // The hammer, as on a task: its steps go into the notes (yours, on a read-only calendar) or become tasks that day.
-      (notes || memo) && breakdownField({
-        get title() { return title.value.trim() || src?.title || 'this'; }, label: '', listId: undefined,
-        get date() { return date.value || ymd(model.start); }, get tags() { return tags.get(); },
-      }, notes || memo),
+      // The hammer, as on a task: the steps, timed into the block (or a realistic timeline after it), take its place.
+      (notes || memo) && breakdownField(null, notes || memo, {
+        name: () => title.value.trim() || src?.title || 'this',
+        frame: () => { const r = range(); return r.allDay ? { day: r.start } : { start: r.start, end: r.end }; },
+        exclude: src ? [src.id] : [],
+        extra: () => breakdownExtras({ calendarNotes: readOnly ? src?.notes : '', checklist: tasksField.get().items, links: linksField.get(), place: src?.location }),
+        keeps: () => (!src ? 'Each step becomes a block of its own.'
+          : readOnly ? 'Its calendar is read-only, so it stays; the steps go in your own calendar.'
+            : `Takes the place of "${title.value.trim() || src.title}"${src.seriesId ? ' on this day' : ''}. Undo brings it back.`),
+        replace: (rows) => blockToSteps(rows),
+      }),
       pomoRow,
       src?.location && h('div', { class: 'row pop-meta' }, icon('pin'), src.location),
       h('div', { class: 'row leave-row' }, icon('car'), h('span', { class: 'dash' }, 'Travel'), leaveSel, leaveHint),
-      S.settings.pi.enabled && h('div', { class: 'row pi-row' }, icon('phone'),
-        h('div', { class: 'txt' }, h('b', null, 'Escalation'), ladder, callHint, callWhen, call)),
+      S.settings.pi.enabled && h('div', { class: 'row pi-row' },
+        h('div', { class: 'txt' }, h('b', { class: 'pi-head' }, icon('phone'), 'Escalation', h('small', null, 'pick one or more')), ladder, callHint, callWhen, call)),
       readOnly && h('div', { class: 'pop-meta' }, 'This calendar is read-only here. ',
         src.link && h('a', { href: '#', onclick: (e) => { e.preventDefault(); onyx.open(src.link); } }, 'Open it in the browser')),
       h('div', { class: 'pop-actions' },
@@ -2620,6 +3784,7 @@
         src && !readOnly && h('button', { class: 'btn danger', title: src.seriesId ? 'Delete every repeat' : null, onclick: () => remove('all') }, icon('trash'), src.seriesId ? 'Delete all' : 'Delete'),
         src?.seriesId && !readOnly && h('button', { class: 'btn', title: 'Take just this day off; the others stay', onclick: () => remove('one') }, 'Skip this day'),
         src && !src.done && focusButton(src),
+        src && h('button', { class: 'btn send-btn', title: 'Send it to someone by email (with an invite), or onto a Notion page', onclick: () => { closePopover(); openSend(src); } }, icon('send'), 'Send'),
         // The backburner: the block comes off the calendar and waits as a task with no date, its name, notes,
         // tags and length kept. Undo puts the block back.
         src && !readOnly && !src.seriesId && !src.done && h('button', {
@@ -2659,7 +3824,7 @@
       showProblems(res.errors);
       noteInbox(res.inbox || []);
     } catch (err) {
-      toast(err.message, 'error');
+      if (!err.offline) fail(err); // offline: the last list stays
     }
     renderTasks();
     loadGoals();
@@ -2684,12 +3849,12 @@
     // Plan opens the day they were sent for (a day still to come), when they share one.
     const when = first?.date && first.date >= ymd(new Date()) && fresh.every((id) => tasks.find((t) => t.id === id)?.date === first.date) ? first.date : null;
     toast(fresh.length === 1 ? `New from ${sourceName(first)}: "${first?.label || first?.title}"` : `${fresh.length} new tasks from other apps`, '',
-      { label: 'Plan', run: () => openMagic(when ? { date: when } : {}) });
+      { label: 'Plan', run: () => openMagic({ pick: fresh, tab: 'apps', ...(when ? { date: when } : {}) }) });
   }
 
   function paintInboxBadge() {
     const n = inboxIds.length;
-    for (const el of [$('#magic-add'), $('#magic-fab')]) {
+    for (const el of [$('#magic-add'), $('#magic-fab'), $('#task-magic')]) {
       if (!el) continue;
       el.querySelector('.magic-count')?.remove();
       el.classList.toggle('has-inbox', n > 0);
@@ -2701,7 +3866,7 @@
     try {
       goals = await onyx.goals();
     } catch (err) {
-      if (!outdated(err)) toast(err.message, 'error');
+      if (!err.offline && !outdated(err)) fail(err); // offline: the last ones stay
     }
     renderGoals();
   }
@@ -2718,7 +3883,7 @@
     const when = t.start ? `${fmtDay(new Date(t.start))}, ${fmtTime(new Date(t.start))}` : t.date ? fmtDay(fromYmd(t.date)) : '';
     // Draggable onto a cluster on the globe (see dropOnGlobe).
     const row = h('div', {
-      class: 'task', css: { '--c': t.color }, draggable: !MOBILE,
+      class: `task${t.offline ? ' offline' : ''}`, css: { '--c': t.color }, draggable: !MOBILE,
       ondragstart: (e) => taskDragStart(t, e), ondragend: taskDragEnd,
     },
       h('button', { class: 'tick', title: 'Mark done (moves it to Archived)', onclick: () => completeTask(t, row) }, icon('check')),
@@ -2755,7 +3920,7 @@
         await loadTasks(true);
         refetch(true);
       } catch (err) {
-        toast(err.message, 'error');
+        fail(err);
       }
     };
     return [
@@ -2809,7 +3974,7 @@
         refetch(true);
       } catch (err) {
         input.value = t.date || '';
-        toast(err.message, 'error');
+        fail(err);
       }
     });
     const open = (e) => {
@@ -2850,7 +4015,7 @@
       (back ? history.future : history.past).push(a);
       showUndoBar(`${back ? 'Undone' : 'Redone'}: ${a.label}`);
     } catch (err) {
-      toast(err.message, 'error');
+      fail(err);
     }
     history.busy = false;
     syncUndo();
@@ -2903,43 +4068,46 @@
     return svg;
   }
 
-  /** The chime: a soft click, then a bright rising four-note arpeggio that rings out. */
-  function doneSound() {
+  /**
+   * The sound of ticking something off (settings.doneSound): "soft", a short warm pop that lifts a little; "click",
+   * a tiny tap, like a switch; or "off". Quiet and over in a fifth of a second. The phone also gives a tiny buzz.
+   */
+  const DONE_SOUNDS = [['soft', 'Soft'], ['click', 'Click'], ['off', 'Off']];
+  function doneSound(kind = S.settings?.doneSound || 'soft') {
     try {
-      const ctx = chime.ctx || (chime.ctx = new AudioContext());
-      ctx.resume?.();
-      const t0 = ctx.currentTime;
-      const noise = ctx.createBuffer(1, Math.round(ctx.sampleRate * 0.03), ctx.sampleRate);
-      const data = noise.getChannelData(0);
-      for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length) ** 3;
-      const tick = ctx.createBufferSource();
-      tick.buffer = noise;
-      const band = ctx.createBiquadFilter();
-      band.type = 'bandpass';
-      band.frequency.value = 2600;
-      const tg = ctx.createGain();
-      tg.gain.value = 0.5;
-      tick.connect(band).connect(tg).connect(ctx.destination);
-      tick.start(t0);
-      const tone = (type, f0, f1, at, len, vol) => {
-        const o = ctx.createOscillator(), g = ctx.createGain();
-        o.type = type;
-        o.frequency.setValueAtTime(f0, t0 + at);
-        o.frequency.exponentialRampToValueAtTime(f1, t0 + at + len * 0.4);
-        g.gain.setValueAtTime(0.0001, t0 + at);
-        g.gain.exponentialRampToValueAtTime(vol, t0 + at + 0.008);
-        g.gain.exponentialRampToValueAtTime(0.0001, t0 + at + len);
-        o.connect(g).connect(ctx.destination);
-        o.start(t0 + at);
-        o.stop(t0 + at + len + 0.02);
-      };
-      tone('triangle', 620, 1240, 0.005, 0.1, 0.12); // the click
-      [1046.5, 1318.5, 1568, 2093].forEach((f, i) => {   // C, E, G, C: the chime
-        tone('sine', f, f, 0.05 + i * 0.075, 0.9 - i * 0.12, 0.11 - i * 0.015);
-        tone('triangle', f * 2, f * 2, 0.05 + i * 0.075, 0.25, 0.02);
-      });
+      if (kind !== 'off') {
+        const ctx = chime.ctx || (chime.ctx = new AudioContext());
+        ctx.resume?.();
+        const t0 = ctx.currentTime + 0.005;
+        // Everything through a gentle low-pass, so nothing in it is sharp or bright.
+        const out = ctx.createBiquadFilter();
+        out.type = 'lowpass';
+        out.frequency.value = kind === 'click' ? 2200 : 2600;
+        out.Q.value = 0.5;
+        out.connect(ctx.destination);
+        const tone = (f0, f1, at, len, vol) => {
+          const o = ctx.createOscillator(), g = ctx.createGain();
+          o.type = 'sine';
+          o.frequency.setValueAtTime(f0, t0 + at);
+          o.frequency.exponentialRampToValueAtTime(f1, t0 + at + Math.min(0.05, len * 0.4));
+          g.gain.setValueAtTime(0.0001, t0 + at);
+          g.gain.exponentialRampToValueAtTime(vol, t0 + at + 0.006);
+          g.gain.exponentialRampToValueAtTime(0.0001, t0 + at + len);
+          o.connect(g).connect(out);
+          o.start(t0 + at);
+          o.stop(t0 + at + len + 0.02);
+        };
+        if (kind === 'click') {
+          tone(1500, 900, 0, 0.035, 0.07);   // the tap
+          tone(420, 380, 0, 0.05, 0.05);     // a little body under it
+        } else {
+          tone(660, 880, 0, 0.17, 0.085);    // the pop, lifting a fourth
+          tone(330, 440, 0, 0.12, 0.05);     // warmth an octave down
+          tone(1320, 1760, 0.004, 0.06, 0.012); // a breath of shine
+        }
+      }
     } catch { /* no sound: the circle still fills */ }
-    try { navigator.vibrate?.(14); } catch { /* no buzz on this device */ }
+    try { navigator.vibrate?.(kind === 'off' ? 10 : 14); } catch { /* no buzz on this device */ }
   }
 
   /** A ring and sparks from a point on the screen, in the entry's colour. */
@@ -2976,7 +4144,7 @@
       return true;
     } catch (err) {
       row?.classList.remove('done');
-      toast(err.message, 'error');
+      fail(err);
       return false;
     }
   }
@@ -2992,7 +4160,7 @@
       refetch();
       return true;
     } catch (err) {
-      toast(err.message, 'error');
+      fail(err);
       return false;
     }
   }
@@ -3003,7 +4171,7 @@
       recordAction(`Restored "${src.title}"`, () => onyx.setEventDone(src.id, true), () => onyx.setEventDone(src.id, false));
       refetch();
     } catch (err) {
-      toast(err.message, 'error');
+      fail(err);
     }
   }
 
@@ -3015,7 +4183,7 @@
       if (taskTab === 'archived') loadArchive();
       refetch();
     } catch (err) {
-      toast(err.message, 'error');
+      fail(err);
     }
   }
 
@@ -3031,6 +4199,7 @@
     taskTab = tab;
     for (const b of $('#task-tabs').children) b.classList.toggle('on', b.dataset.tab === tab);
     $('#task-add').hidden = tab !== 'open';
+    $('#task-magic').hidden = tab !== 'open';
     $('#archive-bar').hidden = tab !== 'archived';
     if (tab === 'archived') {
       if (!$('#archive-date').value) $('#archive-date').value = ymd(new Date());
@@ -3055,7 +4224,7 @@
       showProblems(res.errors);
     } catch (err) {
       if (mine !== archiveSeq) return;
-      toast(err.message, 'error');
+      fail(err);
     }
     if (taskTab === 'archived') renderArchive();
   }
@@ -3075,7 +4244,7 @@
         toast(`Deleted "${t.label}"`);
         loadArchive();
       } catch (err) {
-        toast(err.message, 'error');
+        fail(err);
       }
     };
     return h('div', { class: 'task archived', css: { '--c': t.color } },
@@ -3168,7 +4337,8 @@
         cls === 'earlier' && h('span', { class: 'carry-set' },
           h('button', { class: 'carry', title: 'Move all of these to today', onclick: () => carryOver(earlier, 0) }, '→ Today'),
           h('button', { class: 'carry', title: 'Move all of these to tomorrow', onclick: () => carryOver(earlier, 1) }, '→ Tomorrow')));
-      return h('section', { class: 'task-group' }, head,
+      const drop = name === 'Today' ? 'today' : name === 'No date' ? 'nodate' : null;
+      return h('section', { class: 'task-group', ...(drop ? { 'data-drop': drop } : {}) }, head,
         !closed && h('div', { class: 'task-cards' }, items.sort((a, b) => sortKey(a).localeCompare(sortKey(b))).map(taskRow)));
     };
     box.replaceChildren(...[rolloverTray(earlier, someday), ...groups.filter(([, items]) => items.length).map(group),
@@ -3179,20 +4349,20 @@
   const burnerOpen = () => { try { return localStorage.getItem('onyx.burner-open') === '1'; } catch { return false; } };
 
   function burnerBar(items) {
-    if (!items.length) return null;
-    const open = burnerOpen();
+    if (!items.length && MOBILE) return null;
+    const open = burnerOpen() && items.length > 0;
     const toggle = () => {
       try { localStorage.setItem('onyx.burner-open', open ? '0' : '1'); } catch { /* this visit only */ }
       renderTasks();
     };
-    return h('section', { class: `burner${open ? ' open' : ''}` },
+    return h('section', { class: `burner${open ? ' open' : ''}${items.length ? '' : ' empty'}`, 'data-drop': 'burner' },
       h('div', {
         class: 'burner-head', role: 'button', tabindex: '0', 'aria-expanded': String(open),
         title: open ? 'Fold the backburner away' : 'Tasks kept for later: open to schedule one',
         onclick: toggle,
         onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } },
       }, icon('stove'), h('span', null, 'Backburner'), h('span', { class: 'sec-count' }, items.length), h('span', { class: 'grow' }),
-        h('span', { class: 'burner-chev' }, open ? '▾' : '▸')),
+        items.length ? h('span', { class: 'burner-chev' }, open ? '▾' : '▸') : h('small', { class: 'burner-drop' }, 'Drag a task here to keep it for later')),
       open && h('div', { class: 'task-cards' }, items.sort((a, b) => a.label.localeCompare(b.label)).map(taskRow)),
       open && h('div', { class: 'burner-hint' }, 'Pick a day on one to schedule it; it leaves the backburner.'));
   }
@@ -3230,11 +4400,11 @@
       e.stopPropagation();
       try {
         await fn();
-        toast(done, '', { label: 'Undo', run: async () => { await undo().catch((err) => toast(err.message, 'error')); await loadTasks(true); refetch(true); } });
+        toast(done, '', { label: 'Undo', run: async () => { await undo().catch((err) => fail(err)); await loadTasks(true); refetch(true); } });
         await loadTasks(true);
         refetch(true);
       } catch (err) {
-        toast(err.message, 'error');
+        fail(err);
       }
     };
     // Move to later: the date picker, as on the date chip.
@@ -3279,7 +4449,7 @@
   }
 
   function openTask(t, anchor) {
-    const name = h('input', { type: 'text', class: 'pop-title', value: t.title, spellcheck: false });
+    const name = limitName(h('input', { type: 'text', class: 'pop-title', value: t.title, spellcheck: false }));
     const tags = tagField(t.tags);
     const st = t.call && !t.call.past
       ? (t.call.quiet ? { text: `No call: ${fmtTime(new Date(t.call.at))} is inside quiet hours.`, tone: 'warn' } : { text: `The Pi phones you at ${fmtTime(new Date(t.call.at))}.`, tone: 'ok' })
@@ -3291,7 +4461,7 @@
         await loadTasks();
         refetch();
       } catch (err) {
-        toast(err.message, 'error');
+        fail(err);
       }
     };
     // The due date: changing it here does what dragging the task in the calendar does.
@@ -3316,7 +4486,23 @@
     // Pomodoro: a start time and a length (Google Tasks have neither), split into chunks.
     const pomoTime = h('input', { type: 'time', value: t.time || '', step: 300, title: 'When it starts (written into the name, which the Pi reads)' });
     const pomo = !t.mirror && t.provider && pomodoroField(t.pomodoro, { length: true, extra: [h('span', null, 'At'), pomoTime] });
+    // Its block's checklist and links, as a calendar block has them (kept in Onyx, by the task). Magic add goal fills them in too.
+    const blockish = !t.mirror && t.provider;
+    const tasksField = blockish && blockTaskField(t.taskList || [], {
+      onTick: (taskId, done) => onyx.tickBlockTask(t.id, taskId, done).then(() => refetch()).catch((err) => fail(err)),
+    });
+    const linksField = blockish && blockLinkField(t.links || []);
     const save = () => run(async () => {
+      if (tasksField) {
+        const list = tasksField.get(), had = t.taskList || [];
+        const shape = (items) => items.map((x) => `${x.id}\t${x.text}`).join('\n');
+        if (shape(list.items) !== shape(had)) await onyx.setBlockTasks(t.id, list.items);
+        for (const x of list.items) if (x.done && !had.some((y) => y.id === x.id)) await onyx.tickBlockTask(t.id, x.id, true);
+      }
+      if (linksField) {
+        const links = linksField.get(), hadLinks = t.links || [];
+        if (links.map((l) => `${l.url}\t${l.title}`).join('\n') !== hadLinks.map((l) => `${l.url}\t${l.title}`).join('\n')) await onyx.setBlockLinks(t.id, links);
+      }
       const patch = {};
       if (name.value.trim() && name.value.trim() !== t.title) patch.title = name.value.trim();
       if (cleanNote(notes.value) !== cleanNote(t.notes)) patch.notes = cleanNote(notes.value);
@@ -3348,6 +4534,36 @@
         refreshPomodoros();
       }
     });
+    // Breakdown's steps, each a task of its own in the same list at its time and length; then this one goes. Undo puts it back.
+    const taskToSteps = async (rows) => {
+      const label = name.value.trim() || t.label || t.title;
+      const original = cleanNote(notes.value), tagList = tags.get();
+      const make = async () => {
+        const made = [];
+        for (const [i, r] of rows.entries()) {
+          const task = await onyx.createTask({ title: r.title, notes: stepNotes(r, i, rows.length, label, original), listId: t.listId, due: ymd(r.start), tags: tagList });
+          await onyx.resizeTask(task.id, { start: r.start.toISOString(), minutes: r.minutes });
+          made.push(task);
+        }
+        return made;
+      };
+      let made = await make();
+      await onyx.deleteTask(t.id);
+      const copy = { title: t.title, notes: t.notes || '', listId: t.listId, ...(t.date ? { due: t.date } : {}), tags: t.tags || [] };
+      let back = null;
+      recordAction(`Broke "${label}" into ${rows.length} steps`, async () => {
+        for (const m of made) await onyx.deleteTask(m.id).catch(() => {});
+        back = await onyx.createTask(copy);
+        if (t.minutes) await onyx.resizeTask(back.id, { minutes: t.minutes }).catch(() => {});
+      }, async () => {
+        made = await make();
+        if (back) await onyx.deleteTask(back.id);
+      });
+      closePopover();
+      await loadTasks(true);
+      refetch();
+      toast(`${rows.length} steps on the calendar in place of "${label}".`);
+    };
     showPopover(anchor, [
       name,
       originRow(t),
@@ -3361,19 +4577,34 @@
       t.series && !t.series.managed && h('div', { class: 'row series-stop-row' },
         h('button', { class: 'btn danger', title: 'End this repeat: every open copy deleted, and the ones Google Tasks still adds', onclick: () => stopSeries(t.series) }, icon('x'), 'Stop all')),
       h('div', { class: 'row top' }, icon('note'), notes),
+      tasksField && h('div', { class: 'row top btask-row' }, icon('tasks'), tasksField.el),
+      linksField && h('div', { class: 'row top blink-row' }, icon('link'), linksField.el),
       h('div', { class: 'row' }, icon('tag'), tags.el),
-      !t.mirror && breakdownField(t, notes),
+      !t.mirror && breakdownField(t, notes, {
+        name: () => name.value.trim() || t.label || t.title,
+        // Its time: a time and a length make a block to fit into; otherwise the free time of its day (today with none).
+        frame: () => {
+          const d = (date && date.value) || t.date || '', tm = (when ? when.value : t.time) || '';
+          const len = t.pomodoro?.minutes || t.minutes;
+          if (d && tm && len) { const s = at(d, tm); return { start: s.toISOString(), end: new Date(s.getTime() + len * 60000).toISOString() }; }
+          return { day: d || ymd(new Date()), ...(d && tm ? { from: tm } : {}) };
+        },
+        exclude: [t.id],
+        extra: () => breakdownExtras({ checklist: tasksField ? tasksField.get().items : [], links: linksField ? linksField.get() : [] }),
+        keeps: () => `Each step becomes a task at its time, in place of "${name.value.trim() || t.label || t.title}". Undo brings it back.`,
+        replace: (rows) => taskToSteps(rows),
+      }),
       pomo && h('div', { class: 'row top' }, icon('clock'), pomo.el),
       S.settings.pi.enabled && t.provider === 'google' && h('div', { class: 'row pi-row' }, icon('phone'),
         h('div', { class: 'txt' }, h('b', null, 'Phone reminder'), h('small', { class: st.tone }, st.text))),
       h('div', { class: 'pop-actions' },
         h('button', { class: 'btn complete', title: 'Mark it done: it moves to the Archived tab (Undo brings it back)', onclick: () => { closePopover(); completeTask(t); } }, icon('check'), 'Complete'),
-        !t.mirror && h('button', { class: 'btn danger', title: 'Delete it from your tasks', onclick: () => { if (confirm(`Delete "${t.label || t.title}"?`)) run(async () => {
+        !t.mirror && h('button', { class: 'btn danger', title: 'Delete it from your tasks', onclick: () => run(async () => {
           await onyx.deleteTask(t.id);
           const copy = { title: t.title, notes: t.notes || '', listId: t.listId, ...(t.date ? { due: t.date } : {}), tags: t.tags || [] };
           let back = null;
           recordAction(`Deleted "${t.label || t.title}"`, async () => { back = await onyx.createTask(copy); }, () => onyx.deleteTask(back.id));
-        }); } }, icon('trash'), 'Delete'),
+        }) }, icon('trash'), 'Delete'),
         !t.mirror && focusButton(t),
         // The backburner: no date, kept at the foot of the task list for later. Undo puts it back as it was.
         !t.mirror && !t.done && t.provider && h('button', {
@@ -3392,8 +4623,14 @@
 
   const breakdownLevel = () => { try { return Math.min(5, Math.max(1, Number(localStorage.getItem('onyx.breakdown-level')) || 3)); } catch { return 3; } };
 
-  /** The Breakdown row in a task's window: 1-5 hammers, Break it down, then keep the steps as a checklist or as tasks. */
-  function breakdownField(t, notes) {
+  /**
+   * The Breakdown row in a task's or a block's window: 1-5 hammers, Break it down, then keep the steps as a checklist
+   * or as tasks. With `ctx` (it has a time: see timedBreakdown), the steps come with lengths, laid out in the time it
+   * has, and on a longer, realistic timeline too when that is clearly too little. One is picked, changed as wanted,
+   * and put on the calendar in its place.
+   */
+  function breakdownField(t, notes, ctx = null) {
+    if (ctx) return timedBreakdown(notes, ctx);
     let level = breakdownLevel();
     let steps = [];
     const hammers = h('div', { class: 'hammers', role: 'radiogroup', 'aria-label': 'How finely to break it down' });
@@ -3411,7 +4648,7 @@
         steps = await onyx.breakdown(t.label || t.title, { level, notes: cleanNote(notes.value) });
         drawSteps();
       } catch (err) {
-        toast(err.message, 'error');
+        fail(err);
       } finally {
         go.disabled = false;
         go.replaceChildren(icon('hammer'), steps.length ? 'Again' : 'Break it down');
@@ -3434,9 +4671,174 @@
               toast(`${steps.length} steps added as tasks`);
               await loadTasks(true);
               refetch(true);
-            } catch (err) { toast(err.message, 'error'); }
+            } catch (err) { fail(err); }
           } }, 'Make them tasks')));
     };
+    return h('div', { class: 'row top breakdown-row' }, icon('hammer'),
+      h('div', { class: 'txt' }, h('div', { class: 'breakdown-head' }, h('b', null, 'Breakdown'), hammers, go), out));
+  }
+
+  /** What else is written in a task or block, for Breakdown to take into account along with its notes. */
+  function breakdownExtras({ calendarNotes = '', checklist = [], links = [], place = '' } = {}) {
+    return [
+      cleanNote(calendarNotes) && `Notes on the calendar:\n${cleanNote(calendarNotes)}`,
+      checklist.length > 0 && `Checklist:\n${checklist.map((x) => `- [${x.done ? 'x' : ' '}] ${x.text}`).join('\n')}`,
+      links.length > 0 && `Links:\n${links.map((l) => `- ${l.title ? `${l.title}: ` : ''}${l.url}`).join('\n')}`,
+      place && `Where: ${place}`,
+    ].filter(Boolean).join('\n\n');
+  }
+
+  /** A step's notes: what it needs, which step of what it is, and (on the first) everything the original said. */
+  const stepNotes = (r, i, n, name, original) => [r.notes, `Step ${i + 1} of ${n} of "${name}"`,
+    i === 0 && original ? `Notes from "${name}":\n${original}` : ''].filter(Boolean).join('\n\n');
+
+  /**
+   * Breakdown with times, for a task or block (breakdownField with ctx). ctx: { name(), frame() ({ start, end } or
+   * { day, from? }), exclude (its own ids), extra() (what else is written in it), keeps() (what Put on calendar
+   * does to it, in words), replace(steps) (puts [{ title, notes, start: Date, minutes }] in its place) }.
+   */
+  function timedBreakdown(notes, ctx) {
+    let level = breakdownLevel();
+    let plan = null, pick = 'fit', working = false;
+    const hammers = h('div', { class: 'hammers', role: 'radiogroup', 'aria-label': 'How finely to break it down' });
+    const drawHammers = () => hammers.replaceChildren(...[1, 2, 3, 4, 5].map((n) => h('button', {
+      type: 'button', class: `hammer${n <= level ? ' on' : ''}`, role: 'radio', 'aria-checked': String(n === level),
+      title: ['A few broad steps', 'Simple steps', 'Clear steps', 'Detailed steps', 'Tiny micro-steps'][n - 1],
+      onclick: () => { level = n; try { localStorage.setItem('onyx.breakdown-level', String(n)); } catch { /* this visit */ } drawHammers(); },
+    }, icon('hammer'))));
+    drawHammers();
+    const out = h('div', { class: 'breakdown-out bd-plan', hidden: true });
+    const go = h('button', { class: 'btn', onclick: () => run() }, icon('hammer'), 'Break it down');
+
+    const startOf = (r) => at(r.day, r.time).getTime();
+    const endOf = (r) => startOf(r) + r.minutes * 60000;
+    const current = () => plan.options.find((o) => o.key === pick) || plan.options[0];
+    const total = (o) => o.rows.reduce((n, r) => n + r.minutes, 0);
+    const lastEnd = (o) => (o.rows.length ? new Date(Math.max(...o.rows.map(endOf))) : null);
+    const whenText = (d) => (sameDay(d, new Date(plan.frame.start)) ? fmtTime(d) : `${fmtDay(d)}, ${fmtTime(d)}`);
+
+    const run = async () => {
+      if (working) return;
+      working = true;
+      go.disabled = true;
+      go.replaceChildren(icon('hammer'), 'Breaking it down…');
+      const had = plan;
+      out.hidden = false;
+      out.replaceChildren(h('p', { class: 'pop-meta bd-wait' }, h('span', { class: 'spinner' }), 'Claude is reading everything in it and timing the steps…'));
+      try {
+        const all = [cleanNote(notes.value), ctx.extra()].filter(Boolean).join('\n\n');
+        plan = await onyx.breakdownPlan({ title: ctx.name(), notes: all, level, frame: ctx.frame(), exclude: ctx.exclude });
+        for (const o of plan.options) {
+          o.rows = o.blocks.map((b) => { const s = new Date(b.start); return { title: b.title, notes: b.notes || '', day: ymd(s), time: hm(s), minutes: b.minutes }; });
+        }
+        pick = plan.options[0].key;
+        paint();
+      } catch (err) {
+        plan = had;
+        if (plan) paint(); else out.hidden = true;
+        fail(err);
+      } finally {
+        working = false;
+        go.disabled = false;
+        go.replaceChildren(icon('hammer'), plan ? 'Again' : 'Break it down');
+      }
+    };
+
+    // A step's new time or length moves the steps right after it on that day along with it.
+    const change = (o, i, fn) => {
+      const r = o.rows[i];
+      const wasEnd = endOf(r);
+      fn(r);
+      const delta = endOf(r) - wasEnd;
+      let edge = wasEnd;
+      for (const x of o.rows.slice(i + 1)) {
+        if (!delta || x.day !== r.day) break;
+        const s = startOf(x);
+        if (s < edge - 60000 || s > edge + 10 * 60000) break; // not right after it
+        edge = endOf(x);
+        const moved = new Date(s + delta);
+        x.day = ymd(moved);
+        x.time = hm(moved);
+      }
+      paint();
+    };
+
+    function optionCard(o) {
+      const f = plan.frame, end = lastEnd(o);
+      let head, sub;
+      if (o.key === 'fit') {
+        head = f.kind === 'block' ? `Fit in ${fmtTime(new Date(f.start))}–${fmtTime(new Date(f.end))}`
+          : `Fit in ${sameDay(new Date(f.start), new Date()) ? 'today' : fmtDay(new Date(f.start))}'s free time`;
+        const over = f.kind === 'block' && end ? Math.round((end - new Date(f.end)) / 60000) : 0;
+        sub = [minutesText(total(o)), over > 0 && `${minutesText(over)} over`, o.unplaced.length > 0 && `${o.unplaced.length} left out`].filter(Boolean).join(' · ');
+      } else {
+        head = 'More realistic';
+        sub = [minutesText(total(o)), end && `until ${whenText(end)}`].filter(Boolean).join(' · ');
+      }
+      return h('button', {
+        type: 'button', class: `bd-opt${o.key === pick ? ' on' : ''}`, role: 'radio', 'aria-checked': String(o.key === pick),
+        onclick: () => { pick = o.key; paint(); },
+      }, h('b', null, head), h('small', null, sub));
+    }
+
+    function stepRow(o, r, i, withDay) {
+      const title = h('input', { type: 'text', class: 'bd-title', value: r.title, spellcheck: false, 'aria-label': `Step ${i + 1}`, oninput: (e) => { r.title = e.target.value; } });
+      const day = withDay && h('input', { type: 'date', class: 'bd-day', value: r.day, onchange: (e) => { if (e.target.value) { r.day = e.target.value; paint(); } } });
+      const time = h('input', { type: 'time', class: 'bd-time', step: 300, value: r.time,
+        onchange: (e) => { if (e.target.value) change(o, i, (x) => { x.time = e.target.value; }); else e.target.value = r.time; } });
+      const mins = h('input', { type: 'number', class: 'bd-min', min: 5, max: 480, step: 5, value: r.minutes, 'aria-label': 'Minutes',
+        onchange: (e) => {
+          const v = Math.round(Number(e.target.value) / 5) * 5;
+          if (v >= 5) change(o, i, (x) => { x.minutes = Math.min(480, v); }); else e.target.value = r.minutes;
+        } });
+      const note = h('textarea', { class: 'bd-note', rows: 1, value: r.notes, placeholder: 'Notes for this step', oninput: (e) => { r.notes = e.target.value; } });
+      return h('div', { class: 'bd-row' },
+        h('div', { class: 'bd-line' }, h('span', { class: 'bd-n' }, String(i + 1)), title,
+          h('button', { type: 'button', class: 'icon-btn', title: 'Leave this step out', 'aria-label': `Leave out step ${i + 1}`, onclick: () => { o.rows.splice(i, 1); paint(); } }, icon('x'))),
+        h('div', { class: 'bd-line bd-when' }, day, time, mins, h('span', { class: 'bd-unit' }, 'min'),
+          h('span', { class: 'bd-end' }, `to ${fmtTime(new Date(endOf(r)))}`)),
+        note);
+    }
+
+    function paint() {
+      const o = current();
+      const withDay = plan.frame.kind === 'day' || new Set(o.rows.map((r) => r.day)).size > 1 || !sameDay(at(o.rows[0]?.day || ymd(new Date(plan.frame.start)), '12:00'), new Date(plan.frame.start));
+      out.hidden = false;
+      out.replaceChildren(
+        plan.advice && h('p', { class: 'bd-advice' }, icon('sparkles'), plan.advice),
+        h('div', { class: 'bd-opts', role: 'radiogroup', 'aria-label': 'Which timeline' }, plan.options.map(optionCard)),
+        h('div', { class: 'bd-rows' }, o.rows.map((r, i) => stepRow(o, r, i, withDay))),
+        o.unplaced.length > 0 && h('p', { class: 'bd-left' }, o.key === 'fit'
+          ? `No room that day for: ${o.unplaced.map((u) => u.title).join(', ')}.`
+          : `No room in the next two weeks for: ${o.unplaced.map((u) => u.title).join(', ')}.`),
+        h('div', { class: 'bd-actions' },
+          h('button', { type: 'button', class: 'btn primary', onclick: put }, icon('calendar'), 'Put on calendar'),
+          h('small', { class: 'pop-meta' }, ctx.keeps())),
+        h('button', { type: 'button', class: 'link-btn bd-to-notes', title: 'Add the steps to the notes as a checklist instead (the 2-minute breakdown uses it too)', onclick: toNotes }, 'Add them to the notes instead'));
+    }
+
+    const toNotes = () => {
+      const list = current().rows.filter((r) => r.title.trim()).map((r) => `- [ ] ${r.title.trim()}`).join('\n');
+      notes.value = cleanNote(notes.value) ? `${cleanNote(notes.value)}\n\n${list}` : list;
+      notes.dispatchEvent(new Event('input'));
+      toast('Added to the notes. Save to keep them.');
+    };
+
+    const put = async () => {
+      const rows = current().rows.filter((r) => r.title.trim());
+      if (!rows.length) return toast('There are no steps left to add.', 'warn');
+      if (rows.some((r) => !r.day || !r.time)) return toast('Give every step a day and a time.', 'warn');
+      if (working) return;
+      working = true;
+      try {
+        await ctx.replace(rows.map((r) => ({ title: r.title.trim(), notes: cleanNote(r.notes), start: at(r.day, r.time), minutes: r.minutes })));
+      } catch (err) {
+        fail(err);
+      } finally {
+        working = false;
+      }
+    };
+
     return h('div', { class: 'row top breakdown-row' }, icon('hammer'),
       h('div', { class: 'txt' }, h('div', { class: 'breakdown-head' }, h('b', null, 'Breakdown'), hammers, go), out));
   }
@@ -3453,12 +4855,12 @@
   const FOCUS_CEILINGS = [30, 45, 60, 90, 0];
   const PREFLIGHT = [['water', '💧', 'Water'], ['snack', '🍎', 'Snack'], ['bathroom', '🚻', 'Bathroom'], ['phone', '📵', 'Phone away']];
   const FOCUS_BODY = [20, 30, 45, 60, 0];
-  const SOUNDS = [['brown', 'Brown noise'], ['pink', 'Pink noise'], ['white', 'White noise'], ['rain', 'Rainforest rain'], ['waves', 'Beach waves'], ['spotify', 'Spotify playlist'], ['none', 'Silence']];
+  const SOUNDS = [['brown', 'Brown noise'], ['pink', 'Pink noise'], ['white', 'White noise'], ['rain', 'Rainforest rain'], ['lightrain', 'Light rain'], ['waves', 'Beach waves'], ['spotify', 'Spotify playlist'], ['none', 'Silence']];
   const RATINGS = ['Couldn\'t settle', 'On and off', 'Steady', 'Deep', 'Lost in it'];
   const focus = { s: null, el: null, parts: null, timer: 0, held: [] };
   const focusHold = () => !!focus.s;
   const readFocusPrefs = () => {
-    const base = { sound: 'pink', volume: 35, hook: 'none', ceiling: 45, length: 90, body: 30, escalate: true, spotify: '', breaks: '' };
+    const base = { sound: 'pink', volume: 35, hook: 'none', ceiling: 45, length: 90, body: 30, escalate: true, spotify: '', breaks: '', warmup: 0, pomoSilent: false };
     try { return { ...base, ...JSON.parse(localStorage.getItem('onyx.hyperfocus') || '{}') }; } catch { return base; }
   };
   const saveFocusPrefs = (p) => { try { localStorage.setItem('onyx.hyperfocus', JSON.stringify(p)); } catch { /* this visit only */ } };
@@ -3468,36 +4870,69 @@
     if (title && !focus.held.includes(title)) focus.held.push(title);
   }
 
-  // ---- the sound: noise, rain or waves made here (WebAudio, focus-plan.js), looped, faded in
-  // and out. A Spotify playlist plays in Spotify instead.
+  // ---- the sound: real recordings of noise, rain and waves (assets/sounds; focus-plan.js lists
+  // them), each made into a seamless loop the first time it plays, faded in and out. Switching
+  // sounds blends one into the other. A Spotify playlist plays in Spotify instead.
 
-  const noise = { src: null, gain: null, kind: 'none', buffers: {} };
+  const noise = { src: null, gain: null, kind: 'none', buffers: {}, want: null };
+  /** A recording's loop (a promise of an AudioBuffer), loaded and decoded once. */
+  function noiseLoop(ctx, kind) {
+    const spec = OnyxFocus.SOUND_FILES[kind];
+    if (!spec) return Promise.reject(new Error(`No sound "${kind}"`));
+    if (!noise.buffers[kind]) {
+      noise.buffers[kind] = fetch(`assets/sounds/${spec.file}`)
+        .then((r) => { if (!r.ok) throw new Error(`${spec.file}: ${r.status}`); return r.arrayBuffer(); })
+        .then((bytes) => ctx.decodeAudioData(bytes))
+        .then((rec) => {
+          const loop = OnyxFocus.loopBuffer(Array.from({ length: rec.numberOfChannels }, (_, c) => rec.getChannelData(c)), rec.sampleRate, spec);
+          const buf = ctx.createBuffer(loop.length, loop[0].length, rec.sampleRate);
+          loop.forEach((data, c) => buf.getChannelData(c).set(data));
+          return buf;
+        });
+      noise.buffers[kind].catch(() => { delete noise.buffers[kind]; }); // tried again next time
+    }
+    return noise.buffers[kind];
+  }
   function playNoise(kind, volume) {
     if (kind === 'none' || kind === 'spotify' || !volume) { stopNoise(); return; }
+    noise.want = { kind, volume };
     try {
       const ctx = chime.ctx || (chime.ctx = new AudioContext());
       ctx.resume?.();
-      if (noise.kind !== kind || !noise.src) {
-        stopNoise(true);
-        let buf = noise.buffers[kind];
-        if (!buf) {
-          const data = OnyxFocus.soundBuffer(kind, ctx.sampleRate);
-          buf = noise.buffers[kind] = ctx.createBuffer(1, data.length, ctx.sampleRate);
-          buf.getChannelData(0).set(data);
-        }
+      if (noise.kind === kind && noise.src) {
+        noise.gain.gain.setTargetAtTime(OnyxFocus.soundLevel(kind, volume), ctx.currentTime, 0.25);
+        return;
+      }
+      noiseLoop(ctx, kind).then((buf) => {
+        const want = noise.want;
+        if (want?.kind !== kind) return; // switched or stopped while it loaded
+        if (noise.kind === kind && noise.src) return;
+        fadeNoise(false); // the last sound fades out under this one
         const src = ctx.createBufferSource();
         src.buffer = buf;
         src.loop = true;
         const gain = ctx.createGain();
         gain.gain.value = 0.0001;
-        src.connect(gain).connect(ctx.destination);
+        let head = src;
+        const cut = OnyxFocus.SOUND_FILES[kind].lowCut;
+        if (cut) {
+          const hp = ctx.createBiquadFilter();
+          hp.type = 'highpass';
+          hp.frequency.value = cut;
+          head = src.connect(hp);
+        }
+        head.connect(gain).connect(ctx.destination);
         src.start();
         Object.assign(noise, { src, gain, kind });
-      }
-      noise.gain.gain.setTargetAtTime(OnyxFocus.noiseGain(volume), ctx.currentTime, 0.25);
+        gain.gain.setTargetAtTime(OnyxFocus.soundLevel(kind, want.volume), ctx.currentTime, 0.25);
+      }).catch(() => { /* no sound: the session still runs */ });
     } catch { /* no sound: the session still runs */ }
   }
   function stopNoise(now) {
+    noise.want = null;
+    fadeNoise(now);
+  }
+  function fadeNoise(now) {
     if (!noise.src) return;
     const { src, gain } = noise;
     Object.assign(noise, { src: null, gain: null, kind: 'none' });
@@ -3580,7 +5015,8 @@
     const prefs = readFocusPrefs();
     const F = OnyxFocus;
     const lastTime = F.lastLeftOff(entry.notes);
-    let steps = F.notesSteps(entry.notes);
+    const blockSteps = (entry.src?.taskList || []).map((t) => ({ text: t.text, done: !!t.done, blockTask: t.id }));
+    let steps = [...blockSteps, ...F.notesSteps(entry.notes).filter((x) => !blockSteps.some((o) => o.text === x.text))]; // the block's tasks first, then a checklist in its notes
 
     const goal = h('input', { type: 'text', class: 'fs-in big', value: entry.title, spellcheck: true, placeholder: 'What this session is for' });
     const first = h('input', { type: 'text', class: 'fs-in', spellcheck: true, placeholder: 'The smallest thing that starts it (open the file, write one line…)',
@@ -3606,7 +5042,7 @@
           drawSteps();
         }
       } catch (err) {
-        toast(err.message, 'error');
+        fail(err);
       } finally {
         hammer.disabled = false;
         hammer.replaceChildren(icon('hammer'), 'Again');
@@ -3616,12 +5052,13 @@
 
     // The hard stop: picked now, so the way out is decided before going in.
     const own = entry.kind === 'event' ? { id: entry.id, start: entry.start, end: entry.end, kind: 'event', allDay: entry.allDay } : null;
-    const band = S.settings.buffers === false ? 0 : BUFFER_MIN;
-    const plan = F.stopOptions({ now: Date.now(), items: nextRun.items, own, band, length: ask.minutes || prefs.length });
+    const plan = F.stopOptions({ now: Date.now(), items: nextRun.items, own, length: ask.minutes || prefs.length });
     let stopKey = ask.minutes && plan.options.some((o) => o.key === `len${ask.minutes}`) ? `len${ask.minutes}` : plan.pick;
     // What the log shows: the hours you focus best (or how many more rated sessions until it can say).
     const bestLine = h('div', { class: 'fs-best', hidden: true });
     onyx.focusInsights?.().then((ins) => {
+      flamesBefore = ins.flames || flamesBefore;
+      drawStreak();
       const hr = (n) => fmtTime(new Date(2000, 0, 1, n)).replace(':00', '');
       if (ins.best) {
         const nowH = new Date().getHours();
@@ -3652,13 +5089,14 @@
         : `A hard stop at ${fmtTime(new Date(o.at))}: ${untilText(o.at - Date.now())} from now.`;
       stopHint.classList.toggle('warn', !!o?.pastNext);
       canStart();
+      drawRounds();
     };
     const canStart = () => {
       const o = plan.options.find((x) => x.key === stopKey);
       start.disabled = !o || (sound === 'spotify' && !F.spotifyLink(spotify.value));
     };
 
-    // Sound: made in Onyx and heard straight away so the volume can be set, or a Spotify playlist.
+    // Sound: a recording, heard straight away so the volume can be set, or a Spotify playlist.
     let sound = SOUNDS.some(([k]) => k === prefs.sound) ? prefs.sound : 'pink';
     const volume = h('input', { type: 'range', min: 5, max: 100, step: 1, value: prefs.volume, class: 'fs-volume', title: 'Volume' });
     const soundChips = h('div', { class: 'fs-chips' }, SOUNDS.map(([k, label]) =>
@@ -3667,7 +5105,9 @@
     const soundHint = h('small', { class: 'fs-hint' });
     const SOUND_HINT = {
       brown: 'A deep, low rumble, like a distant waterfall.', pink: 'Soft and even, gentler than white noise.', white: 'A bright, even hiss.',
-      rain: 'Steady rain on rainforest leaves. No birds, animal calls or thunder.', waves: 'Slow, smooth swells on a beach. No gulls and no crashing break.',
+      rain: 'Heavy, steady rain in a forest. No birds, animal calls or thunder.',
+      lightrain: 'Soft, light rain, with now and then a drop close by. No thunder.',
+      waves: 'Calm surf lapping on a shore. No gulls and no crashing break.',
     };
     const drawSound = (play) => {
       for (const b of soundChips.children) b.classList.toggle('on', b.dataset.k === sound);
@@ -3682,6 +5122,110 @@
     };
     volume.addEventListener('input', () => playNoise(sound, +volume.value));
     spotify.addEventListener('input', () => drawSound(false));
+
+    // Pomodoro: work and break rounds through the session, from its start to the hard stop (or the block's own).
+    const ownPomo = entry.src?.pomodoro || entry.task?.pomodoro || null;
+    const POMOS = [['off', 'Off'], ...(ownPomo ? [['own', `This block's ${ownPomo.work} / ${ownPomo.rest}`]] : []), ['25/5', '25 / 5'], ['50/10', '50 / 10']];
+    let pomoPick = ownPomo ? 'own' : POMOS.some(([k]) => k === prefs.pomodoro) ? prefs.pomodoro : 'off';
+    const pomoHint = h('small', { class: 'fs-hint' });
+    const pomoChips = h('div', { class: 'fs-chips' }, POMOS.map(([k, label]) =>
+      h('button', { type: 'button', class: 'fs-chip', 'data-k': k, onclick: () => { pomoPick = k; drawPomo(); } }, label)));
+    // A warm-up: the first round shorter, an easy way in before the usual rounds.
+    const WARMUPS = [[0, 'Off'], [10, '10 min'], [15, '15 min']];
+    let warmup = WARMUPS.some(([m]) => m === prefs.warmup) ? prefs.warmup : 0;
+    const warmChips = h('div', { class: 'fs-chips' }, WARMUPS.map(([m, label]) =>
+      h('button', { type: 'button', class: 'fs-chip', 'data-m': m, onclick: () => { warmup = m; drawPomo(); } }, label)));
+    // The switch between work and break: a soft chime, or no sound at all (the bar still shows it).
+    let silent = !!prefs.pomoSilent;
+    const switchSeg = h('div', { class: 'segmented' }, [[false, 'Soft chime'], [true, 'Silent']].map(([v, label]) =>
+      h('button', { type: 'button', 'data-v': String(v), onclick: () => { silent = v; drawPomo(); } }, label)));
+    // A goal for each work round, shown on the focus screen while that round runs.
+    const roundGoals = []; // by round, kept as the rounds change with the stop or the warm-up
+    const roundList = h('div', { class: 'fs-rounds' });
+    const warmRow = h('div', { class: 'fs-sub' }, h('span', { class: 'fs-sublabel' }, 'Warm-up first'), warmChips);
+    const pomoMore = h('div', { class: 'fs-pomo-more' },
+      warmRow,
+      h('div', { class: 'fs-sub' }, h('span', { class: 'fs-sublabel' }, 'At each switch'), switchSeg),
+      h('div', { class: 'fs-sub col' }, h('span', { class: 'fs-sublabel' }, 'A goal for each round'), roundList));
+    /** The work rounds as the session would run them, from now: [{ round, at (ms), minutes, warm }]. */
+    const plannedRounds = () => {
+      const now = Date.now();
+      if (pomoPick === 'own') {
+        if (!entry.start || !entry.end) return [];
+        const s0 = Date.parse(entry.start), total = (Date.parse(entry.end) - s0) / 60000;
+        return F.workRounds(F.pomodoroChunks(total, ownPomo), ownPomo)
+          .map((r) => ({ ...r, at: s0 + r.from * 60000 })).filter((r) => s0 + r.to * 60000 > now);
+      }
+      const o = plan.options.find((x) => x.key === stopKey);
+      if (!o || pomoPick === 'off') return [];
+      const p = { work: +pomoPick.split('/')[0], rest: +pomoPick.split('/')[1], warmup };
+      const total = o.kind === 'length' ? o.minutes : (o.at - now) / 60000;
+      return F.workRounds(F.pomodoroChunks(total, p), p).map((r) => ({ ...r, at: now + r.from * 60000 }));
+    };
+    const keepRoundGoals = () => { for (const inp of roundList.querySelectorAll('input')) roundGoals[+inp.dataset.r - 1] = inp.value; };
+    const drawRounds = () => {
+      keepRoundGoals();
+      const rounds = pomoPick === 'off' ? [] : plannedRounds();
+      const shown = rounds.slice(0, 12);
+      roundList.replaceChildren(...[
+        ...shown.map((r) => h('label', { class: 'fs-round' },
+          h('span', { class: 'n' }, String(r.round)),
+          h('span', { class: 'when' }, fmtTime(new Date(r.at)), h('small', null, r.warm ? `${r.minutes} min warm-up` : `${r.minutes} min`)),
+          h('input', { type: 'text', class: 'fs-in', 'data-r': r.round, value: roundGoals[r.round - 1] || '', spellcheck: true,
+            placeholder: r.warm ? 'Something easy to get going' : 'What to get done in this round' }))),
+        rounds.length > shown.length && h('small', { class: 'fs-hint' }, `And ${rounds.length - shown.length} more after these, with no goal of their own.`),
+        !rounds.length && h('small', { class: 'fs-hint' }, 'No rounds left in this block.')].filter(Boolean));
+    };
+    const drawPomo = () => {
+      for (const b of pomoChips.children) b.classList.toggle('on', b.dataset.k === pomoPick);
+      for (const b of warmChips.children) b.classList.toggle('on', +b.dataset.m === warmup);
+      for (const b of switchSeg.children) b.classList.toggle('on', b.dataset.v === String(silent));
+      pomoMore.hidden = pomoPick === 'off';
+      warmRow.hidden = pomoPick === 'own'; // a block's own rounds stay as the calendar shows them
+      const [work, rest] = pomoPick.split('/');
+      pomoHint.textContent = pomoPick === 'off' ? 'One stretch of focus to the hard stop.'
+        : (pomoPick === 'own' ? 'The rounds already set on this block, as the calendar shows them.'
+          : `${warmup ? `A ${warmup}-minute warm-up, then ${work}` : work} minutes of work and ${rest} of break, from the start to the hard stop.`)
+          + (silent ? ' The switches make no sound: the bar glows instead.' : ' A soft chime at each switch.') + ' Your break ideas on the breaks.';
+      drawRounds();
+    };
+
+    // Presence: the camera (on the PC) or the phone's place (on a phone) sees you stay with it. Each
+    // working period stayed with all the way through adds a flame to your streak; only leaving counts.
+    const presMode = onyx.isPhone ? 'location' : 'camera';
+    let presence = prefs.presence === true;
+    let winSound = prefs.winSound !== false;
+    let flamesBefore = { streak: 0, best: 0, flames: 0, epic: 0, jackpot: 0 };
+    const presStreak = h('span', { class: 'fs-streak', hidden: true });
+    const drawStreak = () => {
+      const f = flamesBefore;
+      presStreak.hidden = !f.flames;
+      presStreak.replaceChildren(flameMark(), h('b', null, String(f.streak)), h('small', null, `in a row · best ${f.best}${f.jackpot ? ` · ${f.jackpot} ${f.jackpot === 1 ? 'jackpot' : 'jackpots'}` : ''}`));
+    };
+    const presHint = h('small', { class: 'fs-hint' }, presMode === 'camera'
+      ? 'Each working period (a pomodoro round, or the whole session) you stay at your desk all the way through adds a flame to your streak. Fidget, stretch, look away: all fine. Only leaving counts (out of view for 90 seconds), and breaks are yours to walk away in.'
+      : 'Each working period (a pomodoro round, or the whole session) your phone stays where it is all the way through adds a flame to your streak. Moving around the room is fine: only leaving the place counts, and breaks are yours to walk away in.');
+    const presSeg = h('div', { class: 'segmented' }, [[false, 'Off'], [true, 'On']].map(([v, label]) =>
+      h('button', { type: 'button', 'data-v': String(v), onclick: () => { presence = v; drawPresence(); } }, label)));
+    const winSeg = h('div', { class: 'segmented' }, [[true, 'Sound'], [false, 'Silent']].map(([v, label]) =>
+      h('button', { type: 'button', 'data-v': String(v), onclick: () => { winSound = v; drawPresence(); if (v) playWin('common'); } }, label)));
+    const winRow = h('div', { class: 'fs-sub' }, h('span', { class: 'fs-sublabel' }, 'Win sounds'), winSeg,
+      h('small', { class: 'fs-hint' }, 'A rising chord for a flame; a fanfare for an epic; bells and coins for a jackpot.'));
+    const presCard = privacyCard(presMode, { preview: true });
+    let presFrame = null; // the camera's live view, while this sheet is open with presence on
+    const drawPresence = () => {
+      for (const b of presSeg.children) b.classList.toggle('on', b.dataset.v === String(presence));
+      for (const b of winSeg.children) b.classList.toggle('on', b.dataset.v === String(winSound));
+      presCard.el.hidden = !presence;
+      winRow.hidden = !presence;
+      if (presMode === 'camera') {
+        if (presence && !presFrame) presFrame = openPresenceFrame(presCard.box, true, (m) => presCard.show(m));
+        else if (!presence && presFrame) { presFrame.stop(); presFrame = null; presCard.show(null); }
+      } else if (presence) {
+        navigator.geolocation?.getCurrentPosition((pos) => presCard.show({ type: 'place', accuracy: pos.coords.accuracy }),
+          (err) => presCard.show({ type: 'error', what: err.code === 1 ? 'denied' : 'place' }), { enableHighAccuracy: true, timeout: 30000 });
+      }
+    };
 
     // One hook to make it more interesting.
     let hook = prefs.hook;
@@ -3734,7 +5278,10 @@
       const at = o.kind === 'length' ? Date.now() + o.minutes * 60000 : o.at;
       const link = F.spotifyLink(spotify.value);
       saveFocusPrefs({ sound, volume: +volume.value, hook, ceiling: +ceiling.value, length: o.kind === 'length' ? o.minutes : prefs.length,
-        body: +body.value, escalate: reach.ok ? escalate : prefs.escalate, spotify: link || prefs.spotify || '', breaks: breakIn.value });
+        body: +body.value, escalate: reach.ok ? escalate : prefs.escalate, spotify: link || prefs.spotify || '', breaks: breakIn.value,
+        pomodoro: pomoPick === 'own' ? prefs.pomodoro : pomoPick, warmup, pomoSilent: silent, presence, winSound });
+      keepRoundGoals();
+      presFrame?.stop();
       const firstStep = first.value.trim();
       const list = steps.map((s) => ({ ...s }));
       if (firstStep && !list.some((s) => !s.done && s.text === firstStep)) list.unshift({ text: firstStep, done: false });
@@ -3744,6 +5291,10 @@
         steps: list, plannedEnd: at, stopKind: o.kind, sound: { kind: sound, volume: +volume.value, link: sound === 'spotify' ? link : null }, hook,
         ceiling: { minutes: +ceiling.value, asks: [] }, preflight: [...ready], escalate: !onyx.isPhone && reach.ok && escalate,
         body: { every: +body.value, shown: 0 }, breakIdeas: OnyxFocus.parseActivities(breakIn.value),
+        pomodoro: pomoPick === 'off' || pomoPick === 'own' ? null
+          : { work: +pomoPick.split('/')[0], rest: +pomoPick.split('/')[1], ...(warmup ? { warmup } : {}) },
+        rounds: pomoPick === 'off' ? null : { silent, goals: roundGoals.map((g) => String(g || '').trim()) },
+        presence: presence ? { mode: presMode, streak: flamesBefore.streak, best: flamesBefore.best, winSound } : null,
       });
     } }, icon('target'), 'Start hyperfocus');
 
@@ -3757,6 +5308,8 @@
       field('Tiny first step', h('div', { class: 'fs-row' }, first, hammer), stepList),
       field('If-then plan', ifThen),
       field('Hard stop', stopChips, stopHint),
+      field('Pomodoro', pomoChips, pomoHint, pomoMore),
+      field('Presence', h('div', { class: 'fs-row fs-pres-row' }, presSeg, presStreak), presHint, presCard.el, winRow),
       bestLine,
       field('Sound', soundChips, volume, spotify, soundHint),
       h('div', { class: 'magic-grid' },
@@ -3773,6 +5326,8 @@
     $('#modal').replaceChildren(sheet);
     $('#modal').hidden = false;
     drawStop();
+    drawPomo();
+    drawPresence();
     drawSound(false);
     drawHook();
     drawReach();
@@ -3795,6 +5350,7 @@
       .then((r) => { if (r?.warning) toast(r.warning, 'error'); })
       .catch((err) => { if (cfg.escalate) toast(`Your phone will not be reached: ${err.message}`, 'error'); });
     buildFocusScreen();
+    if (cfg.presence) startPresence();
     clearInterval(focus.timer);
     focus.timer = setInterval(tickFocus, 1000);
     tickFocus();
@@ -3816,6 +5372,299 @@
   }
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && wake.want) keepAwake(true); });
 
+  // ---- presence: the camera (on the PC) or the phone's place (on a phone) sees you stay with it.
+  // Each working period stayed with all the way through adds a flame to the streak; only leaving
+  // counts, never fidgeting (the rules are focus-plan.js's). The camera runs in its own sealed page,
+  // presence/presence.html, which cannot reach the internet: this window hears only "in view" or not.
+
+  /** The streak's flame: a filled two-tone mark (the line icons are strokes only). */
+  function flameMark(cls = '') {
+    const el = h('span', { class: `flame-mark${cls ? ` ${cls}` : ''}`, 'aria-hidden': 'true' });
+    el.innerHTML = '<svg viewBox="0 0 24 24"><path class="o" d="M12 2.3c.7 3-.6 4.9-2.1 6.5C8.4 10.4 6.8 12.3 6.8 15c0 3.2 2.3 5.8 5.2 5.8s5.2-2.6 5.2-5.8c0-2.6-1.3-4.5-2.5-5.8.1 1.8-.6 3-1.8 3.4.5-3.4-.1-7-.9-10.3z"/><path class="i" d="M12 12.4c.4 1.5-.4 2.4-1 3.1-.5.6-.9 1.2-.9 2 0 1.2.9 2.2 1.9 2.2s1.9-1 1.9-2.2c0-1.5-.9-2.7-1.9-5.1z"/></svg>'; // constant markup
+    return el;
+  }
+
+  /** What presence looks at, where, and what Onyx keeps: shown wherever it can be turned on. */
+  const PRIVACY_POINTS = {
+    camera: [
+      ['Checked right here, on this PC', 'Each frame is looked at for an instant, in memory, then thrown away.'],
+      ['Never recorded, saved or uploaded', 'The camera runs in a sealed part of Onyx that is blocked from the internet.'],
+      ['All Onyx keeps: here or away', 'No picture of you, ever. Only how each round went.'],
+    ],
+    location: [
+      ['Checked right here, on this phone', 'Onyx only compares where the phone is with where it was when you started.'],
+      ['Never saved or sent', 'No map, address or coordinates are kept, and none leave the phone.'],
+      ['All Onyx keeps: here or moved away', 'Only how each round went.'],
+    ],
+  };
+
+  function presenceErrorText(mode, what) {
+    if (mode === 'camera') {
+      return what === 'no-camera' ? 'No camera found on this PC.'
+        : what === 'model' ? 'The presence check could not start on this PC.'
+        : 'Onyx can\'t use the camera. In Windows: Settings → Privacy & security → Camera → let desktop apps use your camera.';
+    }
+    return what === 'denied' ? 'Location is off for Onyx: Settings → Apps → Onyx Calendar → Permissions → Location.'
+      : 'This phone can\'t tell where it is right now. Try near a window.';
+  }
+
+  /**
+   * The privacy card: a badge, three plain promises, and the path the picture takes (camera → this
+   * PC → "here or away", the internet sealed off). With `preview`, the camera's own live view sits
+   * beside it, so you see exactly what it sees. `show(message)` sets the status line.
+   */
+  function privacyCard(mode, { preview = false } = {}) {
+    const cam = mode === 'camera';
+    const status = h('div', { class: 'pc-status', 'data-state': 'start' });
+    const box = preview ? h('div', { class: `pc-preview${cam ? '' : ' place'}` }, cam ? null : h('div', { class: 'pc-place' }, icon('pin')), status) : null;
+    const el = h('div', { class: 'privacy-card' },
+      h('div', { class: 'pc-main' },
+        box,
+        h('div', { class: 'pc-text' },
+          h('div', { class: 'pc-badge' }, icon('shield'), 'Private by design'),
+          h('b', { class: 'pc-title' }, cam ? 'Your camera stays on this PC' : 'Your location stays on this phone'),
+          h('ul', { class: 'pc-points' }, PRIVACY_POINTS[mode].map(([t, d]) =>
+            h('li', null, icon('check'), h('span', null, h('b', null, t), h('small', null, d))))))),
+      h('div', { class: 'pc-flow', role: 'img', 'aria-label': cam ? 'Camera, to this PC, to here or away. The internet is sealed off.' : 'Location, to this phone, to here or moved away. Nothing is sent.' },
+        h('span', { class: 'pc-node' }, icon(cam ? 'camera' : 'pin'), cam ? 'Camera' : 'Location'),
+        h('i', { class: 'pc-arrow' }),
+        h('span', { class: 'pc-node strong' }, icon(cam ? 'monitor' : 'device'), cam ? 'This PC' : 'This phone'),
+        h('i', { class: 'pc-arrow' }),
+        h('span', { class: 'pc-node' }, cam ? '"here" or "away"' : '"here" or "moved"'),
+        h('span', { class: 'pc-node off' }, icon('cloudoff'), cam ? 'Internet: sealed off' : 'Nothing sent')));
+    const show = (m) => {
+      const state = !m ? 'start' : m.type === 'error' ? 'error' : m.type === 'look' ? (m.seen ? 'seen' : 'unseen') : m.type === 'place' ? 'seen' : 'start';
+      status.dataset.state = state;
+      status.textContent = state === 'error' ? presenceErrorText(mode, m.what)
+        : state === 'seen' ? (cam ? 'In view' : `This is your spot (to within ${Math.max(5, Math.round(m.accuracy || 0))} m)`)
+        : state === 'unseen' ? 'Not in view: sit where you work'
+        : cam ? 'Starting the camera…' : 'Finding this spot…';
+    };
+    show(null);
+    return { el, box, show };
+  }
+
+  /** The camera's sealed page in `container`, its messages to `onMsg`. `.stop()` turns the camera off. */
+  function openPresenceFrame(container, preview, onMsg) {
+    const frame = h('iframe', { class: `pres-frame${preview ? '' : ' hidden'}`, allow: 'camera *', tabindex: '-1', // '*': the page is Onyx's own, but a file:// origin never matches 'self'
+      title: 'Camera presence, checked on this PC only', src: `presence/presence.html${preview ? '?preview' : ''}` });
+    const listen = (e) => { if (e.source && e.source === frame.contentWindow && e.data?.source === 'onyx-presence') onMsg(e.data); };
+    addEventListener('message', listen);
+    container.append(frame);
+    return {
+      stop() {
+        removeEventListener('message', listen);
+        try { frame.contentWindow?.postMessage({ cmd: 'stop' }, '*'); } catch { /* gone already */ }
+        frame.remove(); // the page goes, and the camera with it
+      },
+    };
+  }
+
+  /** Where the phone is, as it changes: `onFix({ lat, lng, accuracy })`. Held in memory only. `.stop()` ends it. */
+  function watchPlace(onFix, onError) {
+    if (!navigator.geolocation) { onError?.({ code: 2 }); return { stop() {} }; }
+    const id = navigator.geolocation.watchPosition(
+      (pos) => onFix({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+      (err) => onError?.(err), { enableHighAccuracy: true, maximumAge: 10000, timeout: 60000 });
+    return { stop: () => navigator.geolocation.clearWatch(id) };
+  }
+
+  function startPresence() {
+    const s = focus.s, cfg = s.presence;
+    s.pres = OnyxFocus.presenceStart(cfg.mode, Date.now(), { streak: cfg.streak, best: cfg.best });
+    s.presLive = { seen: null, error: null, anchor: null, backAt: 0, off: false };
+    for (const tier of Object.keys(WIN_SOUNDS)) loadWin(tier); // ready the moment one is won
+    const look = (seen) => {
+      const ev = OnyxFocus.presenceSee(s.pres, Date.now(), seen);
+      if (ev === 'back') s.presLive.backAt = Date.now();
+      drawFlame();
+    };
+    if (cfg.mode === 'camera') {
+      focus.presFrame = openPresenceFrame(focus.el, false, (m) => {
+        if (focus.s !== s || s.presLive.off) return;
+        if (m.type === 'look') { s.presLive.seen = m.seen; s.presLive.error = null; look(m.seen); }
+        else if (m.type === 'error') { s.presLive.error = m.what; drawFlame(); }
+      });
+    } else {
+      focus.placeWatch = watchPlace((fix) => {
+        if (focus.s !== s || s.presLive.off) return;
+        const L = s.presLive;
+        // Where the session began: the surest fix of its first two minutes (one nearby, not a move).
+        if (fix.accuracy <= 150 && (!L.anchor || (Date.now() - s.startedAt < 2 * 60000 && fix.accuracy < L.anchor.accuracy && OnyxFocus.inPlace(L.anchor, fix)))) L.anchor = fix;
+        const here = OnyxFocus.inPlace(L.anchor, fix);
+        if (here == null) return;
+        L.seen = here;
+        L.error = null;
+        look(here);
+      }, (err) => {
+        if (focus.s !== s) return;
+        s.presLive.error = err.code === 1 ? 'denied' : 'place';
+        drawFlame();
+      });
+    }
+  }
+
+  function stopPresence() {
+    focus.presFrame?.stop();
+    focus.placeWatch?.stop();
+    focus.presFrame = focus.placeWatch = null;
+  }
+
+  /** The session's presence is over (once): the camera or the place check stops; the last round is judged if it ran to the stop. */
+  function finishPresence(complete) {
+    const s = focus.s;
+    if (!s?.pres || s.presDone) return null;
+    s.presDone = true;
+    stopPresence();
+    markPresenceOff();
+    return s.presLive.off ? null : OnyxFocus.presenceEnd(s.pres, Date.now(), complete);
+  }
+
+  function turnPresenceOff() {
+    const s = focus.s;
+    if (!s?.pres || s.presLive.off) return;
+    stopPresence();
+    s.presLive.off = true;
+    s.pres.period = null; // the round running is not judged, either way
+    markPresenceOff();
+    drawFlame();
+  }
+
+  /** The top bar's chip says so as soon as the camera (or the place check) is off. */
+  function markPresenceOff() {
+    const chip = focus.parts?.privacy;
+    if (!chip || !focus.s?.presence) return;
+    chip.classList.add('off');
+    chip.querySelector('.lbl').textContent = focus.s.presence.mode === 'camera' ? 'Camera off' : 'Place check off';
+  }
+
+  /** The top bar's reminder that the camera is on, and only here: it opens the privacy card. */
+  function presenceChip(mode) {
+    const cam = mode === 'camera';
+    return h('button', { class: 'fs-privacy', title: 'What presence looks at, and what Onyx keeps', onclick: (e) => togglePrivacyPop(e.currentTarget) },
+      h('i', { class: 'dot' }), icon(cam ? 'camera' : 'pin'), h('span', { class: 'lbl' }, cam ? 'Camera on · this PC only' : 'Place check · this phone only'), icon('lock'));
+  }
+
+  function togglePrivacyPop(chip) {
+    const s = focus.s;
+    const old = focus.el.querySelector('.fs-privacy-pop');
+    if (old) { old.remove(); return; }
+    const mode = s.presence.mode;
+    const pop = h('div', { class: 'fs-privacy-pop', role: 'dialog', 'aria-label': 'Presence and your privacy' },
+      privacyCard(mode).el,
+      h('div', { class: 'pop-actions' },
+        !s.presLive?.off && h('button', { class: 'btn', onclick: () => { turnPresenceOff(); pop.remove(); } }, mode === 'camera' ? 'Turn the camera off' : 'Stop checking my place'),
+        h('button', { class: 'btn primary', onclick: () => pop.remove() }, 'OK')));
+    const r = chip.getBoundingClientRect();
+    pop.style.top = `${Math.round(r.bottom + 8)}px`;
+    pop.style.right = `${Math.max(12, Math.round(innerWidth - r.right))}px`;
+    focus.el.append(pop);
+  }
+
+  /** The flame under the timer: the streak, and what this round needs (or that a break is free). */
+  function flameWidget() {
+    const q = { n: h('b', { class: 'n' }), small: h('small'), text: h('span') };
+    const el = h('div', { class: 'fs-flame', 'data-state': 'start' },
+      h('div', { class: 'fl-mark', title: 'Your streak: working periods in a row you stayed with all the way through' }, flameMark(), q.n),
+      h('div', { class: 'fl-t', role: 'status' }, q.small, q.text));
+    el.q = q;
+    return el;
+  }
+
+  function drawFlame(now = Date.now()) {
+    const s = focus.s, p = focus.parts;
+    if (!s?.pres || !p?.flame || s.phase !== 'focus') return;
+    const P = s.pres, L = s.presLive, q = p.flame.q, cam = s.presence.mode === 'camera';
+    const per = P.period, cur = p.period;
+    let state, small, text;
+    if (L.off) [state, small, text] = ['off', cam ? 'Camera off' : 'Place check off', 'No flames from here on this session. Your streak is kept.'];
+    else if (L.error) [state, small, text] = ['paused', 'Paused', presenceErrorText(s.presence.mode, L.error)];
+    else if (L.seen == null) [state, small, text] = ['start', 'Starting', cam ? 'Starting the camera…' : 'Finding this spot…'];
+    else if (!per) [state, small, text] = ['rest', 'Break', 'Walk away freely: breaks never count.'];
+    else if (per.ok === false) [state, small, text] = ['out', 'This round\'s flame is out', P.away ? 'You stepped away. The next round starts a new streak.' : 'Welcome back. The next round starts a new streak.'];
+    else if (P.away) [state, small, text] = ['away', 'Away', 'Come back now and this round still counts.'];
+    else if (P.outSince && now - P.outSince > 45000) [state, small, text] = ['unsure', cam ? 'Out of view' : 'On the move?', cam ? 'Still there? Stay in view to keep this round\'s flame.' : 'Stay put to keep this round\'s flame.'];
+    else [state, small, text] = ['work', L.backAt && now - L.backAt < 6000 ? 'Welcome back' : cam ? 'In view' : 'In place',
+      cur?.end ? `Stay with it to ${fmtTime(new Date(cur.end))} for a flame` : 'Stay with it for a flame'];
+    p.flame.dataset.state = state;
+    q.n.textContent = String(P.streak);
+    if (q.small.textContent !== small) q.small.textContent = small;
+    if (q.text.textContent !== text) q.text.textContent = text;
+  }
+
+  // The win sounds: real recordings, layered (assets/sounds; credits in the README). A common drop is
+  // a short rising chord; an epic, the cash register's cha-ching into a brass fanfare; a jackpot, the
+  // cha-ching into a slot machine's jackpot bells with coins pouring out. Levels: dB at playback.
+  const WIN_SOUNDS = { common: ['win-common.flac', -11], epic: ['win-epic.flac', -7.5], jackpot: ['win-jackpot.flac', -5.5] };
+  const winBufs = {};
+  function loadWin(tier) {
+    const [file] = WIN_SOUNDS[tier];
+    try {
+      const ctx = chime.ctx || (chime.ctx = new AudioContext());
+      winBufs[file] ||= fetch(`assets/sounds/${file}`).then((r) => r.arrayBuffer()).then((b) => ctx.decodeAudioData(b));
+      winBufs[file].catch(() => { delete winBufs[file]; });
+      return winBufs[file];
+    } catch { return Promise.reject(new Error('No sound')); }
+  }
+  function playWin(tier) {
+    const [, db] = WIN_SOUNDS[tier] || WIN_SOUNDS.common;
+    loadWin(tier).then((buf) => {
+      const ctx = chime.ctx;
+      ctx.resume?.();
+      const src = ctx.createBufferSource(), g = ctx.createGain();
+      src.buffer = buf;
+      g.gain.value = Math.pow(10, db / 20);
+      src.connect(g).connect(ctx.destination);
+      src.start();
+      // The noise steps back while a big win plays, then returns.
+      if (tier !== 'common' && noise.gain) {
+        const t = ctx.currentTime, gain = noise.gain.gain, level = gain.value;
+        gain.setTargetAtTime(level * 0.3, t, 0.08);
+        gain.setTargetAtTime(level, t + Math.max(0.5, buf.duration - 0.6), 0.5);
+      }
+    }).catch(() => { /* the flame still shows */ });
+  }
+
+  /**
+   * A flame won: the streak's count bumps, the win sounds, and the drop shows. A common drop rises
+   * small from the flame; an epic fills the middle of the screen in violet; a jackpot takes the
+   * whole screen in gold, with sparks. None of it stops you working (it lets clicks through).
+   */
+  function celebrate(ev) {
+    const s = focus.s, p = focus.parts;
+    const tier = ev.tier || 'common';
+    if (s?.presence?.winSound !== false) playWin(tier);
+    if (!p || !focus.el) return;
+    if (p.flame) {
+      p.flame.q.n.textContent = String(ev.streak);
+      p.flame.classList.remove('bump');
+      void p.flame.offsetWidth; // the bump plays again
+      p.flame.classList.add('bump');
+    }
+    const label = { common: 'Flame', epic: 'Epic flame', jackpot: 'Jackpot' }[tier];
+    const sub = `${ev.streak} in a row${ev.record ? ' · a new best' : ''}`;
+    const sparks = tier === 'jackpot' ? Array.from({ length: 30 }, (_, i) => h('i', { class: 'spark', css: {
+      '--x': `${Math.round(Math.random() * 100)}vw`, '--d': `${(Math.random() * 1.6).toFixed(2)}s`, '--t': `${(2.4 + Math.random() * 2.2).toFixed(2)}s`, '--s': (0.5 + Math.random() * 0.9).toFixed(2), '--h': String(38 + (i % 3) * 8) } })) : [];
+    const drop = h('div', { class: `fs-drop ${tier}`, role: 'status', 'aria-label': `${label}! ${sub}` },
+      tier !== 'common' && h('div', { class: 'fs-drop-rays' }), ...sparks,
+      h('div', { class: 'fs-drop-card' }, flameMark('big'), h('b', null, tier === 'common' ? '+1' : label), h('small', null, tier === 'common' ? 'Flame' : sub)));
+    (tier === 'common' && p.flame ? p.flame : focus.el).append(drop);
+    setTimeout(() => drop.remove(), { common: 2400, epic: 4400, jackpot: 7800 }[tier]);
+  }
+
+  /** In the wind-down: the flames this session, the streak, and that the camera (or place check) is off. */
+  function flameSummary(s) {
+    const P = s.pres, got = P.periods.filter((x) => x.ok === true);
+    const epic = got.filter((x) => x.tier === 'epic').length, jack = got.filter((x) => x.tier === 'jackpot').length;
+    const cam = s.presence.mode === 'camera';
+    const extras = [jack && `${jack} ${jack === 1 ? 'jackpot' : 'jackpots'}`, epic && `${epic} epic`].filter(Boolean).join(', ');
+    return h('div', { class: 'fs-flames-sum' }, flameMark(),
+      h('div', null,
+        h('b', null, got.length ? `+${got.length} ${got.length === 1 ? 'flame' : 'flames'}` : 'No flames this time'),
+        h('span', null, ` · streak ${P.streak}${P.best ? `, best ${P.best}` : ''}${extras ? ` · ${extras}` : ''}`),
+        h('small', null, icon('lock'), cam ? 'The camera is off. Nothing was recorded, saved or sent.' : 'The place check is off. No location was kept or sent.')));
+  }
+
   function buildFocusScreen() {
     const s = focus.s;
     const p = {
@@ -3834,6 +5683,8 @@
       sound: h('button', { class: 'icon-btn', onclick: () => (MOBILE ? openSoundMenu() : toggleSound()) }),
       sounds: h('div', { class: 'fs-sounds', role: 'menu', 'aria-label': 'Sound' }),
       pomo: h('div', { class: 'fs-pomo', hidden: true }),
+      flame: s.presence ? flameWidget() : null,
+      privacy: s.presence ? presenceChip(s.presence.mode) : null,
     };
     const capture = h('input', { type: 'text', class: 'fs-capture-in', spellcheck: true, placeholder: 'Not now: park a stray thought for later, and press Enter' });
     capture.addEventListener('keydown', async (e) => {
@@ -3861,10 +5712,10 @@
     focus.el = h('div', { class: 'focus-screen', role: 'dialog', 'aria-label': 'Hyperfocus', css: { '--c': s.entry.color || 'var(--accent)' } },
       h('div', { class: 'fs-top' }, icon('target'), h('b', null, 'Hyperfocus'),
         h('span', { class: 'fs-top-stop' }, `Hard stop ${fmtTime(new Date(s.plannedEnd))}${s.escalate ? ' · your phone too' : ''}`),
-        h('span', { class: 'grow' }), p.sound,
+        h('span', { class: 'grow' }), p.privacy, p.sound,
         h('button', { class: 'btn', title: 'End the session now (you still leave a note of where you are)', onclick: () => exitFocus('early') }, 'Stop now')),
       h('div', { class: 'fs-main' },
-        h('div', { class: 'fs-side' }, p.disc, p.buddy), // the timer, with the study companion working under it
+        h('div', { class: 'fs-side' }, p.disc, p.buddy, p.flame), // the timer, with the study companion working under it (and the streak)
         h('div', { class: 'fs-text' },
           h('div', { class: 'fs-label' }, 'Goal'), p.goal,
           p.now, p.step,
@@ -3901,30 +5752,138 @@
   }
 
   /**
-   * Body doubling: a study companion (a cat in headphones at a laptop) working quietly in the
-   * corner the whole session, in a loop. Its wall is masked away (assets/bodydouble-mask.png),
-   * so it sits on the screen's own background. Always muted, never in the way of a click.
+   * Body doubling: a study companion (a cat in headphones at a laptop) working in the corner the whole session.
+   * It builds as the session goes: calm for the first third, caffeine for the second, a total physics breakdown
+   * for the last (OnyxFocus.catPhase), each a loop, with a short clip into the next once the loop playing ends.
+   * Its videos carry their own see-through parts (colour on the left half, premultiplied; how solid each pixel is
+   * on the right), put together here with WebGL, so it sits on the screen's own background. Always muted, never
+   * in the way of a click. The videos are not on the page: catStop lets them go when the session ends.
    */
   function bodyDouble() {
-    const v = h('video', {
-      class: 'bodydouble', src: 'assets/bodydouble.mp4', muted: true, loop: true, playsInline: true, preload: 'auto',
-      disablePictureInPicture: true, tabIndex: -1, 'aria-hidden': 'true',
-    });
-    v.muted = true;
+    const canvas = h('canvas', { class: 'bodydouble', width: 800, height: 800, 'aria-hidden': 'true' });
+    const gl = canvas.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: false, depth: false, stencil: false });
+    canvas.cat = { canvas, gl, at: null, due: 1, key: null, cur: null, run: false, videos: {}, shown: -1 };
+    if (!gl) return canvas; // no WebGL: no cat, rather than one in a black box (syncBuddy keeps it hidden)
+    const shader = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; };
+    const prog = gl.createProgram();
+    gl.attachShader(prog, shader(gl.VERTEX_SHADER,
+      'attribute vec2 p; varying vec2 u; void main() { u = vec2((p.x + 1.0) * 0.5, (1.0 - p.y) * 0.5); gl_Position = vec4(p, 0.0, 1.0); }'));
+    // The matte (right half) says how solid each pixel is; the colour (left half) is kept within it, which takes
+    // away the faint fringe the video's coarser colour leaves at hard edges.
+    gl.attachShader(prog, shader(gl.FRAGMENT_SHADER,
+      'precision mediump float; uniform sampler2D t; varying vec2 u; void main() { float a = texture2D(t, vec2(0.5 + u.x * 0.5, u.y)).r;'
+      + ' gl_FragColor = vec4(min(texture2D(t, vec2(u.x * 0.5, u.y)).rgb, vec3(a)), a); }'));
+    gl.linkProgram(prog);
+    gl.useProgram(prog);
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+    const at = gl.getAttribLocation(prog, 'p');
+    gl.enableVertexAttribArray(at);
+    gl.vertexAttribPointer(at, 2, gl.FLOAT, false, 0, 0);
+    gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+    for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+    return canvas;
+  }
+
+  /** One of the cat's clips, ready to play (made when first wanted). */
+  function catVideo(cat, name) {
+    if (cat.videos[name]) return cat.videos[name];
+    const v = document.createElement('video');
+    Object.assign(v, { muted: true, playsInline: true, preload: 'auto', disablePictureInPicture: true });
     v.setAttribute('muted', '');
-    v.addEventListener('loadeddata', syncBuddy);
+    v.addEventListener('ended', () => { if (cat.cur === v) catOpen(cat, OnyxFocus.catNext(cat.at, cat.due)); });
+    for (const type of ['loadeddata', 'seeked']) v.addEventListener(type, () => { if (cat.cur === v) catDraw(cat, true); });
+    v.src = `assets/${name}.mp4`;
+    cat.videos[name] = v;
     return v;
   }
-  const stillMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
-  /** Plays the companion only while the session is on screen and the window can be seen; with reduced motion it keeps its first frame. */
-  function syncBuddy() {
-    const v = focus.parts?.buddy;
+
+  /** Draws the clip's frame now showing (only a new one, unless `force`). */
+  function catDraw(cat, force) {
+    const v = cat.cur, gl = cat.gl;
+    if (!v || !gl || v.readyState < 2 || (!force && v.currentTime === cat.shown)) return;
+    cat.shown = v.currentTime;
+    gl.viewport(0, 0, cat.canvas.width, cat.canvas.height);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, v);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+
+  /** Plays a clip ({ phase, intro }) from its start. The clip that would come after it is made ready; the rest are let go. */
+  function catOpen(cat, at) {
+    cat.at = at;
+    const name = OnyxFocus.catClip(at), next = OnyxFocus.catClip(OnyxFocus.catNext(at, 3));
+    for (const [n, v] of Object.entries(cat.videos)) {
+      if (n === name || n === next) continue;
+      v.pause();
+      v.removeAttribute('src');
+      v.load();
+      delete cat.videos[n];
+    }
+    const v = catVideo(cat, name);
+    catVideo(cat, next);
+    if (cat.cur && cat.cur !== v) cat.cur.pause();
+    cat.cur = v;
+    v.loop = !at.intro && cat.due <= at.phase; // a loop goes round by itself until the next phase is due
+    if (v.currentTime) v.currentTime = 0;
+    cat.shown = -1;
+    catPlay(cat);
+  }
+
+  function catPlay(cat) {
+    const v = cat.cur;
     if (!v) return;
-    const show = focus.s?.phase === 'focus' || focus.s?.phase === 'exit';
-    v.hidden = !show;
-    const run = show && !stillMotion() && document.visibilityState === 'visible' && !window.onyxHidden;
-    if (run) v.play().catch(() => {}); // a refused play leaves it still
-    else { v.pause(); if (stillMotion()) v.currentTime = 0; }
+    if (!cat.run) { v.pause(); catDraw(cat, true); return; }
+    v.play().catch(() => {}); // a refused play leaves it still
+    if (cat.frames) return;
+    // Each new frame, drawn as the screen refreshes (it waits while the clip is paused or the session is gone).
+    const tick = () => {
+      if (!cat.run || !cat.cur) { cat.frames = 0; return; }
+      catDraw(cat);
+      cat.frames = requestAnimationFrame(tick);
+    };
+    cat.frames = requestAnimationFrame(tick);
+  }
+
+  /** The session is over: its clips are let go. */
+  function catStop(cat) {
+    if (!cat) return;
+    cat.run = false;
+    cancelAnimationFrame(cat.frames || 0);
+    cat.frames = 0;
+    for (const v of Object.values(cat.videos)) { v.pause(); v.removeAttribute('src'); v.load(); }
+    cat.videos = {};
+    cat.cur = null;
+  }
+
+  const stillMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+  /**
+   * The cat's phase and playing, each second and as the window shows or hides: it plays only while the session is
+   * on screen and the window can be seen; with reduced motion it shows its phase's first frame. A later phase waits
+   * for the loop playing to end (then its intro plays); a session made longer never takes it back a phase.
+   */
+  function syncBuddy() {
+    const cat = focus.parts?.buddy?.cat, s = focus.s;
+    if (!cat) return;
+    const show = s?.phase === 'focus' || s?.phase === 'exit';
+    cat.canvas.hidden = !show || !cat.gl;
+    if (!cat.gl || !s) return;
+    const due = OnyxFocus.catPhase(s.startedAt, s.plannedEnd, Date.now());
+    cat.run = show && !stillMotion() && document.visibilityState === 'visible' && !window.onyxHidden;
+    if (cat.key !== s.startedAt) {
+      cat.key = s.startedAt;
+      cat.due = due;
+      catOpen(cat, { phase: due, intro: false }); // a session opened part way through starts in its phase
+      return;
+    }
+    if (due > cat.due) {
+      cat.due = due;
+      if (!cat.run) return catOpen(cat, { phase: due, intro: false }); // still: straight to the new phase's first frame
+      if (!cat.at.intro && cat.cur) cat.cur.loop = false; // this loop plays to its end, then on to the next phase
+    }
+    if (!cat.run && stillMotion() && cat.cur && cat.cur.currentTime) cat.cur.currentTime = 0;
+    catPlay(cat);
   }
   document.addEventListener('visibilitychange', syncBuddy);
   window.addEventListener('onyx-visibility', syncBuddy);
@@ -3941,6 +5900,7 @@
     p.list.replaceChildren(...s.steps.map((st) => h('li', { class: `${st.done ? 'done' : ''}${st === cur ? ' cur' : ''}`, onclick: () => {
       st.done = !st.done;
       if (st.done) doneSound();
+      if (st.blockTask && s.entry.src) onyx.tickBlockTask?.(s.entry.src.id, st.blockTask, st.done).catch(() => {}); // ticked in the block too
       s.stepSince = Date.now(); // a new step: the race starts again
       drawFocusSteps();
       tickFocus();
@@ -4017,6 +5977,7 @@
   function tickFocus() {
     const s = focus.s;
     if (!s || !focus.parts) return;
+    syncBuddy(); // the cat's phase
     const now = Date.now(), p = focus.parts;
     if (s.phase === 'wind') return tickWindDown();
     if (s.phase !== 'focus') return;
@@ -4026,6 +5987,12 @@
     p.left.textContent = left >= 3600000 ? shortCount(left) : countdown(left).replace(/^00m /, '');
     p.until.textContent = `until ${fmtTime(new Date(s.plannedEnd))}`;
     drawFocusPomodoro(now);
+    // Presence: the period running is followed; a flame when one is stayed with to its end.
+    if (s.pres && !s.presLive.off) {
+      const ev = OnyxFocus.presencePeriod(s.pres, now, p.period);
+      if (ev?.type === 'flame') celebrate(ev);
+      drawFlame(now);
+    }
     if (s.hook === 'race') {
       const raceLeft = s.stepSince + FOCUS_RACE_MIN * 60000 - now;
       p.hook.textContent = raceLeft > 0 ? `Race the clock: ${countdown(raceLeft)} to beat for this step` : `Past the ${FOCUS_RACE_MIN} minutes by ${countdown(-raceLeft)}. Tick it off and race the next one`;
@@ -4055,36 +6022,54 @@
     const at = new Date(now);
     const running = pomoRun.blocks.filter((e) => !pomoRun.dismissed.has(`${e.id}|${e.start}`) && pomodoroPhase(e, at));
     const ids = [s.entry.id, s.entry.src?.seriesId].filter(Boolean);
-    const e = running.find((x) => ids.includes(x.id) || ids.includes(x.seriesId)) || running[0];
+    // Rounds picked for the session itself (from its start to the hard stop) come first, then the block's own.
+    const own = s.pomodoro && { id: 'hyperfocus', title: s.goal, pomodoro: s.pomodoro,
+      start: new Date(s.startedAt).toISOString(), end: new Date(s.plannedEnd).toISOString() };
+    const e = own || running.find((x) => ids.includes(x.id) || ids.includes(x.seriesId)) || running[0];
     const ph = e && pomodoroPhase(e, at);
+    // A switch (work to break, or back): a soft chime (the only sound besides the check-in and the
+    // stop), or none when the switches are set to be silent; the bar glows for a moment either way.
+    if (ph && p.pomoIndex != null && p.pomoIndex !== ph.index && p.pomoKey) {
+      if (!s.rounds?.silent) bodyTone();
+      p.pomo.classList.remove('switched');
+      void p.pomo.offsetWidth; // the glow plays again
+      p.pomo.classList.add('switched');
+      clearTimeout(p.pomoGlow);
+      p.pomoGlow = setTimeout(() => p.pomo.classList.remove('switched'), 3200);
+    }
+    p.pomoIndex = ph ? ph.index : null;
     p.pomo.hidden = !ph;
+    // The working period, for presence: this pomodoro chunk, or (with none) the whole session.
+    p.period = ph ? { key: `${e.id}|${e.start}|${ph.index}`, work: ph.kind === 'work', end: now + ph.left } : { key: 'session', work: true, end: s.plannedEnd };
     if (!ph) { p.pomoKey = ''; return; }
     const start = Date.parse(e.start), total = (Date.parse(e.end) - start) / 60000;
     const chunks = pomodoroChunks(total, e.pomodoro);
 
     // The bar: built once for each block, then only its numbers change.
-    const key = `${e.id}|${e.start}|${e.pomodoro.work}|${e.pomodoro.rest}`;
+    const key = `${e.id}|${e.start}|${e.pomodoro.work}|${e.pomodoro.rest}|${e.pomodoro.warmup || 0}`;
     if (p.pomoKey !== key) {
       p.pomoKey = key;
       p.pomoParts = {
         kind: h('span', { class: 'fs-pomo-kind' }), round: h('span', { class: 'fs-pomo-round' }), left: h('span', { class: 'fs-pomo-left' }),
         segs: chunks.map((c) => h('i', { class: c.kind, css: { 'flex-grow': String(c.to - c.from) } }, h('b'))),
+        goal: h('div', { class: 'fs-pomo-goal' }, h('small'), h('span')),
         idea: h('div', { class: 'fs-pomo-idea' }),
       };
       const q = p.pomoParts;
       p.pomo.replaceChildren(
         h('div', { class: 'fs-pomo-head' }, q.kind, q.round, q.left),
         h('div', { class: 'fs-pomo-track', 'aria-hidden': 'true' }, ...q.segs),
-        q.idea);
+        q.goal, q.idea);
     }
     const q = p.pomoParts, t = (now - start) / 60000;
     const next = chunks[ph.index + 1];
-    p.pomo.className = `fs-pomo ${ph.kind}`;
-    q.kind.textContent = ph.kind === 'work' ? 'Work' : 'Break';
+    p.pomo.className = `fs-pomo ${ph.kind}${p.pomo.classList.contains('switched') ? ' switched' : ''}`;
+    const warm = ph.kind === 'work' && ph.round === 1 && e.pomodoro.warmup > 0 && e.pomodoro.warmup < e.pomodoro.work;
+    q.kind.textContent = ph.kind === 'work' ? (warm ? 'Warm-up' : 'Work') : 'Break';
     q.round.textContent = `Round ${ph.round} of ${ph.rounds}`;
     const secs = Math.max(0, Math.ceil(ph.left / 1000));
     const clock = `${Math.floor(secs / 60)}:${pad(secs % 60)}`;
-    q.left.textContent = !next ? `${clock} to the end of the block` : next.kind === 'rest' ? `break in ${clock}` : `back to work in ${clock}`;
+    q.left.textContent = !next ? `${clock} to ${e.id === 'hyperfocus' ? 'the hard stop' : 'the end of the block'}` : next.kind === 'rest' ? `break in ${clock}` : `back to work in ${clock}`;
     chunks.forEach((c, i) => {
       const done = Math.max(0, Math.min(1, (t - c.from) / (c.to - c.from)));
       q.segs[i].style.setProperty('--fill', `${(done * 100).toFixed(2)}%`);
@@ -4093,6 +6078,13 @@
     const idea = ph.kind === 'rest' ? (OnyxFocus.breakIdea(e.pomodoro.activities, ph.round) || OnyxFocus.breakIdea(s.breakIdeas, ph.round)) : '';
     q.idea.hidden = !idea;
     q.idea.textContent = idea ? `Try: ${idea}` : '';
+    // The goal set for this round (on a break, the next one's), when the rounds are this session's own.
+    const mine = e === own || ids.includes(e.id) || ids.includes(e.seriesId);
+    const goal = mine ? OnyxFocus.roundGoal(s.rounds?.goals, ph.kind === 'work' ? ph.round : ph.round + 1) : '';
+    q.goal.hidden = !goal;
+    q.goal.classList.toggle('next', ph.kind !== 'work');
+    q.goal.firstChild.textContent = ph.kind === 'work' ? 'This round' : 'Next round';
+    q.goal.lastChild.textContent = goal;
   }
 
   /** A quiet nudge for the body: a soft note and a small card that goes by itself. */
@@ -4146,6 +6138,10 @@
     handAlarms(nextRun.items); // the phone's own stop alarm is taken back (or, at the stop, has rung)
     if (stop === 'hard') { focus.parts.disc.style.setProperty('--timer-p', '0'); focus.parts.left.textContent = countdown(0); }
     stopNoise();
+    // Presence ends with the session: the camera goes off; a round that ran to the hard stop still wins its flame.
+    const last = finishPresence(stop === 'hard');
+    if (last?.type === 'flame') celebrate(last);
+    focus.el.querySelector('.fs-privacy-pop')?.remove();
     const cur = OnyxFocus.currentStep(s.steps);
     showActionCard({
       kind: 'focus', key: `focus|${s.startedAt}`, title: s.goal, color: s.entry.color, start: new Date(s.endedAt).toISOString(),
@@ -4196,12 +6192,13 @@
 
   /** A session into the log (focus.js): what it was on, how it went, and how it ended. */
   function logFocusSession(s, { where = '', next = '', rating = null } = {}) {
+    if (focus.s === s) finishPresence(false); // left by the X: the round running is let go
     const done = s.steps.filter((x) => x.done).length;
     onyx.logFocus?.({
       entry: { id: s.entry.id, kind: s.entry.kind, title: s.entry.title }, goal: s.goal, firstStep: s.firstStep, ifThen: s.ifThen,
       startedAt: s.startedAt, plannedEnd: s.plannedEnd, endedAt: s.endedAt || Date.now(), stop: s.stop || 'early', ceiling: s.ceiling, sound: s.sound, hook: s.hook,
       preflight: s.preflight, steps: { total: s.steps.length, done }, captured: s.captured, where, next, windDown: FOCUS_WIND_MIN,
-      escalate: s.escalate, bodyChecks: s.body, rating,
+      escalate: s.escalate, bodyChecks: s.body, rating, presence: s.pres ? OnyxFocus.presenceSummary(s.pres) : null,
     }).catch(() => {});
   }
 
@@ -4236,6 +6233,7 @@
       h('div', { class: 'fs-goal' }, 'Wind down for a few minutes'),
       h('ul', { class: 'fs-wind' }, h('li', null, 'Stand up and stretch'), h('li', null, 'Drink some water'), h('li', null, 'Look at something far away')),
       ...(held ? [held] : []),
+      ...(s.pres ? [flameSummary(s)] : []),
       nextBox(how),
       h('button', { class: 'btn', onclick: () => endFocus() }, 'Back to the calendar now'));
     focus.el.querySelector('.fs-capture').hidden = true;
@@ -4281,7 +6279,7 @@
       closePopover();
       openFocusSetup(focusEntry(t), { minutes: req.minutes });
     } catch (err) {
-      toast(err.message, 'error');
+      fail(err);
     }
   }
 
@@ -4296,8 +6294,8 @@
   function endFocus() {
     if (focus.s) onyx.focusEnd?.().catch(() => {});
     onyx.launcher?.focus?.(null);
-    const buddy = focus.parts?.buddy;
-    if (buddy) { buddy.pause(); buddy.removeAttribute('src'); buddy.load(); } // let the video go
+    catStop(focus.parts?.buddy?.cat); // let the cat's videos go
+    finishPresence(false);
     clearInterval(focus.timer);
     stopNoise();
     focus.el?.remove();
@@ -4328,14 +6326,14 @@
       await loadTasks(true);
       refetch(true);
     } catch (err) {
-      toast(err.message, 'error');
+      fail(err);
     }
   }
 
   function openSeries(s, anchor) {
     const copies = tasks.filter((t) => t.series?.key === s.key);
     const first = copies[0] || {};
-    const name = h('input', { type: 'text', class: 'pop-title', value: s.label, spellcheck: false });
+    const name = limitName(h('input', { type: 'text', class: 'pop-title', value: s.label, spellcheck: false }));
     const time = h('input', { type: 'time', value: s.time || '', step: 300, title: 'Time (the Pi phones about it)' });
     const notes = notesField(first.notes);
     const rule = h('select', { disabled: !s.managed, title: s.managed ? 'How often' : 'Set in Google Tasks' },
@@ -4356,7 +6354,7 @@
         await loadTasks();
         refetch();
       } catch (err) {
-        toast(err.message, 'error');
+        fail(err);
       }
     };
     const clear = async () => {
@@ -4367,7 +6365,7 @@
         await loadTasks();
         refetch();
       } catch (err) {
-        toast(err.message, 'error');
+        fail(err);
       }
     };
     showPopover(anchor, [
@@ -4442,7 +6440,7 @@
       refetch();
     } catch (err) {
       input.value = title;
-      toast(err.message, 'error');
+      fail(err);
     }
   });
 
@@ -4499,7 +6497,7 @@
       if (problems && problems !== news.problems) toast(`News: ${problems}`, 'warn');
       news.problems = problems;
     } catch (err) {
-      toast(err.message, 'error');
+      fail(err);
     } finally {
       news.loading = false;
       $('#news-refresh').classList.remove('spin');
@@ -4566,7 +6564,7 @@
       await onyx.tamkeen.watch(c.id);
       toast(`Opening "${c.title || 'the video'}" in Tamkeen`);
     } catch (err) {
-      toast(err.message, 'error');
+      fail(err);
     }
   }
 
@@ -4574,10 +6572,26 @@
     if (c.kind === 'live' ? !okChannel(c.channelId) : !okVideo(c.id)) return;
     if (tamkeen.on && tamkeen.installed && c.kind === 'video') {
       news.current = c;
+      if (!onyx.tamkeen?.embed) { renderNews(); openInTamkeen(c); return; } // the phone: Tamkeen's own app
+      // Tamkeen's player and clickable captions, here in the panel (Tamkeen starts hidden if it isn't running).
+      news.playing = false;
+      news.tamkeen = { id: c.id, url: '', note: 'Starting Tamkeen…' };
       renderNews();
-      openInTamkeen(c);
+      onyx.tamkeen.embed(c.id).then((r) => {
+        if (news.current !== c) return;
+        if (r?.url) { news.tamkeen = { id: c.id, url: r.url, note: '' }; renderNews(); return; }
+        news.tamkeen = null; // an older Tamkeen: open the video there, as before
+        renderNews();
+        openInTamkeen(c);
+      }).catch((err) => {
+        if (news.current !== c) return;
+        news.tamkeen = null;
+        renderNews();
+        fail(err);
+      });
       return;
     }
+    news.tamkeen = null;
     news.current = c;
     news.playing = true;
     renderNews();
@@ -4602,7 +6616,8 @@
 
   function renderPlayer() {
     const c = news.current;
-    const key = c ? `${c.kind}:${c.id || c.channelId}:${news.playing}` : `none:${news.loading}`;
+    const tk = c && news.tamkeen?.id === c.id ? news.tamkeen : null;
+    const key = c ? `${c.kind}:${c.id || c.channelId}:${news.playing}:${tk ? tk.url || tk.note : ''}` : `none:${news.loading}`;
     const box = $('#news-player');
     // Re-rendering must not reload a video that is already playing.
     if (key !== news.shown || !box.firstChild) {
@@ -4610,6 +6625,12 @@
       const screen = h('div', { class: 'news-screen' });
       if (!c) {
         screen.append(h('div', { class: 'news-empty-screen' }, news.loading ? 'Loading the news…' : 'No stories yet. Pick some channels with the button above.'));
+      } else if (tk) {
+        // Tamkeen's player: the video with its clickable captions under it, and room for a word's popup.
+        screen.classList.add('tamkeen');
+        screen.append(tk.url
+          ? h('iframe', { src: tk.url, title: `${c.title || 'Video'} in Tamkeen`, allow: 'autoplay; encrypted-media; fullscreen', allowFullscreen: true })
+          : h('div', { class: 'news-empty-screen' }, tk.note));
       } else if (news.playing) {
         const frame = h('iframe', {
           src: embedUrl(c), title: c.title || `${c.channel} live`, allow: 'autoplay; encrypted-media; picture-in-picture; fullscreen',
@@ -4688,7 +6709,7 @@
         draw();
         loadNews();
       } catch (err) {
-        toast(err.message, 'error');
+        fail(err);
       }
     };
     const draw = () => list.replaceChildren(...news.channels.map((c) => h('label', null,
@@ -4706,7 +6727,7 @@
         draw();
         loadNews();
       } catch (err) {
-        toast(err.message, 'error');
+        fail(err);
       }
       addBtn.disabled = false;
     };
@@ -4750,6 +6771,7 @@
     const add = (e) => openGoal(null, e.currentTarget.getBoundingClientRect());
     box.replaceChildren(
       h('div', { class: 'group-head' }, h('span', null, 'Goals'), h('button', { class: 'link-btn', onclick: add }, '+ New goal')),
+      h('button', { class: 'magic-goal', title: 'Paste an outline and Claude turns it into measurable steps, timed into your calendar', onclick: (e) => openGoalMagic(null, e.currentTarget.getBoundingClientRect()) }, icon('sparkles'), 'Magic add goal'),
       ...goals.length
         ? goals.map((g) => {
           const p = g.progress;
@@ -4820,14 +6842,14 @@
       } catch (err) {
         box.disabled = false;
         box.checked = !done;
-        toast(err.message, 'error');
+        fail(err);
       }
     };
 
-    const HOW_OFTEN = [['', 'Once'], ['daily', 'Daily'], ['weekdays', 'Weekdays'], ['weekly', 'Weekly']];
+    const HOW_OFTEN = [['', 'Once'], ['daily', 'Daily'], ['weekdays', 'Weekdays'], ['weekly', 'Weekly'], ['biweekly', 'Every 2 weeks'], ['monthly', 'Monthly']];
     const drawSteps = (focus) => {
-      stepBox.replaceChildren(...steps.map((s, i) => {
-        const name = h('input', { type: 'text', value: s.title, placeholder: `Step ${i + 1}`, spellcheck: false, oninput: (e) => { s.title = e.target.value; } });
+      const rowOf = (s, i) => {
+        const name = limitName(h('input', { type: 'text', value: s.title, placeholder: `Step ${i + 1}`, spellcheck: false, oninput: (e) => { s.title = e.target.value; } }), { count: false });
         name.addEventListener('keydown', (e) => {
           if (e.key === 'Enter') { e.preventDefault(); steps.splice(i + 1, 0, { title: '', due: null, done: false }); drawSteps(i + 1); }
           if (e.key === 'Backspace' && !name.value && steps.length > 1) { e.preventDefault(); steps.splice(i, 1); drawSteps(Math.max(0, i - 1)); }
@@ -4858,7 +6880,12 @@
           h('input', { type: 'time', class: 'step-time', value: s.time || '', step: 300, title: 'Time of day (optional): the step goes on your calendar at that time', onchange: (e) => { s.time = e.target.value || null; } }),
           timer,
           h('button', { class: 'x', title: 'Remove this step (its task is deleted)', onclick: () => { steps.splice(i, 1); drawSteps(); } }, icon('x')));
-      }));
+      };
+      // A goal planned by Magic add has phases: each starts with its name.
+      stepBox.replaceChildren(...steps.flatMap((s, i) => [
+        s.phase && (i === 0 || s.phase !== steps[i - 1].phase) ? h('div', { class: 'goal-phase' }, s.phase) : null,
+        rowOf(s, i),
+      ].filter(Boolean)));
       if (focus != null) stepBox.querySelectorAll('input[type=text]')[focus]?.focus();
     };
     if (!steps.length) steps.push({ title: '', due: null, done: false });
@@ -4881,7 +6908,10 @@
       const picked = tags.get();
       const data = {
         title: title.value.trim(), start: start.value, end: end.value, color, notes: cleanNote(notes.value), tags: picked,
-        steps: steps.filter((s) => s.title.trim()).map((s) => ({ id: s.id, title: s.title.trim(), due: s.repeat ? null : s.due || null, time: s.time || null, done: !!s.done, repeat: s.repeat || null })),
+        steps: steps.filter((s) => s.title.trim()).map((s) => ({
+          id: s.id, title: s.title.trim(), due: s.repeat ? null : s.due || null, time: s.time || null, done: !!s.done, repeat: s.repeat || null,
+          ...(s.id ? {} : { phase: s.phase || '', measure: s.measure || '', minutes: s.minutes || null, until: s.until || null }),
+        })),
         ...(listPick ? { listId: listPick.value } : {}),
       };
       try {
@@ -4894,7 +6924,7 @@
         if (!sameTags(picked, g?.tags)) reloadTags();
       } catch (err) {
         busy = false;
-        toast(err.message, 'error');
+        fail(err);
       }
     };
     const remove = async () => {
@@ -4907,9 +6937,23 @@
         refetch();
         reloadTags();
       } catch (err) {
-        toast(err.message, 'error');
+        fail(err);
       }
     };
+
+    // Breakdown, as in a task's window: as finely as the hammers say, into Magic add for goals.
+    let gLevel = goalLevel();
+    const gHammers = h('div', { class: 'hammers', role: 'radiogroup', 'aria-label': 'How finely to break it down' });
+    const drawGHammers = () => gHammers.replaceChildren(...[1, 2, 3, 4, 5].map((n) => h('button', {
+      type: 'button', class: `hammer${n <= gLevel ? ' on' : ''}`, role: 'radio', 'aria-checked': String(n === gLevel), title: GOAL_LEVELS[n - 1].join(': '),
+      onclick: () => { gLevel = n; try { localStorage.setItem('onyx.goal-level', String(n)); } catch { /* this visit */ } drawGHammers(); },
+    }, icon('hammer'))));
+    drawGHammers();
+    const breakRow = g && h('div', { class: 'row top breakdown-row' }, icon('hammer'),
+      h('div', { class: 'txt' },
+        h('div', { class: 'breakdown-head' }, h('b', null, 'Breakdown'), gHammers,
+          h('button', { class: 'btn', onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); closePopover(); openGoalMagic(g, r, gLevel); } }, icon('hammer'), 'Break it down')),
+        h('p', { class: 'pop-meta' }, 'Paste an outline and the steps you have: Claude adds measurable steps, timed into your calendar.')));
 
     showPopover(anchor, [
       title,
@@ -4919,6 +6963,7 @@
       h('div', { class: 'row' }, icon('tag'), tags.el),
       h('div', { class: 'row top' }, icon('note'), notes),
       h('div', { class: 'row goal-look' }, h('span', { class: 'ico' }), swatches, listPick || null),
+      breakRow,
       h('div', { class: 'goal-steps-head' }, h('b', null, 'Steps'),
         h('div', { class: 'grow' }),
         h('button', { class: 'link-btn', title: 'Give the steps without a date evenly spaced dates up to the target', onclick: spread }, 'Spread dates'),
@@ -4934,6 +6979,352 @@
         h('button', { class: 'btn primary', onclick: save }, g ? 'Save' : 'Set goal')),
     ], null, { wide: true });
     if (!MOBILE && !g) title.focus();
+  }
+
+  // ---- Reading for Magic add and Magic goal: a picture (a screenshot or photo of instructions), a webpage or a Notion
+  // page. Each is read as soon as it is added (main: sources.js) and shows as a chip with what was found; what was
+  // read goes along when planning. A picture is made small enough to send first (Claude reads about a megapixel).
+  const SOURCES_MAX = 4;
+
+  async function shrinkImage(file) {
+    const bmp = await createImageBitmap(file);
+    const draw = (max, q) => {
+      const k = Math.min(1, max / Math.max(bmp.width, bmp.height), Math.sqrt(1150000 / (bmp.width * bmp.height)));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(bmp.width * k));
+      c.height = Math.max(1, Math.round(bmp.height * k));
+      const g = c.getContext('2d');
+      g.fillStyle = '#fff'; // a see-through picture reads as on paper
+      g.fillRect(0, 0, c.width, c.height);
+      g.drawImage(bmp, 0, 0, c.width, c.height);
+      return c.toDataURL('image/jpeg', q);
+    };
+    let url = draw(1568, 0.86);
+    for (const q of [0.74, 0.62, 0.5]) { if (url.length <= 950000) break; url = draw(1568, q); } // the phone's link takes 1 MB
+    const thumb = draw(96, 0.7);
+    bmp.close?.();
+    return { data: url.slice(url.indexOf(',') + 1), type: 'image/jpeg', thumb };
+  }
+
+  /** The "Read from" row and its chips. onChange: something was added, read or removed. */
+  function sourceBox(onChange = () => {}) {
+    const items = [];
+    const list = h('div', { class: 'src-list' });
+    const file = h('input', { type: 'file', accept: 'image/*', multiple: true, hidden: true, onchange: () => { addFiles(file.files); file.value = ''; } });
+    const url = h('input', { type: 'url', class: 'src-url', placeholder: 'Paste a webpage or Notion link', spellcheck: false, autocomplete: 'off', enterkeyhint: 'go' });
+    const linkRow = h('div', { class: 'src-link' }, url,
+      h('button', { type: 'button', class: 'btn', onclick: () => takeLink() }, 'Read'),
+      h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Cancel', onclick: () => { linkRow.hidden = true; } }, icon('x')));
+    linkRow.hidden = true;
+    url.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); takeLink(); }
+      if (e.key === 'Escape') { e.stopPropagation(); linkRow.hidden = true; }
+    });
+    const takeLink = () => { if (addLink(url.value)) { url.value = ''; linkRow.hidden = true; } };
+    const el = h('div', { class: 'src-box' },
+      h('div', { class: 'src-bar' },
+        h('span', { class: 'src-lead' }, 'Read from'),
+        h('button', { type: 'button', class: 'src-add', title: 'A screenshot or photo of instructions, a list or notes', onclick: () => file.click() }, icon('camera'), 'Picture'),
+        h('button', { type: 'button', class: 'src-add', title: 'A webpage or a Notion page', onclick: () => { linkRow.hidden = !linkRow.hidden; if (!linkRow.hidden) url.focus(); } }, icon('link'), 'Link'),
+        !MOBILE && h('span', { class: 'src-tip' }, 'or Ctrl+V a screenshot'),
+        file),
+      linkRow, list);
+
+    const status = (s) => (s.state === 'reading' ? (s.kind === 'image' ? 'Reading the picture…' : 'Reading…')
+      : s.state === 'error' ? s.error
+        : `${s.words.toLocaleString()} words${s.cut ? ', the first part' : ''}`);
+    function paint() {
+      list.replaceChildren(...items.map((s) => h('div', { class: `src-chip ${s.state}` },
+        s.thumb ? h('img', { class: 'src-thumb', src: s.thumb, alt: '' }) : h('span', { class: 'src-ico' }, icon(s.kind === 'notion' ? 'note' : s.kind === 'image' ? 'camera' : 'globe')),
+        h('span', { class: 'src-main' }, h('span', { class: 'src-t' }, s.title), h('small', null, status(s))),
+        s.state === 'reading' ? h('span', { class: 'spinner' }) : null,
+        s.state === 'error' ? h('button', { type: 'button', class: 'mg-link', onclick: () => start(s) }, 'Try again') : null,
+        h('button', { type: 'button', class: 'icon-btn', title: 'Remove', 'aria-label': `Remove ${s.title}`, onclick: () => { items.splice(items.indexOf(s), 1); paint(); } }, icon('x')))));
+      list.hidden = !items.length;
+      onChange();
+    }
+    function start(s) {
+      s.state = 'reading';
+      s.error = '';
+      s.promise = onyx.readSource(s.req).then(
+        (r) => Object.assign(s, { state: 'ready', kind: r.kind, title: r.title || s.title, url: r.url || s.url || '', text: r.text, words: r.words, cut: r.cut }),
+        (err) => Object.assign(s, { state: 'error', error: err?.message || 'Could not read it.' })).finally(paint);
+      paint();
+    }
+    function add(req, shown) {
+      if (items.length >= SOURCES_MAX) { toast(`Up to ${SOURCES_MAX} pages or pictures at a time.`, 'warn'); return false; }
+      const s = { ...shown, req, words: 0 };
+      items.push(s);
+      start(s);
+      return true;
+    }
+    function addLink(raw) {
+      let v = String(raw || '').trim();
+      if (!v) { url.focus(); return false; }
+      if (!/^https?:\/\//i.test(v)) v = `https://${v}`;
+      let u;
+      try { u = new URL(v); } catch { toast('That is not a link.', 'warn'); return false; }
+      if (!u.hostname.includes('.')) { toast('That is not a link.', 'warn'); return false; }
+      const notion = /(^|\.)notion\.(so|site)$/i.test(u.hostname);
+      return add({ kind: 'link', url: u.href }, { kind: notion ? 'notion' : 'web', title: u.hostname.replace(/^www\./, ''), url: u.href });
+    }
+    async function addFiles(files) {
+      for (const f of [...(files || [])]) {
+        if (!/^image\//.test(f.type)) { toast(`${f.name || 'That file'} is not a picture.`, 'warn'); continue; }
+        try {
+          const img = await shrinkImage(f);
+          const name = f.name && !/^(image|screenshot|img)[\w-]*\.\w+$/i.test(f.name) ? f.name.replace(/\.\w+$/, '') : 'Picture';
+          add({ kind: 'image', data: img.data, type: img.type }, { kind: 'image', title: name, thumb: img.thumb });
+        } catch {
+          toast('That picture could not be opened.', 'warn');
+        }
+      }
+    }
+    /** Ctrl+V while this window is open: a picture (a screenshot) is read wherever the cursor is, and a lone
+     *  link pasted into the typing box is read rather than typed in. */
+    function paste(e) {
+      const dt = e.clipboardData;
+      let pics = [...(dt?.files || [])].filter((f) => /^image\//.test(f.type));
+      if (!pics.length) pics = [...(dt?.items || [])].filter((i) => i.kind === 'file' && /^image\//.test(i.type)).map((i) => i.getAsFile()).filter(Boolean);
+      if (pics.length) { e.preventDefault(); addFiles(pics); return; }
+      if (!api.box || e.target !== api.box) return;
+      const text = (dt?.getData('text/plain') || '').trim();
+      if (/^https?:\/\/\S+$/i.test(text)) { e.preventDefault(); addLink(text); }
+    }
+    /** Pictures dropped anywhere on `target` are read. */
+    function dropOn(target) {
+      target.addEventListener('dragover', (e) => { if ([...(e.dataTransfer?.types || [])].includes('Files')) e.preventDefault(); });
+      target.addEventListener('drop', (e) => {
+        const pics = [...(e.dataTransfer?.files || [])];
+        if (!pics.length) return;
+        e.preventDefault();
+        addFiles(pics);
+      });
+    }
+    list.hidden = true;
+    const api = {
+      el, paste, dropOn,
+      box: null, // the typing box: a link pasted there is read
+      count: () => items.filter((s) => s.state !== 'error').length,
+      reading: () => items.some((s) => s.state === 'reading'),
+      settle: () => Promise.allSettled(items.map((s) => s.promise)),
+      ready: () => items.filter((s) => s.state === 'ready').map((s) => ({ title: s.title, kind: s.kind, url: s.url || '', text: s.text })),
+    };
+    pasteInto = api;
+    return api;
+  }
+  // The Magic window open now (the newest one made); a paste anywhere goes to it while its "Read from" row is showing.
+  let pasteInto = null;
+  document.addEventListener('paste', (e) => { if (pasteInto?.el.isConnected) pasteInto.paste(e); });
+
+  // ---- Magic add for goals: a goal (new, or one that is already set), its dates and whatever is pasted about it
+  // (an outline, notes, the steps already there and the ones already done) become phases of measurable steps,
+  // one-off or repeating, as finely as the hammers say, each session at a free time in the calendar. The plan is
+  // shown first: every step can be renamed or left out, and nothing is made until "Set goal" (or "Add steps").
+  const GOAL_LEVELS = [
+    ['Milestones', 'A few big milestones and a habit or two'],
+    ['Weekly plan', 'About 10 to 25 steps, a few weekly habits'],
+    ['Clear steps', '25 to 60 steps, habits for the regular work'],
+    ['Detailed', '60 to 120 sessions of 20 to 60 minutes'],
+    ['Every day', '120 to 250 small steps: something every day'],
+  ];
+  const REPEAT_NAMES = { daily: 'Daily', weekdays: 'Weekdays', weekly: 'Weekly', biweekly: 'Every 2 weeks', monthly: 'Monthly' };
+  const goalLevel = () => { try { return Math.min(5, Math.max(1, Number(localStorage.getItem('onyx.goal-level')) || 3)); } catch { return 3; } };
+  const shortDay = (s) => fromYmd(s).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  const minutesText = (m) => (m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60}` : ''}`);
+
+  function openGoalMagic(g, anchor, startLevel) {
+    const title = h('input', { type: 'text', class: 'pop-title', placeholder: 'What do you want to achieve?', value: g ? g.title : '', spellcheck: false, disabled: !!g });
+    const start = h('input', { type: 'date', value: g ? g.start : ymd(new Date()), title: 'Starts', disabled: !!g });
+    const end = h('input', { type: 'date', value: g ? g.end : ymd(addDays(new Date(), 90)), title: 'Target date', disabled: !!g });
+    const outline = h('textarea', {
+      class: 'gm-outline', rows: MOBILE ? 6 : 8, spellcheck: true,
+      placeholder: `Paste everything about it: an outline of what it involves, notes, links${MOBILE ? '' : ', screenshots'}, how much time you have, and the steps you already have. Mark the ones you have finished with [x] or "done".`,
+    });
+    let level = startLevel || goalLevel();
+    const hammers = h('div', { class: 'hammers', role: 'radiogroup', 'aria-label': 'How finely to break it down' });
+    const levelName = h('span', { class: 'gm-level' });
+    const drawHammers = () => {
+      hammers.replaceChildren(...[1, 2, 3, 4, 5].map((n) => h('button', {
+        type: 'button', class: `hammer${n <= level ? ' on' : ''}`, role: 'radio', 'aria-checked': String(n === level), title: GOAL_LEVELS[n - 1].join(': '),
+        onclick: () => { level = n; try { localStorage.setItem('onyx.goal-level', String(n)); } catch { /* this visit */ } drawHammers(); },
+      }, icon('hammer'))));
+      levelName.replaceChildren(h('b', null, GOAL_LEVELS[level - 1][0]), h('span', null, GOAL_LEVELS[level - 1][1]));
+    };
+    drawHammers();
+    const fit = h('input', { type: 'checkbox', checked: true });
+    const go = h('button', { class: 'btn primary gm-go', onclick: () => run() }, icon('sparkles'), g ? 'Break it down' : 'Plan it');
+    const out = h('div', { class: 'gm-out' });
+    const make = h('button', { class: 'btn primary', hidden: true, onclick: () => create() }, g ? 'Add steps' : 'Set goal');
+    let plan = null, busy = false;
+    // A course page, a Notion plan or a picture of one, read into the plan along with the outline.
+    const src = sourceBox();
+    src.box = outline;
+    src.dropOn(outline);
+
+    const run = async () => {
+      if (busy) return;
+      if (!title.value.trim()) { title.focus(); return toast('Give the goal a name first.', 'warn'); }
+      busy = true;
+      go.disabled = true;
+      go.replaceChildren(icon('sparkles'), 'Planning…');
+      make.hidden = true;
+      const waiting = (t) => out.replaceChildren(h('div', { class: 'gm-wait' }, h('span', { class: 'spinner' }), h('span', null, t)));
+      if (src.reading()) waiting('Reading…');
+      await src.settle();
+      waiting(level >= 4 ? 'Claude is writing a day-by-day plan. A big one takes a minute or two.' : 'Claude is breaking it down…');
+      try {
+        plan = await onyx.planGoal({ title: title.value.trim(), start: start.value, end: end.value, outline: outline.value, sources: src.ready(), level, fit: fit.checked, goalId: g?.id || null });
+        for (const s of plan.steps) s.on = true;
+        draw();
+      } catch (err) {
+        out.replaceChildren();
+        fail(err);
+      } finally {
+        busy = false;
+        go.disabled = false;
+        go.replaceChildren(icon('sparkles'), plan ? 'Plan again' : g ? 'Break it down' : 'Plan it');
+      }
+    };
+
+    // The plan: a line of numbers, then each phase with its steps (tick to keep, rename in place).
+    const draw = () => {
+      const picked = plan.steps.filter((s) => s.on);
+      const sum = summarize(picked);
+      const chip = (n, label) => h('span', { class: 'gm-chip' }, h('b', null, String(n)), label);
+      const phases = [...plan.phases, ...(plan.steps.some((s) => !plan.phases.some((p) => p.name === s.phase)) ? [{ name: '', start: '', end: '', milestone: '' }] : [])];
+      out.replaceChildren(
+        h('div', { class: 'gm-sum' },
+          chip(sum.tasks, sum.tasks === 1 ? ' task' : ' tasks'), chip(sum.habits, ' repeating'), chip(sum.once, ' one-off'),
+          sum.done ? chip(sum.done, ' already done') : null,
+          h('span', { class: 'gm-chip soft' }, `about ${sum.hoursPerWeek} h a week`)),
+        ...phases.map((p) => {
+          const mine = plan.steps.filter((s) => (p.name ? s.phase === p.name : !plan.phases.some((x) => x.name === s.phase)));
+          if (!mine.length) return null;
+          const allOn = mine.every((s) => s.on);
+          return h('section', { class: 'gm-phase' },
+            h('header', null,
+              h('div', { class: 'gm-ph-t' }, h('b', null, p.name || 'Other steps'), p.start ? h('span', null, `${shortDay(p.start)} – ${shortDay(p.end)}`) : null),
+              h('button', { class: 'link-btn', onclick: () => { for (const s of mine) s.on = !allOn; draw(); } }, allOn ? 'Leave all out' : 'Keep all')),
+            p.milestone && h('p', { class: 'gm-milestone' }, icon('flag'), p.milestone),
+            ...mine.map(stepRow));
+        }),
+        h('p', { class: 'pop-meta' }, fit.checked
+          ? 'Each session has a time that is free in your calendar (for a repeating step, on most of its days). Steps further out than six weeks keep their date and find their time later.'
+          : 'The steps keep their dates; give them times later from the goal.'));
+      make.hidden = !picked.length;
+      make.textContent = g ? `Add ${picked.length} ${picked.length === 1 ? 'step' : 'steps'}` : `Set goal: ${picked.length} ${picked.length === 1 ? 'task' : 'tasks'}`;
+    };
+    // The numbers for what is kept: each step knows how many sessions it has (goal-plan.js timesIn).
+    const summarize = (steps) => {
+      const live = steps.filter((s) => !s.done);
+      const from = start.value > ymd(new Date()) ? start.value : ymd(new Date());
+      const weeks = Math.max(1, (fromYmd(end.value) - fromYmd(from)) / (7 * 86400000));
+      const minutes = live.reduce((n, s) => n + (s.minutes || 0) * (s.sessions || 1), 0);
+      return { tasks: steps.length, habits: live.filter((s) => s.repeat).length, once: live.filter((s) => !s.repeat).length, done: steps.length - live.length, hoursPerWeek: Math.round((minutes / 60 / weeks) * 10) / 10 };
+    };
+    const stepRow = (s) => {
+      const box = h('input', { type: 'checkbox', checked: s.on, title: s.on ? 'Kept: untick to leave it out' : 'Left out: tick to keep it' });
+      box.onchange = () => { s.on = box.checked; draw(); };
+      const name = limitName(h('input', { type: 'text', class: 'gm-name', value: s.title, spellcheck: false, oninput: (e) => { s.title = e.target.value; } }), { count: false });
+      const when = s.repeat
+        ? `${REPEAT_NAMES[s.repeat]} · ${shortDay(s.due)} – ${shortDay(s.until || end.value)}`
+        : shortDay(s.due);
+      const at = s.time ? fmtTime(at2(s.due, s.time)) : '';
+      return h('div', { class: `gm-step${s.on ? '' : ' off'}${s.done ? ' done' : ''}${s.repeat ? ' habit' : ''}` },
+        box,
+        h('div', { class: 'gm-body' },
+          name,
+          h('div', { class: 'gm-meta' },
+            s.done ? h('span', { class: 'gm-tag done' }, icon('check'), 'Already done') : h('span', { class: `gm-tag${s.repeat ? ' rep' : ''}` }, s.repeat ? icon('repeat') : icon('calendar'), when),
+            !s.done && (at || s.minutes) && h('span', { class: 'gm-tag' }, icon('clock'), [at, s.minutes ? minutesText(s.minutes) : ''].filter(Boolean).join(' · ')),
+            s.clash ? h('span', { class: 'gm-tag warn', title: 'No time was free on every one of its days: it overlaps something on those' }, `busy on ${s.clash} ${s.clash === 1 ? 'day' : 'days'}`) : null,
+            s.measure && h('span', { class: 'gm-measure' }, s.measure)),
+          !s.done && stepDetails(s)));
+    };
+    // What Claude added for the step's block (a checklist, links, a tip): shown folded, each piece can be taken off.
+    const stepDetails = (s) => {
+      const n = (s.checklist?.length || 0) + (s.links?.length || 0) + (s.tip ? 1 : 0);
+      if (!n) return null;
+      const off = (key, i) => (ev) => {
+        ev.preventDefault();
+        if (i == null) delete s[key]; else { s[key].splice(i, 1); if (!s[key].length) delete s[key]; }
+        open.add(s.key);
+        draw();
+      };
+      const x = (fn, what) => h('button', { type: 'button', class: 'x', title: `Take ${what} off`, 'aria-label': `Take ${what} off`, onclick: fn }, icon('x'));
+      const parts = [
+        s.checklist?.length && `${s.checklist.length} to tick`,
+        s.links?.length && `${s.links.length} ${s.links.length === 1 ? 'link' : 'links'}`,
+        s.tip && 'a tip',
+      ].filter(Boolean);
+      const box = h('details', { class: 'gm-details', open: open.has(s.key) },
+        h('summary', null, icon('tasks'), `On its block: ${parts.join(' · ')}`),
+        s.tip && h('div', { class: 'gm-d-row gm-tip' }, h('span', null, s.tip), x(off('tip'), 'the tip')),
+        s.checklist?.length && h('ul', { class: 'gm-d-list' }, s.checklist.map((c, i) => h('li', { class: 'gm-d-row' }, h('span', { class: 'gm-d-box' }), h('span', null, c), x(off('checklist', i), `"${c}"`)))),
+        s.links?.length && h('div', { class: 'gm-d-links' }, s.links.map((l, i) => h('div', { class: 'gm-d-row' },
+          icon('link'), h('button', { type: 'button', class: 'link-btn inline', title: l.url, onclick: () => onyx.open(l.url) }, l.title),
+          h('small', null, (() => { try { return new URL(l.url).hostname.replace(/^www\./, ''); } catch { return ''; } })()), x(off('links', i), 'this link')))));
+      box.addEventListener('toggle', () => { if (box.open) open.add(s.key); else open.delete(s.key); });
+      return box;
+    };
+    const open = new Set(); // steps whose details are unfolded, kept across redraws
+    const at2 = (day, time) => { const [hh, mm] = time.split(':').map(Number); const d = fromYmd(day); d.setHours(hh, mm, 0, 0); return d; };
+
+    const create = async () => {
+      const picked = plan.steps.filter((s) => s.on && s.title.trim());
+      if (!picked.length) return;
+      const steps = picked.map((s) => ({
+        title: s.title.trim(), due: s.due, time: s.done ? null : s.time || null, repeat: s.repeat || null, until: s.until || null,
+        done: !!s.done, phase: s.phase || '', measure: s.measure || '', minutes: s.minutes || null,
+        // For its block: what Claude added and was not taken off.
+        ...(s.done ? {} : { checklist: s.checklist || [], links: s.links || [], tip: s.tip || '' }),
+      }));
+      make.disabled = go.disabled = true;
+      const live = steps.filter((s) => !s.done).length;
+      make.textContent = `Making ${live} ${live === 1 ? 'task' : 'tasks'}…`;
+      try {
+        let res;
+        if (g) {
+          const kept = g.steps.map((s) => ({ id: s.id, title: s.title, due: s.repeat ? null : s.due || null, time: s.time || null, done: !!s.done, repeat: s.repeat || null }));
+          res = await onyx.updateGoal(g.id, { steps: [...kept, ...steps] });
+        } else {
+          res = await onyx.createGoal({
+            title: title.value.trim(), start: start.value, end: end.value, color: COLORS[goals.length % COLORS.length],
+            // The outline, and where the plan was read from.
+            notes: [cleanNote(outline.value), ...src.ready().map((s) => `${s.title}${s.url ? `: ${s.url}` : ''}`)].filter(Boolean).join('\n').slice(0, 8000),
+            tags: [...tagFilter].map((t) => tagInfo(t)?.name || t), steps,
+          });
+        }
+        if (res.warnings?.length) toast(`Saved, but: ${res.warnings.slice(0, 3).join('  ·  ')}${res.warnings.length > 3 ? ` and ${res.warnings.length - 3} more` : ''}`, 'warn');
+        else toast(g ? `${steps.length} steps added to "${g.title}"` : `Goal set: ${steps.length} steps, ${live} of them in your tasks`);
+        closePopover();
+        await loadGoals();
+        await loadTasks();
+        refetch();
+      } catch (err) {
+        make.disabled = go.disabled = false;
+        draw();
+        fail(err);
+      }
+    };
+
+    showPopover(anchor, [
+      h('div', { class: 'gm-head' }, icon('sparkles'), h('b', null, g ? 'Break down this goal' : 'Magic add goal')),
+      title,
+      h('div', { class: 'row' }, icon('calendar'), start, h('span', { class: 'dash' }, 'to'), end),
+      h('div', { class: 'row top' }, icon('note'), outline),
+      h('div', { class: 'row gm-src' }, src.el),
+      h('div', { class: 'row gm-meter' }, icon('hammer'), h('div', { class: 'txt' }, h('div', { class: 'breakdown-head' }, h('b', null, 'Breakdown'), hammers), levelName)),
+      h('label', { class: 'row gm-fit' }, fit, h('span', null, 'Give every session a free time in my calendar')),
+      h('div', { class: 'row gm-go-row' }, go),
+      out,
+      h('div', { class: 'pop-actions' },
+        h('div', { class: 'grow' }),
+        h('button', { class: 'btn ghost', onclick: () => closePopover() }, 'Cancel'),
+        make),
+    ], null, { wide: true });
+    if (!MOBILE) (g ? outline : title).focus();
   }
 
   // ------------------------------------------------------------ sidebar
@@ -5056,7 +7447,7 @@
       if (!quiet) applyState(next);
       else { S.settings = next.settings; S.mcp = next.mcp; S.tags = next.tags; }
     } catch (err) {
-      toast(err.message, 'error');
+      fail(err);
     }
   }
 
@@ -5200,7 +7591,7 @@
       loadTasks(true);
       if (done) toast(done);
     } catch (err) {
-      toast(err.message, 'error');
+      fail(err);
     }
   }
 
@@ -5236,6 +7627,39 @@
   }
 
   const PANES = {
+    // Every version of Onyx and what came with it, newest first (changelog.js, made by scripts/changelog.js).
+    changelog() {
+      const list = window.OnyxChangelog || [];
+      const here = onyx.isPhone ? null : S.version; // the phone app's own version is not known here
+      const FIRST = 12;
+      let all = false;
+      const search = h('input', { type: 'search', class: 'cl-search', placeholder: 'Search the changes…', spellcheck: false, 'aria-label': 'Search the changelog' });
+      const body = h('div', { class: 'cl-list' });
+      const day = (d) => { try { return fromYmd(d).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }); } catch { return d; } };
+      const draw = () => {
+        const q = search.value.trim().toLowerCase();
+        const has = (v) => !q || v.version.includes(q) || (v.title || '').toLowerCase().includes(q) || v.items.some((it) => it.toLowerCase().includes(q));
+        const found = list.filter(has);
+        const shown = q || all ? found : found.slice(0, FIRST);
+        body.replaceChildren(
+          ...shown.map((v) => h('section', { class: `cl-ver${v.version === here ? ' here' : ''}` },
+            h('header', { class: 'cl-head' },
+              h('span', { class: 'cl-num' }, v.version),
+              v.version === here && h('span', { class: 'cl-here' }, 'You have this'),
+              h('span', { class: 'cl-date' }, day(v.date))),
+            v.title && h('div', { class: 'cl-title' }, v.title),
+            h('ul', { class: 'cl-items' }, (q ? v.items.filter((it) => it.toLowerCase().includes(q) || v.version.includes(q) || (v.title || '').toLowerCase().includes(q)) : v.items)
+              .map((it) => h('li', null, it))))),
+          !q && !all && found.length > shown.length ? h('button', { class: 'btn cl-more', onclick: () => { all = true; draw(); } }, `Show all ${found.length} versions`) : null,
+          q && !found.length ? h('p', { class: 'hint' }, 'No change mentions that.') : null);
+      };
+      search.addEventListener('input', draw);
+      draw();
+      return h('div', { class: 'cl-pane' },
+        h('h3', null, 'Changelog'),
+        h('p', { class: 'lead' }, `Every version of Onyx, newest first: ${list.length} so far. It grows with every update.`),
+        search, body);
+    },
     calendars() {
       const msId = h('input', { type: 'text', placeholder: 'Application (client) ID', value: S.microsoft.clientId, spellcheck: false });
       const feedName = h('input', { type: 'text', placeholder: 'Name, e.g. Work Outlook' });
@@ -5376,6 +7800,71 @@
       ];
     },
 
+    // The doomscroll saver: after a while on social media, a card in the corner with the time spent,
+    // what is next, and a way back to Onyx. The Android app only (DoomscrollService).
+    doomscroll() {
+      const box = h('div', { class: 'card' }, h('p', null, 'Checking…'));
+      const MINUTES = [1, 2, 3, 5, 10, 15, 20, 30, 45, 60];
+      const APPS = ['Instagram', 'TikTok', 'YouTube', 'Facebook', 'X', 'Snapchat', 'Reddit', 'Threads', 'Pinterest', 'Bluesky', 'Tumblr', 'Twitch', 'LinkedIn'];
+      const privacy = h('div', { class: 'privacy-card' },
+        h('div', { class: 'pc-main' }, h('div', { class: 'pc-text' },
+          h('div', { class: 'pc-badge' }, icon('shield'), 'Private by design'),
+          h('b', { class: 'pc-title' }, 'What it looks at stays on this phone'),
+          h('ul', { class: 'pc-points' }, [
+            ['Checked right here, on this phone', 'Onyx only looks at which app is open and, in a browser, the name of the site in the address bar.'],
+            ['Nothing else is read', 'Not what is on the screen, not what you type, not your messages.'],
+            ['Only today, and never sent', 'For the today total, it keeps how long you have been on each of those apps today, on this phone only, and starts again each day. Nothing leaves the phone.'],
+          ].map(([t, d]) => h('li', null, icon('check'), h('span', null, h('b', null, t), h('small', null, d))))))),
+        h('div', { class: 'pc-flow', role: 'img', 'aria-label': 'The app or site in front, checked on this phone, becomes only how long. Nothing is sent.' },
+          h('span', { class: 'pc-node' }, icon('device'), 'App or site'),
+          h('i', { class: 'pc-arrow' }),
+          h('span', { class: 'pc-node strong' }, icon('device'), 'This phone'),
+          h('i', { class: 'pc-arrow' }),
+          h('span', { class: 'pc-node' }, '"how long"'),
+          h('span', { class: 'pc-node off' }, icon('cloudoff'), 'Nothing sent')));
+      const draw = (info) => {
+        if (!('doomscroll' in info)) { box.replaceChildren(h('p', null, 'Update the Onyx app to use this.')); return; }
+        const set = (o) => onyx.launcher.setDoomscroll(o).then(draw).catch((err) => fail(err));
+        const minutes = [...new Set([...MINUTES, info.doomMinutes])].sort((a, b) => a - b);
+        box.replaceChildren(...[
+          field('Doomscroll saver', 'After a while on social media, a small card comes up in the bottom right corner: how long it has been, and what is next on your calendar with a bar filling as it nears. Tap it to come back to Onyx; the × hides it for another stretch.',
+            toggle(info.doomscroll === true, (v) => set({ on: v }))),
+          field('Show it after', 'Minutes in a row on social media, in an app or a browser. Moving between them keeps counting; a minute or more away starts the count again.',
+            h('select', { onchange: (e) => set({ minutes: +e.target.value }) },
+              minutes.map((m) => h('option', { value: m, selected: m === info.doomMinutes }, m === 1 ? '1 minute' : `${m} minutes`)))),
+          field('Accessibility access', 'Android lets Onyx see which app is open (and, in a browser, the site\'s name) through Accessibility. In the list there, open "Onyx doomscroll saver" and turn it on.',
+            info.doomAllowed ? h('span', { class: 'badge ok' }, 'On') : h('button', { class: 'btn primary', onclick: () => onyx.launcher.open('accessibility') }, 'Allow')),
+          !info.doomAllowed && h('div', { class: 'restricted-guide' },
+            h('b', null, 'Switch greyed out?'),
+            h('p', null, 'Android locks Accessibility for apps installed from a download. To unlock it:'),
+            h('ol', null,
+              h('li', null, 'Tap App info below (Settings → Apps → Onyx Calendar).'),
+              h('li', null, 'Tap ⋮ at the top right, then Allow restricted settings, and confirm with your PIN or fingerprint.'),
+              h('li', null, 'If that option is missing, try the greyed-out switch once first, then look again.'),
+              h('li', null, 'Come back here and tap Allow: the switch turns on now.')),
+            h('button', { class: 'btn', onclick: () => onyx.launcher.open('appinfo') }, 'App info')),
+          info.doomAllowed && field('See the card', 'It shows for ten seconds, over whatever is on the screen.',
+            h('button', { class: 'btn', onclick: async () => {
+              const r = await onyx.launcher.previewDoomscroll().catch(() => null);
+              if (!r?.shown) toast('Turn on Accessibility access first.');
+            } }, 'Show me')),
+          h('div', { class: 'doom-apps' }, h('small', null, 'Counts as social media, in their apps and in your browser (Chrome, Samsung Internet, Firefox, Edge, Brave, Opera, DuckDuckGo):'),
+            h('div', { class: 'fs-chips' }, APPS.map((a) => h('span', { class: 'doom-app' }, a)))),
+          privacy,
+        ].filter(Boolean));
+      };
+      const load = () => onyx.launcher.info().then(draw).catch(() => box.replaceChildren(h('p', null, 'Update the Onyx app to use this.')));
+      load();
+      // Back from Android's Accessibility settings: show what changed.
+      const back = () => { if (!box.isConnected) document.removeEventListener('visibilitychange', back); else if (!document.hidden) load(); };
+      document.addEventListener('visibilitychange', back);
+      return [
+        h('h3', null, 'Doomscroll saver'),
+        h('p', { class: 'lead' }, 'A nudge back to your plan when a quick look at social media turns into a long one.'),
+        box,
+      ];
+    },
+
     // Onyx Home (the phone's launcher) and Onyx on the lock screen: the Android app only.
     launcher() {
       const box = h('div', { class: 'card' }, h('p', null, 'Checking…'));
@@ -5386,7 +7875,7 @@
         const lock = info.show === 'lock' || info.show === 'both';
         box.replaceChildren(...[
           field('Show Onyx on', 'Your progress bars, the time until your next task, and the Pi\'s calls as they ring.',
-            h('select', { onchange: (e) => onyx.launcher.set(e.target.value).then(draw).catch((err) => toast(err.message, 'error')) },
+            h('select', { onchange: (e) => onyx.launcher.set(e.target.value).then(draw).catch((err) => fail(err)) },
               [['home', 'Home screen'], ['lock', 'Lock screen'], ['both', 'Home and lock screen'], ['off', 'Neither']]
                 .map(([v, n]) => h('option', { value: v, selected: v === info.show }, n)))),
           field('Onyx Home', info.isHome
@@ -5396,7 +7885,7 @@
               h('button', { class: 'btn', onclick: () => onyx.launcher.open('launcher') }, 'Preview'),
               h('button', { class: info.isHome ? 'btn' : 'btn primary', onclick: () => onyx.launcher.open('home') }, info.isHome ? 'Change home app' : 'Make it my home app'))),
           field('Alarm for everything as it starts', 'On top of each entry\'s own Escalation: every timed entry and task rings the full-screen alarm as it starts. Off, only entries set to Alarm ring your phone.',
-            toggle(info.alarm === true, (v) => onyx.launcher.setAlarm(v).then(draw).catch((err) => toast(err.message, 'error')))),
+            toggle(info.alarm === true, (v) => onyx.launcher.setAlarm(v).then(draw).catch((err) => fail(err)))),
           lock && field('Notifications', 'The lock screen shows what is on now, its progress bar and a countdown to the next thing as a live notification.', allow(info.notifications, 'notifications')),
           lock && field('Over the lock screen', 'Brings the full Onyx panel up over the lock screen each time the screen turns on ("Display over other apps").', allow(info.overlay, 'overlay')),
           lock && 'notiflist' in info && field('My notifications under the panel', 'Android hides its own notification list behind the Onyx panel, so Onyx lists your other apps\' notifications under it: tap one to unlock and open it, hold it to clear it. Private ones show only "Contents hidden", and your lock screen settings for notifications are kept. Needs Notification access.',
@@ -5438,10 +7927,17 @@
             h('button', { class: 'btn', onclick: () => checkForUpdate(true) }, icon('update'), 'Check now')),
           field('Now / Next bar', 'A strip under the top bar: what you are doing now, what is next, and how much time is left before it. It chimes 5 minutes before and as it starts (the bell on the bar mutes it).',
             toggle(s.nextBar !== false, (v) => saveSettings({ nextBar: v }).then(tickNext))),
-          field('Transition buffers', 'A striped 15 minutes after a meeting that another one follows: time to get from one to the next. The only stripes on the calendar.',
-            toggle(s.buffers !== false, (v) => saveSettings({ buffers: v }).then(() => refetch()))),
           field('Popups', 'A popup over everything, ringing, when the Pi phones you about something, and another as it starts. Snooze brings it back in 5 minutes.',
             toggle(s.popups !== false, (v) => saveSettings({ popups: v }))),
+          field('Tick-off sound', 'What you hear when you tick off a task or a block. Tap one to hear it.', (() => {
+            const seg = h('div', { class: 'segmented' }, DONE_SOUNDS.map(([v, label]) => h('button', { type: 'button', 'data-v': v, onclick: () => {
+              for (const b of seg.children) b.classList.toggle('on', b.dataset.v === v);
+              doneSound(v);
+              saveSettings({ doneSound: v }, true);
+            } }, label)));
+            for (const b of seg.children) b.classList.toggle('on', b.dataset.v === (s.doneSound || 'soft'));
+            return seg;
+          })()),
           field('24-hour time', null, toggle(!s.hour12, (v) => saveSettings({ hour12: !v }))),
           field('Week starts on', null,
             h('select', { onchange: (e) => saveSettings({ weekStart: Number(e.target.value) }) },
@@ -5496,7 +7992,7 @@
           if (next?.settings) applyState(next); else openSettings('desktops');
           if (done) toast(done);
         } catch (err) {
-          toast(err.message, 'error');
+          fail(err);
         }
       };
       const ago = (t) => {
@@ -5507,32 +8003,83 @@
       onyx.desktops().then((d) => {
         const m = S.mcp;
         const off = !m.running || !m.lan;
+        const c = d.cloud || { on: false, state: 'off', accounts: [] };
         const others = d.desktops.filter((x) => !x.self);
-        const linked = d.linked && others.length > 0;
         const address = h('input', { type: 'text', placeholder: 'Its address, e.g. 192.168.1.20', spellcheck: false });
         const code = h('input', { type: 'text', class: 'code-input', placeholder: 'ABCD-2345', spellcheck: false, autocomplete: 'off', maxlength: 9 });
         const join = () => run(() => onyx.joinDesktop(address.value, code.value), 'Linked. Everything is now shared with the other desktop.');
         code.addEventListener('keydown', (e) => { if (e.key === 'Enter') join(); });
-        box.replaceChildren(...[
-          off && h('div', { class: 'card' },
-            h('h4', null, 'Turn on the server first'),
-            h('p', null, 'Desktops reach each other through the MCP server, like the phone does. In the MCP server tab, switch the server on and turn on "Reachable from your network".'),
-            h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => openSettings('mcp') }, 'Open MCP server settings'))),
-          linked && h('div', { class: 'card' },
-            h('h4', null, 'Linked desktops', h('span', { class: 'badge ok' }, `${others.length + 1} PCs`)),
-            d.desktops.map((x) => h('div', { class: 'acct desk' },
-              h('span', { class: `badge ${x.self ? '' : x.online ? 'ok' : 'bad'}` }, x.self ? 'This PC' : x.online ? 'Online' : 'Offline'),
-              h('span', { class: 'who' }, x.name,
-                h('small', null, x.self
-                  ? (x.addresses.length ? x.addresses.map(short).join('  ·  ') : 'Not reachable: the server is off')
-                  : x.online ? `Synced ${ago(x.seen)}` : [x.seen ? `Last synced ${ago(x.seen)}` : 'Not synced yet', x.error].filter(Boolean).join(' · '))),
-              !x.self && !x.online && h('button', { class: 'btn', title: 'Take it off the list (a desktop that is still linked comes back when it next syncs)', onclick: () => run(() => onyx.forgetDesktop(x.id)) }, 'Remove'))),
-            h('p', { class: 'hint' }, 'Changes reach the others within seconds while they are on, and as soon as they come back otherwise. Your phone uses whichever desktop is on.'),
+
+        // Sync through Google Drive: the way that works from anywhere.
+        const pick = c.accounts.length > 1 && h('select', { class: 'cloud-account' }, c.accounts.map((a) => h('option', { value: a, selected: a === c.account }, a)));
+        const chosen = () => (pick ? pick.value : c.accounts[0]);
+        const syncCode = h('input', { type: 'text', class: 'code-input cloud-code-input', placeholder: 'ABCD-EFGH-JKLM-NPQR', spellcheck: false, autocomplete: 'off', maxlength: 19 });
+        const sendCode = () => run(() => onyx.cloudCode(syncCode.value), 'Joined. This PC now has everything from your other PCs.');
+        syncCode.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendCode(); });
+        const shown = h('div', { class: 'cloud-code', hidden: true });
+        const showCode = async (btn) => {
+          const text = await onyx.cloudShowCode();
+          shown.replaceChildren(h('div', { class: 'link-code' }, text), h('div', { class: 'row' }, copyBtn(text, 'Copy code')),
+            h('p', { class: 'hint' }, 'On each other PC: open Settings → Desktops, turn on "Sync through Google Drive" with the same Google account, and enter this code. Keep it private: it unlocks your synced sign-ins.'));
+          shown.hidden = false;
+          btn.remove();
+        };
+        const badge = { ok: ['ok', 'On'], working: ['', 'Syncing…'], 'needs-permission': ['bad', 'Needs your OK'], 'needs-code': ['bad', 'Needs the code'], 'no-account': ['bad', 'No account'], error: ['bad', 'Not syncing'], off: ['', 'Off'] }[c.state] || ['', ''];
+        const cloudCard = h('div', { class: 'card cloud-card' },
+          h('h4', null, 'Sync through Google Drive', h('span', { class: `badge ${badge[0]}` }, badge[1])),
+          !c.on && [
+            h('p', null, 'Keeps every PC the same from any network: no Tailscale, and your PCs don\'t need to be on at the same time. Onyx keeps one locked file in a hidden folder of your Google Drive that only Onyx can open.'),
+            c.accounts.length
+              ? h('div', { class: 'row' }, pick, h('button', { class: 'btn primary', onclick: () => run(() => onyx.cloudOn(chosen()), 'Drive sync is on') }, 'Turn on'))
+              : [h('p', { class: 'hint' }, 'Sign in to a Google account first.'), h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => openSettings('calendars') }, 'Open Calendars'))],
+            h('p', { class: 'hint' }, 'Use the same Google account, and the same Google credentials file, on every PC.')],
+          c.on && c.state === 'needs-permission' && [
+            h('p', null, 'Google needs your OK for Onyx to keep its sync file in your Drive. Your browser opens; sign in as ', h('b', null, c.account), ' and allow it.'),
+            h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: () => run(() => onyx.cloudAllow(), 'Drive sync is on') }, 'Allow in Google'),
+              h('button', { class: 'btn', onclick: () => run(() => onyx.cloudOff()) }, 'Cancel'))],
+          c.on && c.state === 'needs-code' && [
+            h('p', null, c.error),
+            h('div', { class: 'row' }, syncCode, h('button', { class: 'btn primary', onclick: sendCode }, 'Join')),
+            h('p', { class: 'hint' }, 'This PC then takes what your other PCs have. Where both have the same setting, theirs wins.'),
+            h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => run(() => onyx.cloudOff()) }, 'Cancel'))],
+          c.on && (c.state === 'error' || c.state === 'no-account') && [
+            h('p', null, c.error),
+            h('div', { class: 'row' },
+              c.state === 'no-account' && h('button', { class: 'btn', onclick: () => openSettings('calendars') }, 'Open Calendars'),
+              h('button', { class: 'btn', onclick: () => run(() => onyx.syncDesktops(), 'Synced') }, icon('update'), 'Try again'),
+              h('button', { class: 'btn danger', onclick: () => run(() => onyx.cloudOff()) }, 'Turn off'))],
+          c.on && (c.state === 'ok' || c.state === 'working') && [
+            h('p', null, `Through ${c.account}. `, c.last ? `Last synced ${ago(c.last)}.` : 'Syncing for the first time…'),
+            shown,
             h('div', { class: 'row' },
               h('button', { class: 'btn', onclick: () => run(() => onyx.syncDesktops(), 'Synced') }, icon('update'), 'Sync now'),
+              c.hasCode && h('button', { class: 'btn', onclick: (e) => showCode(e.currentTarget).catch(fail) }, 'Show sync code'),
               h('button', { class: 'btn danger', onclick: () => {
-                if (confirm('Unlink this desktop? It keeps what it has now, but stops sharing changes with the others.')) run(() => onyx.leaveDesktops(), 'Unlinked');
-              } }, 'Unlink this desktop'))),
+                if (confirm('Turn off Drive sync on this PC? It keeps what it has now, but stops sharing changes through Drive.')) run(() => onyx.cloudOff(), 'Drive sync is off');
+              } }, 'Turn off'))]);
+
+        const listCard = others.length > 0 && h('div', { class: 'card' },
+          h('h4', null, 'Your desktops', h('span', { class: 'badge ok' }, `${others.length + 1} PCs`)),
+          d.desktops.map((x) => h('div', { class: 'acct desk' },
+            h('span', { class: `badge ${x.self ? '' : x.online ? 'ok' : 'bad'}` }, x.self ? 'This PC' : x.online ? 'Online' : 'Offline'),
+            h('span', { class: 'who' }, x.name,
+              h('small', null, x.self
+                ? (c.on && c.state === 'ok' ? 'Syncing through Google Drive' : x.addresses.length ? x.addresses.map(short).join('  ·  ') : 'Not reachable: the server is off')
+                : [x.seen ? `${x.online ? 'Synced' : 'Last synced'} ${ago(x.seen)}` : 'Not synced yet', x.drive ? 'through Drive' : '', x.error].filter(Boolean).join(' · '))),
+            !x.self && !x.online && h('button', { class: 'btn', title: 'Take it off the list (a desktop that still syncs comes back when it next does)', onclick: () => run(() => onyx.forgetDesktop(x.id)) }, 'Remove'))),
+          h('p', { class: 'hint' }, 'Changes reach the others within seconds while they are on, and as soon as they come back otherwise. Your phone uses whichever desktop is on.'),
+          d.linked && h('div', { class: 'row' },
+            !c.on && h('button', { class: 'btn', onclick: () => run(() => onyx.syncDesktops(), 'Synced') }, icon('update'), 'Sync now'),
+            h('button', { class: 'btn danger', onclick: () => {
+              if (confirm('Unlink this desktop from the network link? It keeps what it has now. Drive sync, if on, carries on.')) run(() => onyx.leaveDesktops(), 'Unlinked');
+            } }, 'Unlink over the network')));
+
+        // The older way: straight from PC to PC, on the same wifi or over Tailscale.
+        const lanCards = [
+          off && h('div', { class: 'card' },
+            h('h4', null, 'Turn on the server first'),
+            h('p', null, 'Over the network, desktops reach each other through the MCP server, like the phone does. In the MCP server tab, switch the server on and turn on "Reachable from your network".'),
+            h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => openSettings('mcp') }, 'Open MCP server settings'))),
           h('div', { class: 'card' },
             h('h4', null, 'Link another desktop'),
             d.invite
@@ -5540,19 +8087,26 @@
                 h('div', { class: 'link-code' }, d.invite.code),
                 h('pre', { class: 'code' }, `This PC's address:  ${d.invite.addresses.map(short).join('   or   ') || '(turn on the server first)'}`),
                 h('div', { class: 'row' }, copyBtn(d.invite.code, 'Copy code'), h('button', { class: 'btn', onclick: () => run(() => onyx.cancelInvite()) }, 'Cancel'))]
-              : [h('p', null, 'Shows a one-time code to type into Onyx on the other PC. After that, both share your Google credentials and sign-ins, tags, notes, goals, repeats, memos, pins and settings.'),
+              : [h('p', null, 'Shows a one-time code to type into Onyx on the other PC. Both PCs must be on the same wifi, or both on Tailscale.'),
                 h('div', { class: 'row' }, h('button', { class: 'btn primary', disabled: off, onclick: () => run(() => onyx.inviteDesktop()) }, 'Show a link code'))]),
-          !linked && h('div', { class: 'card' },
+          !d.linked && h('div', { class: 'card' },
             h('h4', null, 'Join a linked desktop'),
-            h('p', null, 'Use this on the new PC, with the address and code shown on the PC that is already set up. This PC gets everything from that one, nothing needs setting up again. Where both have the same setting, the other PC\'s wins.'),
+            h('p', null, 'Use this on the new PC, with the address and code shown on the PC that is already set up. This PC gets everything from that one. Where both have the same setting, the other PC\'s wins.'),
             h('div', { class: 'row' }, address, code, h('button', { class: 'btn primary', disabled: off, onclick: join }, 'Join')),
             h('p', { class: 'hint' }, 'A phone paired with only this PC needs pairing again afterwards (from either PC).')),
-        ].filter(Boolean));
+        ].filter(Boolean);
+        box.replaceChildren(...[
+          cloudCard,
+          listCard,
+          d.linked || d.invite
+            ? lanCards
+            : h('details', { class: 'lan-more' }, h('summary', null, 'Or link over your network (same wifi or Tailscale)'), ...lanCards),
+        ].flat().filter(Boolean));
         if (d.invite) setTimeout(() => { if (settingsTab === 'desktops' && !$('#modal').hidden) openSettings('desktops'); }, Math.max(1000, d.invite.expires - Date.now() + 500));
       }).catch((err) => box.replaceChildren(h('div', { class: 'card' }, h('p', null, err.message))));
       return [
         h('h3', null, 'Desktops'),
-        h('p', { class: 'lead' }, 'Run Onyx on more than one PC and keep them the same. Load your Google credentials file on one, and every linked desktop has it.'),
+        h('p', { class: 'lead' }, 'Run Onyx on more than one PC and keep them the same: tags, notes, goals, repeats, memos, pins, settings and sign-ins. Google and Outlook events come from Google and Microsoft, so they always match.'),
         box,
       ];
     },
@@ -5668,8 +8222,8 @@
   let settingsTab = onyx.isPhone ? 'connection' : 'calendars';
   function openSettings(tab = settingsTab) {
     const tabs = onyx.isPhone
-      ? [['connection', 'Connection'], ['keys', 'Keys & accounts'], ['pi', 'Calls & alerts'], ...(onyx.launcher ? [['launcher', 'Home & lock screen']] : []), ['general', 'General']]
-      : [['calendars', 'Calendars'], ['connections', 'Notion, Drive & AI'], ['phone', 'Phone'], ['desktops', 'Desktops'], ['pi', 'Calls & alerts'], ['mcp', 'MCP server'], ['general', 'General']];
+      ? [['connection', 'Connection'], ['keys', 'Keys & accounts'], ['pi', 'Calls & alerts'], ...(onyx.launcher ? [['launcher', 'Home & lock screen'], ['doomscroll', 'Doomscroll saver']] : []), ['general', 'General'], ['changelog', 'Changelog']]
+      : [['calendars', 'Calendars'], ['connections', 'Notion, Drive & AI'], ['phone', 'Phone'], ['desktops', 'Desktops'], ['pi', 'Calls & alerts'], ['mcp', 'MCP server'], ['general', 'General'], ['changelog', 'Changelog']];
     if (!tabs.some(([id]) => id === tab)) tab = tabs[0][0];
     settingsTab = tab;
     closePopover();
@@ -5701,65 +8255,145 @@
     if (graph.on) closeGraph();
     closePopover();
     closeDrawers();
-    const m = { home: '', mode: 'drive', start: '08:00', end: '21:00', lunch: true, ...(S.settings.magic || {}) };
+    const m = { start: '08:00', end: '21:00', ...(S.settings.magic || {}) };
+    const dayName = (d) => (d === ymd(new Date()) ? 'today' : d === ymd(addDays(new Date(), 1)) ? 'tomorrow' : fmtDay(fromYmd(d)));
+    const mins = (n) => (n >= 60 ? `${Math.floor(n / 60)} h${n % 60 ? ` ${n % 60} min` : ''}` : `${n} min`);
     const writable = S.calendars.filter((c) => c.kind === 'calendar' && c.writable);
     let view = null; // { date, tasks, travel, result }
     let working = false;
     let timer = 0;
 
-    // Tasks that arrived from other apps: planned along with what is typed. Ones due after the day wait unticked.
-    const planDate = preset.date || ymd(new Date());
-    const picked = new Set(inboxTasks().filter((t) => !t.date || t.date <= planDate).map((t) => t.id));
-    const arrivedBox = h('div', { class: 'magic-inbox' });
-    function paintArrived() {
-      const list = inboxTasks();
-      arrivedBox.hidden = !list.length;
-      arrivedBox.replaceChildren(
-        h('div', { class: 'mi-head' }, icon('tasks'), `From your other apps (${list.length})`,
-          h('small', null, 'They are planned into the day with the rest.')),
-        ...list.map((t) => h('label', { class: 'mi-row' },
-          h('input', { type: 'checkbox', checked: picked.has(t.id), onchange: (e) => { if (e.target.checked) picked.add(t.id); else picked.delete(t.id); } }),
-          h('span', { class: 'mi-main' }, h('b', null, t.label || t.title),
-            h('small', null, [sourceName(t), t.listName && t.listName !== sourceName(t) ? t.listName : null, t.date ? `due ${dayName(t.date)}` : null].filter(Boolean).join(' · '))),
-          h('button', { type: 'button', class: 'icon-btn', title: 'Not now: leave it out of Magic add', onclick: async (e) => {
-            e.preventDefault();
-            picked.delete(t.id);
-            try { await onyx.dismissInbox(t.id); } catch (err) { toast(err.message, 'error'); return; }
-            inboxIds = inboxIds.filter((id) => id !== t.id);
-            paintInboxBadge();
-            paintArrived();
-          } }, icon('x')))));
+    // Tasks to plan in along with what is typed, picked from three lists in tabs: the backburner, what other
+    // apps sent, and tasks with no date. A tick stays ticked whatever tab is showing, and everything ticked, in
+    // any of the three, is planned together. Nothing is ticked to start with, except a task opened here on purpose (preset.pick).
+    const picked = new Set(preset.pick || []);
+    const open = (t) => !t.done && !t.mirror;
+    const PICK_TABS = [
+      { key: 'burner', label: 'Backburner', empty: 'Nothing on the backburner.', list: () => tasks.filter((t) => open(t) && t.backburner && !t.date) },
+      { key: 'apps', label: 'From apps', short: 'Apps', empty: 'Nothing sent from your other apps.', list: () => inboxTasks().filter(open) },
+      { key: 'nodate', label: 'No date', empty: 'Every task has a day.', list: () => {
+        const sent = new Set(inboxIds);
+        return tasks.filter((t) => open(t) && !t.date && !t.backburner && !sent.has(t.id));
+      } },
+    ];
+    let pickTab = preset.tab || (inboxTasks().length ? 'apps' : PICK_TABS[0].list().length ? 'burner' : 'nodate');
+    const pickBox = h('section', { class: 'magic-pick' });
+    const ROWS_SHOWN = 5; // a tab's first few; the rest one tap away (no scrolling box inside the page)
+    const pickOpen = new Set(); // tabs showing all their tasks
+    const pickMeta = (t, key) => [
+      key === 'apps' ? sourceName(t) : null,
+      t.listName && (key !== 'apps' || t.listName !== sourceName(t)) ? t.listName : null,
+      t.minutes ? mins(t.minutes) : null,
+    ].filter(Boolean).join(' · ');
+    function pickRow(t, key) {
+      const late = t.date && t.date < ymd(new Date());
+      return h('label', { class: `mg-row${picked.has(t.id) ? ' on' : ''}` },
+        h('input', { type: 'checkbox', class: 'mg-check', checked: picked.has(t.id), onchange: (e) => { if (e.target.checked) picked.add(t.id); else picked.delete(t.id); paintPick(); } }),
+        h('span', { class: 'mg-main' },
+          h('span', { class: 'mg-title' }, t.label || t.title),
+          h('span', { class: 'mg-meta' }, pickMeta(t, key) || null,
+            t.date ? h('span', { class: `mg-due${late ? ' late' : ''}` }, `${late ? 'Was due' : 'Due'} ${dayName(t.date)}`) : null)),
+        key === 'apps' && h('button', { type: 'button', class: 'mg-dismiss', title: 'Not now: leave it out of Magic add', 'aria-label': `Leave "${t.label || t.title}" out`, onclick: async (e) => {
+          e.preventDefault();
+          picked.delete(t.id);
+          try { await onyx.dismissInbox(t.id); } catch (err) { fail(err); return; }
+          inboxIds = inboxIds.filter((id) => id !== t.id);
+          paintInboxBadge();
+          paintPick();
+        } }, icon('x')));
     }
-    const text = h('textarea', { class: 'magic-text', rows: 5, spellcheck: true, value: preset.text || '',
-      placeholder: inboxTasks().length ? 'Anything else to get done? One task per line…'
-        : 'Pick up the prescription\nGroceries\nStudy Arabic for an hour and a half\nCall the bank by 4pm\nGym' });
+    function paintPick() {
+      const lists = Object.fromEntries(PICK_TABS.map((s) => [s.key, s.list()]));
+      const total = PICK_TABS.reduce((n, s) => n + lists[s.key].length, 0);
+      pickBox.hidden = !total;
+      if (!total) { pickBox.replaceChildren(); return; }
+      const known = new Set(Object.values(lists).flat().map((t) => t.id));
+      for (const id of [...picked]) if (!known.has(id)) picked.delete(id); // done or gone meanwhile
+      const tab = PICK_TABS.find((s) => s.key === pickTab) || PICK_TABS[0];
+      const n = picked.size;
+      const rows = lists[tab.key];
+      const all = pickOpen.has(tab.key) || rows.length <= ROWS_SHOWN + 1;
+      pickBox.replaceChildren(
+        h('div', { class: 'mg-seg', role: 'tablist', 'aria-label': 'Tasks to plan in' }, PICK_TABS.map((s) => {
+          const ticked = lists[s.key].filter((t) => picked.has(t.id)).length;
+          return h('button', {
+            type: 'button', role: 'tab', class: s.key === tab.key ? 'on' : '', 'aria-selected': String(s.key === tab.key),
+            onclick: () => { pickTab = s.key; paintPick(); },
+          }, h('span', { class: 'mg-seg-t' }, MOBILE && s.short ? s.short : s.label), h('span', { class: `mg-num${ticked ? ' ticked' : ''}` }, ticked ? `${ticked}/${lists[s.key].length}` : String(lists[s.key].length)));
+        })),
+        rows.length
+          ? h('div', { class: 'mg-list', role: 'tabpanel' }, (all ? rows : rows.slice(0, ROWS_SHOWN)).map((t) => pickRow(t, tab.key)),
+            rows.length > ROWS_SHOWN + 1 && h('button', { type: 'button', class: 'mg-more', onclick: () => { if (all) pickOpen.delete(tab.key); else pickOpen.add(tab.key); paintPick(); } },
+              all ? 'Show fewer' : `Show ${rows.length - ROWS_SHOWN} more`))
+          : h('p', { class: 'mg-empty' }, tab.empty),
+        n ? h('div', { class: 'mg-foot' },
+          h('span', null, h('b', null, `${n} ticked`)),
+          h('button', { type: 'button', class: 'mg-link', onclick: () => { picked.clear(); paintPick(); } }, 'Untick all')) : '');
+      paintGo();
+    }
+    const text = h('textarea', { class: 'magic-text', rows: 2, spellcheck: true, value: preset.text || '',
+      placeholder: PICK_TABS.some((s) => s.list().length) ? `Type tasks, one per line${MOBILE ? '' : ', paste a screenshot'}, or tick some below`
+        : `Pick up the prescription\nGroceries\nStudy Arabic for an hour and a half\nCall the bank by 4pm${MOBILE ? '' : '\n…or paste a screenshot of instructions (Ctrl+V)'}` });
+    const grow = () => { text.style.height = 'auto'; text.style.height = `${Math.min(260, Math.max(52, text.scrollHeight))}px`; };
+    text.addEventListener('input', () => { grow(); paintGo(); });
+    // Pictures and links to read, under the typing box: a picture or a lone link pasted into it is read too.
+    const src = sourceBox(() => paintGo());
+    src.box = text;
+    setTimeout(grow, 0);
     const date = h('input', { type: 'date', value: preset.date || ymd(new Date()) });
     const start = h('input', { type: 'time', value: m.start, step: 900 });
     const end = h('input', { type: 'time', value: m.end, step: 900 });
-    const home = h('input', { type: 'text', value: m.home, spellcheck: false, placeholder: 'Your area or home address (for travel times)' });
-    const mode = h('select', null, [['drive', 'Drive'], ['walk', 'Walk'], ['transit', 'Public transport'], ['bike', 'Bike']]
-      .map(([v, n]) => h('option', { value: v, selected: v === m.mode }, n)));
-    const lunch = h('input', { type: 'checkbox', checked: m.lunch !== false });
     // What happens to tasks other apps send through the MCP tool magic_add. Kept as soon as it is changed.
     const incoming = h('select', { onchange: () => onyx.magicRemember?.(opts()).then((s) => { if (s?.settings) S.settings = s.settings; }).catch((err) => toast(err.message, 'error')) },
       [['review', 'Wait here for me to review'], ['auto', 'Place them right away (with undo)']]
         .map(([v, n]) => h('option', { value: v, selected: v === (m.incoming === 'auto' ? 'auto' : 'review') }, n)));
     const calendarPick = h('select', null, writable.map((c) => h('option', { value: c.id }, c.account === 'local' || !c.accountLabel ? c.name : `${c.name}  ·  ${c.accountLabel}`)));
     calendarPick.value = writable.some((c) => c.id === S.settings.defaultCalendar) ? S.settings.defaultCalendar : writable[0]?.id;
-    const day = (n) => () => { date.value = ymd(addDays(new Date(), n)); };
-    const dayChips = h('span', { class: 'magic-chips' },
-      h('button', { type: 'button', class: 'carry-chip', onclick: day(0) }, 'Today'),
-      h('button', { type: 'button', class: 'carry-chip', onclick: day(1) }, 'Tomorrow'));
-    const go = h('button', { class: 'btn primary', onclick: () => run() }, icon('sparkles'), 'Plan my day');
+    const todayBtn = h('button', { type: 'button', onclick: () => { date.value = ymd(new Date()); paintDay(); } }, 'Today');
+    const tomorrowBtn = h('button', { type: 'button', onclick: () => { date.value = ymd(addDays(new Date(), 1)); paintDay(); } }, 'Tomorrow');
+    date.classList.add('mg-date');
+    date.addEventListener('change', () => paintDay());
+    const dayChips = h('div', { class: 'mg-seg mg-days', role: 'group', 'aria-label': 'Day' }, todayBtn, tomorrowBtn, date);
+    function paintDay() {
+      const t = ymd(new Date()), tm = ymd(addDays(new Date(), 1));
+      todayBtn.classList.toggle('on', date.value === t);
+      tomorrowBtn.classList.toggle('on', date.value === tm);
+      date.classList.toggle('on', date.value !== t && date.value !== tm);
+    }
+    paintDay();
+    const goCount = h('span', { class: 'mg-num' });
+    const go = h('button', { class: 'btn primary mg-go', onclick: () => run() }, icon('sparkles'), h('span', { class: 'mg-go-t' }, 'Plan my day'), goCount);
+    /** The button says how much it plans: the ticked tasks and the lines typed. */
+    function paintGo() {
+      const typed = text ? text.value.split('\n').filter((l) => l.trim()).length : 0;
+      const count = picked.size + typed + (src ? src.count() : 0);
+      goCount.textContent = String(count);
+      goCount.hidden = !count;
+    }
     const out = h('div', { class: 'magic-out' });
     const claude = S.ai?.ready;
 
-    const opts = () => ({ home: home.value.trim(), mode: mode.value, start: start.value || '08:00', end: end.value || '21:00', lunch: lunch.checked, incoming: incoming.value });
-    const dayName = (d) => (d === ymd(new Date()) ? 'today' : d === ymd(addDays(new Date(), 1)) ? 'tomorrow' : fmtDay(fromYmd(d)));
-    const mins = (n) => (n >= 60 ? `${Math.floor(n / 60)} h${n % 60 ? ` ${n % 60} min` : ''}` : `${n} min`);
+    // Only the hours: travel and lunch are left to the person to put in the calendar themselves.
+    const opts = () => ({ start: start.value || '08:00', end: end.value || '21:00', incoming: incoming.value });
+
+    // The plan as a day: what is already in it, dimmed, and the new blocks over it. A block is dragged to
+    // move it and by its foot to change its length (5-minute steps); a tap picks it, and its details and
+    // controls show under the day. What is moved stays where it is put: nothing is laid out again behind it.
+    let chosen = null; // the block picked in the day: its index in view.result.blocks
+    const toMin = (hm) => { const [hh, mm] = String(hm || '0:0').split(':').map(Number); return (hh || 0) * 60 + (mm || 0); };
+    const span = (b) => `${fmtTime(new Date(b.start))} – ${fmtTime(new Date(b.end))}`;
+
+    /** What is already in the day (timed, from calendars that are shown); kept with the plan. */
+    async function dayEntries(d) {
+      try {
+        const s = fromYmd(d);
+        const { events } = await onyx.events(s.toISOString(), addDays(s, 1).toISOString());
+        return events.filter((e) => e.kind !== 'goal' && visible(e.calendarId));
+      } catch { return []; }
+    }
 
     function paint() {
-      if (!view) { out.replaceChildren(); return; }
+      if (!view) { out.replaceChildren(); paintFoot(); return; }
       const { result } = view;
       const kids = [];
       if (result.warning) kids.push(h('p', { class: 'magic-warn' }, result.warning));
@@ -5767,97 +8401,187 @@
         result.source === 'claude' ? `Estimated by Claude for ${dayName(view.date)}`
           : result.source === 'edited' ? `Laid out again for ${dayName(view.date)}`
             : `Estimated from your words for ${dayName(view.date)}${claude ? '' : '. Add a Claude key in Settings for smarter estimates'}`));
-      if (result.blocks.length) {
-        kids.push(h('div', { class: 'magic-plan' }, result.blocks.map((b) => {
-          const s = new Date(b.start), e = new Date(b.end), at = new Date(s.getTime() + b.travel * 60000);
-          return h('div', { class: 'magic-row' },
-            h('div', { class: 'mr-time' }, h('b', null, fmtTime(b.travel ? at : s)), h('small', null, `to ${fmtTime(e)}`)),
-            h('div', { class: 'mr-main' },
-              h('div', { class: 'mr-title' }, b.title),
-              h('div', { class: 'mr-meta' },
-                b.travel > 0 && h('span', { class: 'mr-chip travel', title: 'Inside the block: it starts when you set off' }, icon('car'), `${b.travel} min travel · leave ${fmtTime(s)}`),
-                b.ref && h('span', { class: 'mr-chip from', title: 'This is the task itself: it gets this time, not a copy' }, icon('tasks'), sourceName(tasks.find((t) => t.id === b.ref))),
-                b.place && h('span', { class: 'mr-chip' }, icon('pin'), b.place),
-                h('span', { class: 'mr-chip' }, mins(b.minutes))),
-              b.why && h('div', { class: 'mr-why' }, b.why)),
-            h('div', { class: 'mr-ctl' },
-              !b.part && h('button', { class: 'icon-btn', title: 'Shorter', onclick: () => nudge(b.idx, -1) }, '−'),
-              !b.part && h('button', { class: 'icon-btn', title: 'Longer', onclick: () => nudge(b.idx, 1) }, '+'),
-              h('button', { class: 'icon-btn', title: 'Leave this one out', onclick: () => drop(b.idx) }, icon('x'))));
-        })));
-      }
+      if (result.blocks.length) kids.push(dayPreview());
       if (result.unplaced.length) {
         kids.push(h('div', { class: 'magic-left' },
           h('h4', null, `Did not fit ${dayName(view.date)}`),
-          result.unplaced.map((u) => h('div', { class: 'magic-row slim' },
+          result.unplaced.map((u, k) => h('div', { class: 'magic-row slim' },
             h('div', { class: 'mr-main' }, h('div', { class: 'mr-title' }, u.title), h('div', { class: 'mr-why' }, `${mins(u.minutes)} · ${u.reason}`)),
-            h('div', { class: 'mr-ctl' }, h('button', { class: 'icon-btn', title: 'Leave this one out', onclick: () => drop(u.idx) }, icon('x'))))),
+            h('div', { class: 'mr-ctl' }, h('button', { class: 'icon-btn', title: 'Leave this one out', onclick: () => {
+              view.result = { ...view.result, unplaced: view.result.unplaced.filter((_, j) => j !== k) };
+              paint();
+            } }, icon('x'))))),
           h('div', { class: 'magic-actions' },
             h('button', { class: 'btn', onclick: later }, 'Plan these for the next day'),
             h('button', { class: 'btn ghost', onclick: addAsTasks }, 'Add them as tasks'))));
       }
-      const n = result.blocks.length;
-      kids.push(h('div', { class: 'magic-foot' },
-        h('span', { class: 'magic-total' }, n ? `${n} block${n > 1 ? 's' : ''} · ${mins(result.blocks.reduce((t, b) => t + b.minutes + b.travel, 0))}` : 'Nothing fits in that window'),
-        h('button', { class: 'btn primary', disabled: !n || working, onclick: commit }, icon('plus'), n ? `Add ${n} to my calendar` : 'Add')));
       out.replaceChildren(...kids);
+      paintFoot();
+    }
+
+    function dayPreview() {
+      const blocks = view.result.blocks;
+      const day0 = fromYmd(view.date).getTime();
+      const minOf = (iso) => (new Date(iso).getTime() - day0) / 60000;
+      const at = (m) => new Date(day0 + m * 60000);
+      const refs = new Set(blocks.map((b) => b.ref).filter(Boolean)); // a task being planned shows once: as its new block
+      const entries = (view.busy || []).filter((e) => !refs.has(e.id));
+      const timed = entries.filter((e) => !e.allDay && e.end && minOf(e.end) > 0 && minOf(e.start) < 24 * 60);
+      const allDay = entries.filter((e) => e.allDay);
+      // The day from the planning hours, widened to whatever is in it, in whole hours.
+      const spans = [...blocks, ...timed].map((x) => [Math.max(0, minOf(x.start)), Math.min(24 * 60, minOf(x.end))]);
+      const from = Math.floor(Math.min(toMin(start.value || '08:00'), ...spans.map((s) => s[0])) / 60) * 60;
+      const to = Math.min(24 * 60, Math.ceil(Math.max(toMin(end.value || '21:00'), ...spans.map((s) => s[1])) / 60) * 60);
+      const PX = MOBILE ? 1.1 : 1.25;
+      const y = (m) => (m - from) * PX;
+      const grid = h('div', { class: 'md-grid', css: { height: `${(to - from) * PX}px` } });
+      for (let m = from; m <= to; m += 60) {
+        grid.append(h('div', { class: 'md-hour', css: { top: `${y(m)}px` } }, h('span', null, m < 24 * 60 ? fmtTime(at(m)).replace(':00', '') : '')));
+      }
+      if (view.date === ymd(new Date())) {
+        const now = minOf(new Date().toISOString());
+        if (now > from && now < to) grid.append(h('div', { class: 'md-now', css: { top: `${y(now)}px` } }));
+      }
+      for (const e of timed) {
+        const s = Math.max(from, minOf(e.start)), f = Math.min(to, minOf(e.end));
+        grid.append(h('div', { class: `md-busy${e.done ? ' done' : ''}`, css: { top: `${y(s)}px`, height: `${Math.max(14, (f - s) * PX - 2)}px`, '--c': e.color || '#8b7cff' }, title: `${e.title} · ${span(e)}` },
+          h('span', null, e.title)));
+      }
+      blocks.forEach((b, i) => grid.append(magicBlock(b, i, { y, PX, minOf, at, from, to })));
+      return h('div', { class: 'magic-day' },
+        allDay.length ? h('div', { class: 'md-allday' }, h('b', null, 'All day'), allDay.map((e) => h('span', { css: { '--c': e.color || '#8b7cff' } }, e.title))) : null,
+        grid,
+        chosenDetails());
+    }
+
+    /** One planned block in the day: dragged to move it (its length kept), or by its foot to change its length. */
+    function magicBlock(b, i, g) {
+      const s = g.minOf(b.start), e = g.minOf(b.end);
+      const label = h('small', null, span(b));
+      const el = h('div', { class: `md-magic${chosen === i ? ' on' : ''}${(e - s) * g.PX < 40 ? ' short' : ''}`, css: { top: `${g.y(s)}px`, height: `${Math.max(20, (e - s) * g.PX - 2)}px` } },
+        b.travel > 0 && h('div', { class: 'md-travel', css: { height: `${Math.min(100, (b.travel / Math.max(1, e - s)) * 100)}%` } }),
+        h('div', { class: 'md-t' }, h('b', null, b.title), label),
+        h('div', { class: 'md-grip', title: 'Drag to make it longer or shorter' }));
+      el.addEventListener('pointerdown', (ev) => {
+        if (ev.button || working) return;
+        const grip = !!ev.target.closest('.md-grip');
+        const y0 = ev.clientY, len = e - s;
+        let moved = false, next = [s, e];
+        try { el.setPointerCapture(ev.pointerId); } catch { /* a synthetic pointer */ }
+        const move = (mv) => {
+          if (!moved && Math.abs(mv.clientY - y0) < 5) return;
+          moved = true;
+          el.classList.add('dragging');
+          const d = Math.round((mv.clientY - y0) / g.PX / 5) * 5;
+          next = grip
+            ? [s, Math.max(s + Math.max(5, b.travel + 5), Math.min(24 * 60, e + d))]
+            : [Math.max(0, Math.min(24 * 60 - len, s + d)), 0];
+          if (!grip) next[1] = next[0] + len;
+          el.style.top = `${g.y(next[0])}px`;
+          el.style.height = `${Math.max(20, (next[1] - next[0]) * g.PX - 2)}px`;
+          label.textContent = `${fmtTime(g.at(next[0]))} – ${fmtTime(g.at(next[1]))}`;
+        };
+        const up = () => {
+          el.removeEventListener('pointermove', move);
+          el.removeEventListener('pointerup', up);
+          el.removeEventListener('pointercancel', up);
+          if (!moved) { chosen = chosen === i ? null : i; paint(); return; }
+          b.start = g.at(next[0]).toISOString();
+          b.end = g.at(next[1]).toISOString();
+          b.minutes = Math.max(5, next[1] - next[0] - (b.travel || 0));
+          b.why = '';
+          chosen = i;
+          paint();
+        };
+        el.addEventListener('pointermove', move);
+        el.addEventListener('pointerup', up);
+        el.addEventListener('pointercancel', up);
+        ev.preventDefault();
+      });
+      return el;
+    }
+
+    /** The picked block's details and controls, under the day: a little longer or shorter, or left out. */
+    function chosenDetails() {
+      const b = chosen != null ? view.result.blocks[chosen] : null;
+      if (!b) return h('p', { class: 'md-hint' }, MOBILE ? 'Drag a block to move it, or its bottom edge to change its length. Tap one for its details.'
+        : 'Drag a block to move it, or its bottom edge to change its length. Click one for its details.');
+      const s = new Date(b.start), at = new Date(s.getTime() + b.travel * 60000);
+      const resize = (dir) => {
+        const step = b.minutes >= 60 ? 15 : 5;
+        b.minutes = Math.max(5, Math.min(240, b.minutes + dir * step));
+        b.end = new Date(s.getTime() + (b.minutes + (b.travel || 0)) * 60000).toISOString();
+        paint();
+      };
+      return h('div', { class: 'magic-row md-chosen' },
+        h('div', { class: 'mr-time' }, h('b', null, fmtTime(b.travel ? at : s)), h('small', null, `to ${fmtTime(new Date(b.end))}`)),
+        h('div', { class: 'mr-main' },
+          h('div', { class: 'mr-title' }, b.title),
+          h('div', { class: 'mr-meta' },
+            b.travel > 0 && h('span', { class: 'mr-chip travel', title: 'Inside the block: it starts when you set off' }, icon('car'), `${b.travel} min travel · leave ${fmtTime(s)}`),
+            b.ref && h('span', { class: 'mr-chip from', title: 'This is the task itself: it gets this time, not a copy' }, icon('tasks'), sourceName(tasks.find((t) => t.id === b.ref))),
+            b.place && h('span', { class: 'mr-chip' }, icon('pin'), b.place),
+            b.from && h('span', { class: 'mr-chip', title: b.from.url || 'Read from a picture' }, icon(b.from.url ? 'link' : 'camera'), b.from.title),
+            h('span', { class: 'mr-chip' }, mins(b.minutes))),
+          b.notes && h('div', { class: 'mr-notes' }, b.notes),
+          b.why && h('div', { class: 'mr-why' }, b.why)),
+        h('div', { class: 'mr-ctl' },
+          h('button', { class: 'icon-btn', title: 'Shorter', onclick: () => resize(-1) }, '−'),
+          h('button', { class: 'icon-btn', title: 'Longer', onclick: () => resize(1) }, '+'),
+          h('button', { class: 'icon-btn', title: 'Leave this one out', onclick: () => {
+            view.result = { ...view.result, blocks: view.result.blocks.filter((_, k) => k !== chosen) };
+            chosen = null;
+            paint();
+          } }, icon('x'))));
     }
 
     async function run() {
       if (working) return;
-      if (!text.value.trim() && !picked.size) { text.focus(); return; }
+      if (!text.value.trim() && !picked.size && !src.count()) { text.focus(); return; }
       working = true;
       go.disabled = true;
       go.replaceChildren(icon('sparkles'), claude ? 'Estimating…' : 'Planning…');
-      out.replaceChildren(h('p', { class: 'magic-source' }, icon('sparkles'), claude ? 'Estimating the lengths and the travel…' : 'Fitting them in…'));
+      msg.replaceChildren();
+      view = null;
+      show('plan');
+      const progress = (t) => out.replaceChildren(h('p', { class: 'magic-source' }, icon('sparkles'), t));
+      const fromRead = 'Turning what was read into tasks and fitting them in…';
+      progress(src.reading() ? 'Reading…' : src.count() ? fromRead : claude ? 'Estimating how long each takes…' : 'Fitting them in…');
       try {
         onyx.magicRemember?.(opts()).then((s) => { if (s?.settings) S.settings = s.settings; }).catch(() => {});
-        const r = await onyx.magicPlan(text.value, date.value, opts(), [...picked]);
-        view = { date: date.value, tasks: r.tasks, travel: r.travel, result: r };
+        await src.settle(); // pages and pictures still being read
+        const material = src.ready();
+        if (material.length) progress(fromRead);
+        if (!text.value.trim() && !picked.size && !material.length) throw new Error('Nothing could be read from that. Its note says why.');
+        const r = await onyx.magicPlan(text.value, date.value, opts(), [...picked], material);
+        view = { date: date.value, tasks: r.tasks, travel: r.travel, result: r, busy: await dayEntries(date.value) };
+        chosen = null;
         working = false;
         paint();
-        out.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        // The first new block in view, a little of what comes before it above.
+        const first = body.querySelector('.md-magic');
+        if (first) body.scrollTop = Math.max(0, first.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop - 90);
       } catch (err) {
-        out.replaceChildren(h('p', { class: 'magic-warn' }, err.message));
+        working = false;
+        msg.replaceChildren(h('p', { class: 'magic-warn' }, err.message));
+        show('compose');
       }
       working = false;
       go.disabled = false;
-      go.replaceChildren(icon('sparkles'), view ? 'Plan again' : 'Plan my day');
+      go.replaceChildren(icon('sparkles'), h('span', { class: 'mg-go-t' }, view ? 'Plan again' : 'Plan my day'), goCount);
+      paintGo();
     }
 
-    // A change to the tasks lays them out again at once, without asking Claude again.
-    function relayout() {
-      clearTimeout(timer);
-      timer = setTimeout(async () => {
-        try {
-          const r = await onyx.magicReplan(view.tasks, view.travel, view.date, opts());
-          view = { ...view, tasks: r.tasks, result: r };
-          paint();
-        } catch (err) { toast(err.message, 'error'); }
-      }, 250);
-    }
-    function nudge(i, dir) {
-      const t = view.tasks[i];
-      if (!t) return;
-      const step = t.minutes >= 60 ? 15 : 5;
-      t.minutes = Math.max(5, Math.min(240, t.minutes + dir * step));
-      relayout();
-    }
-    function drop(i) {
-      view.tasks = view.tasks.filter((_, k) => k !== i);
-      view.result = { ...view.result, blocks: view.result.blocks.filter((b) => b.idx !== i).map((b) => ({ ...b, idx: b.idx > i ? b.idx - 1 : b.idx })), unplaced: view.result.unplaced.filter((u) => u.idx !== i).map((u) => ({ ...u, idx: u.idx > i ? u.idx - 1 : u.idx })) };
-      paint();
-      relayout();
-    }
     async function later() {
       const left = view.result.unplaced.map((u) => view.tasks[u.idx]).filter(Boolean);
       const next = ymd(addDays(fromYmd(view.date), 1));
       try {
         const r = await onyx.magicReplan(left, view.travel, next, { ...opts(), start: start.value || '08:00' });
         date.value = next;
-        view = { date: next, tasks: r.tasks, travel: view.travel, result: r };
+        view = { date: next, tasks: r.tasks, travel: view.travel, result: r, busy: await dayEntries(next) };
+        chosen = null;
         paint();
-      } catch (err) { toast(err.message, 'error'); }
+      } catch (err) { fail(err); }
     }
     async function addAsTasks() {
       const todo = view.result.unplaced;
@@ -5866,7 +8590,6 @@
       view.tasks = view.tasks.filter((_, k) => !todo.some((u) => u.idx === k));
       view.result = { ...view.result, unplaced: [] };
       paint();
-      relayout();
     }
 
     async function commit() {
@@ -5883,7 +8606,9 @@
           return { task: b.ref, spec: { start: b.start, minutes: Math.round((new Date(b.end) - new Date(b.start)) / 60000), leaveBy: b.travel || 0 } };
         }
         return { fields: {
-          calendarId, title: b.title, start: b.start, end: b.end, allDay: false, location: b.place || '', notes: b.why || '',
+          calendarId, title: b.title, start: b.start, end: b.end, allDay: false, location: b.place || '',
+          // A step from a page or a picture keeps its instructions, and where they came from.
+          notes: [b.notes, b.from ? `From ${b.from.title}${b.from.url ? `: ${b.from.url}` : ''}` : '', b.notes ? '' : b.why].filter(Boolean).join('\n\n'),
           ...(b.travel > 0 ? { leaveBy: b.travel } : {}),
         } };
       });
@@ -5894,7 +8619,7 @@
           else made.push({ ...s, event: await onyx.createEvent(s.fields) });
         }
       } catch (err) {
-        toast(err.message, 'error');
+        fail(err);
       }
       working = false;
       if (!made.length) { paint(); return; }
@@ -5909,25 +8634,67 @@
     }
 
     const row = (label, ...kids) => h('label', { class: 'magic-field' }, h('span', null, label), ...kids);
-    paintArrived();
-    const sheet = h('div', { class: 'sheet magic' }, h('div', { class: 'pane' },
-      h('button', { class: 'icon-btn close', onclick: closeSettings }, icon('x')),
-      h('h3', { class: 'magic-h' }, icon('sparkles'), 'Magic add'),
-      h('p', { class: 'hint' }, 'Describe what you need to get done. Each task gets a length, a place and a good time of day, and they are fitted around what is already in your day, with the travel counted. Tasks that arrive from your other apps wait here to be planned in.'),
-      arrivedBox,
-      text,
-      h('div', { class: 'magic-grid' }, row('Day', date, dayChips), row('Add to', calendarPick)),
-      h('details', { class: 'magic-opts', open: !MOBILE },
-        h('summary', null, 'Hours, travel and lunch'),
-        h('div', { class: 'magic-grid' },
-          row('Hours', h('span', { class: 'magic-hours' }, start, h('i', null, 'to'), end)),
-          row('Getting around', mode),
-          row('Starting from', home),
-          h('label', { class: 'magic-check' }, lunch, h('span', null, 'Keep lunch free')),
-          row('Tasks from other apps', incoming))),
-      h('div', { class: 'magic-run' }, go,
-        h('small', null, claude ? 'Claude estimates with your API key. It is sent your task list and the titles and places of the day\'s entries.' : 'No Claude key set: lengths are guessed from the words. Add one in Settings for better estimates and travel times.')),
-      out));
+    paintPick();
+    // One screen: what to plan in the middle (it scrolls), and a footer that stays put with the day and
+    // Plan. The hours and the calendar are one line there, which opens a small panel to change them.
+    const msg = h('div', { class: 'mg-msg' });
+    const body = h('div', { class: 'mg-body' });
+    const foot = h('footer', { class: 'mg-footer' });
+    let stage = 'compose'; // or 'plan': the planned day, with Add
+    const timeOf = (v) => fmtTime(at(ymd(new Date()), v || '00:00'));
+    const calName = () => writable.find((c) => c.id === calendarPick.value)?.name || '';
+    const optsNote = h('span', { class: 'mg-opts-note' });
+    const paintOpts = () => {
+      optsNote.textContent = [`${timeOf(start.value || '08:00')} – ${timeOf(end.value || '21:00')}`, writable.length > 1 ? calName() : null].filter(Boolean).join(' · ');
+    };
+    for (const el of [start, end, calendarPick]) el.addEventListener('change', paintOpts);
+    paintOpts();
+    const optsPop = h('div', { class: 'mg-pop', role: 'dialog', 'aria-label': 'Hours and calendar' });
+    optsPop.hidden = true;
+    const optsBtn = h('button', { type: 'button', class: 'mg-opts-btn', 'aria-expanded': 'false', title: 'The hours to plan in, and the calendar',
+      onclick: () => toggleOpts() }, icon('clock'), optsNote, h('span', { class: 'mg-opts-edit' }, 'Change'));
+    function toggleOpts(on = optsPop.hidden) {
+      optsPop.hidden = !on;
+      optsBtn.setAttribute('aria-expanded', String(on));
+      if (on) start.focus({ preventScroll: true });
+    }
+    optsPop.append(
+      h('div', { class: 'magic-grid' },
+        row('Hours', h('span', { class: 'magic-hours' }, start, h('i', null, 'to'), end)),
+        writable.length > 1 ? row('Add to', calendarPick) : null,
+        row('Tasks from other apps', incoming)),
+      h('div', { class: 'mg-pop-foot' },
+        h('small', null, claude ? 'Claude estimates how long each takes. It is sent these tasks and the day\'s entries.' : 'Lengths are guessed from the words. Add a Claude key in Settings for better estimates.'),
+        h('button', { type: 'button', class: 'btn', onclick: () => toggleOpts(false) }, 'Done')));
+    const optsWrap = h('div', { class: 'mg-opts-wrap' }, optsPop, optsBtn);
+    function show(next) {
+      stage = next;
+      toggleOpts(false);
+      body.replaceChildren(...(next === 'compose' ? [text, src.el, pickBox, msg] : [out]));
+      body.scrollTop = 0;
+      paintFoot();
+    }
+    function paintFoot() {
+      if (stage === 'compose') { foot.replaceChildren(optsWrap, h('div', { class: 'mg-foot-row' }, dayChips, go)); return; }
+      const n = view?.result.blocks.length || 0;
+      foot.replaceChildren(h('div', { class: 'mg-foot-row' },
+        h('button', { type: 'button', class: 'btn ghost mg-back', disabled: working, onclick: () => show('compose') }, '‹ Edit'),
+        h('span', { class: 'magic-total' }, !view ? '' : n ? `${n} block${n > 1 ? 's' : ''} · ${mins(view.result.blocks.reduce((t, b) => t + b.minutes + b.travel, 0))}` : 'Nothing fits in that window'),
+        h('button', { class: 'btn primary mg-add', disabled: !n || working, onclick: commit }, icon('plus'), n ? `Add ${n} to my calendar` : 'Add')));
+    }
+    paintGo();
+    const sheet = h('div', { class: 'sheet magic' }, h('div', { class: 'pane mg-pane' },
+      h('button', { class: 'icon-btn close', onclick: closeSettings, 'aria-label': 'Close' }, icon('x')),
+      h('header', { class: 'mg-head' },
+        h('span', { class: 'mg-badge' }, icon('sparkles')),
+        h('div', null, h('h3', { class: 'mg-h' }, 'Magic add'),
+          h('p', { class: 'mg-sub' }, 'Onyx fits them into the free time in your day.'))),
+      body,
+      foot));
+    // A click anywhere else closes the settings panel.
+    sheet.addEventListener('pointerdown', (e) => { if (!optsPop.hidden && !optsWrap.contains(e.target)) toggleOpts(false); });
+    src.dropOn(sheet); // pictures dropped on the window are read
+    show('compose');
     $('#modal').replaceChildren(sheet);
     $('#modal').hidden = false;
     setTimeout(() => (picked.size ? go : text).focus({ preventScroll: true }), 50);
@@ -6157,7 +8924,7 @@
         for (const p of mail.problems || []) if (!graph.mailWarned?.has(p)) { (graph.mailWarned ||= new Set()).add(p); toast(p, 'warn'); }
       }
     } catch (err) {
-      toast(err.message, 'error');
+      fail(err);
     }
     if (seq !== graph.seq || !graph.on) return;
     graph.events = events;
@@ -6259,14 +9026,11 @@
     e.dataTransfer.setData('text/plain', t.label);
     e.dataTransfer.effectAllowed = 'move';
     document.body.classList.add('dragging-task');
-    if (!graph.on && !dragHinted) {
-      dragHinted = true;
-      toast('Open the globe view (G) to drop tasks into its clusters.');
-    }
   }
 
   function taskDragEnd() {
     draggedTask = null;
+    taskDropDone();
     graph.view?.dragOver();
     document.body.classList.remove('dragging-task');
   }
@@ -6314,7 +9078,7 @@
         try {
           afterFilesAdded(await onyx.addFiles(paths, tag ? [tag] : []), tag ? [tag] : []);
         } catch (err) {
-          toast(err.message, 'error');
+          fail(err);
         }
         return;
       }
@@ -6422,7 +9186,7 @@
         await afterGlobeChange(!sameTags(data.tags, note?.tags));
       } catch (err) {
         busy = false;
-        toast(err.message, 'error');
+        fail(err);
       }
     };
     showPopover(anchor, [
@@ -6432,7 +9196,7 @@
       h('p', { class: 'pop-meta' }, 'Tags place the note in clusters on the globe. Notes stay in Onyx.'),
       h('div', { class: 'pop-actions' },
         note && h('button', { class: 'btn danger', onclick: async () => {
-          try { await onyx.deleteNote(note.id); await afterGlobeChange(true); } catch (err) { toast(err.message, 'error'); }
+          try { await onyx.deleteNote(note.id); await afterGlobeChange(true); } catch (err) { fail(err); }
         } }, icon('trash'), 'Delete'),
         h('div', { class: 'grow' }),
         h('button', { class: 'btn ghost', onclick: () => closePopover() }, 'Cancel'),
@@ -6459,10 +9223,10 @@
       const patch = { tags: picked };
       if (cleanNote(notes.value) !== (pin.notes || '')) patch.notes = notes.value;
       if (named && name.value.trim() && name.value.trim() !== pin.title) patch.title = name.value.trim();
-      try { await onyx.updatePin(pin.id, patch); await afterGlobeChange(!sameTags(picked, pin.tags)); } catch (err) { toast(err.message, 'error'); }
+      try { await onyx.updatePin(pin.id, patch); await afterGlobeChange(!sameTags(picked, pin.tags)); } catch (err) { fail(err); }
     };
     // A file or folder opens with its own app on the PC; the phone can only list it.
-    const openLocal = (reveal) => onyx.openFile(pin.id, reveal).catch((err) => toast(err.message, 'error'));
+    const openLocal = (reveal) => onyx.openFile(pin.id, reveal).catch((err) => fail(err));
     const openButtons = local
       ? (onyx.openFile
         ? [h('button', { class: 'btn', title: 'Show it in File Explorer', onclick: () => openLocal(true) }, 'Show in folder'),
@@ -6479,7 +9243,7 @@
       h('div', { class: 'row' }, icon('tag'), tags.el),
       h('div', { class: 'pop-actions' },
         h('button', { class: 'btn danger', title: local ? 'Take it off the globe (the file itself is not touched)' : `Take it off the globe (it stays in ${SOURCES[pin.source].label})`, onclick: async () => {
-          try { await onyx.removePin(pin.id); await afterGlobeChange(true); } catch (err) { toast(err.message, 'error'); }
+          try { await onyx.removePin(pin.id); await afterGlobeChange(true); } catch (err) { fail(err); }
         } }, icon('x'), 'Remove'),
         h('div', { class: 'grow' }),
         ...openButtons,
@@ -6501,7 +9265,7 @@
         afterFilesAdded(pins, picked);
         closePopover();
       } catch (err) {
-        toast(err.message, 'error');
+        fail(err);
       }
     };
     showPopover(anchor, [
@@ -6552,7 +9316,7 @@
         if (picked.length) reloadTags();
       } catch (err) {
         busy = false;
-        toast(err.message, 'error');
+        fail(err);
       }
     };
     url.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); name.focus(); } });
@@ -6609,7 +9373,7 @@
             if (tags.length) reloadTags();
           } catch (err) {
             btn.disabled = false;
-            toast(err.message, 'error');
+            fail(err);
           }
         };
         // Add first asks which tags (if any) it should carry: tags place it in clusters on the globe.
@@ -6955,7 +9719,7 @@
     try {
       onUpdateState(await onyx.checkUpdate(), manual);
     } catch (err) {
-      if (manual) toast(err.message, 'error');
+      if (manual) fail(err);
     }
     btn.classList.remove('spin');
   }
@@ -6966,7 +9730,7 @@
       if (u.status === 'error') { toast(u.error, 'error'); closeUpdateDialog(); }
       else showUpdateDialog(u);
     } catch (err) {
-      toast(err.message, 'error');
+      fail(err);
     }
   }
 
@@ -7039,6 +9803,8 @@
     $('#magic-add').onclick = () => openMagic();
     $('#magic-fab').append(icon('sparkles'));
     $('#magic-fab').onclick = () => openMagic();
+    $('#task-magic').append(icon('sparkles'), 'Magic add tasks'); // the Tasks panel's own way in, styled as Magic add goal
+    $('#task-magic').onclick = () => openMagic();
     $('#add-calendar').onclick = () => openSettings(onyx.isPhone ? 'connection' : 'calendars');
     $('#open-settings').onclick = () => openSettings();
     $('#menu').onclick = () => document.body.classList.toggle('drawer-left');
@@ -7093,14 +9859,14 @@
   };
 
   /** Opens the phone's QR scanner; a scanned pairing code connects and restarts the app. */
-  async function scanToPair(button) {
+  async function scanToPair(button, say = fail) {
     const label = [...button.childNodes];
     button.disabled = true;
     button.replaceChildren('Scanning…');
     try {
       if (await onyx.scan()) { location.reload(); return; }
     } catch (err) {
-      toast(err.message, 'error');
+      say(err);
     }
     button.disabled = false;
     button.replaceChildren(...label);
@@ -7108,6 +9874,16 @@
 
   // Android, before it is paired with a PC (or when the PC can't be reached at all).
   function showConnect(problem) {
+    window.onyxReady = true; // the page is up (the phone app's watch over its start: MainActivity)
+    // Why connecting failed goes on this screen: a toast would sit underneath it.
+    const said = h('p', { class: 'problem' });
+    said.hidden = true;
+    const say = (err) => {
+      said.textContent = err?.message || String(err || '') || 'Could not connect to the PC.';
+      said.hidden = false;
+    };
+    if (window.onyxPairError) say(window.onyxPairError);
+    window.onyxPairFailed = (e) => say(e.detail);
     const address = h('input', { type: 'text', placeholder: 'PC address, e.g. 192.168.1.20', spellcheck: false, autocomplete: 'off', inputMode: 'url' });
     const token = h('input', { type: 'text', placeholder: 'Token', spellcheck: false, autocomplete: 'off' });
     const go = h('button', { class: 'btn primary wide', type: 'submit' }, 'Connect');
@@ -7121,16 +9897,17 @@
         else await onyx.pair({ addresses: value.split(/[\s,]+/), token: token.value });
         location.reload();
       } catch (err) {
-        toast(err.message, 'error');
+        say(err);
         go.disabled = false;
         go.textContent = 'Connect';
       }
     } }, address, token, go);
-    const scan = h('button', { class: 'btn primary wide scan-btn', onclick: () => scanToPair(scan) }, icon('qr'), 'Scan QR code');
+    const scan = h('button', { class: 'btn primary wide scan-btn', onclick: () => scanToPair(scan, say) }, icon('qr'), 'Scan QR code');
     $('#connect').replaceChildren(h('div', { class: 'connect-card' },
       h('div', { class: 'brand big' }, h('span', { class: 'mark' }), 'Onyx'),
       h('h2', null, onyx.paired() ? 'Can\'t reach your PC' : 'Connect to your PC'),
       problem && h('p', { class: 'problem' }, problem),
+      said,
       h('ol', null,
         h('li', null, 'On your PC, open Onyx Calendar, then Settings → Phone.'),
         h('li', null, onyx.canScan ? 'Tap Scan QR code below and point this phone at the code.' : 'Enter the address and token shown there.')),
@@ -7145,6 +9922,8 @@
     document.body.classList.toggle('mobile', MOBILE);
     document.body.classList.toggle('phone', !!onyx.isPhone);
     window.addEventListener('onyx:toast', (e) => toast(e.detail, 'error'));
+    // A pairing link that failed: the Connect screen says why (or a toast, once connected).
+    window.addEventListener('onyx:pair-failed', (e) => (window.onyxPairFailed && !$('#connect').hidden ? window.onyxPairFailed(e) : toast(e.detail, 'error')));
     if (onyx.isPhone && !onyx.paired()) return showConnect();
     try {
       S = await onyx.state();
@@ -7157,6 +9936,7 @@
     applyPanelWidths();
     buildCalendar();
     buildNews();
+    window.onyxReady = true; // the page is up (the phone app's watch over its start: MainActivity)
     refreshPomodoros();
     setInterval(() => { tickPomodoro(); tickNext(); tickPopups(); tickDue(); }, 1000);
     setInterval(refreshPomodoros, 60000);
@@ -7184,7 +9964,7 @@
       if (d.error) { toast(d.error, 'error'); return; }
       (inboxKnown ||= new Set()).add(d.taskId); // no "new task" toast on top of the window itself
       await loadTasks(true);
-      openMagic({ date: d.date, auto: true });
+      openMagic({ date: d.date, auto: true, pick: [d.taskId] });
     };
     window.addEventListener('onyx:magic', (e) => openMagicFromLink(e.detail));
     openMagicFromLink(window.onyxPendingMagic);
@@ -7221,13 +10001,33 @@
     });
     if (onyx.onOnline) {
       onyx.onOnline((ok) => {
-        toast(ok ? 'Connected to your PC again.' : 'Your PC is out of reach. Showing the last sync.', ok ? '' : 'warn');
-        if (ok) { refetch(true); loadTasks(true); }
+        toast(ok ? 'Connected to your PC again.' : 'Your PC is out of reach. Keep going: what you change here syncs when it is back.', ok ? '' : 'warn');
+        if (ok) { refetch(true); loadTasks(true); sendBugs(); }
+      });
+    }
+    setTimeout(sendBugs, 5000); // any kept from last time
+    // The phone's outbox: changes made while the PC was out of reach, waiting, then sent.
+    if (onyx.onOutbox) {
+      const label = (n, online, syncing) => (!n ? (online ? '' : 'Offline: showing last sync')
+        : syncing || online ? `Syncing ${n} ${n === 1 ? 'change' : 'changes'}…`
+        : `Offline · ${n} ${n === 1 ? 'change' : 'changes'} will sync`);
+      onyx.onOutbox((o) => {
+        const root = document.documentElement;
+        root.dataset.offlineLabel = label(o.pending, o.online, o.syncing) || 'Offline: showing last sync';
+        root.classList.toggle('syncing', o.pending > 0 && (o.online || o.syncing));
+        if (o.sent) {
+          toast(`Synced ${o.sent} ${o.sent === 1 ? 'change' : 'changes'} made while your PC was out of reach.`);
+          refetch(true);
+          loadTasks(true);
+        }
+        if (o.failed?.length) toast(`${o.failed.length === 1 ? 'A change' : `${o.failed.length} changes`} made offline couldn't be saved: ${o.failed[0].error}`, 'error');
+        if (o.blocked) toast(o.blocked, 'error');
+        if (o.waiting) toast(o.waiting);
       });
     }
     setInterval(() => { refetch(true); loadTasks(true); }, 5 * 60000);
     window.addEventListener('resize', () => { if (!MOBILE) closePopover(); });
   }
 
-  init().catch((err) => toast(err.message, 'error'));
+  init().catch((err) => fail(err));
 })();

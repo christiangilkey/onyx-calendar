@@ -7,7 +7,7 @@
 
 (() => {
   const MIN = 60000;
-  const BAND_MIN = 15;              // the striped transition band before the next entry (app.js BUFFER_MIN)
+  const BAND_MIN = 15;              // time to get to the next entry: a hard stop before it leaves this free
   const LENGTHS = [25, 45, 60, 90, 120];
   const DEFAULT_LENGTH = 90;
   const SHORTEST = 10;              // less than this before the next thing is no time to sink in
@@ -34,7 +34,7 @@
 
   /**
    * The hard stops to pick from: the end of the block it was started from, the next entry
-   * minus its transition band, and set lengths. `pick` is the one picked to start with: the
+   * minus the time to get to it (`band` minutes), and set lengths. `pick` is the one picked to start with: the
    * earliest natural stop (within a few hours), else `length` minutes.
    * Each option: { key, kind: 'block'|'next'|'length', at, minutes, next?, pastNext }.
    */
@@ -45,12 +45,12 @@
     const add = (o) => {
       const at = o.kind === 'length' ? o.at : floorMin(o.at); // a set length is exactly that long
       if (at - now < SHORTEST * MIN || (o.kind !== 'length' && at - now > OFFER_WITHIN * MIN)) return;
-      // Flagged: a stop after the next entry starts, or inside the transition before it.
+      // Flagged: a stop after the next entry starts, or inside the time to get to it.
       out.push({ minutes: Math.round((at - now) / MIN), ...o, at, pastNext: o.kind !== 'next' && at > nextAt - band * MIN });
     };
     if (own && own.kind === 'event' && !own.allDay && own.end && ms(own.end) > now) add({ key: 'block', kind: 'block', at: ms(own.end) });
     if (next) {
-      // Leave the transition band free; with too little time for it, stop right at the start.
+      // Leave the time to get there free; with too little time for it, stop right at the start.
       const withBand = nextAt - band * MIN;
       add({ key: 'next', kind: 'next', at: withBand - now >= SHORTEST * MIN ? withBand : nextAt, next });
     }
@@ -124,98 +124,48 @@
   }
 
   /**
-   * Fills `out` (a Float32Array) with white, pink or brown noise. Pink is white noise filtered
-   * so each octave has the same energy (Paul Kellet's filter), softer and less hissy; brown is
-   * deeper still, a low rumble like a distant waterfall. `rand` gives 0..1.
+   * The sounds: real recordings (from Freesound, CC0; credits in the README), in assets/sounds.
+   * Each is made into one seamless loop the first time it plays (loopBuffer): `start` and
+   * `length` (seconds) are the stretch that repeats, and the `fade` seconds that follow it in the
+   * recording are blended over its start. `db` levels it with the others, without a peak reaching
+   * full scale; `lowCut` (Hz) takes out a rumble under the recording. Nothing here is made up in code.
    */
-  function fillNoise(kind, out, rand = Math.random) {
-    let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
-    for (let i = 0; i < out.length; i++) {
-      const w = rand() * 2 - 1;
-      if (kind === 'brown') { b0 = (b0 + 0.02 * w) / 1.02; out[i] = b0 * 3.5; continue; }
-      if (kind !== 'pink') { out[i] = w * 0.35; continue; }
-      b0 = 0.99886 * b0 + w * 0.0555179;
-      b1 = 0.99332 * b1 + w * 0.0750759;
-      b2 = 0.969 * b2 + w * 0.153852;
-      b3 = 0.8665 * b3 + w * 0.3104856;
-      b4 = 0.55 * b4 + w * 0.5329522;
-      b5 = -0.7616 * b5 - w * 0.016898;
-      out[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.11;
-      b6 = w * 0.115926;
-    }
-    return out;
-  }
+  const SOUND_FILES = {
+    brown: { file: 'brown-noise.mp3', start: 0.2, length: 28.6, fade: 1, db: 4 },
+    pink: { file: 'pink-noise.mp3', start: 0.2, length: 40, fade: 1, db: -2 },
+    white: { file: 'white-noise.mp3', start: 0.2, length: 28.6, fade: 1, db: 5.9 },
+    rain: { file: 'rainforest-rain.mp3', start: 0.1, length: 18.7, fade: 2, db: 6.1 },
+    lightrain: { file: 'light-rain.mp3', start: 0.1, length: 20.2, fade: 2, db: 15.2, lowCut: 90 },
+    // The stretch of the surf that starts and ends alike, with a long blend for the swell.
+    waves: { file: 'beach-waves.mp3', start: 2, length: 51, fade: 4, db: 12.5 },
+  };
 
   /**
-   * Rain on rainforest leaves, and nothing else: a soft hiss with many tiny drops blended into
-   * it. No birds, animal calls or thunder, and no drop much louder than the rest, since anything
-   * sudden pulls attention away from the work.
+   * One seamless loop out of a recording (its channels, Float32Arrays at `rate` samples a second):
+   * the stretch from `start` for `length` seconds, with the `fade` seconds after it blended over
+   * its first `fade` (equal power, so the blend is no quieter). Played on repeat, the end runs
+   * straight on into the start just as the recording ran on, so there is no seam to hear.
+   * Shortened if the recording is shorter than asked.
    */
-  function fillRain(out, rate, rand = Math.random) {
-    const bed = fillNoise('pink', new Float32Array(out.length), rand);
-    const lowA = Math.exp(-2 * Math.PI * 180 / rate), highA = Math.exp(-2 * Math.PI * 5500 / rate);
-    let low = 0, soft = 0;
-    for (let i = 0; i < out.length; i++) {
-      low = low * lowA + bed[i] * (1 - lowA);       // the rumble, taken out: rain is a hiss
-      soft = soft * highA + (bed[i] - low) * (1 - highA); // and the harsh top, softened
-      out[i] = soft * 1.6;
-    }
-    // Drops: about 140 a second, each a few milliseconds of fading noise, all of them quiet.
-    const perSample = 140 / rate;
-    for (let i = 0; i < out.length; i++) {
-      if (rand() >= perSample) continue;
-      const amp = 0.025 + rand() * 0.05;
-      const tau = rate * (0.0008 + rand() * 0.0025);
-      for (let k = 0, len = Math.min(out.length - i, Math.round(tau * 5)); k < len; k++) out[i + k] += (rand() * 2 - 1) * amp * Math.exp(-k / tau);
-    }
-    return out;
-  }
-
-  /**
-   * Beach waves: slow, smooth swells of deep noise with a brighter wash at the top of each, two
-   * to a loop (the second a little smaller). No gulls and no crashing break.
-   */
-  function fillWaves(out, rate, rand = Math.random, period = out.length / 2) {
-    // The body of the water: brown noise, a low roar; the wash: pink noise, only near the top.
-    const deep = fillNoise('brown', new Float32Array(out.length), rand);
-    const wash = fillNoise('pink', new Float32Array(out.length), rand);
-    for (let i = 0; i < out.length; i++) {
-      const wave = Math.floor(i / period) % 2;
-      const s = 0.5 - 0.5 * Math.cos(2 * Math.PI * ((i % period) / period)); // 0 → 1 → 0, smoothly
-      const swell = (wave ? 0.8 : 1) * Math.pow(s, 1.4);
-      out[i] = deep[i] * (0.35 + 0.65 * swell) + wash[i] * 0.7 * swell * swell;
-    }
-    return out;
-  }
-
-  const SOUND_SECONDS = { white: 4, pink: 4, brown: 6, rain: 8, waves: 20 };
-  const SOUND_RMS = 0.12; // every sound as loud as the others at the same volume
-
-  /**
-   * One loop of a sound at `rate` samples a second: its end blended into its start so it
-   * repeats with no seam, and levelled so each sound is as loud as the others.
-   */
-  function soundBuffer(kind, rate, rand = Math.random) {
-    const n = Math.round(rate * (SOUND_SECONDS[kind] || 4));
-    const fade = Math.round(rate * 0.5);
-    const raw = new Float32Array(n + fade);
-    if (kind === 'rain') fillRain(raw, rate, rand);
-    else if (kind === 'waves') fillWaves(raw, rate, rand, (n) / 2);
-    else fillNoise(kind, raw, rand);
-    const out = raw.slice(0, n);
-    for (let i = 0; i < fade; i++) {
-      const t = i / fade; // equal-power, so the loop point is not quieter
-      out[i] = raw[i] * Math.sqrt(t) + raw[n + i] * Math.sqrt(1 - t);
-    }
-    let sum = 0;
-    for (let i = 0; i < n; i++) sum += out[i] * out[i];
-    const k = SOUND_RMS / Math.max(1e-6, Math.sqrt(sum / n));
-    for (let i = 0; i < n; i++) out[i] = Math.max(-1, Math.min(1, out[i] * k));
-    return out;
+  function loopBuffer(channels, rate, { start = 0, length, fade = 1 }) {
+    const total = channels[0].length;
+    const s = Math.min(Math.round(start * rate), Math.floor(total / 4));
+    const f = Math.max(1, Math.min(Math.round(fade * rate), Math.floor((total - s) / 3)));
+    const n = Math.min(Math.round(length * rate), total - s - f);
+    return channels.map((src) => {
+      const out = src.slice(s, s + n);
+      for (let i = 0; i < f; i++) {
+        const t = (i + 0.5) / f;
+        out[i] = src[s + i] * Math.sqrt(t) + src[s + n + i] * Math.sqrt(1 - t);
+      }
+      return out;
+    });
   }
 
   /** The slider (0-100) as a gain: a curve, so the low end is usable. */
   const noiseGain = (volume) => Math.pow(Math.max(0, Math.min(100, Number(volume) || 0)) / 100, 2) * 1.2;
+  /** A sound's gain at a slider setting: the slider's curve, and the recording's own level. */
+  const soundLevel = (kind, volume) => noiseGain(volume) * Math.pow(10, ((SOUND_FILES[kind] || {}).db || 0) / 20);
 
   /**
    * A Spotify playlist (or album, artist, track, show) as a link Onyx can open: from the link
@@ -346,15 +296,228 @@
     }
     return out;
   };
+  /**
+   * A stretch of `total` minutes as pomodoro chunks: [{ kind: 'work'|'rest', from, to }] in minutes.
+   * With a `warmup` (minutes, shorter than a usual round), the first work round is that long, an
+   * easy way in; the usual rounds follow.
+   */
+  function pomodoroChunks(total, p) {
+    const out = [];
+    const warm = p.warmup > 0 && p.warmup < p.work ? p.warmup : 0;
+    for (let t = 0; t < total;) {
+      const w = Math.min(!out.length && warm ? warm : p.work, total - t);
+      out.push({ kind: 'work', from: t, to: t + w });
+      t += w;
+      if (t >= total) break;
+      const r = Math.min(p.rest, total - t);
+      out.push({ kind: 'rest', from: t, to: t + r });
+      t += r;
+    }
+    return out;
+  }
+
+  /** The work rounds among the chunks: [{ round (1 on), from, to, minutes, warm }]. */
+  const workRounds = (chunks, p = {}) => chunks.filter((c) => c.kind === 'work').map((c, i) => ({
+    round: i + 1, from: c.from, to: c.to, minutes: Math.round(c.to - c.from), warm: i === 0 && p.warmup > 0 && p.warmup < p.work,
+  }));
+
+  /** The goal written for work round `round` (1 on), or ''. */
+  const roundGoal = (goals, round) => String((Array.isArray(goals) && goals[round - 1]) || '').trim();
+
+  // ---- presence: still with it? The camera on a PC (presence/presence.js), the phone's place on a phone.
+  // Each working period (a pomodoro work round, or the whole session) you stay with all the way
+  // through adds a flame to your streak. Only leaving counts: fidgeting, stretching, turning away or
+  // leaning out of view never last long enough to. Breaks are free: walk away all you like.
+
+  /** Out of view this long is leaving (the camera); for the phone, surely moved for this long. */
+  const PRESENCE_AWAY_MS = { camera: 90 * 1000, location: 2 * MIN };
+  /** A round's first two minutes (a quarter of a short one): back from the break a little late is fine. */
+  const PERIOD_GRACE_MS = 2 * MIN;
+  /** No look for this long (the camera stopped, the phone found no fix): the round is not judged either way. */
+  const PRESENCE_BLIND_MS = { camera: 60 * 1000, location: 5 * MIN };
+  /** The phone counts as moved once it is surely (its own error allowed for) this far from where it started. */
+  const PLACE_RADIUS_M = 60;
+  /** A fix less sure than this (metres) is no look at all. */
+  const PLACE_MAX_ERROR_M = 250;
+
+  /** A session's presence, from its start: `streak` and `best` carried on from earlier sessions. */
+  function presenceStart(mode, at, { streak = 0, best = 0 } = {}) {
+    return { mode, startedAt: at, lastSeen: at, lastLook: null, outSince: null, away: false, awayFrom: null, awayMs: 0, aways: 0,
+      period: null, periods: [], streak, best, startBest: best };
+  }
+
+  /**
+   * One look: a camera frame (`seen`: a person in view), or a fix of where the phone is (`seen`:
+   * still in its place). Away once every look has said "not there" for the mode's whole grace
+   * (90 seconds of camera, 2 minutes of the phone's place); back with the first look that sees you.
+   * Returns 'away', 'back' or null.
+   */
+  function presenceSee(p, at, seen) {
+    p.lastLook = at;
+    if (seen) {
+      p.lastSeen = at;
+      p.outSince = null;
+      if (!p.away) return null;
+      p.away = false;
+      p.awayMs += at - p.awayFrom;
+      p.awayFrom = null;
+      return 'back';
+    }
+    if (p.outSince == null) p.outSince = at;
+    if (p.away || at - p.outSince < PRESENCE_AWAY_MS[p.mode]) return null;
+    p.away = true;
+    p.awayFrom = p.outSince;
+    p.aways++;
+    return 'away';
+  }
+
+  /**
+   * How big a flame's win is: a jackpot every 25 in a row, an epic every 5 in a row or as you pass
+   * your best streak, and now and then one by luck (about 1 in 10 an epic, 1 in 50 a jackpot) so any
+   * round might be the big one. Otherwise a common drop.
+   */
+  function dropTier(streak, startBest = 0, rand = Math.random) {
+    const r = rand();
+    if (streak % 25 === 0 || r < 0.02) return 'jackpot';
+    if (streak % 5 === 0 || (startBest >= 3 && streak === startBest + 1) || r < 0.12) return 'epic';
+    return 'common';
+  }
+
+  function judgePeriod(p, rand) {
+    const per = p.period;
+    p.period = null;
+    if (per.unknown) { p.periods.push({ ok: null, tier: null }); return { ok: null, streak: p.streak, tier: null }; }
+    if (!per.ok) { p.periods.push({ ok: false, tier: null }); return { ok: false, streak: p.streak, tier: null }; }
+    p.streak++;
+    const tier = dropTier(p.streak, p.startBest, rand);
+    p.best = Math.max(p.best, p.streak);
+    p.periods.push({ ok: true, tier });
+    return { ok: true, streak: p.streak, tier, best: p.best, record: p.streak > p.startBest && p.startBest > 0 };
+  }
+
+  /**
+   * The working period the session is in now: `cur` = { key, work, end } (a pomodoro chunk, or the
+   * whole session), or null. When the period changes, the one that ended is judged: stayed with all
+   * the way through adds a flame (`{ type: 'flame', streak, tier }`). Leaving during one, after its
+   * first two minutes, puts the streak out at once (`{ type: 'broken' }`). With no look for a while (the camera quiet a minute, no fix of the phone in five)
+   * a minute (stopped or turned off), the round is not judged either way. Returns an event or null.
+   */
+  function presencePeriod(p, at, cur, rand = Math.random) {
+    let ev = null;
+    if (p.period && (!cur || cur.key !== p.period.key)) {
+      const r = judgePeriod(p, rand);
+      if (r.ok) ev = { type: 'flame', ...r };
+    }
+    if (cur && cur.work && !p.period) {
+      p.period = { key: cur.key, start: at, ok: true, unknown: false,
+        grace: Math.min(PERIOD_GRACE_MS, Math.max(0, (cur.end - at) / 4) || PERIOD_GRACE_MS) };
+    }
+    const per = p.period;
+    if (per && per.ok && !per.unknown && p.away && at - per.start > per.grace) {
+      per.ok = false;
+      if (p.streak > 0 || !ev) { p.streak = 0; ev = ev || { type: 'broken' }; }
+    }
+    if (per && at - Math.max(p.lastLook ?? -Infinity, per.start) > PRESENCE_BLIND_MS[p.mode]) per.unknown = true;
+    return ev;
+  }
+
+  /**
+   * The session is over. `complete` (it reached its hard stop): the period running is judged as if it
+   * ended there; stopped early, it is let go (no flame, and no harm to the streak). Returns the last
+   * flame's event, or null.
+   */
+  function presenceEnd(p, at, complete, rand = Math.random) {
+    let ev = null;
+    if (p.period) {
+      if (complete) { const r = judgePeriod(p, rand); if (r.ok) ev = { type: 'flame', ...r }; } else p.period = null;
+    }
+    if (p.away) { p.awayMs += at - p.awayFrom; p.away = false; p.awayFrom = null; }
+    return ev;
+  }
+
+  /** What the log keeps of a session's presence: no pictures and no places, just how it went. */
+  const presenceSummary = (p) => ({ mode: p.mode, periods: p.periods.map((x) => ({ ok: x.ok, tier: x.tier })), awayMin: Math.round(p.awayMs / MIN), aways: p.aways });
+
+  /**
+   * The streak across the log, oldest first: flames in a row (each working period stayed with all the
+   * way through), the best run, and how many flames, epics and jackpots in all. A period that was not
+   * judged (the camera off) and sessions without presence leave it as it was.
+   */
+  function flameStreak(sessions) {
+    let streak = 0, best = 0, flames = 0, epic = 0, jackpot = 0;
+    for (const s of sessions || []) {
+      for (const x of (s && s.presence && s.presence.periods) || []) {
+        if (x.ok === true) {
+          streak++;
+          flames++;
+          best = Math.max(best, streak);
+          if (x.tier === 'epic') epic++;
+          if (x.tier === 'jackpot') jackpot++;
+        } else if (x.ok === false) streak = 0;
+      }
+    }
+    return { streak, best, flames, epic, jackpot };
+  }
+
+  /** Metres between two places, { lat, lng }. */
+  function metres(a, b) {
+    const rad = Math.PI / 180, dLat = (b.lat - a.lat) * rad, dLng = (b.lng - a.lng) * rad;
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
+    return 2 * 6371000 * Math.asin(Math.min(1, Math.sqrt(h)));
+  }
+
+  /**
+   * A fix of where the phone is ({ lat, lng, accuracy } in metres), against where the session began:
+   * true (still there), false (surely moved: farther than the radius even allowing for its error), or
+   * null when the fix is too unsure to say.
+   */
+  function inPlace(anchor, fix) {
+    if (!anchor || !fix || !(fix.accuracy <= PLACE_MAX_ERROR_M)) return null;
+    return metres(anchor, fix) - fix.accuracy <= PLACE_RADIUS_M;
+  }
+
   /** The idea for break number `n` (1 on): each break takes the next one, round and round. '' when there are none. */
   const breakIdea = (list, n) => (Array.isArray(list) && list.length ? list[(Math.max(1, Math.round(n || 1)) - 1) % list.length] : '');
 
+  // ---- the study cat: three phases through a session, from its start to its hard stop. Calm for the first
+  // third, caffeine for the second, a total physics breakdown for the last: each a loop, with a short clip
+  // into the next (assets/cat-phase*.mp4). Each clip flows into the next only in that order.
+  const CAT_CLIPS = {
+    1: { loop: 'cat-phase1-loop' },
+    2: { intro: 'cat-phase2-intro', loop: 'cat-phase2-loop' },
+    3: { intro: 'cat-phase3-intro', loop: 'cat-phase3-loop' },
+  };
+
+  /** The cat's phase (1, 2 or 3) at `now` in a session from `startedAt` to its hard stop `plannedEnd` (ms): its thirds. */
+  function catPhase(startedAt, plannedEnd, now) {
+    const span = plannedEnd - startedAt;
+    if (!(span > 0)) return 1;
+    const p = (now - startedAt) / span;
+    return p < 1 / 3 ? 1 : p < 2 / 3 ? 2 : 3;
+  }
+
+  /**
+   * What the cat plays once a clip ends (`at`: { phase, intro }), with phase `due` due by now: its phase's
+   * loop again until a later phase is due, then that phase's intro, once, then its loop. One phase at a time
+   * (a jump of two still plays the phase between: its loop's end is where the next intro begins); never back.
+   */
+  function catNext(at, due) {
+    if (at.intro) return { phase: at.phase, intro: false };
+    if (due > at.phase && at.phase < 3) return { phase: at.phase + 1, intro: true };
+    return { phase: at.phase, intro: false };
+  }
+  /** The file (in assets/, .mp4) for a clip ({ phase, intro }). */
+  const catClip = (at) => CAT_CLIPS[at.phase][at.intro ? 'intro' : 'loop'];
+
   const api = {
-    parseActivities, breakIdea,
+    catPhase, catNext, catClip, CAT_CLIPS,
+    parseActivities, breakIdea, pomodoroChunks, workRounds, roundGoal,
+    presenceStart, presenceSee, presencePeriod, presenceEnd, presenceSummary, dropTier, flameStreak, metres, inPlace,
+    PRESENCE_AWAY_MS, PERIOD_GRACE_MS, PLACE_RADIUS_M,
     focusHours, bestWindow, hourScore, rotation, BEST_MIN_RATED,
     nextEntry, stopOptions, quickTasks, taskMinutes, notesSteps, currentStep, leftOffNote, lastLeftOff, nextCeiling,
-    fillNoise, fillRain, fillWaves, soundBuffer, noiseGain, spotifyLink, nextBodyCheck, bodyCheck,
-    BAND_MIN, LENGTHS, DEFAULT_LENGTH, QUICK_MIN, IF_THEN, LEFT_OFF, BODY_CHECKS, SOUND_SECONDS,
+    loopBuffer, noiseGain, soundLevel, spotifyLink, nextBodyCheck, bodyCheck,
+    BAND_MIN, LENGTHS, DEFAULT_LENGTH, QUICK_MIN, IF_THEN, LEFT_OFF, BODY_CHECKS, SOUND_FILES,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else globalThis.OnyxFocus = api;

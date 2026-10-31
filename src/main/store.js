@@ -22,8 +22,8 @@ const DEFAULTS = {
     pi: { enabled: true, taskList: '', leadMinutes: 60, quietStart: '22:00', quietEnd: '07:00', checkEvery: 30 },
     // How reminders reach you (caller.js): alarm (the phone), ntfy (push), twilio (a call), pi. '' = pick for me.
     calls: { method: '', ntfyServer: 'https://ntfy.sh', ntfyTopic: '', twilioSid: '', twilioFrom: '', callTo: '' },
-    // Magic add: where you set off from, how you get around, the hours to plan in, keep lunch free.
-    magic: { home: '', mode: 'drive', start: '08:00', end: '21:00', lunch: true },
+    // Magic add: the hours to plan in (travel and lunch are left to the person).
+    magic: { start: '08:00', end: '21:00' },
     mcp: { enabled: true, port: 4747, lan: true },
   },
   accounts: [],          // { id, provider: 'google' | 'microsoft' | 'ics', label, url? }
@@ -49,6 +49,12 @@ const DEFAULTS = {
   repeats: {},           // task id -> { rule, day } for tasks that repeat; Onyx adds the next one when it is done (repeat.js)
   repeatSpawned: {},
   pomodoro: {},          // event or task id -> { work, rest, minutes? }: split into work and rest chunks (hub.js)
+  blockLinks: {},        // event id (a repeat's: the series') -> [{ url, title, source, kind, icon }]: a website, Drive file or Notion page it is about (hub.js)
+  blockTasks: {},        // event id (a repeat's: the series') -> [{ id, text }]: what to get done within the block (hub.js)
+  eventColors: {},       // event id (a repeat's: the series') -> '#rrggbb': a colour of its own, in place of its calendar's
+  opsDone: {},           // a change sent by a phone (its outbox id) -> { at, value }: made once, even if sent again (mcp.js)
+  bugReports: [],        // bugs in Onyx itself, the PC's and the app's, with where they happened (bugs.js): kept to be fixed
+  blockTicks: {},        // event id (each day of a repeat on its own) -> [task id, ...]: which of them are ticked off
   inboxItems: {},        // task id -> { at, state, from? }: tasks that arrived from outside, waiting for Magic add (inbox.js)
   inboxLists: {},        // task list id -> true once read, so its first read only learns what is there
   linkedTasks: {},       // "app:id" from an onyx://task link -> the task it made, so a second send updates it
@@ -89,6 +95,11 @@ function load() {
       secrets = JSON.parse(safeStorage.decryptString(Buffer.from(saved.secretsEnc, 'base64')));
     } catch (err) {
       console.error('onyx: could not unlock saved sign-ins, you will need to sign in again:', err.message);
+      // The next save would write over them: a copy is kept first, so the keys aren't lost for good.
+      try {
+        const copy = path.join(path.dirname(file), `onyx.secrets-locked-${Date.now()}.json`);
+        fs.writeFileSync(copy, JSON.stringify({ secretsEnc: saved.secretsEnc, at: new Date().toISOString(), error: err.message }), 'utf8');
+      } catch { /* nowhere to keep it */ }
     }
   }
   delete saved.secretsEnc;

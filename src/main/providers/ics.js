@@ -5,6 +5,7 @@ const ical = require('node-ical');
 const moment = require('moment-timezone');
 const { RRule } = require('rrule');
 const windowsZones = require('node-ical/windowsZones.json');
+const { sturdyFetch } = require('../net');
 
 const DAY = 86400000;
 const CACHE_MS = 5 * 60000;
@@ -17,7 +18,7 @@ const text = (v) => (v && typeof v === 'object' ? String(v.val ?? '') : String(v
 async function load(url, force) {
   const hit = cache.get(url);
   if (hit && !force && Date.now() - hit.at < CACHE_MS) return hit.items;
-  const res = await fetch(url, { headers: { 'User-Agent': 'OnyxCalendar' } });
+  const res = await sturdyFetch(url, { headers: { 'User-Agent': 'OnyxCalendar' } });
   if (!res.ok) throw new Error(`the calendar link answered HTTP ${res.status}`);
   const raw = await res.text();
   if (!/BEGIN:VCALENDAR/i.test(raw)) throw new Error('that link is not a calendar (.ics) feed');

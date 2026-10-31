@@ -121,6 +121,14 @@
     return clean;
   };
 
+  // Drive sync (cloud.js on the PC), in one of its states.
+  const mockCloud = (st, account = 'you@gmail.com') => ({
+    on: st !== 'off', state: st, account: st === 'off' ? '' : account, accounts: ['you@gmail.com', 'work@company.com'],
+    last: st === 'ok' ? Date.now() - 40000 : null, hasCode: st === 'ok',
+    error: { 'needs-code': 'Enter the sync code from one of your other PCs (Settings → Desktops on it).', error: 'Google Drive: HTTP 503', 'no-account': 'Sign in to a Google account in Settings → Calendars, then choose it here.' }[st] || '',
+    peers: [],
+  });
+
   const state = {
     version: 'preview',
     settings: {
@@ -139,7 +147,8 @@
     microsoft: { clientId: '' },
     notion: { connected: true, name: 'Onyx', workspace: 'My workspace' },
     mcp: { enabled: true, port: 4747, lan: true, running: true, error: '', token: 'preview-token', addresses: ['192.168.1.20'], peers: ['192.168.1.31:4747'] },
-    desktops: { linked: true, device: 'a1', name: 'DESKTOP-MAIN', invite: null, desktops: [
+    // ?cloud=off|needs-permission|needs-code|error shows Drive sync in that state.
+    desktops: { linked: true, device: 'a1', name: 'DESKTOP-MAIN', invite: null, cloud: mockCloud(new URLSearchParams(location.search).get('cloud') || 'ok'), desktops: [
       { id: 'a1', self: true, name: 'DESKTOP-MAIN', version: 'preview', addresses: ['192.168.1.20:4747', '100.101.12.7:4747'], online: true, seen: Date.now(), error: '' },
       { id: 'b2', self: false, name: 'LAPTOP', version: 'preview', addresses: ['192.168.1.31:4747'], online: true, seen: Date.now() - 12000, error: '' },
       { id: 'c3', self: false, name: 'OFFICE-PC', version: 'preview', addresses: ['10.0.0.8:4747'], online: false, seen: Date.now() - 3 * 86400000, error: 'Not reachable.' },
@@ -153,7 +162,7 @@
   };
   // Magic add (preview): loads the real planner file once, then plans like the PC does without Claude.
   let magicLib = null;
-  async function magicRun(text, date, o, given, travel, inboxIds = []) {
+  async function magicRun(text, date, o, given, travel, inboxIds = [], material = []) {
     magicLib ||= await new Promise((ok, no) => {
       if (window.OnyxMagicPlan) return ok(window.OnyxMagicPlan);
       const sc = document.createElement('script');
@@ -162,7 +171,6 @@
       document.head.append(sc);
     });
     const m = state.settings.magic || {};
-    const home = o.home ?? m.home ?? '';
     const [y, mo, d] = date.split('-').map(Number);
     const day = new Date(y, mo - 1, d);
     const at = (hm) => { const [h, mi] = hm.split(':').map(Number); return new Date(y, mo - 1, d, h, mi).getTime(); };
@@ -177,13 +185,17 @@
     // The tasks that arrived from other apps and were picked: each is one task, keeping its id.
     const arrived = inboxIds.map((id) => tasks.find((t) => t.id === id)).filter(Boolean)
       .flatMap((t) => [magicLib.readLine(t.label)].map((g) => ({ ...g, ref: t.id, ...(t.minutes ? { minutes: t.minutes, why: 'Length given by the app that sent it' } : {}) })));
-    const list = magicLib.normalizeTasks(given || [...arrived, ...(text && text.trim() ? magicLib.estimateLocal(text) : [])]);
+    // What was read (preview): its list lines become the steps, in order, as Claude would make them.
+    const step = /^\s*(?:[-*]|\d+[.)])\s+/;
+    const fromRead = (material || []).flatMap((m, n) => m.text.split('\n').filter((l) => step.test(l)).slice(0, 12)
+      .map((l, k) => ({ ...magicLib.estimateLocal(l.replace(step, ''))[0], chain: `m${n + 1}`, step: k + 1, notes: l.replace(step, ''), from: { title: m.title, url: m.url } })));
+    const list = magicLib.normalizeTasks(given || [...arrived, ...fromRead, ...(text && text.trim() ? magicLib.estimateLocal(text) : [])]);
     if (!list.length) throw new Error('No tasks found in that. Put one on each line.');
-    const r = magicLib.schedule(busy, list, { day, from, to, home: home || 'Home', travel: travel || [], lunch: (o.lunch ?? m.lunch) !== false });
+    const r = magicLib.schedule(busy, list, { day, from, to, home: null, travel: false, lunch: false }); // like the PC: no travel, no lunch held
     const iso = (ms) => new Date(ms).toISOString();
     return {
-      source: given ? 'edited' : 'local', warning: '', tasks: list, travel: travel || [],
-      blocks: r.blocks.map((b) => ({ idx: b.idx, part: b.part, ref: b.ref, title: b.title, start: iso(b.start), end: iso(b.end), minutes: b.minutes, travel: b.travel, place: b.place, why: b.why, kind: b.kind })),
+      source: given ? 'edited' : 'local', warning: '', tasks: list, travel: [],
+      blocks: r.blocks.map((b) => ({ idx: b.idx, part: b.part, ref: b.ref, title: b.title, start: iso(b.start), end: iso(b.end), minutes: b.minutes, travel: b.travel, place: b.place, why: b.why, kind: b.kind, notes: b.notes || '', from: b.from || null })),
       unplaced: r.unplaced.map((u) => ({ idx: u.idx, ref: u.task.ref, title: u.task.title, minutes: u.task.minutes, reason: u.reason })),
     };
   }
@@ -197,6 +209,9 @@
   const repeats = {};      // task id -> rule
   // Pomodoro splits (hub.js setPomodoro), with a study block that is on right now for the timer.
   const pomodoros = {};
+  const blockTasks = {}, blockTicks = {}; // a block's tasks (hub.js setBlockTasks), and each day's ticks
+  const blockLinks = { 'local/blocks/1': [{ url: 'https://www.notion.so/', title: 'Study plan 2026', source: 'notion', kind: 'page', icon: '📚' }] }; // a block's links (hub.setBlockLinks)
+  const eventColors = {};                  // a block's own colour (hub.js setEventColor)
   {
     const now = Date.now();
     events.push({
@@ -205,6 +220,8 @@
       writable: true, location: '', notes: '', link: '',
     });
     pomodoros['local/blocks/pomo'] = { work: 25, rest: 5 };
+    blockTasks['local/blocks/pomo'] = [{ id: 'a1', text: 'Review last week\'s flashcards' }, { id: 'a2', text: 'Read chapter 4' }, { id: 'a3', text: 'Write 10 new sentences' }];
+    blockTicks['local/blocks/pomo'] = ['a1'];
   }
   const spawned = {};      // done task id -> the one added after it
   let goals = [{
@@ -222,7 +239,14 @@
     tasks.push({ id: `g1/tl~main/stretch${n}`, listId: 'g1/tl~main', listName: 'My Tasks', color: '#f5b83d', provider: 'google', title: 'Stretch 07:30', label: 'Stretch', notes: '', due: ymd(day(n)), date: ymd(day(n)), time: '07:30', start: day(n, 7, 30).toISOString(), done: false, mirror: false, call: null });
   }
   const goalOf = (id) => { const g = goals.find((x) => x.steps.some((s) => s.taskId === id)); return g ? { id: g.id, title: g.title, color: g.color } : null; };
-  const taskOut = (t) => ({ ...withTags(t), goal: goalOf(t.id), repeat: repeats[t.id] || null, pomodoro: pomodoros[t.id] || null });
+  const taskOut = (t) => ({ ...withTags(t), goal: goalOf(t.id), repeat: repeats[t.id] || null, pomodoro: pomodoros[t.id] || null, ...blockBits(t.id) });
+  /** A block's checklist (with this day's ticks) and links, for an entry or a timed task (hub.js taskListOf, linksOf). */
+  function blockBits(id, series) {
+    return {
+      ...(blockLinks[series || id]?.length ? { links: blockLinks[series || id] } : {}),
+      ...(blockTasks[id]?.length ? { taskList: blockTasks[id].map((t) => ({ ...t, done: (blockTicks[id] || []).includes(t.id) })) } : {}),
+    };
+  }
   /** Marks copies of the same task (or ones Onyx repeats) as one series, as series.js does. */
   const withSeries = (list) => {
     const groups = new Map();
@@ -277,11 +301,17 @@
       const s = old.get(raw.id) || { id: `s${seq++}`, taskId: null };
       old.delete(s.id);
       const rule = raw.repeat || null;
-      Object.assign(s, { title: raw.title.trim(), due: rule ? s.due || ymd(new Date()) : raw.due || null, done: rule ? false : !!raw.done });
+      Object.assign(s, { title: raw.title.trim(), due: rule ? s.due || raw.due || ymd(new Date()) : raw.due || null, done: rule ? false : !!raw.done });
+      for (const k of ['phase', 'measure', 'minutes', 'until', 'time']) if (k in raw) { if (raw[k]) s[k] = raw[k]; else delete s[k]; }
       if (rule) { s.repeat = rule; s.log ||= []; } else delete s.repeat;
       const t = s.taskId && tasks.find((x) => x.id === s.taskId);
       if (t) Object.assign(t, { title: s.title, label: s.title, due: s.due, date: s.due, done: s.done, completed: s.done ? new Date().toISOString() : null });
-      else if (!s.done) s.taskId = addTask({ title: s.title, due: s.due, notes: `A step toward: ${g.title}` }).id;
+      else if (!s.done) {
+        s.taskId = addTask({ title: s.title, due: s.due, notes: `A step toward: ${g.title}${raw.tip ? `\n\n${raw.tip}` : ''}` }).id;
+        // What Magic add gave it for its block (goals.js addTask).
+        if (raw.checklist?.length) blockTasks[s.taskId] = raw.checklist.map((text, i) => ({ id: `c${i + 1}`, text }));
+        if (raw.links?.length) blockLinks[s.taskId] = raw.links.map((l) => ({ url: l.url, title: l.title, source: 'web' }));
+      }
       if (rule) repeats[s.taskId] = rule; else delete repeats[s.taskId];
       return s;
     });
@@ -307,10 +337,16 @@
         }))]
         .filter((e) => new Date(e.end) > new Date(start) && new Date(e.start) < new Date(end))
         .filter((e) => !state.settings.hidden[e.calendarId])
-        .map((e) => ({ ...withTags(e), pomodoro: pomodoros[e.id] || null })),
+        .map((e) => ({ ...withTags(e), pomodoro: pomodoros[e.id] || null,
+          ...(e.kind === 'event' && eventColors[e.id] ? { color: eventColors[e.id], calColor: e.color, ownColor: true } : {}),
+          ...(e.kind === 'event' || e.kind === 'task' ? blockBits(e.id, e.seriesId) : {}) })),
       errors: [],
     }),
     setPomodoro: async (id, cfg) => { if (cfg) pomodoros[id] = cfg; else delete pomodoros[id]; return pomodoros[id] || null; },
+    setBlockLinks: async (key, items) => { const list = (items || []).filter((l) => /^https?:\/\//.test(l.url || '')).map((l) => ({ url: l.url, title: l.title || l.url, source: l.source || 'web', ...(l.kind ? { kind: l.kind } : {}), ...(l.icon ? { icon: l.icon } : {}) })); if (list.length) blockLinks[key] = list; else delete blockLinks[key]; return list; },
+    setBlockTasks: async (key, items) => { const list = (items || []).filter((t) => t.text?.trim()).map((t) => ({ id: t.id || Math.random().toString(36).slice(2, 10), text: t.text.trim() })); if (list.length) blockTasks[key] = list; else delete blockTasks[key]; return list; },
+    setEventColor: async (key, color) => { if (color) eventColors[key] = color; else delete eventColors[key]; return eventColors[key] || null; },
+    tickBlockTask: async (id, taskId, done) => { const s = new Set(blockTicks[id] || []); if (done) s.add(taskId); else s.delete(taskId); blockTicks[id] = [...s]; return blockTicks[id]; },
     goals: async () => goals.map(goalOut),
     createGoal: async (d) => {
       if (!d.title) throw new Error('A goal needs a name.');
@@ -322,9 +358,9 @@
     },
     updateGoal: async (id, d) => {
       const g = goals.find((x) => x.id === id);
-      Object.assign(g, { title: d.title, notes: d.notes, start: d.start, end: d.end, color: d.color });
+      for (const k of ['title', 'notes', 'start', 'end', 'color']) if (k in d) g[k] = d[k]; // what was sent, as the PC does
       if (d.tags) setTags(id, d.tags);
-      await syncGoalSteps(g, d.steps);
+      if ('steps' in d) await syncGoalSteps(g, d.steps);
       return { ...goalOut(g), warnings: [] };
     },
     deleteGoal: async (id) => {
@@ -339,9 +375,20 @@
       if (rule && !t.date) Object.assign(t, { due: ymd(new Date()), date: ymd(new Date()) });
       return taskOut(t);
     },
+    shareSenders: async () => ({ senders: [{ id: 'g1', label: 'you@gmail.com', provider: 'google' }, { id: 'm1', label: 'you@outlook.com', provider: 'microsoft' }], recents: ['sam@example.com'] }),
+    shareEmail: async (d) => {
+      const to = String(d.to || '').split(/[\s,;]+/).filter(Boolean);
+      if (!to.length) throw new Error('Enter who to send it to.');
+      if (d.accountId === 'm1') throw new Error('To send from you@outlook.com, connect it again once in Settings → Calendars: Onyx now asks to send email too.');
+      window.onyxSent = [...(window.onyxSent || []), d];
+      return { sent: to.length, to, from: 'you@gmail.com' };
+    },
+    sharePages: async (q) => ({ connected: true, pages: [{ ref: 'p1', title: 'Weekly plan', url: 'https://notion.so/p1', kind: 'page', icon: '🗓️' }, { ref: 'p2', title: 'Reading list', url: 'https://notion.so/p2', kind: 'page', icon: '' }]
+      .filter((p) => !q || p.title.toLowerCase().includes(String(q).toLowerCase())) }),
+    shareNotion: async (d) => { window.onyxSentNotion = [...(window.onyxSentNotion || []), d]; return { ok: true }; },
     createEvent: async (d) => {
       const c = cal(d.calendarId);
-      const e = { id: `${c.id}/${seq++}`, calendarId: c.id, calendarName: c.name, color: c.color, kind: 'event', location: '', link: '', writable: true, ...d, title: d.title || 'Time block' };
+      const e = { id: `${c.id}/${seq++}`, calendarId: c.id, calendarName: c.name, color: c.color, kind: 'event', location: '', link: '', writable: true, ...d, title: d.blank ? '' : d.title || 'Time block' };
       delete e.tags;
       if (d.recur) e.seriesId = e.id; // shown as one block: enough to see the repeat in the window
       events.push(e);
@@ -551,12 +598,96 @@
       if (String(code).replace(/[^a-z0-9]/gi, '').length !== 8) throw new Error('The code is 8 letters and numbers, like ABCD-2345.');
       return snapshot();
     },
-    leaveDesktops: async () => { state.desktops = { linked: false, device: 'a1', name: 'DESKTOP-MAIN', invite: null, desktops: [] }; return structuredClone(state.desktops); },
+    cloudOn: async (account) => { state.desktops.cloud = mockCloud('ok', account); return structuredClone(state.desktops); },
+    cloudAllow: async () => { state.desktops.cloud = mockCloud('ok'); return structuredClone(state.desktops); },
+    cloudCode: async (code) => {
+      if (String(code).replace(/[^a-z0-9]/gi, '').length !== 16) throw new Error('The sync code is 16 letters and numbers, like ABCD-EFGH-JKLM-NPQR.');
+      state.desktops.cloud = mockCloud('ok');
+      return structuredClone(state.desktops);
+    },
+    cloudShowCode: async () => 'K7QM-4XPA-RT9C-WD2H',
+    cloudOff: async () => { state.desktops.cloud = mockCloud('off'); return structuredClone(state.desktops); },
+    leaveDesktops: async () => { state.desktops = { linked: false, device: 'a1', name: 'DESKTOP-MAIN', invite: null, cloud: state.desktops.cloud, desktops: [] }; return structuredClone(state.desktops); },
     forgetDesktop: async (id) => { state.desktops.desktops = state.desktops.desktops.filter((x) => x.id !== id); return structuredClone(state.desktops); },
     tamkeen: { info: async () => ({ installed: true }), watch: async (id) => { window.lastTamkeen = id; return true; } },
+    // Magic add for goals (preview): a plan made up from the outline's lines, then the real fitting (src/main/goal-plan.js).
+    planGoal: async (o = {}) => {
+      const P = await new Promise((ok, no) => {
+        if (window.OnyxGoalPlan) return ok(window.OnyxGoalPlan);
+        const sc = document.createElement('script');
+        sc.src = '../main/goal-plan.js';
+        sc.onload = () => ok(window.OnyxGoalPlan); sc.onerror = () => no(new Error('planner not found'));
+        document.head.append(sc);
+      });
+      await new Promise((r) => setTimeout(r, 900));
+      if (!String(o.title || '').trim()) throw new Error('Give the goal a name first.');
+      const today = ymd(new Date()), start = o.start || today, end = o.end;
+      const level = o.level || 3;
+      const t0 = new Date(start + 'T00:00').getTime();
+      const span = Math.max(14, Math.round((new Date(end + 'T00:00') - t0) / 86400000));
+      const at = (days) => ymd(new Date(t0 + Math.round(days) * 86400000));
+      const phases = [
+        { name: 'Foundations', start, end: at(span / 3), milestone: 'The basics in place' },
+        { name: 'Build', start: at(span / 3), end: at((2 * span) / 3), milestone: 'Half of the work done' },
+        { name: 'Finish', start: at((2 * span) / 3), end, milestone: o.title },
+      ];
+      const lines = String(o.outline || '').split(/\r?\n/).map((l) => l.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim()).filter(Boolean);
+      const tasks = [];
+      lines.forEach((l, i) => {
+        const done = /\[x\]|✓|\bdone\b/i.test(l);
+        const name = l.replace(/\[x\]|✓|\(?\bdone\b\)?/gi, '').trim();
+        tasks.push({ title: done ? name : `Finish ${name} (1 part)`, measure: '1 part finished', phase: 1 + (i % 3), repeat: 'once', start: done ? today : at(((i % 3) + 0.5) * (span / 3)), minutes: 45, when: 'any', done,
+          ...(i === 0 ? { checklist: ['Open your notes on it', 'Write the outline in 5 lines', 'Do the first part', 'Note where you stopped'], tip: 'Start with the easiest part to get going.' } : {}) });
+      });
+      const habits = [['Practise for 20 minutes', 'daily', 20, 'morning'], ['Review the week in 15 minutes', 'weekly', 15, 'evening'], ['Write 200 words', 'weekdays', 30, 'afternoon'], ['Read 10 pages', 'daily', 25, 'evening'], ['Do 1 timed drill', 'weekdays', 15, 'morning']];
+      for (let p = 0; p < 3; p++) {
+        for (const [t, r, m, w] of habits.slice(0, level)) tasks.push({ title: `${t} (${phases[p].name.toLowerCase()})`, measure: t, phase: p + 1, repeat: r, start: phases[p].start, until: phases[p].end, minutes: m, when: w,
+          // Like Claude's details: only some steps have them (a made-up address is dropped by goal-plan.js).
+          ...(t.startsWith('Practise') ? { checklist: ['Warm up for 2 minutes', 'Do 15 minutes of practice', 'Write down 1 thing to fix'], links: [{ title: 'Anki flashcards', url: 'https://apps.ankiweb.net/' }, { title: 'Broken', url: 'not a link' }] } : {}),
+          ...(t.startsWith('Review') ? { tip: 'Look at what you ticked off first, then pick next week\'s 3 most important steps.' } : {}) });
+      }
+      const n = level * 6;
+      for (let k = 0; k < n; k++) tasks.push({ title: `Complete practice set ${k + 1} of ${n}`, measure: `Set ${k + 1} checked`, phase: 1 + Math.floor((k * 3) / n), repeat: 'once', start: at(((k + 1) * span) / (n + 1)), minutes: 40, when: 'any' });
+      const plan = P.normalize({ phases, tasks }, { start, end, today });
+      const busy = events.filter((e) => !e.allDay).map((e) => ({ start: +new Date(e.start), end: +new Date(e.end) }));
+      if (o.fit !== false) P.fitTimes(plan.steps, busy, { today, end });
+      for (const s of plan.steps) s.sessions = P.timesIn(s.repeat, s.due, s.until || s.due);
+      return { ...plan, summary: P.summary(plan.steps, { start: start > today ? start : today, end }), level };
+    },
     breakdown: async (title, opts = {}) => {
       const all = ['Clear a space to work', 'Gather what you need', `Open what "${title}" needs`, 'Do the first small part', 'Take a short look at it', 'Do the next part', 'Check it over', 'Tidy up', 'Tick it off', 'Take a breath', 'Tell someone it is done', 'Plan what comes next'];
       return all.slice(0, [3, 4, 6, 9, 12][(opts.level || 3) - 1]);
+    },
+    // Breakdown with times (breakdown-plan.js on the PC): stand-in steps, squeezed into the block, and back to back
+    // from its start (8:00-21:00 days, 5-minute breaks) when that is clearly too little. Nothing else in the way.
+    breakdownPlan: async (o = {}) => {
+      await new Promise((r) => setTimeout(r, 500));
+      const MIN = 60000, n = [3, 4, 6, 9, 12][(o.level || 3) - 1];
+      const names = ['Read the notes through', 'Gather what it needs', 'Draft the first part', 'Do the main part', 'Check it over', 'Fix what is off', 'Send it off', 'Tidy up', 'Note what is next', 'Tell them it is done', 'File it away', 'Take a break'];
+      const lens = [15, 20, 45, 60, 20, 30, 10, 10, 10, 5, 10, 10];
+      const steps = names.slice(0, n).map((title, i) => ({ title, minutes: lens[i], fit: lens[i], notes: i === 0 && o.notes ? `From the notes: ${o.notes.replace(/\s+/g, ' ').slice(0, 120)}` : '' }));
+      const day = o.frame?.day ? new Date(`${o.frame.day}T${o.frame.from || '09:00'}`) : null;
+      const start = day ? +day : +new Date(o.frame.start), end = day ? start + 8 * 60 * MIN : +new Date(o.frame.end);
+      const F = Math.round((end - start) / MIN), need = steps.reduce((a, s) => a + s.minutes, 0);
+      const k = Math.min(1, F / need);
+      const fit = steps.map((s) => Math.max(5, Math.floor((s.minutes * k) / 5) * 5));
+      let t = start;
+      const lay = (mins, gap) => steps.map((s, i) => {
+        const dayEnd = new Date(t); dayEnd.setHours(21, 0, 0, 0);
+        if (gap && t + mins[i] * MIN > +dayEnd) { const d = new Date(t); d.setDate(d.getDate() + 1); d.setHours(8, 0, 0, 0); t = +d; }
+        const b = { title: s.title, notes: s.notes, start: new Date(t).toISOString(), end: new Date(t + mins[i] * MIN).toISOString(), minutes: mins[i] };
+        t += (mins[i] + gap) * MIN;
+        return b;
+      });
+      const options = [{ key: 'fit', minutes: fit.reduce((a, b) => a + b, 0), over: 0, blocks: lay(fit, 0), unplaced: [] }];
+      const short = need > F * 1.1;
+      if (short) { t = start; options.push({ key: 'real', minutes: need, over: 0, blocks: lay(steps.map((s) => s.minutes), 5), unplaced: [] }); }
+      return {
+        steps, need, fits: !short,
+        advice: short ? `Realistically this takes about ${Math.round(need / 6) / 10} h; it has ${Math.round(F / 6) / 10} h.` : 'This fits in the time it has.',
+        frame: { kind: day ? 'day' : 'block', start: new Date(start).toISOString(), end: new Date(end).toISOString(), minutes: F },
+        options,
+      };
     },
     setAiKey: async () => snapshot(),
     // Hyperfocus sessions (focus.js on the PC), kept for this visit.
@@ -578,7 +709,16 @@
         .map((x) => ({ ...x, task: { id: x.task.id, title: x.task.label || x.task.title, minutes: x.task.minutes || null } }));
     },
     // Magic add: the same planner the PC uses (src/main/magic-plan.js), with the offline estimate.
-    magicPlan: async (text, date, o = {}, inboxIds = []) => magicRun(text, date, o, null, null, inboxIds),
+    magicPlan: async (text, date, o = {}, inboxIds = [], material = []) => magicRun(text, date, o, null, null, inboxIds, material),
+    // Preview: a link or a picture "read" after a moment, as made-up instructions (a link with "fail" in it can't be read).
+    readSource: async (src = {}) => {
+      await new Promise((r) => setTimeout(r, 900));
+      if (src.kind === 'link' && /fail/.test(src.url)) throw new Error('That page needs a sign-in, or doesn\'t let apps read it. Add a screenshot of it instead, or paste its text.');
+      const notion = src.kind === 'link' && /notion\.(so|site)/.test(src.url);
+      const text = ['# Set up the standing desk', '1. Unbox the frame and check the parts list', '2. Attach the legs to the crossbar (4 bolts each)',
+        '3. Mount the motor box under the top', '4. Fix the top to the frame and plug in the controller', '5. Run the reset: hold down for 10 seconds'].join('\n');
+      return { kind: src.kind === 'image' ? 'image' : notion ? 'notion' : 'web', title: src.kind === 'image' ? 'Desk assembly steps' : notion ? 'Desk setup (Notion)' : 'How to assemble your desk', url: src.kind === 'link' ? src.url : '', text, words: text.split(/\s+/).length, cut: false };
+    },
     magicReplan: async (tasks, travel, date, o = {}) => magicRun(null, date, o, tasks, travel),
     magicRemember: async (o) => { Object.assign(state.settings.magic ||= {}, o); return snapshot(); },
     syncDesktops: async () => structuredClone({ ...state.desktops, invite: null }),

@@ -15,7 +15,7 @@ const LEVELS = {
 };
 const SYSTEM = [
   'You help someone with ADHD get started on a task by breaking it into steps.',
-  'Give the steps in order. Each step is short (under 12 words), starts with a verb, and is something they can just do, with no further planning.',
+  'Give the steps in order. Each step is short (at most 30 characters), starts with a verb, and is something they can just do, with no further planning.',
   'Write in the same language as the task.',
   'Reply with only a JSON array of strings, nothing else.',
 ].join(' ');

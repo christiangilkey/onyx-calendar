@@ -307,11 +307,11 @@ test('the escalation ladder: leave-by, push only, critical, and Leaving now', as
   assert.deepEqual(at(mirrors()[0]), [`${ymd(day(2))} 15:00`]);
   assert.deepEqual(ev.piAlerts.map((a) => a.kind), ['call']);
 
-  // Critical: a second call 10 minutes later (still on the way: there by 15:40).
+  // Critical: a call every 10 minutes, three in all (unless one is answered, or Leaving now).
   let up = await hub.updateEvent(ev.id, { callMode: 'critical' });
-  assert.deepEqual(at(mirrors()[0]), [`${ymd(day(2))} 15:00`, `${ymd(day(2))} 15:10`]);
+  assert.deepEqual(at(mirrors()[0]), [`${ymd(day(2))} 15:00`, `${ymd(day(2))} 15:10`, `${ymd(day(2))} 15:20`]);
   assert.match(mirrors()[0].notes, /^Escalation: critical$/m);
-  assert.equal(up.piAlerts.length, 2);
+  assert.deepEqual(up.piAlerts.map((a) => a.critical), [1, 2, 3]);
 
   // Push only: an alert, no call.
   up = await hub.updateEvent(ev.id, { callMode: 'push' });
@@ -324,7 +324,18 @@ test('the escalation ladder: leave-by, push only, critical, and Leaving now', as
   assert.match(mirrors()[0].notes, /^Acknowledged: yes$/m);
   assert.deepEqual(at(mirrors()[0]), []);
   await hub.updateEvent(ev.id, { start: day(2, 16, 0), end: day(2, 17, 0), allDay: false });
-  assert.deepEqual(at(mirrors()[0]), [`${ymd(day(2))} 16:00`, `${ymd(day(2))} 16:10`], 'moved: it rings again');
+  assert.deepEqual(at(mirrors()[0]), [`${ymd(day(2))} 16:00`, `${ymd(day(2))} 16:10`, `${ymd(day(2))} 16:20`], 'moved: it rings again');
+
+  // Several at once: a push and a phone alarm, then critical calls with the alarm too.
+  up = await hub.updateEvent(ev.id, { callMode: ['push', 'alarm'] });
+  assert.deepEqual(up.callModes, ['push', 'alarm']);
+  assert.deepEqual(up.piAlerts.map((a) => a.kind), ['push', 'alarm']);
+  assert.match(mirrors()[0].notes, /^Alert: push only$/m);
+  up = await hub.updateEvent(ev.id, { callMode: ['call', 'critical', 'alarm'] });
+  assert.deepEqual(up.callModes, ['critical', 'alarm'], 'critical takes the place of a single call');
+  assert.equal(up.callMode, 'critical');
+  assert.deepEqual(up.piAlerts.map((a) => a.kind), ['call', 'call', 'call', 'alarm']);
+  assert.doesNotMatch(mirrors()[0].notes, /Alert: phone alarm/, 'the Pi still calls');
 
   // Leave-by off: back to the Pi's usual time.
   await hub.updateEvent(ev.id, { leaveBy: null, callMode: 'call' });

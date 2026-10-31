@@ -10,7 +10,7 @@ const hub = require('./hub');
 const repeat = require('./repeat');
 const { mirrorName } = require('./taskname');
 
-const MAX_STEPS = 100;
+const MAX_STEPS = 400; // Magic add plans a goal finely: many steps, most of them repeating
 const MAX_GOALS = 60;
 const COLORS = ['#ffb547', '#8b7cff', '#3fd0c9', '#5fd38d', '#ff7eb6', '#4aa8ff', '#ff9f4a'];
 
@@ -38,7 +38,7 @@ function find(id) {
 
 // A step is done once (a checkbox), or repeats (daily, weekdays, weekly): a repeating
 // step's task comes back after each time it is done, and every time counts toward it.
-const STEP_REPEATS = ['daily', 'weekdays', 'weekly'];
+const STEP_REPEATS = ['daily', 'weekdays', 'weekly', 'biweekly', 'monthly'];
 
 /** How many times a repeating step is due between `start` and `end` (inclusive). */
 function timesDue(rule, start, end) {
@@ -47,6 +47,8 @@ function timesDue(rule, start, end) {
   const span = Math.round((to - from) / 86400000) + 1;
   if (span <= 0) return 1;
   if (rule === 'weekly') return Math.max(1, Math.ceil(span / 7));
+  if (rule === 'biweekly') return Math.max(1, Math.ceil(span / 14));
+  if (rule === 'monthly') return Math.max(1, (to.getFullYear() - from.getFullYear()) * 12 + to.getMonth() - from.getMonth() + (to.getDate() >= from.getDate() ? 1 : 0));
   if (rule === 'weekdays') {
     let n = 0;
     for (let i = 0; i < span; i++) { const d = new Date(from.getFullYear(), from.getMonth(), from.getDate() + i).getDay(); if (d % 6) n++; }
@@ -57,7 +59,8 @@ function timesDue(rule, start, end) {
 
 function stepOut(g, s) {
   if (!s.repeat) return { ...s };
-  const target = timesDue(s.repeat, g.start, g.end);
+  // A habit for one phase counts its own days (from its first day to its last), not the whole goal's.
+  const target = timesDue(s.repeat, s.from && s.from > g.start ? s.from : g.start, s.until && s.until < g.end ? s.until : g.end);
   const log = s.log || [];
   return { ...s, log: [...log], count: log.length, target, doneToday: log.some((e) => e.date === ymd(new Date())) };
 }
@@ -110,15 +113,20 @@ async function syncSteps(g, incoming) {
   const warn = (s, err) => warnings.push(`"${s.title}": ${err.message}`);
   const old = new Map(g.steps.map((s) => [s.id, s]));
   const next = [];
-  const addTask = async (s) => {
+  // `more`: details Magic add gave a new step for its block (a checklist, links, a tip), put on its task.
+  const addTask = async (s, more = null) => {
     if (!g.listId || s.done) return;
     try {
       // A repeating step (or one with a time but no date) starts on the goal's first day, or today if that has passed.
       const due = s.due || (s.repeat || s.time ? [g.start, ymd(new Date())].sort().at(-1) : null);
-      const t = await hub.createTask({ title: taskTitle(s.title, due, s.time), due, listId: g.listId, notes: `A step toward: ${g.title}` });
+      const notes = `A step toward: ${g.title}${s.measure ? `\nDone when: ${s.measure}` : ''}${more?.tip ? `\n\n${more.tip}` : ''}`;
+      const t = await hub.createTask({ title: taskTitle(s.title, due, s.time), due, listId: g.listId, notes });
       s.taskId = t.id;
       s.due = t.date || due;
-      if (s.repeat) repeat.setRule(t.id, s.repeat);
+      if (s.repeat) { s.from ||= s.due; repeat.setRule(t.id, s.repeat, s.until || null); }
+      if (s.time && s.minutes) hub.setTaskMinutes(t.id, s.minutes); // its block on the calendar is as long as a session
+      if (more?.checklist?.length) hub.setBlockTasks(t.id, more.checklist.map((text) => ({ text })));
+      if (more?.links?.length) hub.setBlockLinks(t.id, more.links);
     } catch (err) { warn(s, err); }
   };
   for (const raw of (incoming || []).slice(0, MAX_STEPS)) {
@@ -128,15 +136,28 @@ async function syncSteps(g, incoming) {
     const due = isDate(raw.due) ? raw.due : null;
     const time = isTime(raw.time) ? raw.time : null; // a time of day: the step's task sits at that time on the calendar
     const done = rule ? false : !!raw.done; // a repeating step is never done once and for all
+    // From Magic add: the phase it belongs to, how it is measured, a session's length and a habit's last day.
+    const extra = {};
+    if ('phase' in raw) extra.phase = String(raw.phase || '').trim().slice(0, 80);
+    if ('measure' in raw) extra.measure = String(raw.measure || '').trim().slice(0, 200);
+    if ('minutes' in raw) extra.minutes = Number.isFinite(Number(raw.minutes)) && Number(raw.minutes) >= 5 ? Math.min(720, Math.round(Number(raw.minutes))) : null;
+    if ('until' in raw) extra.until = rule && isDate(raw.until) ? raw.until : null;
     let s = old.get(raw.id);
     if (!s) {
       s = { id: newId('s'), title, due, done, taskId: null, ...(time ? { time } : {}), ...(rule ? { repeat: rule, log: [] } : {}) };
-      await addTask(s);
+      for (const [k, v] of Object.entries(extra)) if (v) s[k] = v;
+      const more = {
+        checklist: (Array.isArray(raw.checklist) ? raw.checklist : []).map((x) => String(x || '').trim()).filter(Boolean).slice(0, 12),
+        links: Array.isArray(raw.links) ? raw.links.slice(0, 6) : [],
+        tip: String(raw.tip || '').trim().slice(0, 300),
+      };
+      await addTask(s, more);
     } else {
       old.delete(s.id);
+      for (const [k, v] of Object.entries(extra)) { if (v) s[k] = v; else delete s[k]; }
       if ((s.repeat || null) !== rule) {
         if (rule) { s.repeat = rule; s.log ||= []; } else delete s.repeat;
-        if (s.taskId) repeat.setRule(s.taskId, rule);
+        if (s.taskId) repeat.setRule(s.taskId, rule, rule ? s.until || null : null);
       }
       const patch = {};
       if (due !== s.due && !(rule && !due)) patch.due = due;

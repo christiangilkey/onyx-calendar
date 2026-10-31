@@ -130,6 +130,10 @@ final class LauncherData {
             o.put("fullScreen", fullScreenAllowed(ctx));
             o.put("notiflist", OnyxNotificationListener.allowed(ctx));
             o.put("alarm", prefs(ctx).getBoolean("alarm", false));
+            // The doomscroll saver: on in Onyx, its minutes, and whether Android's Accessibility switch for it is on.
+            o.put("doomscroll", DoomscrollService.on(ctx));
+            o.put("doomMinutes", DoomscrollService.minutes(ctx));
+            o.put("doomAllowed", DoomscrollService.allowed(ctx));
         } catch (Exception ignored) {
             // a JSON key can't fail here
         }
@@ -180,6 +184,9 @@ final class LauncherData {
                 } else {
                     intent = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
                 }
+                break;
+            case "accessibility":
+                intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
                 break;
             case "appinfo":
                 intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + pkg));

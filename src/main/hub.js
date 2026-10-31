@@ -148,6 +148,91 @@ function setPomodoro(id, cfg) {
   return pomodoroOf(id);
 }
 
+// ---------------------------------------------------------------- a block's tasks
+// What to get done within a block of time, in order: a list kept in Onyx by the block (a repeat's
+// list is the series', the same every day), with what is ticked off kept for each day on its own.
+
+const MAX_BLOCK_TASKS = 50;
+const MAX_TICKED_DAYS = 3000;
+
+/** Gives a block (a repeat: every day of it) a colour of its own, '#rrggbb', or with null its calendar's again. */
+function setEventColor(key, color) {
+  if (!key) throw new Error('Nothing to colour.');
+  if (color == null || color === '') delete store.data.eventColors[key];
+  else if (/^#[0-9a-f]{6}$/i.test(color)) store.data.eventColors[key] = color.toLowerCase();
+  else throw new Error('A colour is written like #4aa8ff.');
+  store.save();
+  return store.data.eventColors[key] || null;
+}
+
+// ---- what a block links to: a website, a Drive file or a Notion page, opened from the bubble by it
+const MAX_BLOCK_LINKS = 6;
+const LINK_SOURCES = ['web', 'drive', 'notion'];
+/** The links of a block, or null for none. */
+const linksOf = (e) => (store.data.blockLinks?.[keyOf(e)]?.length ? store.data.blockLinks[keyOf(e)].map((l) => ({ ...l })) : null);
+
+/** Sets a block's links, in order (an empty list takes them off). Only http(s) addresses. */
+function setBlockLinks(key, items) {
+  if (!key) throw new Error('Nothing to link it to.');
+  store.data.blockLinks ??= {};
+  const clean = [];
+  for (const it of Array.isArray(items) ? items : []) {
+    let url = String(it?.url || '').trim();
+    if (url && !/^[a-z][a-z0-9+.-]*:/i.test(url)) url = `https://${url}`; // typed without https://
+    let parsed;
+    try { parsed = new URL(url); } catch { continue; }
+    if (!/^https?:$/.test(parsed.protocol) || clean.some((x) => x.url === parsed.href)) continue;
+    const source = LINK_SOURCES.includes(it?.source) ? it.source : 'web';
+    const title = String(it?.title || '').replace(/\s+/g, ' ').trim().slice(0, 120) || parsed.hostname.replace(/^www\./, '');
+    clean.push({ url: parsed.href, title, source, ...(it?.kind ? { kind: String(it.kind).slice(0, 20) } : {}), ...(it?.icon ? { icon: String(it.icon).slice(0, 8) } : {}) });
+    if (clean.length >= MAX_BLOCK_LINKS) break;
+  }
+  if (clean.length) store.data.blockLinks[key] = clean;
+  else delete store.data.blockLinks[key];
+  store.save();
+  return clean;
+}
+
+/** A block's tasks as the window and the calendar show them: [{ id, text, done }], or null for none. */
+function taskListOf(e) {
+  const items = store.data.blockTasks[keyOf(e)];
+  if (!items?.length) return null;
+  const ticked = new Set(store.data.blockTicks[e.id] || []);
+  return items.map((t) => ({ id: t.id, text: t.text, done: ticked.has(t.id) }));
+}
+
+/** Sets a block's tasks, in order (an empty list takes it off). Ticks of tasks no longer there go too. */
+function setBlockTasks(key, items) {
+  if (!key) throw new Error('Nothing to set it on.');
+  const clean = [];
+  for (const it of Array.isArray(items) ? items : []) {
+    const text = String(it?.text ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
+    if (!text) continue;
+    let id = typeof it?.id === 'string' && /^[\w-]{1,40}$/.test(it.id) ? it.id : '';
+    if (!id || clean.some((x) => x.id === id)) id = Math.random().toString(36).slice(2, 10);
+    clean.push({ id, text });
+    if (clean.length >= MAX_BLOCK_TASKS) break;
+  }
+  if (clean.length) store.data.blockTasks[key] = clean;
+  else delete store.data.blockTasks[key];
+  // Ticks of tasks taken off are simply no longer shown (taskListOf keeps only the tasks there).
+  store.save();
+  return clean;
+}
+
+/** Ticks one of a block's tasks off (or, with `done` false, back on), on this day of it (`id`). */
+function tickBlockTask(id, taskId, done = true) {
+  if (!id || !taskId) throw new Error('Nothing to tick.');
+  const set = new Set(store.data.blockTicks[id] || []);
+  if (done) set.add(String(taskId)); else set.delete(String(taskId));
+  delete store.data.blockTicks[id]; // re-added last: the oldest days go first when the list is long
+  if (set.size) store.data.blockTicks[id] = [...set];
+  const days = Object.keys(store.data.blockTicks);
+  for (const d of days.slice(0, Math.max(0, days.length - MAX_TICKED_DAYS))) delete store.data.blockTicks[d];
+  store.save();
+  return [...set];
+}
+
 function unify(cal, e) {
   const id = `${cal.id}/${enc(e.rawId)}`;
   // A day of a repeat belongs to its series: tags, notes kept in Onyx and the like are the series'.
@@ -272,6 +357,9 @@ async function getEvents(start, end, { includeHidden = false, force = false } = 
   const events = lists.flat()
     .map((e) => ({
       ...e, tags: tagsOf(keyOf(e)), memo: memoOf(keyOf(e)), pomodoro: pomodoroOf(keyOf(e)),
+      ...(e.kind === 'event' || e.kind === 'task' ? { taskList: taskListOf(e), links: linksOf(e) } : {}), // a timed task is a block too
+      // A block given a colour of its own wears it; its calendar's stays known for "Calendar colour".
+      ...(e.kind === 'event' && store.data.eventColors[keyOf(e)] ? { color: store.data.eventColors[keyOf(e)], calColor: e.color, ownColor: true } : {}),
       // A calendar entry or block ticked off, like a task (kept in Onyx: each day of a repeat on its own).
       ...(e.kind === 'event' ? { done: !!store.data.doneEvents?.[e.id] } : {}),
     }))
@@ -303,7 +391,7 @@ async function createEvent(data) {
   if (cal.kind !== 'calendar' || !cal.writable) throw new Error(`"${cal.name}" is read-only. Pick another calendar.`);
   const fields = eventFields(data);
   if (!fields.start) throw new Error('A start and end time are needed.');
-  if (!fields.title) fields.title = 'Time block';
+  if (!fields.title && !data.blank) fields.title = 'Time block'; // a block dragged out on the calendar stays blank, to name later
   if (data.recur) {
     fields.recur = recur.normalize(data.recur, dayOfFields(fields));
     Object.assign(fields, alignToRule(fields, fields.recur));
@@ -462,6 +550,10 @@ async function updateEvent(id, patch) {
     });
     setLeaveBy(id, null);
     if (pomodoroOf(id)) store.data.pomodoro[created.id] = pomodoroOf(id); // the split goes with it
+    if (store.data.blockTasks[id]) store.data.blockTasks[created.id] = store.data.blockTasks[id]; // and the tasks, ticks and all
+    if (store.data.blockLinks?.[id]) store.data.blockLinks[created.id] = store.data.blockLinks[id]; // and its links
+    if (store.data.blockTicks[id]) store.data.blockTicks[created.id] = store.data.blockTicks[id];
+    if (store.data.eventColors[id]) store.data.eventColors[created.id] = store.data.eventColors[id]; // and its colour
     await deleteEvent(id);
     return { ...created, pomodoro: pomodoroOf(created.id) };
   }
@@ -523,6 +615,10 @@ async function deleteEvent(id, { scope = 'all', seriesId = null } = {}) {
   dropTags(id);
   setMemo(id, '');
   delete store.data.pomodoro[id];
+  delete store.data.blockTasks[id];
+  if (store.data.blockLinks) delete store.data.blockLinks[id];
+  delete store.data.blockTicks[id];
+  delete store.data.eventColors[id];
   await setPiCall({ id }, false).catch((err) => console.error('onyx: could not remove the Pi reminder:', err.message));
 }
 
@@ -630,6 +726,8 @@ async function getTasks({ force = false } = {}) {
     tasks.push(...await repeat.reconcile(module.exports, open, failed, new Set(all.map((c) => c.id))));
   }
   series.annotate(tasks); // copies of a task that repeats in Google are marked as one series
+  // Its checklist and links, as its block on the calendar has them (read fresh: they change without a refetch).
+  tasks = tasks.map((t) => ({ ...t, taskList: taskListOf(t), links: linksOf(t) }));
   return { tasks, errors: [...errors], failed: [...failed], inbox: inbox.pendingIds(tasks) };
 }
 
@@ -807,7 +905,7 @@ async function planTask(id, { start, minutes, leaveBy } = {}) {
   if (!before) throw Object.assign(new Error('That task no longer exists.'), { status: 404 });
   const prev = {
     title: before.title, due: before.due || null, minutes: store.data.taskMinutes?.[id] || null, leaveBy: leaveByOf(id),
-    state: store.data.inboxItems?.[id]?.state || null,
+    state: store.data.inboxItems?.[id]?.state || null, backburner: !!before.backburner,
   };
   const task = await moveTask(id, { start });
   setTaskMinutes(id, minutes);
@@ -838,7 +936,9 @@ async function unplanTask(id, prev = {}) {
   await updateTask(id, { title: prev.title, due: prev.due || null });
   setTaskMinutes(id, prev.minutes);
   setLeaveBy(id, prev.leaveBy);
-  inbox.mark(id, prev.state && prev.state !== 'planned' ? prev.state : 'new');
+  // Back where it was: on the backburner, or waiting among what other apps sent (a task that never was stays out of that).
+  if (prev.backburner) setBackburner(id, true);
+  inbox.mark(id, prev.state && prev.state !== 'planned' ? prev.state : prev.state ? 'new' : 'seen');
   return true;
 }
 
@@ -1056,14 +1156,27 @@ function cleanBefore(before) {
 
 // ---- leave-by times and the escalation ladder
 // Travel time ("leaveBy"): the first minutes of an entry's block, spent getting there. You set
-// off when the block starts and are there when the travel part ends. Kept in Onyx, by entry. The ladder is how the Pi reaches out at that time:
-// 'push' (an ntfy alert, no call), 'call' (a phone call), or 'critical' (a call, then
-// another a little later unless you said you were leaving). "Leaving now" stops the rest.
-
-// alarm: the phone rings a full-screen alarm at the call time (Onyx on Android), and the Pi stays quiet.
+// off when the block starts and are there when the travel part ends. Kept in Onyx, by entry.
+// The escalation is how you are reached at that time, one or more of: 'push' (an alert, no
+// ringing), 'call' (a phone call), 'critical' (a call every 10 minutes, up to three, until one
+// is answered or you tap "Leaving now"), and 'alarm' (the phone rings a full-screen alarm,
+// Onyx on Android). "Leaving now", or a call answered, stops the rest.
 const MODES = ['push', 'call', 'critical', 'alarm'];
+const CRITICAL_CALLS = 3;
+const CRITICAL_GAP_MS = 10 * 60000;
 const leaveByOf = (id) => store.data.leaveBy?.[id] ?? null;
-const modeOf = (id) => (store.data.piLinks[id] ? store.data.piLinks[id].mode || 'call' : 'off');
+
+/** An escalation as a set, in a fixed order: from a list, one mode, or "push+alarm". Critical includes the call. */
+function cleanModes(m) {
+  const asked = Array.isArray(m) ? m : String(m || '').split(/[+,\s]+/);
+  const set = new Set(asked.filter((x) => MODES.includes(x)));
+  if (set.has('critical')) set.delete('call');
+  return MODES.filter((x) => set.has(x));
+}
+const modesOf = (id) => { const l = store.data.piLinks[id]; return l ? (cleanModes(l.modes || l.mode || 'call').length ? cleanModes(l.modes || l.mode || 'call') : ['call']) : []; };
+/** The strongest of an entry's modes ('off' for none), for what reads one mode (older desktops, the Pi's notes). */
+const primaryMode = (modes) => (modes.includes('critical') ? 'critical' : modes.includes('call') ? 'call' : modes.includes('alarm') ? 'alarm' : modes.includes('push') ? 'push' : 'off');
+const modeOf = (id) => primaryMode(modesOf(id));
 
 function setLeaveBy(id, minutes) {
   store.data.leaveBy ??= {};
@@ -1083,20 +1196,23 @@ function setLeaveBy(id, minutes) {
  * uses its own usual time (lead_minutes) or the call was acknowledged. The Pi looks every
  * settings.pi.checkEvery minutes, so a call comes at the last look before the time asked.
  */
-function piAlerts(start, { before = null, leaveBy = null, mode = 'call', ack = false } = {}) {
+function piAlerts(start, { before = null, leaveBy = null, mode = 'call', modes = null, ack = false } = {}) {
   if (ack) return [];
+  const set = cleanModes(modes || mode);
   // With travel time the call is to set off: at the block's start (the trip is inside it).
   const base = before != null ? start.getTime() - before * 60000 : leaveBy ? start.getTime() : null;
-  if (base == null) return [];
-  const there = start.getTime() + (before == null && leaveBy ? leaveBy * 60000 : 0);
+  if (base == null || !set.length) return [];
   // The Pi looks every few minutes (a call comes at its last look before the time); this PC and the phone keep the minute.
   const grid = (require('./caller').method() === 'pi' ? Math.max(1, Number(store.data.settings.pi?.checkEvery) || 30) : 1) * 60000;
   const first = new Date(Math.floor(base / grid) * grid);
-  const out = [{ at: first, kind: mode === 'push' ? 'push' : mode === 'alarm' ? 'alarm' : 'call' }];
-  if (mode === 'critical') {
-    const again = new Date(first.getTime() + Math.max(grid, 10 * 60000));
-    if (again.getTime() < there) out.push({ at: again, kind: 'call' });
+  const out = [];
+  if (set.includes('push')) out.push({ at: first, kind: 'push' });
+  if (set.includes('call')) out.push({ at: first, kind: 'call' });
+  // Critical: a call every 10 minutes (or at each of the Pi's looks, if further apart), up to three.
+  if (set.includes('critical')) {
+    for (let i = 0; i < CRITICAL_CALLS; i++) out.push({ at: new Date(first.getTime() + i * Math.max(grid, CRITICAL_GAP_MS)), kind: 'call', critical: i + 1 });
   }
+  if (set.includes('alarm')) out.push({ at: first, kind: 'alarm' });
   return out;
 }
 
@@ -1107,10 +1223,15 @@ function callNotes(start, opts) {
   if (opts.ack) {
     lines.push('Acknowledged: yes'); // "Leaving now" was pressed: no more calls about this one
   } else {
-    if (opts.mode === 'push') lines.push('Alert: push only');
-    if (opts.mode === 'critical') lines.push('Escalation: critical');
-    if (opts.mode === 'alarm') lines.push('Alert: phone alarm'); // the phone rings; the Pi neither calls nor pushes
-    for (const a of piAlerts(start, opts)) lines.push(`Call at: ${stamp(a.at)}`);
+    // The Pi reads one way of reaching you per entry: its calls when there are any, else a push, else
+    // nothing at all (an alarm is the phone's own).
+    const set = cleanModes(opts.modes || opts.mode);
+    const alerts = piAlerts(start, opts);
+    const calls = alerts.filter((a) => a.kind === 'call');
+    if (!calls.length && set.includes('push')) lines.push('Alert: push only');
+    if (set.includes('critical')) lines.push('Escalation: critical');
+    if (!calls.length && !set.includes('push') && set.includes('alarm')) lines.push('Alert: phone alarm'); // the phone rings; the Pi neither calls nor pushes
+    for (const a of calls.length ? calls : alerts.slice(0, 1)) lines.push(`Call at: ${stamp(a.at)}`);
   }
   return lines.join('\n');
 }
@@ -1119,10 +1240,10 @@ function callNotes(start, opts) {
 function callInfo(id, start) {
   const link = store.data.piLinks[id];
   const s = start ? new Date(start) : null;
-  const opts = link && s && !Number.isNaN(+s) ? { before: link.before ?? null, leaveBy: leaveByOf(id), mode: link.mode || 'call', ack: !!link.ack && link.start === s.toISOString() } : null;
+  const opts = link && s && !Number.isNaN(+s) ? { before: link.before ?? null, leaveBy: leaveByOf(id), modes: modesOf(id), ack: !!link.ack && link.start === s.toISOString() } : null;
   return {
-    piCall: !!link, callBefore: callBeforeOf(id), callMode: modeOf(id), leaveBy: leaveByOf(id), callAck: !!opts?.ack,
-    piAlerts: opts ? piAlerts(s, opts).map((a) => ({ at: a.at.toISOString(), kind: a.kind })) : [],
+    piCall: !!link, callBefore: callBeforeOf(id), callMode: modeOf(id), callModes: modesOf(id), leaveBy: leaveByOf(id), callAck: !!opts?.ack,
+    piAlerts: opts ? piAlerts(s, opts).map((a) => ({ at: a.at.toISOString(), kind: a.kind, ...(a.critical ? { critical: a.critical } : {}) })) : [],
   };
 }
 
@@ -1138,13 +1259,16 @@ async function ackPiCall(id) {
 
 /**
  * Switches the Pi call for an entry on or off. `before`: minutes before the start to call
- * (null: at leave-by, or the usual lead; undefined: keep). `mode`: 'push' | 'call' | 'critical' (undefined: keep).
+ * (null: at leave-by, or the usual lead; undefined: keep). `mode`: one or more of push, call, critical,
+ * alarm (a list, or one; undefined: keep).
  */
 async function setPiCall(event, on, before, mode) {
   const links = store.data.piLinks;
   const link = links[event.id];
   const keep = before === undefined ? link?.before ?? null : cleanBefore(before);
-  const keepMode = mode === undefined ? link?.mode || 'call' : MODES.includes(mode) ? mode : 'call';
+  const asked = mode === undefined ? null : cleanModes(mode);
+  const keepModes = asked?.length ? asked : link ? modesOf(event.id) : ['call'];
+  const keepMode = primaryMode(keepModes);
   // The Pi needs a time of day, so an all-day entry can't have a call.
   if (!on || event.allDay) {
     if (link) {
@@ -1157,10 +1281,11 @@ async function setPiCall(event, on, before, mode) {
   const start = new Date(event.start);
   // An acknowledgement only holds for the same start: moved, it can ring again.
   const ack = !!link?.ack && link.start === start.toISOString();
-  const fields = { title: mirrorName(event.title, start), due: localDate(start), notes: callNotes(start, { before: keep, leaveBy: leaveByOf(event.id), mode: keepMode, ack }) };
+  const fields = { title: mirrorName(event.title, start), due: localDate(start), notes: callNotes(start, { before: keep, leaveBy: leaveByOf(event.id), modes: keepModes, ack }) };
   const saved = (task) => ({
     task, start: start.toISOString(), title: event.title, ...(keep != null ? { before: keep } : {}),
-    ...(keepMode !== 'call' ? { mode: keepMode } : {}), ...(ack ? { ack: true } : {}),
+    // `mode` (the strongest) for desktops from before several could be picked; `modes`, all of them.
+    ...(keepMode !== 'call' ? { mode: keepMode } : {}), ...(keepModes.length > 1 || keepModes[0] !== keepMode ? { modes: keepModes } : {}), ...(ack ? { ack: true } : {}),
   });
   // Without the Pi there is no task for it to read: the reminder is kept here, and this PC
   // (ntfy, Twilio) or the phone (an alarm) acts on it.
@@ -1249,7 +1374,7 @@ function removeLocalCalendar(id) {
 
 module.exports = {
   calendars, refreshCalendars, invalidate, getEvents, setBackburner, setEventDone, createEvent, updateEvent, deleteEvent, setLeaveBy, ackPiCall, piAlerts,
-  getTasks, archivedTasks, fetchTask, createTask, updateTask, moveTask, resizeTask, receiveTask, queueTask, planTask, unplanTask, dismissInbox, deleteTask, setRepeat, setPomodoro, setPiCall, freeTime, addLocalCalendar, removeLocalCalendar,
+  getTasks, archivedTasks, fetchTask, createTask, updateTask, moveTask, resizeTask, receiveTask, queueTask, planTask, unplanTask, dismissInbox, deleteTask, setRepeat, setPomodoro, setBlockTasks, setBlockLinks, tickBlockTask, setEventColor, setPiCall, freeTime, setTaskMinutes, addLocalCalendar, removeLocalCalendar,
   setTags, allTags, setTagColor, renameTag, deleteTag, setMemo, MAX_NOTE,
   callNotes, piTaskList, // Hyperfocus gives the Pi its stop the same way (focus.js)
 };

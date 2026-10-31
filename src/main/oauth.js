@@ -5,6 +5,7 @@
 const { shell } = require('electron');
 const crypto = require('crypto');
 const http = require('http');
+const { sturdyFetch } = require('./net');
 
 const DONE_PAGE = (ok, text) => `<!doctype html><meta charset="utf-8"><title>Onyx Calendar</title>
 <body style="margin:0;height:100vh;display:grid;place-items:center;background:#000;color:#e9e9ee;font:16px 'Segoe UI',sans-serif">
@@ -69,7 +70,7 @@ function signIn({ authUrl, host = '127.0.0.1', timeoutMs = 5 * 60 * 1000 }) {
 }
 
 async function postForm(url, fields) {
-  const res = await fetch(url, {
+  const res = await sturdyFetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams(fields).toString(),

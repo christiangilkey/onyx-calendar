@@ -120,6 +120,7 @@ final class WidgetData {
      * for the widget's footer.
      */
     static void fetch(Context ctx, LocalDate day) {
+        flushQuick(ctx); // tasks typed on the lock screen while the PC was out of reach
         try {
             LocalDate start = gridStart(day);
             String q = "?start=" + URLEncoder.encode(start.toString(), "UTF-8") + "&days=" + WINDOW;
@@ -139,6 +140,57 @@ final class WidgetData {
         }
     }
 
+    // ---- quick add: a task typed on the lock screen or Onyx Home goes to the tasks with no date. Sent at
+    // once; with the PC out of reach it waits here (through a restart) and goes with the next look at the
+    // PC (the widgets' refresh, the panel opening), each made once even if sent twice.
+    private static final String QUICK = "quick";
+
+    static int quickWaiting(Context ctx) {
+        try { return new JSONArray(prefs(ctx).getString(QUICK, "[]")).length(); } catch (Exception e) { return 0; }
+    }
+
+    /** Adds a task with no date; true once the PC has it, false while it waits for the PC. */
+    static boolean quickTask(Context ctx, String title) {
+        synchronized (WidgetData.class) {
+            try {
+                JSONArray q = new JSONArray(prefs(ctx).getString(QUICK, "[]"));
+                q.put(new JSONObject().put("op", "quick-" + java.util.UUID.randomUUID()).put("title", title));
+                prefs(ctx).edit().putString(QUICK, q.toString()).apply();
+            } catch (Exception ignored) {
+                // not kept: sent below all the same
+            }
+        }
+        return flushQuick(ctx);
+    }
+
+    /** Sends the waiting quick tasks, oldest first; true when none is left waiting. */
+    static synchronized boolean flushQuick(Context ctx) {
+        JSONArray q;
+        try { q = new JSONArray(prefs(ctx).getString(QUICK, "[]")); } catch (Exception e) { return true; }
+        if (q.length() == 0) return true;
+        JSONArray left = new JSONArray();
+        boolean reach = true;
+        for (int i = 0; i < q.length(); i++) {
+            JSONObject o = q.optJSONObject(i);
+            if (o == null) continue;
+            if (!reach) { left.put(o); continue; }
+            try {
+                rpc(ctx, "task:create", new JSONArray().put(new JSONObject().put("title", o.optString("title"))), o.optString("op"));
+            } catch (IllegalStateException refused) {
+                reach = false; // this phone is no longer paired: kept for when it is again
+                left.put(o);
+            } catch (Exception e) {
+                String m = e.getMessage() == null ? "" : e.getMessage();
+                if (m.startsWith("Can't reach") || m.startsWith("Not paired") || m.startsWith("The PC answered")) {
+                    reach = false;
+                    left.put(o);
+                } // else the PC turned it down (an empty name, say): nothing to try again
+            }
+        }
+        prefs(ctx).edit().putString(QUICK, left.toString()).apply();
+        return left.length() == 0;
+    }
+
     /** Marks a task done on the PC (in Google Tasks / To Do), like ticking it in the app. */
     static void completeTask(Context ctx, String id) throws Exception {
         rpc(ctx, "task:update", new JSONArray().put(id).put(new JSONObject().put("done", true)));
@@ -146,8 +198,16 @@ final class WidgetData {
 
     /** Runs one of the app's commands on the PC (the same ones the app uses) and returns its value. */
     static Object rpc(Context ctx, String name, JSONArray args) throws Exception {
+        return rpc(ctx, name, args, null);
+    }
+
+    /** The same, with an id the PC remembers: one sent twice (its answer lost on the way) is made once. */
+    static Object rpc(Context ctx, String name, JSONArray args, String op) throws Exception {
         JSONObject body = new JSONObject().put("name", name).put("args", args == null ? new JSONArray() : args);
+        if (op != null) body.put("op", op);
         JSONObject res = new JSONObject(call(ctx, "POST", "/app/rpc", body.toString()));
+        // The PC's own connection dropped: nothing was made, so it counts as out of reach (kept, sent later).
+        if (!res.optBoolean("ok", false) && res.optBoolean("retry", false)) throw new Exception("Can't reach the internet from the PC right now.");
         if (!res.optBoolean("ok", false)) throw new Exception(res.optString("error", "The PC could not do that."));
         return res.opt("value");
     }

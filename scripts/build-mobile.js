@@ -11,7 +11,7 @@ const out = path.join(root, 'mobile/www');
 fs.rmSync(out, { recursive: true, force: true });
 fs.mkdirSync(path.join(out, 'vendor'), { recursive: true });
 
-for (const file of ['app.js', 'graph.js', 'focus-plan.js', 'remote.js', 'styles.css']) {
+for (const file of ['app.js', 'graph.js', 'focus-plan.js', 'remote.js', 'styles.css', 'changelog.js']) {
   fs.copyFileSync(path.join(src, file), path.join(out, file));
 }
 fs.copyFileSync(path.join(root, 'node_modules/fullcalendar/index.global.min.js'), path.join(out, 'vendor/fullcalendar.js'));

@@ -85,6 +85,7 @@ async function afterAccountChange() {
 }
 
 const handlers = {
+  ping: () => true, // the phone's quick "are you there?"
   state,
   refresh: async () => { hub.invalidate(); const { errors } = await hub.refreshCalendars(); return { ...state(), errors }; },
   events: (start, end, force) => hub.getEvents(start, end, { force: !!force }),
@@ -118,9 +119,15 @@ const handlers = {
   'goal:update': (id, data) => goals.update(id, data),
   'goal:delete': (id, keepTasks) => goals.remove(id, { keepTasks: !!keepTasks }),
   'goal:step': (id, stepId, done) => goals.setStep(id, stepId, !!done),
+  'goal:plan': (opts) => require('./goal-magic').planGoal(opts),
   'tags:set': (id, tags) => hub.setTags(id, tags),
   'memo:set': (id, text) => hub.setMemo(id, text),
   'pomodoro:set': (id, cfg) => hub.setPomodoro(id, cfg),
+  'blockTasks:set': (key, items) => hub.setBlockTasks(key, items),
+  'blockLinks:set': (key, items) => hub.setBlockLinks(key, items),
+  'blockTasks:tick': (id, taskId, done) => hub.tickBlockTask(id, taskId, done),
+  'eventColor:set': (key, color) => hub.setEventColor(key, color),
+  'bugs:report': (list) => require('./bugs').fromApp(list),
   'tag:color': withState((tag, color) => hub.setTagColor(tag, color)),
   'tag:rename': withState((from, to) => hub.renameTag(from, to)),
   'tag:delete': withState((tag) => hub.deleteTag(tag)),
@@ -139,6 +146,11 @@ const handlers = {
   'pin:update': (id, patch) => library.updatePin(id, patch),
   'pin:remove': (id) => library.removePin(id),
   'notion:search': (query) => notion.search(query),
+  // Sending a block: by email from a connected account, or onto a Notion page (share.js).
+  'share:senders': () => ({ senders: require('./share').senders(), recents: require('./share').recents() }),
+  'share:email': (data) => require('./share').email(data),
+  'share:pages': (query) => require('./share').notionPages(query),
+  'share:notion': (data) => require('./share').toNotion(data),
   'notion:connect': withState((key) => notion.connect(key)),
   'notion:disconnect': withState(() => notion.disconnect()),
   'drive:search': (query) => drive.search(query),
@@ -163,6 +175,8 @@ const handlers = {
   'desktops:sync': () => sync.syncNow(),
   // Breakdown (the hammer): a task split into steps, 1 (broad) to 5 (micro-steps).
   'ai:breakdown': (title, opts) => ai.breakdown(title, opts),
+  // The same with lengths, laid out in the time it has (and a realistic timeline when that is too little).
+  'ai:breakdownPlan': (o) => require('./breakdown-plan').planBreakdown(o),
   'ai:key': withState((key) => ai.setKey(key)),
   // Hyperfocus: a finished session goes in the log (focus.js); the log is read back by date.
   'focus:log': (session) => require('./focus').logSession(session),
@@ -179,7 +193,9 @@ const handlers = {
   'focus:insights': () => require('./focus').insights(),
   'focus:next': (info) => require('./focus').suggestions(info),
   // Magic add: describe the day's tasks, get them placed in the free time (replan: the same tasks, changed).
-  'magic:plan': (text, date, opts, inboxIds) => require('./magic').planDay(text, date, opts, inboxIds),
+  'magic:plan': (text, date, opts, inboxIds, material) => require('./magic').planDay(text, date, opts, inboxIds, material),
+  // A webpage, a Notion page or a picture, read into text for Magic add and Magic goal to plan from.
+  'source:read': (src) => require('./sources').read(src),
   'magic:replan': (tasks, travel, date, opts) => require('./magic').replan(tasks, travel, date, opts),
   'magic:remember': withState((opts) => require('./magic').remember(opts)),
   // Calls & alerts: the Twilio auth token (kept with the secrets), and a test call or push.

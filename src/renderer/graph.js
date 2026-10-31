@@ -663,9 +663,15 @@
     }
 
     /** As close as the camera comes: the globe just touching the top and bottom of the screen. */
+    /**
+     * The closest the camera may come: the drawn globe (its wireframe, the largest thing) just touches the top
+     * and the bottom of the free space between the toolbar and the footer, and no closer.
+     */
     function minDist() {
-      if (!sphere || !height) return 140;
-      return Math.max(140, (2 * cam.focal * sphere * 1.06) / height + sphere);
+      const r = Math.max(sphere, globe);
+      if (!r || !height) return 140;
+      const free = Math.max(120, height - insets.top - insets.bottom);
+      return Math.max(140, (2 * cam.focal * r) / free + r);
     }
 
     function onWheel(e) {

@@ -10,7 +10,11 @@ import android.text.TextUtils;
 import android.text.format.DateFormat;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.text.InputType;
 import android.view.View;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -52,6 +56,10 @@ final class OnyxPanel {
     private TextView nowLeft, nextIn, leaveIn, callIn, pomoLine;
     private BarView nowBar;
     private long renderedFor; // the minute the cards were built for
+    // The quick add box: made once, so a rebuild of the cards keeps what is being typed (and the keyboard).
+    private LinearLayout quick;
+    private EditText quickText;
+    private TextView quickNote;
 
     OnyxPanel(Context ctx, Host host, boolean big) {
         this.ctx = ctx;
@@ -163,6 +171,7 @@ final class OnyxPanel {
     void render() {
         long t = System.currentTimeMillis();
         renderedFor = t / LauncherData.MIN;
+        boolean typing = quickText != null && quickText.hasFocus();
         root.removeAllViews();
         top.removeAllViews();
         nowLeft = nextIn = leaveIn = callIn = null;
@@ -183,6 +192,9 @@ final class OnyxPanel {
         root.addView(nowNextCard(items, t));
         List<LauncherData.Goal> goals = LauncherData.goals(ctx);
         if (!goals.isEmpty()) root.addView(goalsCard(goals));
+        if (big) root.addView(quickCard()); // the lock screen's panel (Onyx Home keeps the keyboard from moving it)
+        if (big && WidgetData.quickWaiting(ctx) > 0) new Thread(() -> { if (WidgetData.flushQuick(ctx)) root.post(() -> paintQuickNote(null)); }, "onyx-quick-add").start();
+        if (big && typing) quickText.requestFocus();
         root.addView(dayCard(items, t));
 
         String error = LauncherData.error(ctx);
@@ -269,6 +281,81 @@ final class OnyxPanel {
             c.addView(call);
         }
         return c;
+    }
+
+    /** A box to type a task into: sent, it goes to the tasks with no date (WidgetData.quickTask). */
+    private View quickCard() {
+        if (quick != null) {
+            paintQuickNote(null);
+            return quick;
+        }
+        quick = card(CARD);
+        LinearLayout row = new LinearLayout(ctx);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        quickText = new EditText(ctx);
+        quickText.setHint("Add a task…");
+        quickText.setHintTextColor(FAINT);
+        quickText.setTextColor(TEXT);
+        quickText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        quickText.setFilters(new android.text.InputFilter[] { new android.text.InputFilter.LengthFilter(30) }); // task names: 30 characters at most
+        quickText.setSingleLine(true);
+        quickText.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        quickText.setImeOptions(EditorInfo.IME_ACTION_SEND);
+        quickText.setBackground(null);
+        quickText.setPadding(0, dp(6), dp(8), dp(6));
+        quickText.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        quickText.setOnEditorActionListener((v, action, ev) -> {
+            if (action == EditorInfo.IME_ACTION_SEND || action == EditorInfo.IME_ACTION_DONE || ev != null) { sendQuick(); return true; }
+            return false;
+        });
+        TextView send = text("Add", 14, TEXT, true);
+        send.setGravity(Gravity.CENTER);
+        GradientDrawable pill = new GradientDrawable();
+        pill.setColor(ACCENT);
+        pill.setCornerRadius(dp(999));
+        send.setBackground(pill);
+        send.setShadowLayer(0, 0, 0, 0);
+        send.setPadding(dp(16), dp(8), dp(16), dp(8));
+        send.setOnClickListener(v -> sendQuick());
+        row.addView(quickText);
+        row.addView(send);
+        quick.addView(row);
+        quickNote = text("", 12, MUTED, false);
+        quickNote.setPadding(0, dp(4), 0, 0);
+        quick.addView(quickNote);
+        paintQuickNote(null);
+        return quick;
+    }
+
+    private void paintQuickNote(String said) {
+        if (quickNote == null) return;
+        int waiting = WidgetData.quickWaiting(ctx);
+        String s = said != null ? said
+            : waiting > 0 ? waiting + (waiting == 1 ? " task waits" : " tasks wait") + " for your PC, then go to your tasks with no date"
+            : "";
+        quickNote.setText(s);
+        quickNote.setVisibility(s.isEmpty() ? View.GONE : View.VISIBLE);
+    }
+
+    private void sendQuick() {
+        String title = quickText.getText().toString().trim();
+        if (title.isEmpty()) return;
+        quickText.setText("");
+        paintQuickNote("Adding \u201c" + title + "\u201d…");
+        new Thread(() -> {
+            boolean sent = WidgetData.quickTask(ctx, title);
+            root.post(() -> paintQuickNote(sent ? "Added \u201c" + title + "\u201d to your tasks with no date"
+                : "Saved \u201c" + title + "\u201d: it goes to your tasks once your PC is in reach"));
+        }, "onyx-quick-add").start();
+    }
+
+    /** The keyboard goes away (the panel is leaving, say). */
+    void hideKeyboard() {
+        if (quickText == null) return;
+        InputMethodManager im = (InputMethodManager) ctx.getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (im != null) im.hideSoftInputFromWindow(quickText.getWindowToken(), 0);
+        quickText.clearFocus();
     }
 
     private View goalsCard(List<LauncherData.Goal> goals) {

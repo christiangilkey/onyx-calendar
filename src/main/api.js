@@ -175,6 +175,8 @@ const handlers = {
   'desktops:sync': () => sync.syncNow(),
   // Breakdown (the hammer): a task split into steps, 1 (broad) to 5 (micro-steps).
   'ai:breakdown': (title, opts) => ai.breakdown(title, opts),
+  // The same with lengths, laid out in the time it has (and a realistic timeline when that is too little).
+  'ai:breakdownPlan': (o) => require('./breakdown-plan').planBreakdown(o),
   'ai:key': withState((key) => ai.setKey(key)),
   // Hyperfocus: a finished session goes in the log (focus.js); the log is read back by date.
   'focus:log': (session) => require('./focus').logSession(session),

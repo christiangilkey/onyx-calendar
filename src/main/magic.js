@@ -59,7 +59,7 @@ async function busyOf(day) {
   const start = new Date(day.getFullYear(), day.getMonth(), day.getDate()), end = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1);
   const { events } = await hub.getEvents(start.toISOString(), end.toISOString());
   return events.filter((e) => (e.kind === 'event' || e.kind === 'task') && !e.allDay && e.start && e.end)
-    .map((e) => ({ start: +new Date(e.start), end: +new Date(e.end), place: String(e.location || '').trim().slice(0, 80) || null, title: e.title }))
+    .map((e) => ({ id: e.id, start: +new Date(e.start), end: +new Date(e.end), place: String(e.location || '').trim().slice(0, 80) || null, title: e.title }))
     .filter((b) => b.end > b.start);
 }
 
@@ -203,4 +203,4 @@ function remember(o) {
   return info();
 }
 
-module.exports = { planDay, replan, remember, info, parseAnswer, userMessage, windowOf, linkMaterial };
+module.exports = { planDay, replan, remember, info, parseAnswer, userMessage, windowOf, linkMaterial, busyOf };

@@ -63,6 +63,7 @@ contextBridge.exposeInMainWorld('onyx', {
   deleteTag: (tag) => call('tag:delete', tag),
   pairing: () => call('pairing'),
   breakdown: (title, opts) => call('ai:breakdown', title, opts),
+  breakdownPlan: (o) => call('ai:breakdownPlan', o),
   logFocus: (session) => call('focus:log', session),
   focusSessions: (range) => call('focus:sessions', range),
   focusStart: (session) => call('focus:start', session),

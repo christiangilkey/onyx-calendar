@@ -496,6 +496,37 @@ input[type=date]::-webkit-calendar-picker-indicator { opacity: .5; cursor: point
 .breakdown-head .btn { margin-left: auto; height: 28px; font-size: 12px; }
 .breakdown-out ol { margin: 8px 0 6px; padding-left: 20px; display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; }
 .breakdown-out .row { gap: 6px; }
+/* Breakdown with times: the timelines to pick from, then each step with its time, length and notes. */
+.bd-plan { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.bd-plan[hidden] { display: none; }
+.bd-wait { display: flex; align-items: center; gap: 8px; margin: 0; }
+.bd-advice { display: flex; gap: 6px; margin: 0; font-size: 12.5px; line-height: 1.4; color: var(--soft); }
+.bd-advice .ico { width: 13px; height: 13px; flex: none; margin-top: 2px; color: #c9b8ff; }
+.bd-opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 6px; }
+.bd-opt { appearance: none; -webkit-appearance: none; display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; text-align: left; font: inherit;
+  border-radius: 10px; border: 1px solid rgba(255, 255, 255, .1); background: rgba(255, 255, 255, .03); color: var(--text); cursor: pointer; }
+.bd-opt b { font-size: 12.5px; font-weight: 650; }
+.bd-opt small { font-size: 11.5px; color: var(--muted); }
+.bd-opt:hover { border-color: rgba(255, 255, 255, .2); }
+.bd-opt.on { border-color: color-mix(in srgb, var(--accent) 75%, transparent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.bd-rows { display: flex; flex-direction: column; gap: 6px; }
+.bd-row { display: flex; flex-direction: column; gap: 5px; padding: 7px 8px; border-radius: 10px; background: rgba(255, 255, 255, .03); border: 1px solid rgba(255, 255, 255, .05); }
+.bd-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.bd-n { flex: none; width: 19px; height: 19px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; color: var(--soft); background: rgba(255, 255, 255, .08); }
+#popover .bd-title { flex: 1; min-width: 0; height: 30px; font-size: 13px; font-weight: 600; }
+.bd-line .icon-btn { flex: none; width: 26px; height: 26px; }
+.bd-when { flex-wrap: wrap; padding-left: 25px; }
+#popover .bd-when input[type=date] { flex: none; min-width: 0; width: 128px; height: 30px; font-size: 12.5px; }
+#popover .bd-when input[type=time] { flex: none; min-width: 0; width: 88px; height: 30px; font-size: 12.5px; }
+#popover .bd-min { flex: none; width: 56px; height: 30px; padding: 0 6px; font-size: 12.5px; }
+.bd-unit, .bd-end { font-size: 12px; color: var(--muted); }
+.bd-end { margin-left: auto; font-variant-numeric: tabular-nums; }
+#popover .bd-note { margin-left: 25px; min-height: 30px; max-height: 120px; resize: none; field-sizing: content; padding: 5px 8px; font-size: 12px; line-height: 1.35; color: var(--soft); }
+.bd-left { margin: 0; font-size: 12px; color: var(--warn); }
+.bd-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bd-actions .btn { height: 32px; }
+.bd-actions small { flex: 1; min-width: 140px; margin: 0; }
+.bd-to-notes { align-self: flex-start; font-size: 12px; }
 .pi-row .ladder { display: flex; flex-wrap: wrap; gap: 2px; margin: 6px 0 4px; }
 .pi-row .ladder button { flex: 1 1 auto; font-size: 11.5px; padding: 4px 8px; }
 .pi-row .ladder button.on[data-mode="push"] { background: color-mix(in srgb, #4aa8ff 30%, transparent); color: #fff; }
@@ -2574,6 +2605,12 @@ body.mobile .mg-seg > button, body.mobile .mg-seg > input { height: 40px; font-s
 @keyframes tb-in { from { opacity: 0; transform: scale(.92); } }
 @keyframes tb-out { to { opacity: 0; transform: scale(.95); } }
 body.mobile .tb-card { max-width: min(250px, calc(100vw - 24px)); }
+/* What is written in the entry, under its time: up to 8 lines, as written. */
+.tb-card.has-notes { align-items: flex-start; max-width: min(320px, calc(100vw - 32px)); }
+.tb-card.has-notes .tb-open { margin-top: 2px; }
+.tb-notes { margin-top: 5px; padding-top: 6px; border-top: 1px solid rgba(255, 255, 255, .08); font-size: 12.5px; line-height: 1.4; color: var(--soft);
+  white-space: pre-line; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 8; overflow: hidden; }
+body.mobile .tb-card.has-notes { max-width: min(290px, calc(100vw - 24px)); }
 
 /* ------------------------------------------------------------ a new block by a long press (the phone) */
 body.making-block #calendar .fc-timegrid .fc-event-mirror, body.making-block #calendar .fc-timegrid .fc-highlight { visibility: hidden; }

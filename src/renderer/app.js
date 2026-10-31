@@ -2230,11 +2230,14 @@
       hideTapBubble();
       openEntry(src, r);
     };
+    // What is written in it (its notes, and yours on a read-only calendar), as far as fits; Open shows the rest.
+    const notes = notesOf(src);
     const b = h('div', { class: 'tap-bubble', css: { '--c': src.color || 'var(--accent)' } },
-      h('button', { type: 'button', class: 'tb-card', 'aria-label': `Open ${src.title || 'this entry'}`, onclick: (ev) => { ev.stopPropagation(); open(); } },
+      h('button', { type: 'button', class: `tb-card${notes ? ' has-notes' : ''}`, 'aria-label': `Open ${src.title || 'this entry'}`, onclick: (ev) => { ev.stopPropagation(); open(); } },
         h('span', { class: 'tb-text' },
           h('span', { class: 'tb-title' }, src.title || (src.kind === 'task' ? 'Untitled task' : 'Untitled block')),
-          h('span', { class: 'tb-meta' }, [when, src.calendarName].filter(Boolean).join(' · '))),
+          h('span', { class: 'tb-meta' }, [when, src.calendarName].filter(Boolean).join(' · ')),
+          notes && h('span', { class: 'tb-notes' }, notes.length > 600 ? `${notes.slice(0, 600)}…` : notes)),
         h('span', { class: 'tb-open' }, 'Open', h('span', { class: 'tb-chev', 'aria-hidden': 'true' }))));
     // A press on the bubble stays with the bubble: the calendar (and its touch handling) never hears of it.
     for (const type of ['pointerdown', 'mousedown', 'touchstart']) b.addEventListener(type, (ev) => ev.stopPropagation(), { passive: true });
@@ -3666,6 +3669,47 @@
       }
     };
 
+    // Breakdown's steps on the calendar, each a block of its own in this block's calendar (yours, when it is read-only),
+    // with its colour and tags; then this block (this day of a repeat) comes off. Undo puts it back.
+    const blockToSteps = async (rows) => {
+      const calId = !readOnly && calendarPick.value ? calendarPick.value
+        : (writable.some((c) => c.id === S.settings.defaultCalendar) ? S.settings.defaultCalendar : writable[0]?.id);
+      if (!calId) throw new Error('Connect a calendar you can write to first.');
+      const name = title.value.trim() || src?.title || 'Steps';
+      const original = cleanNote(notes ? notes.value : [src?.notes, memo?.value].filter(Boolean).join('\n\n'));
+      const color = colorPick.get(), links = linksField.get(), tagList = tags.get();
+      const datas = rows.map((r, i) => ({
+        title: r.title, start: r.start.toISOString(), end: new Date(r.start.getTime() + r.minutes * 60000).toISOString(), allDay: false,
+        calendarId: calId, notes: stepNotes(r, i, rows.length, name, original), tags: tagList,
+      }));
+      const make = async () => {
+        const made = [];
+        for (const d of datas) made.push(await onyx.createEvent(d));
+        if (color) for (const m of made) await onyx.setEventColor(m.seriesId || m.id, color).catch(() => {});
+        if (links.length && made[0]) await onyx.setBlockLinks(made[0].id, links).catch(() => {});
+        return made;
+      };
+      let made = await make();
+      const replaced = !!src && !readOnly;
+      if (replaced) await onyx.deleteEvent(src.id, src.seriesId ? { scope: 'one', seriesId: src.seriesId } : undefined);
+      // Undo: the steps go and the block comes back (a repeat's day as a block of its own).
+      const copy = src && { title: src.title, notes: src.notes || '', location: src.location || '', start: src.start, end: src.end, allDay: !!src.allDay, calendarId: src.calendarId, tags: src.tags || [] };
+      let back = null;
+      recordAction(`Broke "${name}" into ${rows.length} steps`, async () => {
+        for (const m of made) await onyx.deleteEvent(m.id).catch(() => {});
+        if (replaced) {
+          back = await onyx.createEvent(copy);
+          if (src.taskList?.length) await onyx.setBlockTasks(back.id, src.taskList).catch(() => {});
+        }
+      }, async () => {
+        made = await make();
+        if (back) await onyx.deleteEvent(back.id);
+      });
+      closePopover();
+      refetch();
+      toast(`${rows.length} steps on the calendar${replaced ? ` in place of "${name}"` : ''}.`);
+    };
+
     const blockToBackburner = async () => {
       if (busy) return;
       busy = true;
@@ -3716,11 +3760,17 @@
       !readOnly && src?.memo && h('div', { class: 'row top pop-meta', title: 'Your notes, kept in Onyx' }, icon('note'), h('div', { class: 'note-text' }, src.memo)),
       memo && h('div', { class: 'row top' }, icon('note'), memo),
       h('div', { class: 'row' }, icon('tag'), tags.el),
-      // The hammer, as on a task: its steps go into the notes (yours, on a read-only calendar) or become tasks that day.
-      (notes || memo) && breakdownField({
-        get title() { return title.value.trim() || src?.title || 'this'; }, label: '', listId: undefined,
-        get date() { return date.value || ymd(model.start); }, get tags() { return tags.get(); },
-      }, notes || memo),
+      // The hammer, as on a task: the steps, timed into the block (or a realistic timeline after it), take its place.
+      (notes || memo) && breakdownField(null, notes || memo, {
+        name: () => title.value.trim() || src?.title || 'this',
+        frame: () => { const r = range(); return r.allDay ? { day: r.start } : { start: r.start, end: r.end }; },
+        exclude: src ? [src.id] : [],
+        extra: () => breakdownExtras({ calendarNotes: readOnly ? src?.notes : '', checklist: tasksField.get().items, links: linksField.get(), place: src?.location }),
+        keeps: () => (!src ? 'Each step becomes a block of its own.'
+          : readOnly ? 'Its calendar is read-only, so it stays; the steps go in your own calendar.'
+            : `Takes the place of "${title.value.trim() || src.title}"${src.seriesId ? ' on this day' : ''}. Undo brings it back.`),
+        replace: (rows) => blockToSteps(rows),
+      }),
       pomoRow,
       src?.location && h('div', { class: 'row pop-meta' }, icon('pin'), src.location),
       h('div', { class: 'row leave-row' }, icon('car'), h('span', { class: 'dash' }, 'Travel'), leaveSel, leaveHint),
@@ -4481,6 +4531,36 @@
         refreshPomodoros();
       }
     });
+    // Breakdown's steps, each a task of its own in the same list at its time and length; then this one goes. Undo puts it back.
+    const taskToSteps = async (rows) => {
+      const label = name.value.trim() || t.label || t.title;
+      const original = cleanNote(notes.value), tagList = tags.get();
+      const make = async () => {
+        const made = [];
+        for (const [i, r] of rows.entries()) {
+          const task = await onyx.createTask({ title: r.title, notes: stepNotes(r, i, rows.length, label, original), listId: t.listId, due: ymd(r.start), tags: tagList });
+          await onyx.resizeTask(task.id, { start: r.start.toISOString(), minutes: r.minutes });
+          made.push(task);
+        }
+        return made;
+      };
+      let made = await make();
+      await onyx.deleteTask(t.id);
+      const copy = { title: t.title, notes: t.notes || '', listId: t.listId, ...(t.date ? { due: t.date } : {}), tags: t.tags || [] };
+      let back = null;
+      recordAction(`Broke "${label}" into ${rows.length} steps`, async () => {
+        for (const m of made) await onyx.deleteTask(m.id).catch(() => {});
+        back = await onyx.createTask(copy);
+        if (t.minutes) await onyx.resizeTask(back.id, { minutes: t.minutes }).catch(() => {});
+      }, async () => {
+        made = await make();
+        if (back) await onyx.deleteTask(back.id);
+      });
+      closePopover();
+      await loadTasks(true);
+      refetch();
+      toast(`${rows.length} steps on the calendar in place of "${label}".`);
+    };
     showPopover(anchor, [
       name,
       originRow(t),
@@ -4497,7 +4577,20 @@
       tasksField && h('div', { class: 'row top btask-row' }, icon('tasks'), tasksField.el),
       linksField && h('div', { class: 'row top blink-row' }, icon('link'), linksField.el),
       h('div', { class: 'row' }, icon('tag'), tags.el),
-      !t.mirror && breakdownField(t, notes),
+      !t.mirror && breakdownField(t, notes, {
+        name: () => name.value.trim() || t.label || t.title,
+        // Its time: a time and a length make a block to fit into; otherwise the free time of its day (today with none).
+        frame: () => {
+          const d = (date && date.value) || t.date || '', tm = (when ? when.value : t.time) || '';
+          const len = t.pomodoro?.minutes || t.minutes;
+          if (d && tm && len) { const s = at(d, tm); return { start: s.toISOString(), end: new Date(s.getTime() + len * 60000).toISOString() }; }
+          return { day: d || ymd(new Date()), ...(d && tm ? { from: tm } : {}) };
+        },
+        exclude: [t.id],
+        extra: () => breakdownExtras({ checklist: tasksField ? tasksField.get().items : [], links: linksField ? linksField.get() : [] }),
+        keeps: () => `Each step becomes a task at its time, in place of "${name.value.trim() || t.label || t.title}". Undo brings it back.`,
+        replace: (rows) => taskToSteps(rows),
+      }),
       pomo && h('div', { class: 'row top' }, icon('clock'), pomo.el),
       S.settings.pi.enabled && t.provider === 'google' && h('div', { class: 'row pi-row' }, icon('phone'),
         h('div', { class: 'txt' }, h('b', null, 'Phone reminder'), h('small', { class: st.tone }, st.text))),
@@ -4527,8 +4620,14 @@
 
   const breakdownLevel = () => { try { return Math.min(5, Math.max(1, Number(localStorage.getItem('onyx.breakdown-level')) || 3)); } catch { return 3; } };
 
-  /** The Breakdown row in a task's window: 1-5 hammers, Break it down, then keep the steps as a checklist or as tasks. */
-  function breakdownField(t, notes) {
+  /**
+   * The Breakdown row in a task's or a block's window: 1-5 hammers, Break it down, then keep the steps as a checklist
+   * or as tasks. With `ctx` (it has a time: see timedBreakdown), the steps come with lengths, laid out in the time it
+   * has, and on a longer, realistic timeline too when that is clearly too little. One is picked, changed as wanted,
+   * and put on the calendar in its place.
+   */
+  function breakdownField(t, notes, ctx = null) {
+    if (ctx) return timedBreakdown(notes, ctx);
     let level = breakdownLevel();
     let steps = [];
     const hammers = h('div', { class: 'hammers', role: 'radiogroup', 'aria-label': 'How finely to break it down' });
@@ -4572,6 +4671,171 @@
             } catch (err) { fail(err); }
           } }, 'Make them tasks')));
     };
+    return h('div', { class: 'row top breakdown-row' }, icon('hammer'),
+      h('div', { class: 'txt' }, h('div', { class: 'breakdown-head' }, h('b', null, 'Breakdown'), hammers, go), out));
+  }
+
+  /** What else is written in a task or block, for Breakdown to take into account along with its notes. */
+  function breakdownExtras({ calendarNotes = '', checklist = [], links = [], place = '' } = {}) {
+    return [
+      cleanNote(calendarNotes) && `Notes on the calendar:\n${cleanNote(calendarNotes)}`,
+      checklist.length > 0 && `Checklist:\n${checklist.map((x) => `- [${x.done ? 'x' : ' '}] ${x.text}`).join('\n')}`,
+      links.length > 0 && `Links:\n${links.map((l) => `- ${l.title ? `${l.title}: ` : ''}${l.url}`).join('\n')}`,
+      place && `Where: ${place}`,
+    ].filter(Boolean).join('\n\n');
+  }
+
+  /** A step's notes: what it needs, which step of what it is, and (on the first) everything the original said. */
+  const stepNotes = (r, i, n, name, original) => [r.notes, `Step ${i + 1} of ${n} of "${name}"`,
+    i === 0 && original ? `Notes from "${name}":\n${original}` : ''].filter(Boolean).join('\n\n');
+
+  /**
+   * Breakdown with times, for a task or block (breakdownField with ctx). ctx: { name(), frame() ({ start, end } or
+   * { day, from? }), exclude (its own ids), extra() (what else is written in it), keeps() (what Put on calendar
+   * does to it, in words), replace(steps) (puts [{ title, notes, start: Date, minutes }] in its place) }.
+   */
+  function timedBreakdown(notes, ctx) {
+    let level = breakdownLevel();
+    let plan = null, pick = 'fit', working = false;
+    const hammers = h('div', { class: 'hammers', role: 'radiogroup', 'aria-label': 'How finely to break it down' });
+    const drawHammers = () => hammers.replaceChildren(...[1, 2, 3, 4, 5].map((n) => h('button', {
+      type: 'button', class: `hammer${n <= level ? ' on' : ''}`, role: 'radio', 'aria-checked': String(n === level),
+      title: ['A few broad steps', 'Simple steps', 'Clear steps', 'Detailed steps', 'Tiny micro-steps'][n - 1],
+      onclick: () => { level = n; try { localStorage.setItem('onyx.breakdown-level', String(n)); } catch { /* this visit */ } drawHammers(); },
+    }, icon('hammer'))));
+    drawHammers();
+    const out = h('div', { class: 'breakdown-out bd-plan', hidden: true });
+    const go = h('button', { class: 'btn', onclick: () => run() }, icon('hammer'), 'Break it down');
+
+    const startOf = (r) => at(r.day, r.time).getTime();
+    const endOf = (r) => startOf(r) + r.minutes * 60000;
+    const current = () => plan.options.find((o) => o.key === pick) || plan.options[0];
+    const total = (o) => o.rows.reduce((n, r) => n + r.minutes, 0);
+    const lastEnd = (o) => (o.rows.length ? new Date(Math.max(...o.rows.map(endOf))) : null);
+    const whenText = (d) => (sameDay(d, new Date(plan.frame.start)) ? fmtTime(d) : `${fmtDay(d)}, ${fmtTime(d)}`);
+
+    const run = async () => {
+      if (working) return;
+      working = true;
+      go.disabled = true;
+      go.replaceChildren(icon('hammer'), 'Breaking it down…');
+      const had = plan;
+      out.hidden = false;
+      out.replaceChildren(h('p', { class: 'pop-meta bd-wait' }, h('span', { class: 'spinner' }), 'Claude is reading everything in it and timing the steps…'));
+      try {
+        const all = [cleanNote(notes.value), ctx.extra()].filter(Boolean).join('\n\n');
+        plan = await onyx.breakdownPlan({ title: ctx.name(), notes: all, level, frame: ctx.frame(), exclude: ctx.exclude });
+        for (const o of plan.options) {
+          o.rows = o.blocks.map((b) => { const s = new Date(b.start); return { title: b.title, notes: b.notes || '', day: ymd(s), time: hm(s), minutes: b.minutes }; });
+        }
+        pick = plan.options[0].key;
+        paint();
+      } catch (err) {
+        plan = had;
+        if (plan) paint(); else out.hidden = true;
+        fail(err);
+      } finally {
+        working = false;
+        go.disabled = false;
+        go.replaceChildren(icon('hammer'), plan ? 'Again' : 'Break it down');
+      }
+    };
+
+    // A step's new time or length moves the steps right after it on that day along with it.
+    const change = (o, i, fn) => {
+      const r = o.rows[i];
+      const wasEnd = endOf(r);
+      fn(r);
+      const delta = endOf(r) - wasEnd;
+      let edge = wasEnd;
+      for (const x of o.rows.slice(i + 1)) {
+        if (!delta || x.day !== r.day) break;
+        const s = startOf(x);
+        if (s < edge - 60000 || s > edge + 10 * 60000) break; // not right after it
+        edge = endOf(x);
+        const moved = new Date(s + delta);
+        x.day = ymd(moved);
+        x.time = hm(moved);
+      }
+      paint();
+    };
+
+    function optionCard(o) {
+      const f = plan.frame, end = lastEnd(o);
+      let head, sub;
+      if (o.key === 'fit') {
+        head = f.kind === 'block' ? `Fit in ${fmtTime(new Date(f.start))}–${fmtTime(new Date(f.end))}`
+          : `Fit in ${sameDay(new Date(f.start), new Date()) ? 'today' : fmtDay(new Date(f.start))}'s free time`;
+        const over = f.kind === 'block' && end ? Math.round((end - new Date(f.end)) / 60000) : 0;
+        sub = [minutesText(total(o)), over > 0 && `${minutesText(over)} over`, o.unplaced.length > 0 && `${o.unplaced.length} left out`].filter(Boolean).join(' · ');
+      } else {
+        head = 'More realistic';
+        sub = [minutesText(total(o)), end && `until ${whenText(end)}`].filter(Boolean).join(' · ');
+      }
+      return h('button', {
+        type: 'button', class: `bd-opt${o.key === pick ? ' on' : ''}`, role: 'radio', 'aria-checked': String(o.key === pick),
+        onclick: () => { pick = o.key; paint(); },
+      }, h('b', null, head), h('small', null, sub));
+    }
+
+    function stepRow(o, r, i, withDay) {
+      const title = h('input', { type: 'text', class: 'bd-title', value: r.title, spellcheck: false, 'aria-label': `Step ${i + 1}`, oninput: (e) => { r.title = e.target.value; } });
+      const day = withDay && h('input', { type: 'date', class: 'bd-day', value: r.day, onchange: (e) => { if (e.target.value) { r.day = e.target.value; paint(); } } });
+      const time = h('input', { type: 'time', class: 'bd-time', step: 300, value: r.time,
+        onchange: (e) => { if (e.target.value) change(o, i, (x) => { x.time = e.target.value; }); else e.target.value = r.time; } });
+      const mins = h('input', { type: 'number', class: 'bd-min', min: 5, max: 480, step: 5, value: r.minutes, 'aria-label': 'Minutes',
+        onchange: (e) => {
+          const v = Math.round(Number(e.target.value) / 5) * 5;
+          if (v >= 5) change(o, i, (x) => { x.minutes = Math.min(480, v); }); else e.target.value = r.minutes;
+        } });
+      const note = h('textarea', { class: 'bd-note', rows: 1, value: r.notes, placeholder: 'Notes for this step', oninput: (e) => { r.notes = e.target.value; } });
+      return h('div', { class: 'bd-row' },
+        h('div', { class: 'bd-line' }, h('span', { class: 'bd-n' }, String(i + 1)), title,
+          h('button', { type: 'button', class: 'icon-btn', title: 'Leave this step out', 'aria-label': `Leave out step ${i + 1}`, onclick: () => { o.rows.splice(i, 1); paint(); } }, icon('x'))),
+        h('div', { class: 'bd-line bd-when' }, day, time, mins, h('span', { class: 'bd-unit' }, 'min'),
+          h('span', { class: 'bd-end' }, `to ${fmtTime(new Date(endOf(r)))}`)),
+        note);
+    }
+
+    function paint() {
+      const o = current();
+      const withDay = plan.frame.kind === 'day' || new Set(o.rows.map((r) => r.day)).size > 1 || !sameDay(at(o.rows[0]?.day || ymd(new Date(plan.frame.start)), '12:00'), new Date(plan.frame.start));
+      out.hidden = false;
+      out.replaceChildren(
+        plan.advice && h('p', { class: 'bd-advice' }, icon('sparkles'), plan.advice),
+        h('div', { class: 'bd-opts', role: 'radiogroup', 'aria-label': 'Which timeline' }, plan.options.map(optionCard)),
+        h('div', { class: 'bd-rows' }, o.rows.map((r, i) => stepRow(o, r, i, withDay))),
+        o.unplaced.length > 0 && h('p', { class: 'bd-left' }, o.key === 'fit'
+          ? `No room that day for: ${o.unplaced.map((u) => u.title).join(', ')}.`
+          : `No room in the next two weeks for: ${o.unplaced.map((u) => u.title).join(', ')}.`),
+        h('div', { class: 'bd-actions' },
+          h('button', { type: 'button', class: 'btn primary', onclick: put }, icon('calendar'), 'Put on calendar'),
+          h('small', { class: 'pop-meta' }, ctx.keeps())),
+        h('button', { type: 'button', class: 'link-btn bd-to-notes', title: 'Add the steps to the notes as a checklist instead (the 2-minute breakdown uses it too)', onclick: toNotes }, 'Add them to the notes instead'));
+    }
+
+    const toNotes = () => {
+      const list = current().rows.filter((r) => r.title.trim()).map((r) => `- [ ] ${r.title.trim()}`).join('\n');
+      notes.value = cleanNote(notes.value) ? `${cleanNote(notes.value)}\n\n${list}` : list;
+      notes.dispatchEvent(new Event('input'));
+      toast('Added to the notes. Save to keep them.');
+    };
+
+    const put = async () => {
+      const rows = current().rows.filter((r) => r.title.trim());
+      if (!rows.length) return toast('There are no steps left to add.', 'warn');
+      if (rows.some((r) => !r.day || !r.time)) return toast('Give every step a day and a time.', 'warn');
+      if (working) return;
+      working = true;
+      try {
+        await ctx.replace(rows.map((r) => ({ title: r.title.trim(), notes: cleanNote(r.notes), start: at(r.day, r.time), minutes: r.minutes })));
+      } catch (err) {
+        fail(err);
+      } finally {
+        working = false;
+      }
+    };
+
     return h('div', { class: 'row top breakdown-row' }, icon('hammer'),
       h('div', { class: 'txt' }, h('div', { class: 'breakdown-head' }, h('b', null, 'Breakdown'), hammers, go), out));
   }

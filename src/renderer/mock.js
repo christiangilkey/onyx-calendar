@@ -658,6 +658,37 @@
       const all = ['Clear a space to work', 'Gather what you need', `Open what "${title}" needs`, 'Do the first small part', 'Take a short look at it', 'Do the next part', 'Check it over', 'Tidy up', 'Tick it off', 'Take a breath', 'Tell someone it is done', 'Plan what comes next'];
       return all.slice(0, [3, 4, 6, 9, 12][(opts.level || 3) - 1]);
     },
+    // Breakdown with times (breakdown-plan.js on the PC): stand-in steps, squeezed into the block, and back to back
+    // from its start (8:00-21:00 days, 5-minute breaks) when that is clearly too little. Nothing else in the way.
+    breakdownPlan: async (o = {}) => {
+      await new Promise((r) => setTimeout(r, 500));
+      const MIN = 60000, n = [3, 4, 6, 9, 12][(o.level || 3) - 1];
+      const names = ['Read the notes through', 'Gather what it needs', 'Draft the first part', 'Do the main part', 'Check it over', 'Fix what is off', 'Send it off', 'Tidy up', 'Note what is next', 'Tell them it is done', 'File it away', 'Take a break'];
+      const lens = [15, 20, 45, 60, 20, 30, 10, 10, 10, 5, 10, 10];
+      const steps = names.slice(0, n).map((title, i) => ({ title, minutes: lens[i], fit: lens[i], notes: i === 0 && o.notes ? `From the notes: ${o.notes.replace(/\s+/g, ' ').slice(0, 120)}` : '' }));
+      const day = o.frame?.day ? new Date(`${o.frame.day}T${o.frame.from || '09:00'}`) : null;
+      const start = day ? +day : +new Date(o.frame.start), end = day ? start + 8 * 60 * MIN : +new Date(o.frame.end);
+      const F = Math.round((end - start) / MIN), need = steps.reduce((a, s) => a + s.minutes, 0);
+      const k = Math.min(1, F / need);
+      const fit = steps.map((s) => Math.max(5, Math.floor((s.minutes * k) / 5) * 5));
+      let t = start;
+      const lay = (mins, gap) => steps.map((s, i) => {
+        const dayEnd = new Date(t); dayEnd.setHours(21, 0, 0, 0);
+        if (gap && t + mins[i] * MIN > +dayEnd) { const d = new Date(t); d.setDate(d.getDate() + 1); d.setHours(8, 0, 0, 0); t = +d; }
+        const b = { title: s.title, notes: s.notes, start: new Date(t).toISOString(), end: new Date(t + mins[i] * MIN).toISOString(), minutes: mins[i] };
+        t += (mins[i] + gap) * MIN;
+        return b;
+      });
+      const options = [{ key: 'fit', minutes: fit.reduce((a, b) => a + b, 0), over: 0, blocks: lay(fit, 0), unplaced: [] }];
+      const short = need > F * 1.1;
+      if (short) { t = start; options.push({ key: 'real', minutes: need, over: 0, blocks: lay(steps.map((s) => s.minutes), 5), unplaced: [] }); }
+      return {
+        steps, need, fits: !short,
+        advice: short ? `Realistically this takes about ${Math.round(need / 6) / 10} h; it has ${Math.round(F / 6) / 10} h.` : 'This fits in the time it has.',
+        frame: { kind: day ? 'day' : 'block', start: new Date(start).toISOString(), end: new Date(end).toISOString(), minutes: F },
+        options,
+      };
+    },
     setAiKey: async () => snapshot(),
     // Hyperfocus sessions (focus.js on the PC), kept for this visit.
     logFocus: async (s) => { (window.focusLog ||= []).push(s); return s; },

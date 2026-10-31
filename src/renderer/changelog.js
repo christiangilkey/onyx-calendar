@@ -2,6 +2,19 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.90.0",
+  "date": "2026-10-31",
+  "title": "Breakdown with a timeline",
+  "items": [
+   "Breakdown (the hammer in a block's or task's window) now gives each step a length and lays the steps out in the time it already has: across the block, or in the free time of the task's day.",
+   "When that time is clearly too little, a second option, More realistic, uses realistic lengths and carries on in your free time after it (the next days too), in order and around what's already on your calendar.",
+   "Pick an option and change anything in it: a step's name, day, time, length or notes. Changing a step's time or length moves the steps right after it along with it.",
+   "Put on calendar adds the steps in place of the block or task. Each step from a block becomes a block with the same calendar, colour and tags; each step from a task becomes a task at its time. The first step keeps the original notes. Undo brings the original back.",
+   "Breakdown now reads everything in the block or task: its notes, its checklist (leaving out what's ticked), its links, where it is, and on a read-only calendar both the calendar's notes and yours.",
+   "Clicking a block or task now shows its notes in the small card next to it, up to about 8 lines. Open shows the rest."
+  ]
+ },
+ {
   "version": "1.89.1",
   "date": "2026-10-30",
   "title": "Paste screenshots into Magic add",

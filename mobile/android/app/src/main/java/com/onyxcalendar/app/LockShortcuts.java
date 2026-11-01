@@ -90,6 +90,8 @@ final class LockShortcuts {
                     if (type.isEmpty()) type = ctx.getContentResolver().getType(uri);
                     i = new Intent(Intent.ACTION_VIEW).setDataAndType(uri, type == null || type.isEmpty() ? "*/*" : type)
                         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    // Passes the read right on to whichever app opens it (Drive's files among them).
+                    i.setClipData(android.content.ClipData.newRawUri("", uri));
                     break;
                 }
                 default: {
@@ -112,7 +114,17 @@ final class LockShortcuts {
             ctx.startActivity(i);
             return true;
         } catch (Exception e) {
-            return false;
+            // A file whose kind no app claims (a Google Doc from Drive, say): offer every app that opens files.
+            if (!"file".equals(s.optString("kind")) || i.getData() == null) return false;
+            try {
+                Intent any = new Intent(Intent.ACTION_VIEW).setDataAndType(i.getData(), "*/*")
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                any.setClipData(i.getClipData());
+                ctx.startActivity(Intent.createChooser(any, s.optString("name", "Open with")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                return true;
+            } catch (Exception again) {
+                return false;
+            }
         }
     }
 

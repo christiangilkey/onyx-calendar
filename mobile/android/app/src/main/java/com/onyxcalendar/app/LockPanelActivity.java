@@ -57,6 +57,7 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
     private View root, clockView, dateView;
     private LinearLayout notifs; // your other apps' notifications, under the panel
     private NowPlaying music; // what is playing, between the panel and the notifications
+    private LockAudio.Card audio; // an audio file from a shortcut, playing on the panel
     private org.json.JSONObject layout = new org.json.JSONObject(); // the lock screen editor's settings (LockLayout)
     private boolean clockOff, showDate = true;
     private final Runnable notifsChanged = () -> ui.post(this::renderNotifs);
@@ -125,6 +126,10 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
         OnyxNotificationListener.watch(notifsChanged);
         renderNotifs();
         if (music != null) music.start();
+        if (audio != null) {
+            audio.watch(() -> ui.post(audio::update));
+            audio.update();
+        }
         ui.removeCallbacks(ticker);
         ui.post(ticker);
     }
@@ -136,6 +141,7 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
         ui.removeCallbacks(ticker);
         OnyxNotificationListener.unwatch(notifsChanged);
         if (music != null) music.stop();
+        if (audio != null) audio.watch(null); // it keeps playing; the panel just stops showing it
         if (scene != null) scene.pause();
     }
 
@@ -158,6 +164,7 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
             if (!resumed) return;
             if (panel != null && panel.tick()) render();
             if (scene != null) scene.tick();
+            if (audio != null) audio.update();
             ui.postDelayed(this, 1000 - System.currentTimeMillis() % 1000);
         }
     };
@@ -214,13 +221,24 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
         onyxPart.addView(panel.root);
 
         LinearLayout shortcutsPart = section();
-        View row = LockShortcuts.row(this, (s) -> unlock(() -> {
-            if (!LockShortcuts.open(this, s)) Toast.makeText(this, "Nothing on this phone can open " + LockShortcuts.labelOf(s) + ".", Toast.LENGTH_LONG).show();
-        }));
+        View row = LockShortcuts.row(this, (s) -> {
+            // An audio file plays right here, in the player under the shortcuts; the rest unlock and open.
+            if (LockAudio.isAudio(s)) {
+                LockAudio.play(this, s);
+                return;
+            }
+            unlock(() -> {
+                if (!LockShortcuts.open(this, s)) Toast.makeText(this, "Nothing on this phone can open " + LockShortcuts.labelOf(s) + ".", Toast.LENGTH_LONG).show();
+            });
+        });
         LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         rp.gravity = gravity;
         rp.topMargin = dp(12);
         shortcutsPart.addView(row, rp);
+        audio = new LockAudio.Card(this);
+        LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        ap.topMargin = dp(10);
+        shortcutsPart.addView(audio.root, ap);
 
         LinearLayout musicPart = section();
         music = new NowPlaying(this, ui, (pi) -> unlock(() -> openNotif(pi)));

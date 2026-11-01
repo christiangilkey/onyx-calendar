@@ -2,6 +2,19 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.94.0",
+  "date": "2026-11-01",
+  "title": "New Settings, and file shortcuts that work",
+  "items": [
+   "Settings on the phone open on one list: a search box, then every section in groups (This phone, Alerts, Sync & accounts, App), each with how it is set now. Tap one for its page; the back arrow (or Android's back) returns to the list.",
+   "Search finds single settings by name and by everyday words (clock, wallpaper, ntfy, port…), opens their page and lights them up. On the PC the same groups and search sit in the sidebar.",
+   "File shortcuts on the lock screen work: the file picked (on the phone or in Google Drive) is no longer lost when Settings refreshes as you come back from the picker.",
+   "Drive files open from the lock screen with the right to read them, and a file no app claims offers \"Open with\".",
+   "An audio file shortcut plays right on the lock screen, without unlocking: a small player under your shortcuts with play/pause, a bar to move through it, and × to stop. It keeps playing with the screen off.",
+   "The stray \"null\" under the lock screen editor's shortcuts (and the changelog) is gone."
+  ]
+ },
+ {
   "version": "1.93.0",
   "date": "2026-10-31",
   "title": "Lock screen editor and shortcuts",

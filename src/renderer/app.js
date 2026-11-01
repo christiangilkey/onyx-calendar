@@ -52,6 +52,7 @@
     grip: '<path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"/>',
     drop: '<path d="M12 3.5s-6 6.6-6 11a6 6 0 0 0 12 0c0-4.4-6-11-6-11z"/>',
     send: '<path d="M20.5 3.5L3.5 10.6l6.8 2.6 2.6 6.8z"/><path d="M10.3 13.2l4.4-4.4"/>',
+    search: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>',
     qr: '<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><rect x="8" y="8" width="3" height="3"/><rect x="13" y="8" width="3" height="3"/><rect x="8" y="13" width="3" height="3"/><path d="M13 13h3v3"/>',
   };
   const COLORS = ['#8b7cff', '#4aa8ff', '#3fd0c9', '#5fd38d', '#f5b83d', '#ff9f4a', '#ff6b6b', '#ff7eb6', '#b9b9c2'];
@@ -7595,7 +7596,7 @@
     renderSidebar();
     renderMini();
     renderTasks();
-    if (!$('#modal').hidden) openSettings(settingsTab);
+    if (!$('#modal').hidden && $('.sheet.settings', $('#modal'))) openSettings(settingsTab); // not over a Magic or Hyperfocus sheet
   }
 
   /** Runs something that changes accounts or calendars, then redraws everything. */
@@ -7667,8 +7668,8 @@
             v.title && h('div', { class: 'cl-title' }, v.title),
             h('ul', { class: 'cl-items' }, (q ? v.items.filter((it) => it.toLowerCase().includes(q) || v.version.includes(q) || (v.title || '').toLowerCase().includes(q)) : v.items)
               .map((it) => h('li', null, it))))),
-          !q && !all && found.length > shown.length ? h('button', { class: 'btn cl-more', onclick: () => { all = true; draw(); } }, `Show all ${found.length} versions`) : null,
-          q && !found.length ? h('p', { class: 'hint' }, 'No change mentions that.') : null);
+          ...(!q && !all && found.length > shown.length ? [h('button', { class: 'btn cl-more', onclick: () => { all = true; draw(); } }, `Show all ${found.length} versions`)] : []),
+          ...(q && !found.length ? [h('p', { class: 'hint' }, 'No change mentions that.')] : [])); // a null here would show as "null"
       };
       search.addEventListener('input', draw);
       draw();
@@ -7990,7 +7991,11 @@
       const box = h('div', { class: 'le' }, h('div', { class: 'card' }, h('p', null, 'Checking…')));
       const PARTS = { clock: 'Clock and date', onyx: 'Now and next', shortcuts: 'Shortcuts', music: 'Now playing', notifications: 'Notifications' };
       const KINDS = { link: 'Link', app: 'App', file: 'File' };
-      let setup = null, apps = null, editing = null; // editing: the shortcut in the form (a copy), and its place (-1: new)
+      let setup = null, apps = null;
+      // D.editing: the shortcut in the form (a copy) and its place (-1: new). It is kept outside this tab because
+      // Settings is drawn again on every sync, coming back from the file picker included, and a draft kept in
+      // here was lost with it. D.redraw draws the tab showing now.
+      const D = lockDraft;
       const save = (patch) => onyx.launcher.setLockSetup(patch).then((s) => { setup = s; draw(); }).catch((err) => fail(err));
       const L = () => setup.layout;
       const shows = (p) => !L().hidden.includes(p);
@@ -8024,7 +8029,7 @@
 
       /** One shortcut being made or changed. */
       const form = () => {
-        const s = editing.s;
+        const s = D.editing.s;
         const err = h('small', { class: 'le-err' });
         const target = s.kind === 'link'
           ? h('input', { type: 'url', value: s.target || '', placeholder: 'https://… or spotify:, tel:, mailto:…', spellcheck: false, autocapitalize: 'off', oninput: (e) => { s.target = e.target.value.trim(); } })
@@ -8035,21 +8040,21 @@
             : h('div', { class: 'row' },
               h('button', { type: 'button', class: 'btn', onclick: async () => {
                 const f = await onyx.launcher.pickShortcutFile().catch((e) => { fail(e); return null; });
-                if (!f || f.cancelled) return;
-                Object.assign(s, { target: f.uri, name: f.name, type: f.type });
-                draw();
+                if (!f || f.cancelled || !f.uri) return;
+                Object.assign(s, { target: f.uri, name: f.name || 'File', type: f.type || '' });
+                D.redraw?.();
               } }, s.target ? 'Choose another file' : 'Choose a file'),
               s.target && h('small', null, s.name || 'File chosen'));
         if (s.kind === 'app' && !apps) onyx.launcher.shortcutApps().then((a) => { apps = a; draw(); }).catch(() => { apps = []; draw(); });
         const done = () => {
           if (!s.target) { err.textContent = s.kind === 'link' ? 'Type the link it opens.' : s.kind === 'app' ? 'Choose the app it opens.' : 'Choose the file it opens.'; return; }
           const list = [...setup.shortcuts];
-          if (editing.at < 0) list.push(s); else list[editing.at] = s;
-          editing = null;
+          if (D.editing.at < 0) list.push(s); else list[D.editing.at] = s;
+          D.editing = null;
           save({ shortcuts: list });
         };
         return h('div', { class: 'card le-form' },
-          h('h4', null, editing.at < 0 ? 'New shortcut' : 'Change shortcut'),
+          h('h4', null, D.editing.at < 0 ? 'New shortcut' : 'Change shortcut'),
           h('div', { class: 'le-kinds', role: 'radiogroup', 'aria-label': 'What it opens' },
             Object.entries(KINDS).map(([k, name]) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(s.kind === k), class: `le-kind${s.kind === k ? ' on' : ''}`,
               onclick: () => { if (s.kind !== k) { Object.assign(s, { kind: k, target: '', name: '', type: '' }); draw(); } } }, name))),
@@ -8057,12 +8062,14 @@
           h('div', { class: 'le-two' },
             h('label', { class: 'le-lbl le-icon' }, 'Icon', h('input', { type: 'text', value: s.icon || '', maxLength: 4, placeholder: kindIcon({ kind: s.kind }), oninput: (e) => { s.icon = e.target.value.trim(); } })),
             h('label', { class: 'le-lbl' }, 'Name', h('input', { type: 'text', value: s.label || '', maxLength: 30, placeholder: s.kind === 'app' ? 'The app\'s name' : s.kind === 'file' ? 'The file\'s name' : 'e.g. Workout playlist', oninput: (e) => { s.label = e.target.value; } }))),
-          h('small', { class: 'le-hint' }, s.kind === 'app' ? 'Leave the icon empty for the app\'s own.' : 'An emoji works well as the icon.'),
+          h('small', { class: 'le-hint' }, s.kind === 'app' ? 'Leave the icon empty for the app\'s own.'
+            : s.kind === 'file' ? 'Files from the phone or Google Drive. An audio file plays right on the lock screen, with a player there; anything else unlocks and opens.'
+              : 'An emoji works well as the icon.'),
           err,
           h('div', { class: 'row' },
             h('button', { type: 'button', class: 'btn primary', onclick: done }, 'Save'),
             s.target && h('button', { type: 'button', class: 'btn', onclick: () => onyx.launcher.tryShortcut(s).catch((e) => fail(e)) }, 'Try it'),
-            h('button', { type: 'button', class: 'btn', onclick: () => { editing = null; draw(); } }, 'Cancel')));
+            h('button', { type: 'button', class: 'btn', onclick: () => { D.editing = null; draw(); } }, 'Cancel')));
       };
 
       const draw = () => {
@@ -8092,7 +8099,7 @@
                 onchange: (e) => setLayout({ dim: +e.target.value }) }))),
           h('div', { class: 'card' },
             h('h4', null, 'Shortcuts'),
-            h('p', null, 'Tap one on the lock screen to unlock and open it: a web page, an app\'s link (spotify:, tel:, mailto:, a maps link), an app, or a file.'),
+            h('p', null, 'Tap one on the lock screen to unlock and open it: a web page, an app\'s link (spotify:, tel:, mailto:, a maps link), an app, or a file. Audio files play right there, without unlocking.'),
             setup.shortcuts.length ? h('div', { class: 'le-list' }, setup.shortcuts.map((s, i) => h('div', { class: 'le-sc' },
               h('div', { class: 'le-move' },
                 h('button', { type: 'button', class: 'icon-btn', 'aria-label': `Move ${labelOf(s)} left`, disabled: i === 0, onclick: () => save({ shortcuts: move(setup.shortcuts, i, -1) }) }, '▲'),
@@ -8100,15 +8107,16 @@
               h('span', { class: 'le-ic' }, kindIcon(s)),
               h('div', { class: 'le-txt' }, h('b', null, labelOf(s)), h('small', null, what(s))),
               h('button', { type: 'button', class: 'btn', onclick: () => onyx.launcher.tryShortcut(s).catch((e) => fail(e)) }, 'Try'),
-              h('button', { type: 'button', class: 'btn', onclick: () => { editing = { at: i, s: { ...s } }; draw(); } }, 'Edit'),
+              h('button', { type: 'button', class: 'btn', onclick: () => { D.editing = { at: i, s: { ...s } }; draw(); } }, 'Edit'),
               h('button', { type: 'button', class: 'icon-btn', title: 'Remove', 'aria-label': `Remove ${labelOf(s)}`, onclick: () => save({ shortcuts: setup.shortcuts.filter((_, j) => j !== i) }) }, '×'))))
               : h('p', { class: 'le-none' }, 'None yet.'),
-            !editing && (setup.shortcuts.length < setup.max
-              ? h('button', { type: 'button', class: 'btn primary', onclick: () => { editing = { at: -1, s: { id: `s${Date.now().toString(36)}`, kind: 'link', target: '', label: '', icon: '' } }; draw(); } }, 'Add a shortcut')
+            !D.editing && (setup.shortcuts.length < setup.max
+              ? h('button', { type: 'button', class: 'btn primary', onclick: () => { D.editing = { at: -1, s: { id: `s${Date.now().toString(36)}`, kind: 'link', target: '', label: '', icon: '' } }; draw(); } }, 'Add a shortcut')
               : h('small', null, `That's the most (${setup.max}). Remove one to add another.`))),
-          editing && form());
+          ...(D.editing ? [form()] : [])); // replaceChildren writes a null out as the text "null"
         if (!apps && setup.shortcuts.some((s) => s.kind === 'app')) onyx.launcher.shortcutApps().then((a) => { apps = a; draw(); }).catch(() => { apps = []; });
       };
+      D.redraw = () => { if (box.isConnected) draw(); else if (settingsTab === 'lockeditor' && !$('#modal').hidden) openSettings('lockeditor'); };
       onyx.launcher.lockSetup().then((s) => { setup = s; draw(); })
         .catch(() => box.replaceChildren(h('div', { class: 'card' }, h('p', null, 'Update the Onyx app to use the lock screen editor.'))));
       return [
@@ -8423,29 +8431,186 @@
     },
   };
 
-  let settingsTab = onyx.isPhone ? 'connection' : 'calendars';
-  function openSettings(tab = settingsTab) {
-    const tabs = onyx.isPhone
-      ? [['connection', 'Connection'], ['keys', 'Keys & accounts'], ['pi', 'Calls & alerts'], ...(onyx.launcher ? [['launcher', 'Home & lock screen'], ['lockeditor', 'Lock screen editor'], ['doomscroll', 'Doomscroll saver']] : []), ['general', 'General'], ['changelog', 'Changelog']]
-      : [['calendars', 'Calendars'], ['connections', 'Notion, Drive & AI'], ['phone', 'Phone'], ['desktops', 'Desktops'], ['pi', 'Calls & alerts'], ['mcp', 'MCP server'], ['general', 'General'], ['changelog', 'Changelog']];
-    if (!tabs.some(([id]) => id === tab)) tab = tabs[0][0];
+  // ------------------------------------------------------------ settings: the way around them
+  // On the phone, Settings opens on a home page: a search box, then every section in a few groups, each a
+  // row with its icon and how it is set now (Connected, On your lock screen, 3 shortcuts…). A row opens its
+  // page, with a back button to the list. On the PC the same groups and search sit in the sidebar. A search
+  // finds single settings too, by name and by the words people use for them; picking one opens its page
+  // there and points it out.
+
+  /** Each section: its name, icon and colour, the settings on it (found by search) and other words for them. */
+  const SECTIONS = {
+    connection: { name: 'Connection', icon: 'globe', c: '#4aa8ff', items: ['Status', 'PC addresses', 'Away from home', 'Scan a new code', 'Your desktops', 'Accounts on the PC'], words: 'pc wifi tailscale pair qr sync online offline' },
+    keys: { name: 'Keys & accounts', icon: 'shield', c: '#8b7cff', items: ['AI for Breakdown', 'Notion', 'Google', 'Outlook', 'Calendar link (read-only)'], words: 'claude api key credentials microsoft ics feed sign in' },
+    pi: { name: 'Calls & alerts', icon: 'bell', c: '#ff6b6b', items: ['Alarm on my phone', 'Push notification (free)', 'Phone call (Twilio)', 'Raspberry Pi (advanced)', 'Show Pi phone reminders', 'Quiet hours'], words: 'ntfy twilio escalation reminders call ring' },
+    launcher: { name: 'Home & lock screen', icon: 'lock', c: '#3fd0c9', items: ['Where should Onyx show?', 'Set up your lock screen', 'Set up your home screen', 'Full-screen pop-ups', 'Alarm for everything as it starts', 'Full-screen alarms'], words: 'onyx home launcher overlay notifications music spotify alarms' },
+    lockeditor: { name: 'Lock screen editor', icon: 'device', c: '#f5b83d', items: ['What shows, and in what order', 'Clock size', 'Clock and shortcuts on', 'Date under the clock', 'Background', 'Shortcuts'], words: 'layout look wallpaper dark link app file audio macro' },
+    doomscroll: { name: 'Doomscroll saver', icon: 'target', c: '#ff9f4a', items: ['Doomscroll saver', 'Show it after', 'Accessibility access', 'See the card'], words: 'social media instagram tiktok youtube minutes' },
+    general: { name: 'General', icon: 'sliders', c: '#b9b9c2', items: ['New blocks go to', 'Updates', 'Now / Next bar', 'Popups', 'Tick-off sound', '24-hour time', 'Week starts on', 'Keep running when closed', 'Start with Windows'], words: 'default calendar chime clock tray' },
+    changelog: { name: 'Changelog', icon: 'note', c: '#5fd38d', items: [], words: 'versions changes new what\'s new' },
+    calendars: { name: 'Calendars', icon: 'calendar', c: '#4aa8ff', items: ['Connected', 'Google Calendar and Tasks', 'Outlook (Microsoft account)', 'Calendar link (read-only)', 'On this PC'], words: 'sign in accounts ics feed local' },
+    connections: { name: 'Notion, Drive & AI', icon: 'link', c: '#8b7cff', items: ['Notion', 'Google Drive', 'AI for Breakdown'], words: 'claude api key' },
+    phone: { name: 'Phone', icon: 'device', c: '#3fd0c9', items: ['Connect your phone', 'Away from home'], words: 'android pair qr tailscale' },
+    desktops: { name: 'Desktops', icon: 'monitor', c: '#f5b83d', items: ['Sync through Google Drive', 'Your desktops', 'Link another desktop', 'Join a linked desktop'], words: 'pc sync' },
+    mcp: { name: 'MCP server', icon: 'graph', c: '#ff7eb6', items: ['Server', 'Reachable from your network', 'Port', 'Address', 'Hermes config'], words: 'claude pi json' },
+  };
+  const SET_HOME = 'home'; // the phone's list of sections
+  /** The groups of sections, in order, for this device. */
+  const settingsGroups = () => (onyx.isPhone
+    ? [['This phone', onyx.launcher ? ['launcher', 'lockeditor', 'doomscroll'] : []], ['Alerts', ['pi']], ['Sync & accounts', ['connection', 'keys']], ['App', ['general', 'changelog']]]
+    : [['Calendar', ['calendars', 'general']], ['Connected', ['connections', 'phone', 'desktops']], ['Alerts', ['pi']], ['Advanced', ['mcp']], ['About', ['changelog']]])
+    .filter(([, ids]) => ids.length);
+
+  let settingsTab = MOBILE ? SET_HOME : 'calendars';
+  let settingsQuery = '';
+  const settingsSums = {}; // how each section is set, for the phone's list; filled in as the phone answers
+  const lockDraft = { editing: null, redraw: null }; // the lock screen editor's shortcut being made (see lockeditor)
+
+  /** The line under a section's name on the phone's list: how it is set now, or what it is for. */
+  function sectionSummary(id) {
+    const c = onyx.connection?.();
+    const method = S.settings.calls?.method || S.calls?.method || 'alarm';
+    switch (id) {
+      case 'connection': return c?.online === false ? 'Offline · showing the last sync' : `Connected${c?.last ? ` · ${c.last.replace(/:\d+$/, '')}` : ''}`;
+      case 'keys': return [S.ai?.ready && 'AI key saved', S.accounts.length ? `${S.accounts.length} ${S.accounts.length === 1 ? 'account' : 'accounts'}` : 'No accounts yet'].filter(Boolean).join(' · ');
+      case 'pi': return { alarm: 'Alarm on this phone', ntfy: 'Push notifications', twilio: 'Phone calls', pi: 'Raspberry Pi calls' }[method] || 'How Onyx reaches you';
+      case 'general': return `${S.settings.hour12 ? '12' : '24'}-hour time · week starts ${['Sunday', 'Monday', '', '', '', '', 'Saturday'][S.settings.weekStart] || 'Sunday'}`;
+      case 'changelog': return window.OnyxChangelog?.[0] ? `Newest: ${window.OnyxChangelog[0].version}` : 'What came with each version';
+      default: return settingsSums[id] || { launcher: 'Onyx on your lock and home screens', lockeditor: 'Layout, look and shortcuts', doomscroll: 'A nudge back from social media' }[id] || '';
+    }
+  }
+  /** Asks the phone how its own sections are set, and writes it into the list. */
+  function fillPhoneSummaries(list) {
+    const put = (id, text) => {
+      settingsSums[id] = text;
+      const el = list.querySelector(`[data-sum="${id}"]`);
+      if (el) el.textContent = text;
+    };
+    onyx.launcher?.info?.().then((i) => {
+      put('launcher', { lock: 'On your lock screen', home: 'Your home screen', both: 'Lock and home screens', off: 'Off: just the app' }[i?.show] || 'Onyx on your lock and home screens');
+      if (i && 'doomscroll' in i) put('doomscroll', i.doomscroll ? `On · after ${i.doomMinutes} ${i.doomMinutes === 1 ? 'minute' : 'minutes'}` : 'Off');
+    }).catch(() => {});
+    onyx.launcher?.lockSetup?.().then((s) => {
+      const n = s?.shortcuts?.length || 0;
+      put('lockeditor', `${n ? `${n} ${n === 1 ? 'shortcut' : 'shortcuts'}` : 'No shortcuts yet'} · ${{ small: 'small', medium: 'medium', large: 'large', huge: 'huge' }[s?.layout?.clockSize] || 'medium'} clock`);
+    }).catch(() => {});
+  }
+
+  /** Sections and single settings matching what is typed: [{ id, item? }], best first. */
+  function searchSettings(q, ids) {
+    const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const all = (text) => words.every((w) => text.toLowerCase().includes(w));
+    const found = [];
+    for (const id of ids) {
+      const s = SECTIONS[id];
+      if (all(`${s.name} ${s.words}`)) found.push({ id, score: s.name.toLowerCase().startsWith(words[0]) ? 0 : 2 });
+      for (const item of s.items) {
+        if (item === s.name) continue;
+        if (all(item)) found.push({ id, item, score: item.toLowerCase().startsWith(words[0]) ? 1 : 3 });
+        else if (all(`${item} ${s.name} ${s.words}`) && words.some((w) => item.toLowerCase().includes(w))) found.push({ id, item, score: 4 });
+      }
+    }
+    return found.sort((a, b) => a.score - b.score).slice(0, 24);
+  }
+
+  /** Points out a setting on the page just opened: scrolled to and lit up for a moment. */
+  function pointOut(pane, item, tries = 8) {
+    const want = item.toLowerCase();
+    const el = [...pane.querySelectorAll('.field .txt b, h4, .method b, .ls-step b')].find((x) => x.textContent.trim().toLowerCase().startsWith(want));
+    if (!el) { if (tries > 0) setTimeout(() => pointOut(pane, item, tries - 1), 200); return; } // some pages fill in a moment later
+    const box = el.closest('.field, .card, .method, .ls-step') || el;
+    box.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    box.classList.remove('set-flash');
+    void box.offsetWidth; // starts the light-up afresh
+    box.classList.add('set-flash');
+    setTimeout(() => box.classList.remove('set-flash'), 1800);
+  }
+
+  function openSettings(tab = settingsTab, { find } = {}) {
+    const groups = settingsGroups();
+    const ids = groups.flatMap(([, list]) => list);
+    if (tab !== SET_HOME && !ids.includes(tab)) tab = MOBILE ? SET_HOME : ids[0];
+    if (tab === SET_HOME && !MOBILE) tab = ids[0];
+    const modal = $('#modal');
+    const before = $('.sheet.settings', modal);
+    const same = before?.dataset.tab === tab; // drawn again (a sync), not moved to another page
+    const back = before && !same && tab === SET_HOME;
+    const typing = same && document.activeElement?.classList.contains('set-search') ? document.activeElement.selectionStart : null;
+    const scroll = same ? ($('.pane, .set-home', modal)?.scrollTop || 0) : 0;
     settingsTab = tab;
     closePopover();
     closeDrawers();
-    const modal = $('#modal');
-    const scroll = $('.pane', modal)?.scrollTop || 0;
-    const pane = h('div', { class: 'pane' }, h('button', { class: 'icon-btn close', onclick: closeSettings }, icon('x')), PANES[tab]());
-    modal.replaceChildren(h('div', { class: 'sheet' },
-      h('nav', null, h('h2', null, 'Settings'),
-        tabs.map(([id, name]) => h('button', { class: id === tab ? 'on' : '', onclick: () => openSettings(id) }, name)),
-        h('div', { class: 'ver' }, `Onyx Calendar ${S.version}`)),
-      pane));
+
+    const go = (id, item) => {
+      if (MOBILE) settingsQuery = '';
+      openSettings(id, { find: item });
+    };
+    // The search box and what it finds. Typing redraws only the list under it, so the box keeps its place.
+    const search = h('input', { type: 'search', class: 'set-search', placeholder: 'Search settings', value: settingsQuery, spellcheck: false, autocomplete: 'off', 'aria-label': 'Search settings',
+      oninput: (e) => { settingsQuery = e.target.value; drawList(); },
+      onkeydown: (e) => { if (e.key === 'Enter') { const first = searchSettings(settingsQuery, ids)[0]; if (first) go(first.id, first.item); } } });
+    const list = h('div', { class: 'set-groups' });
+    const row = (id, on) => h('button', { type: 'button', class: `set-row${on ? ' on' : ''}`, css: { '--c': SECTIONS[id].c }, onclick: () => go(id) },
+      h('span', { class: 'set-ic' }, icon(SECTIONS[id].icon)),
+      h('span', { class: 'set-txt' }, h('b', null, SECTIONS[id].name), MOBILE && h('small', { 'data-sum': id }, sectionSummary(id))),
+      MOBILE && h('span', { class: 'set-chev' }, icon('right')));
+    function drawList() {
+      const q = settingsQuery.trim();
+      if (q) {
+        const found = searchSettings(q, ids);
+        list.replaceChildren(found.length
+          ? h('section', { class: 'set-group' }, h('h5', null, 'Results'), h('div', { class: 'set-list' }, found.map((f) => h('button', { type: 'button', class: 'set-row', css: { '--c': SECTIONS[f.id].c }, onclick: () => go(f.id, f.item) },
+            h('span', { class: 'set-ic' }, icon(SECTIONS[f.id].icon)),
+            h('span', { class: 'set-txt' }, h('b', null, f.item || SECTIONS[f.id].name), f.item && h('small', null, SECTIONS[f.id].name)),
+            MOBILE && h('span', { class: 'set-chev' }, icon('right'))))))
+          : h('p', { class: 'set-none' }, `Nothing called "${q}". Try another word.`));
+        return;
+      }
+      list.replaceChildren(...groups.map(([name, members]) => h('section', { class: 'set-group' },
+        h('h5', null, name),
+        h('div', { class: 'set-list' }, members.map((id) => row(id, !MOBILE && id === tab))))));
+    }
+    drawList();
+
+    let sheet, pane;
+    if (MOBILE && tab === SET_HOME) {
+      sheet = h('div', { class: `sheet settings set-at-home${back ? ' set-back' : ''}`, 'data-tab': tab },
+        h('div', { class: 'set-home' },
+          h('header', { class: 'set-head' }, h('h2', null, 'Settings'), h('button', { class: 'icon-btn', 'aria-label': 'Close settings', onclick: closeSettings }, icon('x'))),
+          h('label', { class: 'set-find' }, icon('search'), search),
+          list,
+          h('p', { class: 'set-ver' }, `Onyx Calendar${onyx.isPhone ? ' for Android' : ` ${S.version}`}`)));
+      fillPhoneSummaries(list);
+    } else if (MOBILE) {
+      pane = h('div', { class: 'pane' }, PANES[tab]());
+      sheet = h('div', { class: `sheet settings set-page${same ? '' : ' set-in'}`, 'data-tab': tab },
+        h('header', { class: 'set-bar' },
+          h('button', { type: 'button', class: 'set-backbtn', onclick: () => openSettings(SET_HOME) }, icon('left'), 'Settings'),
+          h('b', null, SECTIONS[tab].name),
+          h('button', { class: 'icon-btn', 'aria-label': 'Close settings', onclick: closeSettings }, icon('x'))),
+        pane);
+    } else {
+      pane = h('div', { class: 'pane' }, h('button', { class: 'icon-btn close', onclick: closeSettings }, icon('x')), PANES[tab]());
+      sheet = h('div', { class: 'sheet settings', 'data-tab': tab },
+        h('nav', null, h('h2', null, 'Settings'), h('label', { class: 'set-find' }, icon('search'), search), list,
+          h('div', { class: 'ver' }, `Onyx Calendar ${S.version}`)),
+        pane);
+    }
+    modal.replaceChildren(sheet);
     modal.hidden = false;
-    pane.scrollTop = scroll;
+    const scroller = pane || $('.set-home', sheet);
+    scroller.scrollTop = scroll;
+    if (typing != null) { search.focus(); search.setSelectionRange(typing, typing); }
+    if (find && pane) requestAnimationFrame(() => pointOut(pane, find));
   }
   function closeSettings(keepSound) {
     $('#modal').hidden = true;
     $('#modal').replaceChildren();
+    // Next time it opens on the list again, with nothing half-typed or half-made left over.
+    if (MOBILE) settingsTab = SET_HOME;
+    settingsQuery = '';
+    lockDraft.editing = null;
     if (keepSound !== true && !focus.s) stopNoise(); // the Hyperfocus sheet's sound preview
   }
   $('#modal').addEventListener('mousedown', (e) => { if (e.target === $('#modal')) closeSettings(); });
@@ -10055,8 +10220,12 @@
     if (focus.el && $('#modal').hidden) return true; // a Hyperfocus session ends with Stop now, not Escape
     if (!$('#update-dialog').hidden) { if (!$('.upd-bar') && !$('.upd-icon.spin')) closeUpdateDialog(); }
     else if (!$('#popover').hidden) closePopover();
-    else if (!$('#modal').hidden) closeSettings();
-    else if (['drawer-left', 'drawer-right', 'drawer-news'].some((c) => document.body.classList.contains(c))) closeDrawers();
+    else if (!$('#modal').hidden) {
+      // In Settings on the phone, back goes back a step: out of a half-made shortcut, then to the list.
+      if (MOBILE && $('.sheet.settings', $('#modal')) && settingsTab !== SET_HOME) {
+        if (settingsTab === 'lockeditor' && lockDraft.editing) { lockDraft.editing = null; lockDraft.redraw?.(); } else openSettings(SET_HOME);
+      } else closeSettings();
+    } else if (['drawer-left', 'drawer-right', 'drawer-news'].some((c) => document.body.classList.contains(c))) closeDrawers();
     else if (graph.on) closeGraph();
     else return false;
     return true;

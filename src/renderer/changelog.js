@@ -2,9 +2,17 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.95.0",
+  "date": "2026-11-02",
+  "title": "Choose the apps the doomscroll saver watches",
+  "items": [
+   "Small fixes"
+  ]
+ },
+ {
   "version": "1.94.0",
   "date": "2026-11-01",
-  "title": "New Settings, and file shortcuts that work",
+  "title": "New Settings, and file shortcuts that work (1.94.0)",
   "items": [
    "Settings on the phone open on one list: a search box, then every section in groups (This phone, Alerts, Sync & accounts, App), each with how it is set now. Tap one for its page; the back arrow (or Android's back) returns to the list.",
    "Search finds single settings by name and by everyday words (clock, wallpaper, ntfy, port…), opens their page and lights them up. On the PC the same groups and search sit in the sidebar.",

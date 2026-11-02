@@ -2355,9 +2355,32 @@ body.mobile .fs-privacy > .ico:last-child { display: none; }
 body.mobile .fs-flame { max-width: none; width: 100%; box-sizing: border-box; }
 
 /* ------------------------------------------------------------ the doomscroll saver's settings (the phone) */
-.doom-apps { display: grid; gap: 8px; margin: 4px 0 2px; }
+.doom-apps { display: grid; gap: 8px; margin: 4px 0 14px; }
 .doom-apps small { color: var(--muted); font-size: 12px; line-height: 1.45; }
 .doom-app { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 999px; font-size: 12px; color: var(--soft); background: #121317; border: 1px solid var(--line); }
+/* Which apps count: built-in ones tap on and off, added ones have a ×, and a searchable list to add more. */
+.doom-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.doom-head h4 { margin: 0; font-size: 14px; }
+.doom-head small { color: var(--muted); }
+.doom-chips { gap: 8px; }
+.doom-tap { gap: 5px; height: 34px; padding: 0 13px; font-size: 13px; cursor: pointer; font: inherit; font-size: 13px;
+  color: var(--text); background: rgba(95, 211, 141, .12); border-color: rgba(95, 211, 141, .45); transition: background .15s, color .15s, border-color .15s; }
+.doom-tap svg { width: 13px; height: 13px; color: #5fd38d; }
+.doom-tap.off { color: var(--muted); background: #121317; border-color: var(--line); text-decoration: line-through; text-decoration-color: rgba(255, 255, 255, .25); }
+.doom-tap:active { transform: scale(.96); }
+.doom-mine { gap: 4px; height: 34px; padding: 0 4px 0 13px; font-size: 13px; color: var(--text); background: rgba(255, 159, 74, .12); border-color: rgba(255, 159, 74, .45); }
+.doom-x { width: 28px; height: 28px; border: 0; border-radius: 50%; background: none; color: var(--muted); font-size: 17px; line-height: 1; cursor: pointer; }
+.doom-x:active { background: rgba(255, 255, 255, .08); }
+.doom-pick { display: grid; gap: 8px; padding: 10px; border-radius: 14px; background: #0e0f12; border: 1px solid var(--line); }
+.doom-pick-find { width: 100%; box-sizing: border-box; height: 42px; padding: 0 12px; border-radius: 10px; }
+.doom-pick-list { display: grid; max-height: 320px; overflow-y: auto; overscroll-behavior: contain; }
+.doom-pick-list > small { padding: 10px 4px; color: var(--muted); }
+.doom-pick-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 48px; padding: 0 6px;
+  border: 0; border-bottom: 1px solid var(--line); background: none; color: var(--text); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.doom-pick-row:last-child { border-bottom: 0; }
+.doom-pick-row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doom-pick-row b { flex: none; font-size: 13px; color: #ff9f4a; }
+.doom-pick-row:active { background: rgba(255, 255, 255, .05); }
 
 /* ------------------------------------------------------------ a block's tasks, in its window */
 .btask-field { display: grid; gap: 8px; flex: 1; min-width: 0; }

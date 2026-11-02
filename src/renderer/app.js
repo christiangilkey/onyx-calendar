@@ -7866,10 +7866,60 @@
               const r = await onyx.launcher.previewDoomscroll().catch(() => null);
               if (!r?.shown) toast('Turn on Accessibility access first.');
             } }, 'Show me')),
-          h('div', { class: 'doom-apps' }, h('small', null, 'Counts as social media, in their apps and in your browser (Chrome, Samsung Internet, Firefox, Edge, Brave, Opera, DuckDuckGo):'),
-            h('div', { class: 'fs-chips' }, APPS.map((a) => h('span', { class: 'doom-app' }, a)))),
+          watched(info, set),
           privacy,
         ].filter(Boolean));
+      };
+      // Which apps count. The built-in ones (each in its app and in a browser) tap on and off; any other app on
+      // the phone can be added. The add list keeps its search and scroll across a save.
+      const pick = { open: false, q: '' };
+      let phoneApps = null;
+      const watched = (info, set) => {
+        if (!Array.isArray(info.doomNames)) {
+          return h('div', { class: 'doom-apps' }, h('small', null, 'Counts as social media, in their apps and in your browser (Chrome, Samsung Internet, Firefox, Edge, Brave, Opera, DuckDuckGo):'),
+            h('div', { class: 'fs-chips' }, APPS.map((a) => h('span', { class: 'doom-app' }, a))),
+            h('small', null, 'Update the Onyx app to choose these yourself.'));
+        }
+        const off = new Set(info.doomOff || []);
+        const extra = info.doomExtra || [];
+        const counted = info.doomNames.filter((n) => !off.has(n)).length + extra.length;
+        const flip = (n) => { const next = new Set(off); if (next.has(n)) next.delete(n); else next.add(n); set({ off: [...next] }); };
+        const builtIn = h('div', { class: 'fs-chips doom-chips', role: 'group', 'aria-label': 'Built-in apps' },
+          info.doomNames.map((n) => h('button', { type: 'button', class: `doom-app doom-tap${off.has(n) ? ' off' : ''}`, 'aria-pressed': String(!off.has(n)),
+            title: off.has(n) ? `${n} doesn't count. Tap to count it.` : `${n} counts. Tap to leave it out.`, onclick: () => flip(n) },
+            off.has(n) ? null : icon('check'), n)));
+        const added = extra.length ? h('div', { class: 'fs-chips doom-chips', role: 'group', 'aria-label': 'Apps you added' },
+          extra.map((a) => h('span', { class: 'doom-app doom-mine' }, a.label,
+            h('button', { type: 'button', class: 'doom-x', 'aria-label': `Remove ${a.label}`, onclick: () => set({ extra: extra.filter((x) => x.pkg !== a.pkg) }) }, '×'))))
+          : null;
+        const list = h('div', { class: 'doom-pick-list' });
+        const fill = () => {
+          if (!phoneApps) { list.replaceChildren(h('small', null, 'Loading your apps…')); return; }
+          const q = pick.q.trim().toLowerCase();
+          const have = new Set(extra.map((a) => a.pkg));
+          const rows = phoneApps.filter((a) => !have.has(a.pkg) && (!q || a.label.toLowerCase().includes(q)));
+          list.replaceChildren(...(rows.length ? rows.slice(0, 200).map((a) => h('button', { type: 'button', class: 'doom-pick-row',
+            onclick: () => set({ extra: [...extra, { pkg: a.pkg, label: a.label }] }) }, h('span', null, a.label), h('b', null, 'Add')))
+            : [h('small', null, q ? 'No app by that name.' : 'Every app is added already.')]));
+        };
+        const picker = pick.open && h('div', { class: 'doom-pick' },
+          h('input', { type: 'search', class: 'doom-pick-find', placeholder: 'Search your apps', value: pick.q, autocapitalize: 'off', spellcheck: false,
+            oninput: (e) => { pick.q = e.target.value; fill(); } }),
+          list);
+        if (pick.open) {
+          if (!phoneApps) onyx.launcher.shortcutApps().then((a) => { phoneApps = a; fill(); }).catch(() => { phoneApps = []; fill(); });
+          fill();
+        }
+        return h('div', { class: 'doom-apps' },
+          h('div', { class: 'doom-head' }, h('h4', null, 'Apps it watches'), h('small', null, `${counted} counted`)),
+          h('small', null, 'Tap one to leave it out or count it again. Each counts in its app and in your browser (Chrome, Samsung Internet, Firefox, Edge, Brave, Opera, DuckDuckGo).'),
+          builtIn,
+          h('small', null, 'Any other app, a game, a shopping app, a video app, counts too once you add it here.'),
+          added,
+          h('div', { class: 'row' },
+            h('button', { type: 'button', class: `btn${pick.open ? '' : ' primary'}`, onclick: () => { pick.open = !pick.open; pick.q = ''; load(); } }, pick.open ? 'Done adding' : 'Add an app'),
+            off.size > 0 && h('button', { type: 'button', class: 'btn', onclick: () => set({ off: [] }) }, 'Count all again')),
+          picker);
       };
       const load = () => onyx.launcher.info().then(draw).catch(() => box.replaceChildren(h('p', null, 'Update the Onyx app to use this.')));
       load();
@@ -8445,7 +8495,7 @@
     pi: { name: 'Calls & alerts', icon: 'bell', c: '#ff6b6b', items: ['Alarm on my phone', 'Push notification (free)', 'Phone call (Twilio)', 'Raspberry Pi (advanced)', 'Show Pi phone reminders', 'Quiet hours'], words: 'ntfy twilio escalation reminders call ring' },
     launcher: { name: 'Home & lock screen', icon: 'lock', c: '#3fd0c9', items: ['Where should Onyx show?', 'Set up your lock screen', 'Set up your home screen', 'Full-screen pop-ups', 'Alarm for everything as it starts', 'Full-screen alarms'], words: 'onyx home launcher overlay notifications music spotify alarms' },
     lockeditor: { name: 'Lock screen editor', icon: 'device', c: '#f5b83d', items: ['What shows, and in what order', 'Clock size', 'Clock and shortcuts on', 'Date under the clock', 'Background', 'Shortcuts'], words: 'layout look wallpaper dark link app file audio macro' },
-    doomscroll: { name: 'Doomscroll saver', icon: 'target', c: '#ff9f4a', items: ['Doomscroll saver', 'Show it after', 'Accessibility access', 'See the card'], words: 'social media instagram tiktok youtube minutes' },
+    doomscroll: { name: 'Doomscroll saver', icon: 'target', c: '#ff9f4a', items: ['Doomscroll saver', 'Show it after', 'Accessibility access', 'See the card', 'Apps it watches'], words: 'social media instagram tiktok youtube minutes apps choose pick add games which apps' },
     general: { name: 'General', icon: 'sliders', c: '#b9b9c2', items: ['New blocks go to', 'Updates', 'Now / Next bar', 'Popups', 'Tick-off sound', '24-hour time', 'Week starts on', 'Keep running when closed', 'Start with Windows'], words: 'default calendar chime clock tray' },
     changelog: { name: 'Changelog', icon: 'note', c: '#5fd38d', items: [], words: 'versions changes new what\'s new' },
     calendars: { name: 'Calendars', icon: 'calendar', c: '#4aa8ff', items: ['Connected', 'Google Calendar and Tasks', 'Outlook (Microsoft account)', 'Calendar link (read-only)', 'On this PC'], words: 'sign in accounts ics feed local' },

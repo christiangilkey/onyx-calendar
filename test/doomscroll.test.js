@@ -35,9 +35,10 @@ test('every Android string builds: no bare apostrophe or quote (the resource com
 test('the service keeps nothing but today\'s time per app: no files, no network', () => {
   const j = fs.readFileSync(path.join(main, 'java/com/onyxcalendar/app/DoomscrollService.java'), 'utf8');
   assert.doesNotMatch(j, /FileOutputStream|openFileOutput|HttpURLConnection|URL\(|putString\("(site|app|url|history)/);
-  // What it stores: its own settings (on/off and the minutes) and today's totals (only the day and the time per app).
-  const stored = [...j.matchAll(/\.put(Boolean|Int|String|Long)\("([^"]+)"/g)].map((m) => m[2]);
-  assert.deepEqual([...new Set(stored)].sort(), ['minutes', 'on', 'today']);
+  // What it stores: its own settings (on/off, the minutes, the built-in apps left out and the apps added) and
+  // today's totals (only the day and the time per app).
+  const stored = [...j.matchAll(/\.put(Boolean|Int|StringSet|String|Long)\("([^"]+)"/g)].map((m) => m[2]);
+  assert.deepEqual([...new Set(stored)].sort(), ['extra', 'minutes', 'off', 'on', 'today']);
   assert.match(j, /new JSONObject\(\)\.put\("day", usedDay\)\.put\("used", u\)/, 'today is the day and the time per app, nothing else');
   assert.match(j, /if \(!day\.equals\(usedDay\)\) \{ used\.clear\(\)/, 'and it starts again each day');
 });

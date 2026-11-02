@@ -118,6 +118,12 @@ public class OnyxWidgetPlugin extends Plugin {
                 call.hasOption("doomscroll") ? Boolean.TRUE.equals(call.getBoolean("doomscroll", false)) : null,
                 call.hasOption("doomMinutes") ? Integer.valueOf(call.getData().optInt("doomMinutes", DoomscrollService.DEFAULT_MINUTES)) : null);
         }
+        // Which apps count: the built-in names left out, and the apps added ([{ pkg, label }]).
+        if (call.hasOption("doomOff") || call.hasOption("doomExtra")) {
+            DoomscrollService.setApps(getContext(),
+                call.hasOption("doomOff") ? call.getData().optJSONArray("doomOff") : null,
+                call.hasOption("doomExtra") ? call.getData().optJSONArray("doomExtra") : null);
+        }
         call.resolve(launcherState());
     }
 

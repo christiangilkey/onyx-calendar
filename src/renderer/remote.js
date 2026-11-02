@@ -602,7 +602,10 @@
       setCover: (cover) => Widget.setLauncher({ cover }),
       open: (what) => Widget.launcherOpen({ what }),
       // The doomscroll saver (DoomscrollService): on or off, after how many minutes, and a ten-second look at its card.
-      setDoomscroll: ({ on, minutes } = {}) => Widget.setLauncher({ ...(on != null ? { doomscroll: !!on } : {}), ...(minutes ? { doomMinutes: Math.round(minutes) } : {}) }),
+      // Which apps count: off = the built-in names left out, extra = the apps added ([{ pkg, label }]).
+      setDoomscroll: ({ on, minutes, off, extra } = {}) => Widget.setLauncher({
+        ...(on != null ? { doomscroll: !!on } : {}), ...(minutes ? { doomMinutes: Math.round(minutes) } : {}),
+        ...(off ? { doomOff: off } : {}), ...(extra ? { doomExtra: extra } : {}) }),
       previewDoomscroll: () => (Widget.doomscrollPreview ? Widget.doomscrollPreview() : Promise.resolve({ shown: false })),
       // The lock screen editor: the panel's layout and your shortcuts on it (LockLayout, LockShortcuts).
       lockSetup: () => (Widget.lockSetup ? Widget.lockSetup() : Promise.reject(new Error('Update the Onyx app to use this.'))),

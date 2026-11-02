@@ -2,7 +2,13 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.94.0 · New Settings, and file shortcuts that work
+## 1.95.0 · Choose the apps the doomscroll saver watches
+
+_2026-11-02_
+
+- Small fixes
+
+## 1.94.0 · New Settings, and file shortcuts that work (1.94.0)
 
 _2026-11-01_
 

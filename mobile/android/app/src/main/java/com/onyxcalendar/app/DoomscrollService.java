@@ -33,15 +33,19 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -121,6 +125,93 @@ public class DoomscrollService extends AccessibilityService {
         SharedPreferences.Editor e = prefs(ctx).edit();
         if (on != null) e.putBoolean("on", on);
         if (minutes != null) e.putInt("minutes", Math.max(1, Math.min(120, minutes)));
+        e.apply();
+        if (live != null) live.handler.post(live::tick);
+    }
+
+    // ---- which apps count (Settings → Doomscroll saver → Apps it watches)
+
+    /** The built-in names, in the order Settings lists them. Each covers its app and its site. */
+    static final String[] NAMES = {
+        "Instagram", "TikTok", "YouTube", "Facebook", "X", "Snapchat", "Reddit", "Threads", "Pinterest",
+        "Bluesky", "Tumblr", "Twitch", "LinkedIn", "BeReal", "CapCut", "VK", "9GAG",
+    };
+
+    private static Set<String> offCache;
+    private static Map<String, String> extraCache;
+
+    /** The built-in names left out (they don't count, in their app or their site). */
+    static synchronized Set<String> off(Context ctx) {
+        if (offCache == null) offCache = new HashSet<>(prefs(ctx).getStringSet("off", new HashSet<>()));
+        return offCache;
+    }
+
+    /** The apps added on top, by package, with the name the card shows. */
+    static synchronized Map<String, String> extra(Context ctx) {
+        if (extraCache == null) {
+            Map<String, String> m = new LinkedHashMap<>();
+            try {
+                JSONArray a = new JSONArray(prefs(ctx).getString("extra", "[]"));
+                for (int i = 0; i < a.length(); i++) {
+                    JSONObject o = a.optJSONObject(i);
+                    String pkg = o == null ? "" : o.optString("pkg");
+                    if (!pkg.isEmpty()) m.put(pkg, o.optString("label", pkg));
+                }
+            } catch (Exception ignored) {
+                // nothing added yet
+            }
+            extraCache = m;
+        }
+        return extraCache;
+    }
+
+    /** What Settings shows: [{ pkg, label }] of the apps added. */
+    static JSONArray extraList(Context ctx) {
+        JSONArray a = new JSONArray();
+        try {
+            for (Map.Entry<String, String> e : extra(ctx).entrySet()) a.put(new JSONObject().put("pkg", e.getKey()).put("label", e.getValue()));
+        } catch (Exception ignored) {
+            // a JSON key can't fail here
+        }
+        return a;
+    }
+
+    static JSONArray offList(Context ctx) {
+        JSONArray a = new JSONArray();
+        for (String n : NAMES) if (off(ctx).contains(n)) a.put(n);
+        return a;
+    }
+
+    /** Settings → Apps it watches: the built-in names left out (null: as they are) and the apps added (null: as they are). */
+    static synchronized void setApps(Context ctx, JSONArray offNames, JSONArray added) {
+        SharedPreferences.Editor e = prefs(ctx).edit();
+        if (offNames != null) {
+            Set<String> s = new HashSet<>();
+            for (int i = 0; i < offNames.length(); i++) {
+                String n = offNames.optString(i, "");
+                if (!n.isEmpty()) s.add(n);
+            }
+            e.putStringSet("off", s);
+            offCache = s;
+        }
+        if (added != null) {
+            JSONArray keep = new JSONArray();
+            Map<String, String> m = new LinkedHashMap<>();
+            for (int i = 0; i < added.length(); i++) {
+                JSONObject o = added.optJSONObject(i);
+                String pkg = o == null ? "" : o.optString("pkg");
+                if (pkg.isEmpty() || pkg.equals(ctx.getPackageName()) || m.containsKey(pkg)) continue;
+                String label = o.optString("label", pkg);
+                m.put(pkg, label);
+                try {
+                    keep.put(new JSONObject().put("pkg", pkg).put("label", label));
+                } catch (Exception ignored) {
+                    // a JSON key can't fail here
+                }
+            }
+            e.putString("extra", keep.toString());
+            extraCache = m;
+        }
         e.apply();
         if (live != null) live.handler.post(live::tick);
     }
@@ -213,9 +304,14 @@ public class DoomscrollService extends AccessibilityService {
         } catch (Exception ignored) {
             // a window going away mid-look: the next tick looks again
         }
+        // An app you added counts first (even one of the built-in ones you left out, added back by hand).
+        String added = extra(this).get(frontPkg);
+        if (added != null) return added;
+        Set<String> left = off(this);
         String app = APPS.get(frontPkg);
-        if (app != null) return app;
-        return BROWSERS.containsKey(frontPkg) ? frontSite : null;
+        if (app != null) return left.contains(app) ? null : app;
+        String site = BROWSERS.containsKey(frontPkg) ? frontSite : null;
+        return site != null && !left.contains(site) ? site : null;
     }
 
     private static String addressBar(AccessibilityNodeInfo root, String pkg, String[] ids) {

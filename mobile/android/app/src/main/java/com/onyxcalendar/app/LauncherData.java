@@ -148,6 +148,10 @@ final class LauncherData {
             o.put("doomscroll", DoomscrollService.on(ctx));
             o.put("doomMinutes", DoomscrollService.minutes(ctx));
             o.put("doomAllowed", DoomscrollService.allowed(ctx));
+            // Which apps count: the built-in names, the ones left out, and the apps added.
+            o.put("doomNames", new JSONArray(java.util.Arrays.asList(DoomscrollService.NAMES)));
+            o.put("doomOff", DoomscrollService.offList(ctx));
+            o.put("doomExtra", DoomscrollService.extraList(ctx));
         } catch (Exception ignored) {
             // a JSON key can't fail here
         }

@@ -7,6 +7,7 @@ const accounts = require('./accounts');
 const google = require('./providers/google');
 const microsoft = require('./providers/microsoft');
 const ics = require('./providers/ics');
+const sheet = require('./providers/sheet');
 const { parseName, mirrorName, callTime } = require('./taskname');
 const repeat = require('./repeat');
 const series = require('./series');
@@ -82,7 +83,7 @@ async function refreshCalendars() {
   const errors = [];
   await Promise.all(store.data.accounts.map(async (a, i) => {
     try {
-      store.data.calendars[a.id] = a.provider === 'ics'
+      store.data.calendars[a.id] = a.provider === 'ics' || a.provider === 'sheet'
         ? [{ rawId: 'feed', kind: 'calendar', name: a.label, color: FEED_COLORS[i % FEED_COLORS.length], writable: false }]
         : await PROVIDERS[a.provider].calendars(req(a));
     } catch (err) {
@@ -286,6 +287,7 @@ async function calendarEvents(cal, start, end, force) {
   let raw;
   if (acct.provider === 'local') raw = localEvents(rawCal, start, end);
   else if (acct.provider === 'ics') raw = await ics.events(acct.url, start, end, force);
+  else if (acct.provider === 'sheet') raw = await sheet.events(acct, start, end, force);
   else raw = await PROVIDERS[acct.provider].events(req(acct), rawCal, start, end);
   const items = raw.map((e) => unify(cal, e));
   eventCache.set(key, { at: Date.now(), items });

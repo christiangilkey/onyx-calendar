@@ -717,6 +717,7 @@
     setGoogleCredentials: async (text) => withLocal(await call('google:credentials', text)),
     setMicrosoftClient: async (id) => withLocal(await call('microsoft:client', id)),
     addFeed: async (feed) => withLocal(await call('feed:add', feed)),
+    addSheet: async (sheet) => withLocal(await call('sheet:add', sheet)),
     setTagColor: async (tag, color) => withLocal(await call('tag:color', tag, color)),
     renameTag: async (from, to) => withLocal(await call('tag:rename', from, to)),
     deleteTag: async (tag) => withLocal(await call('tag:delete', tag)),

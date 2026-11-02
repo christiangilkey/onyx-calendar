@@ -26,7 +26,7 @@ const DEFAULTS = {
     magic: { start: '08:00', end: '21:00' },
     mcp: { enabled: true, port: 4747, lan: true },
   },
-  accounts: [],          // { id, provider: 'google' | 'microsoft' | 'ics', label, url? }
+  accounts: [],          // { id, provider: 'google' | 'microsoft' | 'ics' | 'sheet', label, url?, path?, host?, tab? }
   calendars: {},         // account id -> last known calendar list
   google: { clientId: '' },
   microsoft: { clientId: '' },

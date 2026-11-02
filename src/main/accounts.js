@@ -91,6 +91,49 @@ function addFeed(name, url) {
   return saveAccount('ics', name.trim() || new URL(url).hostname, null, { url });
 }
 
+/**
+ * A live Excel sheet (providers/sheet.js): a file on this PC (`path`) or a link (`url`), and which tab
+ * (none: the first). It is read once first, so a link that needs a sign-in says so now. A sheet
+ * added again under the same name is changed rather than added twice.
+ */
+async function addSheet({ name, url, path: file, tab } = {}) {
+  const os = require('os');
+  const nodePath = require('path');
+  const sheet = require('./providers/sheet');
+  tab = String(tab || '').trim() || null;
+  const where = {};
+  if (file) {
+    where.path = nodePath.resolve(String(file));
+    if (!/\.(xlsx|xlsm|csv)$/i.test(where.path)) throw new Error('Choose an Excel workbook (.xlsx) or a .csv file.');
+    where.host = os.hostname();
+  } else {
+    let link = String(url || '').trim();
+    if (link && !/^[a-z][a-z0-9+.-]*:/i.test(link)) link = `https://${link}`;
+    if (!/^https?:\/\/\S+$/i.test(link)) throw new Error('Paste the sheet\'s link (it starts with https://).');
+    where.url = link;
+  }
+  const label = String(name || '').replace(/\s+/g, ' ').trim().slice(0, 60)
+    || (where.path ? nodePath.basename(where.path).replace(/\.\w+$/, '') : /docs\.google\.com/.test(where.url) ? 'Google Sheet' : 'Excel sheet');
+  let found;
+  try {
+    found = await sheet.check({ label, ...where, tab });
+  } catch (err) {
+    throw new Error(`Could not read that sheet: ${err.message}.`);
+  }
+  const list = store.data.accounts;
+  let acct = list.find((a) => a.provider === 'sheet' && a.label === label);
+  if (acct) {
+    delete acct.url; delete acct.path; delete acct.host; delete acct.tab;
+    Object.assign(acct, where, tab ? { tab } : {});
+    sheet.forget(acct.id);
+  } else {
+    acct = { id: newId('s'), provider: 'sheet', label, ...where, ...(tab ? { tab } : {}) };
+    list.push(acct);
+  }
+  store.save();
+  return { acct, ...found };
+}
+
 function remove(id) {
   const d = store.data;
   d.accounts = d.accounts.filter((a) => a.id !== id);
@@ -161,4 +204,4 @@ async function authorised(acct, url, { method = 'GET', body, headers = {} } = {}
   }
 }
 
-module.exports = { connectGoogle, connectMicrosoft, addFeed, remove, request, newId, accessToken };
+module.exports = { connectGoogle, connectMicrosoft, addFeed, addSheet, remove, request, newId, accessToken };

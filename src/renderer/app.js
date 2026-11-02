@@ -56,7 +56,7 @@
     qr: '<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><rect x="8" y="8" width="3" height="3"/><rect x="13" y="8" width="3" height="3"/><rect x="8" y="13" width="3" height="3"/><path d="M13 13h3v3"/>',
   };
   const COLORS = ['#8b7cff', '#4aa8ff', '#3fd0c9', '#5fd38d', '#f5b83d', '#ff9f4a', '#ff6b6b', '#ff7eb6', '#b9b9c2'];
-  const PROVIDER = { google: 'Google', microsoft: 'Outlook', ics: 'Link', local: 'Local' };
+  const PROVIDER = { google: 'Google', microsoft: 'Outlook', ics: 'Link', sheet: 'Sheet', local: 'Local' };
 
   const $ = (sel, root = document) => root.querySelector(sel);
 
@@ -1075,6 +1075,7 @@
     google: { calendar: ['Google Calendar', '#4aa8ff'], tasklist: ['Google Tasks', '#f5b83d'] },
     microsoft: { calendar: ['Outlook', '#3b9cf5'], tasklist: ['Microsoft To Do', '#7aa7ff'] },
     ics: { calendar: ['Calendar link', '#3fd0c9'] },
+    sheet: { calendar: ['Excel sheet', '#5fd38d'] },
     local: { calendar: ['Onyx', '#8b7cff'] },
   };
 
@@ -1103,6 +1104,7 @@
     else if (series && !series.managed) how = 'Repeats in Google Tasks';
     else if (x.madeHere) how = `Added from Onyx on ${fmtDay(fromYmd(x.madeHere))}`;
     else if (provider === 'ics') how = 'From a subscribed calendar link (read-only)';
+    else if (provider === 'sheet') how = 'A row of a live Excel sheet (change it in the sheet)';
     else how = `Synced from ${badge}`;
     if (x.repeat || series?.managed) how += ', repeated by Onyx';
     else if (x.recur || x.seriesId) how += `, repeats (${recurText(x.recur).replace(/^./, (c) => c.toLowerCase())})`;
@@ -7614,6 +7616,37 @@
   }
 
   const field = (title, hint, control) => h('div', { class: 'field' }, h('div', { class: 'txt' }, h('b', null, title), hint && h('small', null, hint)), control);
+
+  /** How a live sheet was read last: its file or link, its tab, how many blocks, and what went wrong. */
+  function sheetStatus(a) {
+    const s = a.sheet;
+    const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+    const bits = [a.file || 'Link', a.tab && `tab "${a.tab}"`, s && plural(s.blocks, 'block'), s?.skipped && `${plural(s.skipped, 'row')} without a date`].filter(Boolean);
+    return bits.join(' · ') + (s?.error ? `. Last read failed: ${s.error}` : '');
+  }
+
+  /** A live Excel sheet: its rows are blocks, and rows added later show up on their own. On the phone, by link only. */
+  function sheetCard(phone) {
+    const name = h('input', { type: 'text', placeholder: 'Name, e.g. Study plan' });
+    const link = h('input', { type: 'url', placeholder: 'Google Sheets or OneDrive link', spellcheck: false });
+    const tab = h('input', { type: 'text', placeholder: 'Tab (optional)', class: 'sheet-tab' });
+    const added = (r) => {
+      if (r) toast(r.blocks ? `Sheet added: ${r.blocks} block${r.blocks === 1 ? '' : 's'} so far` : 'Sheet added: rows you add show up as blocks');
+      return r;
+    };
+    const mine = S.accounts.filter((a) => a.provider === 'sheet');
+    return h('div', { class: 'card' },
+      h('h4', null, 'Excel sheet (live)'),
+      h('p', null, 'Each row is a block, and rows you add later show up on their own: from a file a few seconds after you save it, from a link within a minute. Head the columns Title and Date, and for a time Start with End or Duration (minutes). A row with no time is an all-day block.'),
+      mine.map((a) => h('div', { class: 'acct desk' }, h('span', { class: 'badge' }, 'Sheet'), h('span', { class: 'who' }, a.label, h('small', null, sheetStatus(a))))),
+      !phone && onyx.pickSheet && h('div', { class: 'row' },
+        h('button', { class: 'btn primary', onclick: () => act(async () => added(await onyx.pickSheet({ name: name.value, tab: tab.value }))) }, 'Choose a file on this PC')),
+      h('div', { class: 'row' }, name, link, tab,
+        h('button', { class: 'btn', onclick: () => act(async () => added(await onyx.addSheet({ name: name.value, url: link.value, tab: tab.value }))) }, 'Add link')),
+      h('p', { class: 'hint' }, phone
+        ? 'A Google Sheet: Share → Anyone with the link → Viewer, then copy the link. An Excel file on your PC is chosen on the PC, in Settings → Calendars.'
+        : 'An .xlsx or .csv in your OneDrive or Google Drive folder stays live as it syncs. A Google Sheet: Share → Anyone with the link → Viewer, then copy the link. OneDrive works the same way.'));
+  }
   const toggle = (checked, onchange, disabled) => h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked, disabled, onchange: (e) => onchange(e.target.checked) }), h('span'));
   // Tailscale's addresses (100.64.0.0/10) reach the PC from any network, not just its wifi.
   const isTailscale = (address) => /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(address);
@@ -7709,6 +7742,7 @@
           h('p', null, 'Works with any calendar that can be published as an .ics link: Outlook ("Publish a calendar"), iCloud, sports schedules, and so on. No sign-in needed.'),
           h('div', { class: 'row' }, feedName, feedUrl,
             h('button', { class: 'btn', onclick: () => act(() => onyx.addFeed({ name: feedName.value, url: feedUrl.value }), 'Calendar added') }, 'Add'))),
+        sheetCard(false),
         h('div', { class: 'card' },
           h('h4', null, 'On this PC'),
           h('p', null, S.desktops?.desktops?.length > 1 ? 'Local calendars for time blocks. They are kept in Onyx, on your linked desktops, not in Google or Outlook.' : 'Local calendars for time blocks. They stay on this computer.'),
@@ -8441,6 +8475,7 @@
           h('p', null, 'Any calendar published as an .ics link. No sign-in needed.'),
           h('div', { class: 'row' }, feedName, feedUrl,
             h('button', { class: 'btn', onclick: () => act(() => onyx.addFeed({ name: feedName.value, url: feedUrl.value }), 'Calendar added') }, 'Add'))),
+        sheetCard(true),
       ];
     },
 
@@ -8491,14 +8526,14 @@
   /** Each section: its name, icon and colour, the settings on it (found by search) and other words for them. */
   const SECTIONS = {
     connection: { name: 'Connection', icon: 'globe', c: '#4aa8ff', items: ['Status', 'PC addresses', 'Away from home', 'Scan a new code', 'Your desktops', 'Accounts on the PC'], words: 'pc wifi tailscale pair qr sync online offline' },
-    keys: { name: 'Keys & accounts', icon: 'shield', c: '#8b7cff', items: ['AI for Breakdown', 'Notion', 'Google', 'Outlook', 'Calendar link (read-only)'], words: 'claude api key credentials microsoft ics feed sign in' },
+    keys: { name: 'Keys & accounts', icon: 'shield', c: '#8b7cff', items: ['AI for Breakdown', 'Notion', 'Google', 'Outlook', 'Calendar link (read-only)', 'Excel sheet (live)'], words: 'claude api key credentials microsoft ics feed sign in excel spreadsheet google sheets onedrive xlsx csv rows' },
     pi: { name: 'Calls & alerts', icon: 'bell', c: '#ff6b6b', items: ['Alarm on my phone', 'Push notification (free)', 'Phone call (Twilio)', 'Raspberry Pi (advanced)', 'Show Pi phone reminders', 'Quiet hours'], words: 'ntfy twilio escalation reminders call ring' },
     launcher: { name: 'Home & lock screen', icon: 'lock', c: '#3fd0c9', items: ['Where should Onyx show?', 'Set up your lock screen', 'Set up your home screen', 'Full-screen pop-ups', 'Alarm for everything as it starts', 'Full-screen alarms'], words: 'onyx home launcher overlay notifications music spotify alarms' },
     lockeditor: { name: 'Lock screen editor', icon: 'device', c: '#f5b83d', items: ['What shows, and in what order', 'Clock size', 'Clock and shortcuts on', 'Date under the clock', 'Background', 'Shortcuts'], words: 'layout look wallpaper dark link app file audio macro' },
     doomscroll: { name: 'Doomscroll saver', icon: 'target', c: '#ff9f4a', items: ['Doomscroll saver', 'Show it after', 'Accessibility access', 'See the card', 'Apps it watches'], words: 'social media instagram tiktok youtube minutes apps choose pick add games which apps' },
     general: { name: 'General', icon: 'sliders', c: '#b9b9c2', items: ['New blocks go to', 'Updates', 'Now / Next bar', 'Popups', 'Tick-off sound', '24-hour time', 'Week starts on', 'Keep running when closed', 'Start with Windows'], words: 'default calendar chime clock tray' },
     changelog: { name: 'Changelog', icon: 'note', c: '#5fd38d', items: [], words: 'versions changes new what\'s new' },
-    calendars: { name: 'Calendars', icon: 'calendar', c: '#4aa8ff', items: ['Connected', 'Google Calendar and Tasks', 'Outlook (Microsoft account)', 'Calendar link (read-only)', 'On this PC'], words: 'sign in accounts ics feed local' },
+    calendars: { name: 'Calendars', icon: 'calendar', c: '#4aa8ff', items: ['Connected', 'Google Calendar and Tasks', 'Outlook (Microsoft account)', 'Calendar link (read-only)', 'Excel sheet (live)', 'On this PC'], words: 'sign in accounts ics feed local excel spreadsheet google sheets onedrive xlsx csv rows' },
     connections: { name: 'Notion, Drive & AI', icon: 'link', c: '#8b7cff', items: ['Notion', 'Google Drive', 'AI for Breakdown'], words: 'claude api key' },
     phone: { name: 'Phone', icon: 'device', c: '#3fd0c9', items: ['Connect your phone', 'Away from home'], words: 'android pair qr tailscale' },
     desktops: { name: 'Desktops', icon: 'monitor', c: '#f5b83d', items: ['Sync through Google Drive', 'Your desktops', 'Link another desktop', 'Join a linked desktop'], words: 'pc sync' },

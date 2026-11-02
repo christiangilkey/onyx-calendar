@@ -23,7 +23,11 @@ function state() {
   return {
     version,
     settings: d.settings,
-    accounts: d.accounts.map(({ id, provider, label, url }) => ({ id, provider, label, url })),
+    accounts: d.accounts.map(({ id, provider, label, url, path, tab }) => ({
+      id, provider, label, url,
+      // A live Excel sheet: its file's name (or link), its tab, and how it was read last.
+      ...(provider === 'sheet' ? { file: path ? require('path').basename(path) : null, tab: tab || null, sheet: require('./providers/sheet').status(id) } : {}),
+    })),
     calendars: hub.calendars(),
     tags: hub.allTags(),
     google: { ready: !!d.google.clientId },
@@ -165,6 +169,8 @@ const handlers = {
   'google:credentials': withState((text) => setGoogleClient(text)),
   'microsoft:client': withState((id) => { store.data.microsoft.clientId = String(id || '').trim(); store.save(); }),
   'feed:add': (feed) => { accounts.addFeed(feed.name, feed.url); return afterAccountChange(); },
+  // A live Excel sheet by its link (Google Sheets, OneDrive, or an .xlsx / .csv link). A file on the PC is picked there (main.js).
+  'sheet:add': async (s) => { const { blocks } = await accounts.addSheet({ name: s?.name, url: s?.url, tab: s?.tab }); return { ...(await afterAccountChange()), blocks }; },
   // Other PCs running Onyx, sharing everything it keeps (sync.js).
   desktops: () => sync.info(),
   'desktops:invite': () => sync.newInvite(),

@@ -726,6 +726,15 @@
     connectGoogle: async () => snapshot(),
     connectMicrosoft: async () => snapshot(),
     addFeed: async () => snapshot(),
+    addSheet: async (s) => {
+      if (!/^https?:\/\//.test(s?.url || '')) throw new Error('Paste the sheet\'s link (it starts with https://).');
+      state.accounts.push({ id: `s${state.accounts.length}`, provider: 'sheet', label: s.name || 'Google Sheet', url: s.url, file: null, tab: s.tab || null, sheet: { blocks: 3, skipped: 0, at: Date.now(), error: null } });
+      return { ...snapshot(), blocks: 3 };
+    },
+    pickSheet: async (o) => {
+      state.accounts.push({ id: `s${state.accounts.length}`, provider: 'sheet', label: o?.name || 'Study plan', file: 'Study plan.xlsx', tab: o?.tab || null, sheet: { blocks: 12, skipped: 1, at: Date.now(), error: null } });
+      return { ...snapshot(), blocks: 12 };
+    },
     removeAccount: async () => snapshot(),
     addLocalCalendar: async () => snapshot(),
     removeLocalCalendar: async () => snapshot(),

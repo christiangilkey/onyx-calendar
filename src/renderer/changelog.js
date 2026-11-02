@@ -2,11 +2,19 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
-  "version": "1.95.0",
+  "version": "1.96.0",
   "date": "2026-11-02",
-  "title": "Choose the apps the doomscroll saver watches",
+  "title": "A live Excel sheet as a calendar",
   "items": [
    "Small fixes"
+  ]
+ },
+ {
+  "version": "1.95.0",
+  "date": "2026-11-01",
+  "title": "Choose the apps the doomscroll saver watches (1.95.0)",
+  "items": [
+   "Choose the apps the doomscroll saver watches (1.95.0)"
   ]
  },
  {

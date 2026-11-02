@@ -248,6 +248,8 @@ async function boot() {
     win?.webContents.send('changed');
   });
   hub.refreshCalendars().then(() => win?.webContents.send('changed')).catch(() => {});
+  // Live Excel sheets: a row added (or changed) shows up as a block without a refresh.
+  require('./providers/sheet').start(() => store.data.accounts, (acct) => { hub.invalidate(`${acct.id}/feed`); win?.webContents.send('changed'); });
   updater.start((s) => win?.webContents.send('update', s));
   require('./caller').start(hub); // reminders by push (ntfy) or call (Twilio), when set up
   require('./focus').start(hub); // a Hyperfocus stop left unanswered reaches the phone
@@ -339,6 +341,17 @@ const HANDLERS = {
     return afterAccountChange();
   },
   'account:remove': (id) => { accounts.remove(id); return afterAccountChange(); },
+  // A live Excel sheet on this PC: an .xlsx or .csv file (one in a OneDrive or Google Drive folder stays live as it syncs).
+  'sheet:pick': async (opts) => {
+    const res = await dialog.showOpenDialog(win, {
+      title: 'Choose the Excel sheet to show as blocks',
+      filters: [{ name: 'Excel or CSV', extensions: ['xlsx', 'xlsm', 'csv'] }],
+      properties: ['openFile'],
+    });
+    if (res.canceled) return null;
+    const { blocks } = await accounts.addSheet({ name: opts?.name, path: res.filePaths[0], tab: opts?.tab });
+    return { ...(await afterAccountChange()), blocks };
+  },
   // Sync through Google Drive (cloud.js): turned on, the code typed in, and the code shown, on the PC only.
   'cloud:on': async (account) => { await cloud.enable(account); return sync.info(); },
   'cloud:allow': async () => { const acct = await accounts.connectGoogle(); showWindow(); await cloud.enable(acct.label); return sync.info(); },

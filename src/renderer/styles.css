@@ -565,6 +565,7 @@ input[type=date]::-webkit-calendar-picker-indicator { opacity: .5; cursor: point
 .card p:last-child { margin-bottom: 0; }
 .card .row { margin-top: 8px; flex-wrap: wrap; }
 .card .row input[type=text], .card .row input[type=url] { flex: 1; min-width: 160px; }
+.card .row input[type=text].sheet-tab { flex: 0 1 130px; min-width: 110px; }
 .card ol { margin: 6px 0 10px; padding-left: 18px; color: var(--muted); line-height: 1.7; }
 .badge { font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 10px; background: var(--raise-2); color: var(--muted); }
 .badge.ok { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }

@@ -125,6 +125,8 @@ contextBridge.exposeInMainWorld('onyx', {
   connectGoogle: () => call('google:connect'),
   connectMicrosoft: (clientId) => call('microsoft:connect', clientId),
   addFeed: (feed) => call('feed:add', feed),
+  addSheet: (sheet) => call('sheet:add', sheet),
+  pickSheet: (opts) => call('sheet:pick', opts),
   removeAccount: (id) => call('account:remove', id),
   addLocalCalendar: (name, color) => call('local:add', name, color),
   removeLocalCalendar: (id) => call('local:remove', id),

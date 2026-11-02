@@ -2,11 +2,17 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.95.0 · Choose the apps the doomscroll saver watches
+## 1.96.0 · A live Excel sheet as a calendar
 
 _2026-11-02_
 
 - Small fixes
+
+## 1.95.0 · Choose the apps the doomscroll saver watches (1.95.0)
+
+_2026-11-01_
+
+- Choose the apps the doomscroll saver watches (1.95.0)
 
 ## 1.94.0 · New Settings, and file shortcuts that work (1.94.0)
 

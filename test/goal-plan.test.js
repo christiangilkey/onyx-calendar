@@ -133,13 +133,18 @@ test('a planned goal keeps each step\'s phase, measure, length and last day; don
 
 test('a repeating step stops after its last day, and the next task keeps its length', async () => {
   reset();
-  const t = await hub.createTask({ title: 'Practise 20 min', due: '2026-11-02', listId: 'g1/tl~tasks' });
-  repeat.setRule(t.id, 'daily', '2026-11-03');
+  // Due today, last day tomorrow (dates from today: the next one is made only for a day still to come).
+  const ymdOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const now = new Date();
+  const today = ymdOf(now);
+  const last = ymdOf(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1));
+  const t = await hub.createTask({ title: 'Practise 20 min', due: today, listId: 'g1/tl~tasks' });
+  repeat.setRule(t.id, 'daily', last);
   hub.setTaskMinutes(t.id, 20);
   const a = await hub.updateTask(t.id, { done: true });
   assert.ok(a.next);
   assert.equal(store.data.taskMinutes[a.next.id], 20);
-  assert.equal(repeat.ruleOf(a.next.id).until, '2026-11-03');
+  assert.equal(repeat.ruleOf(a.next.id).until, last);
   // Done again on a day past the last one: no next task.
   store.data.repeats[a.next.id].until = '2000-01-01';
   const b = await hub.updateTask(a.next.id, { done: true });

@@ -4,13 +4,25 @@
 // be read when the PC is off or out of reach. Changes made then are not lost:
 // they wait in the outbox, show at once, and go to the PC when it is back.
 //
-// Active inside the Android app, or in a browser when the page is opened with
-// "?remote" (for development). Otherwise it does nothing.
+// Set up once to work on its own (Settings → Connection), the phone also has Onyx's engine
+// (engine.js, src/engine): the PC's own code, syncing through Google Drive. Then, with the PC
+// off or out of reach, everything runs here instead, live and writable, and the PC catches up
+// through Drive. Onyx on the web (ONYX_WEB) is the same with no PC at all.
+//
+// Active inside the Android app, on the web app's page, or in a browser when the page is
+// opened with "?remote" (for development). Otherwise it does nothing.
 (() => {
   'use strict';
   if (window.onyx) return;
   const native = !!window.Capacitor?.isNativePlatform?.();
-  if (!native && !new URLSearchParams(location.search).has('remote')) return;
+  const WEB = !!window.ONYX_WEB;
+  if (!native && !WEB && !new URLSearchParams(location.search).has('remote')) return;
+
+  // The engine, when this build has it; `own`: it is set up here, so the PC is not needed.
+  const engine = window.OnyxEngine || null;
+  let own = false;
+  const ready = engine ? engine.boot().then((on) => { own = !!on; return own; }).catch(() => false) : Promise.resolve(false);
+  const isNet = (err) => !!err && (err.network || /fetch failed|couldn't reach|failed to fetch|network/i.test(err.message || ''));
 
   const CONN = 'onyx.connection';
   const LOCAL = 'onyx.phone-settings';
@@ -233,17 +245,48 @@
     return Object.assign(new Error(`Onyx on your PC${pc ? ` (${pc})` : ''} is older than this app and can't do that yet. Update Onyx on the PC (Settings → Updates).`), { outdated: true });
   };
 
+  /**
+   * Runs a command on this phone's own engine (the PC out of reach, or no PC). Kept like the PC's
+   * answers, so the calendar reads the same if even the internet goes. With no internet at all,
+   * a change waits in the outbox as it always has, and the last answers are shown.
+   */
+  async function runHere(name, args) {
+    engine.active(true);
+    try {
+      const value = await engine.call(name, args);
+      if (CACHED.has(name)) write(cacheKey(name, args), value);
+      if (name === 'events' && value?.events) rememberEvents(value.events);
+      return overlay(name, args, value);
+    } catch (err) {
+      if (!isNet(err)) throw err;
+      if (QUEUEABLE.has(name)) return enqueue(name, args);
+      const cached = CACHED.has(name) ? fromCache(name, args) : null;
+      if (cached) return overlay(name, args, cached);
+      throw err;
+    }
+  }
+
   async function call(name, ...args) {
-    if (!conn) throw new Error('This phone is not connected to Onyx on your PC yet.');
+    await ready;
+    if (!conn) {
+      if (own) return runHere(name, args); // no PC: Onyx on the web, or a phone that works on its own
+      throw new Error('This phone is not connected to Onyx on your PC yet.');
+    }
     args = remap(args); // something made offline, since made on the PC: its real id
-    // A change while changes are still waiting goes after them, in order; offline, it waits too.
-    if (QUEUEABLE.has(name) && (outbox.length || !online)) return enqueue(name, args);
+    // A change while changes are still waiting goes after them, in order; offline, it waits too
+    // (unless this phone works on its own: then they go to the engine, and so does this one).
+    if (QUEUEABLE.has(name) && (outbox.length || !online)) {
+      if (own && !online && engine.can(name)) { await flushLocal(); if (!outbox.length) return runHere(name, args); }
+      return enqueue(name, args);
+    }
+    if (own && !online && engine.can(name)) { probe(); return runHere(name, args); }
     let body;
     try {
       body = await reach(name, args);
     } catch (err) {
       if (!(err instanceof Unreachable)) throw err;
       probe(); // and keep looking for it in the background
+      if (own && engine.can(name)) { await flushLocal(); if (!QUEUEABLE.has(name) || !outbox.length) return runHere(name, args); }
       if (QUEUEABLE.has(name)) return enqueue(name, args);
       const cached = CACHED.has(name) ? fromCache(name, args) : null;
       if (cached) return overlay(name, args, cached);
@@ -261,6 +304,7 @@
     if (CACHED.has(name)) write(cacheKey(name, args), body.value);
     if (name === 'events') rememberEvents(body.value.events);
     nudgeWidget(name);
+    if (own) engine.active(false); // the PC answers: the engine rests (it catches up through Drive when needed)
     return overlay(name, args, body.value);
   }
 
@@ -281,7 +325,7 @@
   let outbox = read(OUTBOX, []);
   const ids = read(IDS, {});
   const outboxListeners = new Set();
-  const tellOutbox = (extra = {}) => { for (const fn of outboxListeners) { try { fn({ pending: outbox.length, online, ...extra }); } catch { /* one listener's problem */ } } };
+  const tellOutbox = (extra = {}) => { for (const fn of outboxListeners) { try { fn({ pending: outbox.length, online, standalone: own, ...extra }); } catch { /* one listener's problem */ } } };
   const newOp = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 6)}`;
   const realId = (v) => (typeof v === 'string' && ids[v]) || v;
   function remap(v) {
@@ -395,10 +439,39 @@
 
   let flushing = false;
   let held = false; // the PC is holding changes back (its connection dropped): said once, not every try
+
+  /** The waiting changes, made by this phone's own engine (the PC out of reach); kept if the internet is gone too. */
+  async function flushLocal() {
+    if (flushing || !outbox.length || !(await ready) || !own) return;
+    flushing = true;
+    let sent = 0;
+    const failed = [];
+    tellOutbox({ syncing: true });
+    try {
+      while (outbox.length) {
+        const o = outbox[0];
+        try {
+          const value = await engine.call(o.name, remap(o.args));
+          if (o.temp && value && typeof value === 'object' && value.id) { ids[o.temp] = value.id; write(IDS, ids); }
+          sent++;
+        } catch (err) {
+          if (isNet(err)) break; // no internet: the rest wait
+          if (!/no longer exists|not found|doesn't exist|does not exist|isn't there|\b404\b|\b410\b/i.test(err?.message || '')) failed.push({ name: o.name, error: err?.message || 'It could not be saved.', at: o.at });
+        }
+        outbox.shift();
+        write(OUTBOX, outbox);
+      }
+    } finally {
+      flushing = false;
+    }
+    if (failed.length) write(FAILED, [...read(FAILED, []), ...failed].slice(-50));
+    tellOutbox({ sent, failed });
+  }
+
   /** Sends the waiting changes, oldest first; stops (and keeps the rest) as soon as no PC answers. */
   async function flush() {
-    if (flushing || !outbox.length || !conn) return;
-    if (!online) { probe(); return; } // the outbox goes once the PC is found
+    if (flushing || !outbox.length) return;
+    if (!conn || !online) { if (await ready) return flushLocal(); if (conn) probe(); return; } // on its own: the engine makes them; else they go once the PC is found
     flushing = true;
     let sent = 0;
     const failed = [];
@@ -549,12 +622,32 @@
     return setUpdate({ status: 'available', version, notes, url });
   }
 
+  /** Sets this device up to work on its own: the PC's hand-off (asked of the PC, or from a setup link) opened with the sync code. */
+  async function standaloneSetUp(code, blob) {
+    if (!engine) throw new Error('This version of the app can\'t work on its own yet. Update it first.');
+    const handoff = blob || (await call('phone:handoff'));
+    const info = await engine.join(handoff, code);
+    own = true;
+    engine.active(!conn || !online);
+    tellOutbox();
+    return info;
+  }
+
   window.ONYX_PHONE = true;
   window.onyx = {
     isPhone: true,
+    isWeb: WEB,
     offlineText: OFFLINE_TEXT,
-    paired: () => !!conn,
-    connection: () => (conn ? { addresses: conn.addresses, last: conn.last, online, anywhere: conn.addresses.filter(isTailscale) } : null),
+    paired: () => !!conn || own,
+    whenReady: () => ready,
+    connection: () => (conn ? { addresses: conn.addresses, last: conn.last, online, anywhere: conn.addresses.filter(isTailscale), standalone: own } : own ? { addresses: [], online: false, anywhere: [], standalone: true } : null),
+    // Working on its own (the engine): set up with the sync code, its state, a sync now, and off.
+    standalone: engine ? {
+      info: () => engine.info(),
+      setUp: (code, blob) => standaloneSetUp(code, blob),
+      syncNow: () => engine.syncNow(),
+      turnOff: async () => { const r = await engine.leave(); own = false; tellOutbox(); return r; },
+    } : null,
     pair,
     pairLink: (link) => pair(parseLink(link)),
     // The phone's own QR scanner, so pairing never goes through the camera app or a browser.
@@ -643,7 +736,7 @@
     },
     onOnline: (fn) => listeners.add(fn),
     // The outbox: how many changes wait for the PC, and when they have gone (or one was turned down).
-    onOutbox: (fn) => { outboxListeners.add(fn); fn({ pending: outbox.length, online }); },
+    onOutbox: (fn) => { outboxListeners.add(fn); fn({ pending: outbox.length, online, standalone: own }); ready.then(() => fn({ pending: outbox.length, online, standalone: own })); },
     outbox: () => ({ pending: outbox.length, online, failed: read(FAILED, []) }),
     // A look that was already under way may have started before the PC was back: then one more.
     syncNow: async () => { if (!online) await probe(); if (!online) await probe(); return flush(); },
@@ -767,9 +860,11 @@
     onUpdate: (fn) => updateListeners.add(fn),
     copy: async (text) => navigator.clipboard?.writeText(String(text)),
     // There is no push from the PC: check again every minute and whenever the app comes back.
+    // Working on its own, what the PCs change arrives through Drive, and is shown as it does.
     onChanged: (fn) => {
       setInterval(() => { if (document.visibilityState === 'visible') fn(); }, 60000);
       document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') fn(); });
+      engine?.onChanged(() => { if (own && (!conn || !online)) fn(); });
     },
   };
 

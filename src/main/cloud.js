@@ -45,6 +45,11 @@ function unseal(buf, key) {
   return JSON.parse(zlib.gunzipSync(Buffer.concat([d.update(buf.subarray(32)), d.final()])).toString('utf8'));
 }
 
+// How the files are locked: Node's crypto here; the phone and the web app use the browser's own
+// (src/engine/codec.js), which makes the same files. Either may answer later (a promise): it is waited for.
+let codec = { seal, unseal, keyOf };
+const useCodec = (c) => { codec = c; };
+
 /** Of several PCs' pieces, the newest of each (the order sync.js uses: time, then device). */
 function newest(lists) {
   const best = new Map();
@@ -115,9 +120,10 @@ function googleDrive(acct, accessToken) {
  * account, `notify(sections)` is told when another PC changed something. Kept apart
  * from Electron so tests can run several against a pretend Drive.
  */
-function createCloud({ getData, save, replica, driveFor, notify = () => {}, adoptAccounts = () => {}, hostname = os.hostname, version = '', now = Date.now, beforeRound = () => {} }) {
+function createCloud({ getData, save, replica, driveFor, notify = () => {}, adoptAccounts = () => {}, hostname = os.hostname, version = '', now = Date.now, beforeRound = () => {}, lock = null }) {
   let running = null;
   let again = false;
+  const box = () => lock || codec;
 
   const cfg = () => {
     const m = replica.meta();
@@ -168,11 +174,11 @@ function createCloud({ getData, save, replica, driveFor, notify = () => {}, adop
       const others = files.filter((f) => deviceOf(f) !== m.device);
 
       // A code that came from a linked desktop is tried first.
-      if (!s.cloudKey && s.cloudCode) s.cloudKey = keyOf(s.cloudCode);
+      if (!s.cloudKey && s.cloudCode) s.cloudKey = await box().keyOf(s.cloudCode);
       if (!s.cloudKey) {
         if (!others.length) { // the first PC: make the code
           s.cloudCode = newCode();
-          s.cloudKey = keyOf(s.cloudCode);
+          s.cloudKey = await box().keyOf(s.cloudCode);
           c.joined = true;
           c.state = 'ok';
         } else {
@@ -185,7 +191,7 @@ function createCloud({ getData, save, replica, driveFor, notify = () => {}, adop
       const read = async (f) => {
         const buf = await drive.download(f.id);
         try {
-          return unseal(buf, s.cloudKey);
+          return await box().unseal(buf, s.cloudKey);
         } catch {
           const err = new Error(`The sync code doesn't open ${f.appProperties?.name || 'another PC'}'s copy. Enter the code shown on that PC.`);
           err.code = 'code';
@@ -231,7 +237,7 @@ function createCloud({ getData, save, replica, driveFor, notify = () => {}, adop
       const t = now();
       const meta = { name: fileName(), appProperties: { device: m.device, v: `${m.seq}`, seen: `${t}`, name: hostname(), version } };
       if (!mine || c.file !== mine.id || c.sent !== m.seq) {
-        const buf = seal({ device: m.device, name: hostname(), version, at: t, entries: replica.since(0) }, s.cloudKey);
+        const buf = await box().seal({ device: m.device, name: hostname(), version, at: t, entries: replica.since(0) }, s.cloudKey);
         const { name, ...changes } = meta;
         const res = mine ? await drive.update(mine.id, changes, buf) : await drive.create(meta, buf);
         c.file = res?.id || mine?.id;
@@ -281,7 +287,7 @@ function createCloud({ getData, save, replica, driveFor, notify = () => {}, adop
     const s = secrets();
     const before = [s.cloudCode, s.cloudKey];
     s.cloudCode = n;
-    s.cloudKey = keyOf(n);
+    s.cloudKey = await box().keyOf(n);
     const c = cfg();
     Object.assign(c, { joined: false, sent: null, peers: {}, state: 'working', error: '' });
     save();
@@ -320,7 +326,26 @@ function createCloud({ getData, save, replica, driveFor, notify = () => {}, adop
   /** The code, to type on another PC. Only ever shown on the PC itself. */
   const code = () => (secrets().cloudCode ? fmtCode(secrets().cloudCode) : '');
 
-  return { info, seen, sync, enable, enterCode, disable, forget, code, on };
+  /**
+   * What the phone (or Onyx in a browser) needs to sync through Drive too, locked with the sync code:
+   * the Google account the files are kept in, its sign-in, and the Google client that renews it.
+   * Everything else then comes from the files themselves. Only the code, shown on a PC, opens it.
+   */
+  async function handoff() {
+    const c = cfg();
+    const s = secrets();
+    if (!c.on || !s.cloudKey || c.state === 'needs-code') throw new Error('Turn on sync through Google Drive on the PC first (Settings → Desktops).');
+    const acct = (getData().accounts || []).find((a) => a.provider === 'google' && a.label === c.account);
+    const token = acct && s.tokens?.[acct.id];
+    if (!token?.refresh) throw new Error(`Sign in to ${c.account || 'the sync account'} again on the PC first (Settings → Calendars).`);
+    const box1 = await box().seal({
+      v: 1, at: now(), account: { id: acct.id, provider: 'google', label: acct.label }, token,
+      google: { clientId: getData().google?.clientId || '' }, clientSecret: s.googleClientSecret || '',
+    }, s.cloudKey);
+    return Buffer.from(box1).toString('base64url');
+  }
+
+  return { info, seen, sync, enable, enterCode, disable, forget, code, on, handoff };
 }
 
 // ---------------------------------------------------------------- this PC
@@ -378,7 +403,8 @@ module.exports = {
   disable: () => get().disable(),
   forget: (id) => get().forget(id),
   code: () => get().code(),
-  SCOPE,
+  handoff: () => get().handoff(),
+  useCodec, SCOPE, PREFIX, POLL_MS, googleDrive,
   // for tests
   createCloud, seal, unseal, keyOf, newest, normCode,
 };

@@ -100,7 +100,10 @@
   let closePopover = () => {};
   const tagFilter = new Set(); // tags picked in the sidebar: everything else is dimmed
   // The Android app (remote.js) and narrow windows get the phone layout.
-  const MOBILE = !!onyx.isPhone || matchMedia('(max-width: 760px)').matches;
+  // Onyx on the web goes by the screen: a phone's layout on a phone, the PC's on a wide window.
+  const MOBILE = (!!onyx.isPhone && !onyx.isWeb) || matchMedia('(max-width: 760px)').matches;
+  // Where Onyx on the web lives (scripts/build-web.js, published from the releases). Empty: not offered yet.
+  const WEB_APP = '';
 
   // ------------------------------------------------------------ tags
 
@@ -2059,6 +2062,10 @@
       scrollTime: '07:00:00',
       allDayText: 'all day',
       dayMaxEvents: true,
+      // Entries at the same time sit side by side, each with its own column, never on top of each other;
+      // up to 5 across, and past that a "+N" that lists the rest.
+      slotEventOverlap: false,
+      eventMaxStack: 5,
       eventDisplay: 'block',
       eventColor: '#8b7cff',
       eventMinHeight: 22, // a 15-minute entry still shows a full line of its name
@@ -2095,7 +2102,8 @@
       events: source,
       eventContent,
       // The highlight is one of the calendar's own classes, so a redraw (its selection, say) keeps it.
-      eventClassNames: (arg) => (clip.selected && arg.event.id === clip.selected ? ['is-selected'] : []),
+      eventClassNames: (arg) => (clip.selected && arg.event.id === clip.selected ? ['is-selected']
+        : tapBubble.group?.includes(arg.event.id) ? ['is-grouped'] : []),
       eventDidMount: (arg) => {
         arg.el.style.setProperty('--c', arg.event.extendedProps.src?.color || '#8b7cff');
         if (arg.event.extendedProps.src) arg.el.dataset.eid = arg.event.id; // for the timer pie (drainTimers)
@@ -2162,7 +2170,12 @@
           const again = !MOBILE && lastTap.id === src.id && Date.now() - lastTap.at < DOUBLE_TAP_MS;
           lastTap.id = again ? null : src.id;
           lastTap.at = Date.now();
-          if (!again) { showTapBubble(src, info.el); return; }
+          if (!again) {
+            // Others share its time: all of them are picked out, with a small card for each to choose from.
+            const peers = overlapPeers(info.event, info.el);
+            if (peers.length > 1) showStackBubble(peers, src); else showTapBubble(src, info.el);
+            return;
+          }
         }
         openEntry(src, anchor);
       },
@@ -2224,9 +2237,10 @@
   // beside the entry on whichever side has room (above or below a wide one, past its stretch bars), inside the
   // calendar's visible part, with an arrow to the entry. It acts on a whole tap of its own (a click), and a press on
   // it never reaches the calendar, so nothing behind it is tapped. Gone at a tap elsewhere, a scroll or a drag.
-  const tapBubble = { el: null, links: null, src: null };
+  const tapBubble = { el: null, links: null, src: null, group: null };
   function hideTapBubble() {
     const b = tapBubble.el, l = tapBubble.links;
+    if (tapBubble.group) { markGroup(tapBubble.group, false); tapBubble.group = null; }
     if (!b && !l) return;
     tapBubble.el = tapBubble.links = null;
     tapBubble.src = null;
@@ -2278,6 +2292,76 @@
       tapBubble.links = lb;
     }
   }
+  // ---- entries at the same time: a tap on one picks out every entry sharing its time (in its day), and
+  // shows a small card for each, left to right as they sit, to choose the one meant. Up to 5.
+  const MAX_PEERS = 5;
+  /** The entries drawn beside this one that share some of its time, as { src, el }, left to right (itself included). */
+  function overlapPeers(ev, el) {
+    const col = !ev.allDay && el?.closest?.('.fc-timegrid-col');
+    if (!col || !ev.start) return [];
+    const span = (x) => [x.start.getTime(), (x.end || new Date(x.start.getTime() + 3600000)).getTime()];
+    const [s, e] = span(ev);
+    const seen = new Set(), out = [];
+    for (const x of calendar.getEvents()) {
+      const p = x.extendedProps.src;
+      if (!p || (p.kind !== 'event' && p.kind !== 'task') || p.pending || x.allDay || x.display === 'background' || !x.start || seen.has(x.id)) continue;
+      const [xs, xe] = span(x);
+      if (x.id !== ev.id && !(xs < e && xe > s)) continue;
+      const xel = col.querySelector(`.fc-timegrid-event[data-eid="${CSS.escape(x.id)}"]`);
+      if (!xel) continue; // not in this day, or tucked under "+N"
+      seen.add(x.id);
+      out.push({ src: p, el: xel, near: x.id === ev.id ? -1 : Math.abs(xs - s) });
+    }
+    return out.sort((a, b) => a.near - b.near).slice(0, MAX_PEERS)
+      .sort((a, b) => a.el.getBoundingClientRect().left - b.el.getBoundingClientRect().left || a.el.getBoundingClientRect().top - b.el.getBoundingClientRect().top);
+  }
+  function markGroup(ids, on) {
+    for (const id of ids) for (const x of document.querySelectorAll(`#calendar .fc-event[data-eid="${CSS.escape(id)}"]`)) x.classList.toggle('is-grouped', on);
+    if (!on) for (const x of document.querySelectorAll('#calendar .fc-event.is-peer-hot')) x.classList.remove('is-peer-hot');
+  }
+  function showStackBubble(peers, tapped) {
+    const ids = peers.map((p) => p.src.id);
+    if (tapBubble.group && tapBubble.el && tapBubble.group.join('|') === ids.join('|')) { clearSelection(); return; } // already showing
+    hideTapBubble();
+    hidePeek();
+    clearSelection(); // several at once: no single one is ready to drag or delete by a key
+    tapBubble.group = ids;
+    markGroup(ids, true);
+    const blockOf = (id) => document.querySelector(`#calendar .fc-event[data-eid="${CSS.escape(id)}"]`);
+    const card = (p) => {
+      const s = toDate(p.start), e = toDate(p.end || p.start);
+      const meta = [p.allDay ? 'All day' : `${fmtTime(s)} – ${fmtTime(e)}`, MOBILE ? '' : p.calendarName].filter(Boolean).join(' · ');
+      const hot = (on) => { const x = blockOf(p.id); if (x) x.classList.toggle('is-peer-hot', on); };
+      return h('button', { type: 'button', class: `tb-card mini${p.id === tapped.id ? ' tapped' : ''}`, css: { '--c': p.color || 'var(--accent)' },
+        'aria-label': `Open ${p.title || 'this entry'}`,
+        onmouseenter: () => hot(true), onmouseleave: () => hot(false), onfocus: () => hot(true), onblur: () => hot(false),
+        onclick: (ev) => {
+          ev.stopPropagation();
+          const r = (blockOf(p.id) || tapped).getBoundingClientRect?.();
+          hideTapBubble();
+          selectEntry(p);
+          openEntry(p, r);
+        } },
+      h('span', { class: 'tb-text' },
+        h('span', { class: 'tb-title' }, p.title || (p.kind === 'task' ? 'Untitled task' : 'Untitled block')),
+        h('span', { class: 'tb-meta' }, meta)),
+      h('span', { class: 'tb-chev', 'aria-hidden': 'true' }));
+    };
+    const b = h('div', { class: 'tap-bubble stack-bubble', role: 'group', 'aria-label': `${peers.length} entries at this time`, css: { '--c': tapped.color || 'var(--accent)' } },
+      ...peers.map((p) => card(p.src)));
+    for (const type of ['pointerdown', 'mousedown', 'touchstart']) b.addEventListener(type, (ev) => ev.stopPropagation(), { passive: true });
+    b.style.visibility = 'hidden';
+    document.body.append(b);
+    // Beside the whole group, as if it were one wide entry.
+    const rs = peers.map((p) => p.el.getBoundingClientRect());
+    const top = Math.min(...rs.map((r) => r.top)), bottom = Math.max(...rs.map((r) => r.bottom));
+    const left = Math.min(...rs.map((r) => r.left)), right = Math.max(...rs.map((r) => r.right));
+    placeTapBubble(b, { top, bottom, left, right, width: right - left, height: bottom - top });
+    b.style.visibility = '';
+    tapBubble.el = b;
+    tapBubble.src = tapped;
+  }
+
   /** Puts a bubble by the entry `r` on the first of `sides` with room (and clear of `avoid`, the other bubble). Returns the side. */
   function placeTapBubble(b, r, { sides = ['right', 'left', 'top', 'bottom'], avoid = null } = {}) {
     const M = 8, GAP = 10, BARS = 34; // the margin to the screen's edge, the gap to the entry, its stretch bar's reach
@@ -2320,7 +2404,8 @@
   // A press anywhere but the bubble or its entry puts it away (another entry shows its own); so does a scroll.
   document.addEventListener('pointerdown', (e) => {
     if (!tapBubble.el || e.target.closest?.('.tap-bubble')) return;
-    const own = tapBubble.src && e.target.closest?.(`.fc-event[data-eid="${CSS.escape(tapBubble.src.id)}"]`);
+    const ids = tapBubble.group || (tapBubble.src ? [tapBubble.src.id] : []);
+    const own = ids.includes(e.target.closest?.('.fc-event[data-eid]')?.dataset.eid);
     if (!own) hideTapBubble();
   }, true);
   // Only the calendar moving (or the page) takes it away, not some other list scrolling by itself.
@@ -7625,6 +7710,62 @@
     return bits.join(' · ') + (s?.error ? `. Last read failed: ${s.error}` : '');
   }
 
+  /**
+   * Working on its own (the phone, and Onyx on the web): the PC's own engine runs here, syncing through
+   * Google Drive, so the calendar stays live and writable with the PC off. Set up once with the sync code.
+   */
+  function standaloneCard() {
+    if (!onyx.standalone) return null;
+    const title = (badge, cls) => h('h4', null, onyx.isWeb ? 'Onyx on the web' : 'Work without the PC', h('span', { class: `badge ${cls || ''}` }, badge));
+    const box = h('div', { class: 'card standalone-card' }, title('…'), h('p', null, 'Loading…'));
+    const ago = (t) => {
+      const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+      return s < 60 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : new Date(t).toLocaleDateString();
+    };
+    onyx.standalone.info().then((i) => {
+      if (!i.on) {
+        const code = h('input', { type: 'text', class: 'code-input cloud-code-input', placeholder: 'ABCD-EFGH-JKLM-NPQR', spellcheck: false, autocomplete: 'off', maxlength: 19 });
+        const go = h('button', { class: 'btn primary', onclick: async () => {
+          go.disabled = true;
+          go.textContent = 'Setting up…';
+          try {
+            await onyx.standalone.setUp(code.value);
+            toast('Done. This phone now keeps working when your PC is off.');
+            openSettings('connection');
+          } catch (err) {
+            fail(err);
+            go.disabled = false;
+            go.textContent = 'Turn on';
+          }
+        } }, 'Turn on');
+        code.addEventListener('keydown', (e) => { if (e.key === 'Enter') go.click(); });
+        box.replaceChildren(title('Off'),
+          h('p', null, 'With this on, the calendar stays live on this phone while your PC is off or out of reach. Add, move and tick off blocks as usual: they reach your PC through Google Drive.'),
+          h('ol', { class: 'standalone-steps' },
+            h('li', null, 'On the PC: Settings → Desktops. Turn on Sync through Google Drive, then tap Show sync code.'),
+            h('li', null, 'Type that code here. The PC needs to be in reach for this one step.')),
+          h('div', { class: 'row' }, code, go),
+          h('p', { class: 'hint' }, 'The phone gets the Google sign-in your PCs sync with, locked with the code. What needs a PC stays on the PC: News, files from its disk, and new sign-ins.'));
+        return;
+      }
+      const pcs = i.pcs || [];
+      const state = i.state === 'ok' ? ['ok', 'On'] : i.state === 'working' ? ['', 'Syncing…'] : ['bad', 'Not syncing'];
+      box.replaceChildren(title(state[1], state[0]),
+        h('p', null, `Synced through ${i.account}${i.last ? `, ${ago(i.last)}` : ''}. `,
+          onyx.isWeb ? 'Everything here is the same as on your PCs.' : 'When your PC is out of reach, this phone carries on by itself.'),
+        i.error && h('p', { class: 'problem' }, i.error),
+        pcs.length > 0 && h('p', { class: 'hint' }, `Your PCs: ${pcs.map((p) => `${p.name} (${p.online ? 'on' : p.seen ? `last seen ${ago(p.seen)}` : 'off'})`).join(', ')}.`),
+        h('div', { class: 'row' },
+          h('button', { class: 'btn', onclick: () => onyx.standalone.syncNow().then(() => { toast('Synced'); openSettings('connection'); }).catch(fail) }, icon('update'), 'Sync now'),
+          h('button', { class: 'btn danger', onclick: async () => {
+            if (!confirm(onyx.isWeb ? 'Sign Onyx out of this browser? What it keeps here is deleted; your PCs keep everything.' : 'Turn off working without the PC? This phone then needs the PC again; your PCs keep everything.')) return;
+            try { await onyx.standalone.turnOff(); } catch (err) { fail(err); }
+            location.reload();
+          } }, onyx.isWeb ? 'Sign out of this browser' : 'Turn off')));
+    }).catch((err) => box.replaceChildren(title('?'), h('p', { class: 'problem' }, err.message)));
+    return box;
+  }
+
   /** A live Excel sheet: its rows are blocks, and rows added later show up on their own. On the phone, by link only. */
   function sheetCard(phone) {
     const name = h('input', { type: 'text', placeholder: 'Name, e.g. Study plan' });
@@ -8354,6 +8495,26 @@
                 if (confirm('Turn off Drive sync on this PC? It keeps what it has now, but stops sharing changes through Drive.')) run(() => onyx.cloudOff(), 'Drive sync is off');
               } }, 'Turn off'))]);
 
+        // With Drive sync on, the phone can carry on while the PCs are off, and Onyx works in a browser too.
+        const away = c.on && c.state === 'ok' && h('div', { class: 'card away-card' },
+          h('h4', null, 'Your phone, with your PCs off'),
+          h('p', null, 'The phone can keep working while every PC is off: on the phone, open Settings → Connection → Work without the PC, and type the sync code (Show sync code, above).'),
+          WEB_APP && [
+            h('h4', null, 'Onyx on the web'),
+            h('p', null, 'Your calendar in any browser, with no PC on. Copy the setup link, open it in that browser, and type the sync code there.'),
+            h('div', { class: 'row' },
+              h('button', { class: 'btn', onclick: async (e) => {
+                const btn = e.currentTarget;
+                try {
+                  const blob = await onyx.cloudHandoff();
+                  await onyx.copy(`${WEB_APP}#setup=${blob}`);
+                  btn.textContent = 'Setup link copied';
+                  toast('Setup link copied. Open it in the browser you want, then type the sync code.');
+                } catch (err) { fail(err); }
+              } }, 'Copy setup link'),
+              h('button', { class: 'btn ghost', onclick: () => onyx.open(WEB_APP) }, 'Open Onyx on the web')),
+            h('p', { class: 'hint' }, 'The link is locked: it does nothing without the code. Use it only in a browser that is yours.')]);
+
         const listCard = others.length > 0 && h('div', { class: 'card' },
           h('h4', null, 'Your desktops', h('span', { class: 'badge ok' }, `${others.length + 1} PCs`)),
           d.desktops.map((x) => h('div', { class: 'acct desk' },
@@ -8393,6 +8554,7 @@
         ].filter(Boolean);
         box.replaceChildren(...[
           cloudCard,
+          away,
           listCard,
           d.linked || d.invite
             ? lanCards
@@ -8482,12 +8644,20 @@
     // Phone: which PC it is connected to.
     connection() {
       const c = onyx.connection();
+      if (onyx.isWeb) {
+        return [
+          h('h3', null, 'Connection'),
+          h('p', { class: 'lead' }, 'Onyx on the web works from the copy your PCs keep in Google Drive: what you change here reaches them, and theirs reaches here. Accounts are added and removed on a PC.'),
+          standaloneCard(),
+        ];
+      }
+      const pcOff = c?.online === false;
       return [
         h('h3', null, 'Connection'),
         h('p', { class: 'lead' }, 'This phone shows the calendar from Onyx on your PC. Accounts are added and removed on the PC.'),
         h('div', { class: 'card' },
-          field('Status', c?.online === false ? 'Not reachable right now: showing the last sync.' : `Connected through ${c?.last || c?.addresses?.[0] || '…'}`,
-            h('span', { class: `badge ${c?.online === false ? 'bad' : 'ok'}` }, c?.online === false ? 'Offline' : 'Online')),
+          field('Status', pcOff ? (c?.standalone ? 'Not reachable right now: this phone is working on its own.' : 'Not reachable right now: showing the last sync.') : `Connected through ${c?.last || c?.addresses?.[0] || '…'}`,
+            h('span', { class: `badge ${pcOff ? (c?.standalone ? '' : 'bad') : 'ok'}` }, pcOff ? (c?.standalone ? 'On its own' : 'Offline') : 'Online')),
           field('PC addresses', (c?.addresses || []).join('  ·  '), null),
           field('Away from home', c?.anywhere?.length
             ? `Works from any network through Tailscale (${c.anywhere[0].replace(/:\d+$/, '')}). Keep Tailscale on, on both this phone and the PC.`
@@ -8498,7 +8668,8 @@
             h('button', { class: 'btn danger', onclick: () => {
               if (confirm('Disconnect this phone from your PC?')) { onyx.unpair(); location.reload(); }
             } }, 'Disconnect'))),
-        !c?.anywhere?.length && tailscaleSteps('phone'),
+        standaloneCard(),
+        !c?.anywhere?.length && !c?.standalone && tailscaleSteps('phone'),
         // Linked desktops share one calendar and one token: whichever is on answers this phone.
         S.desktops?.desktops?.length > 1 && h('div', { class: 'card' },
           h('h4', null, 'Your desktops'),
@@ -8525,7 +8696,7 @@
 
   /** Each section: its name, icon and colour, the settings on it (found by search) and other words for them. */
   const SECTIONS = {
-    connection: { name: 'Connection', icon: 'globe', c: '#4aa8ff', items: ['Status', 'PC addresses', 'Away from home', 'Scan a new code', 'Your desktops', 'Accounts on the PC'], words: 'pc wifi tailscale pair qr sync online offline' },
+    connection: { name: 'Connection', icon: 'globe', c: '#4aa8ff', items: ['Status', 'Work without the PC', 'PC addresses', 'Away from home', 'Scan a new code', 'Your desktops', 'Accounts on the PC'], words: 'pc wifi tailscale pair qr sync online offline standalone on its own drive pc off web' },
     keys: { name: 'Keys & accounts', icon: 'shield', c: '#8b7cff', items: ['AI for Breakdown', 'Notion', 'Google', 'Outlook', 'Calendar link (read-only)', 'Excel sheet (live)'], words: 'claude api key credentials microsoft ics feed sign in excel spreadsheet google sheets onedrive xlsx csv rows' },
     pi: { name: 'Calls & alerts', icon: 'bell', c: '#ff6b6b', items: ['Alarm on my phone', 'Push notification (free)', 'Phone call (Twilio)', 'Raspberry Pi (advanced)', 'Show Pi phone reminders', 'Quiet hours'], words: 'ntfy twilio escalation reminders call ring' },
     launcher: { name: 'Home & lock screen', icon: 'lock', c: '#3fd0c9', items: ['Where should Onyx show?', 'Set up your lock screen', 'Set up your home screen', 'Full-screen pop-ups', 'Alarm for everything as it starts', 'Full-screen alarms'], words: 'onyx home launcher overlay notifications music spotify alarms' },
@@ -8556,7 +8727,9 @@
     const c = onyx.connection?.();
     const method = S.settings.calls?.method || S.calls?.method || 'alarm';
     switch (id) {
-      case 'connection': return c?.online === false ? 'Offline · showing the last sync' : `Connected${c?.last ? ` · ${c.last.replace(/:\d+$/, '')}` : ''}`;
+      case 'connection': return onyx.isWeb ? 'Synced through Google Drive'
+        : c?.online === false ? (c?.standalone ? 'PC off · working on its own' : 'Offline · showing the last sync')
+        : `Connected${c?.last ? ` · ${c.last.replace(/:\d+$/, '')}` : ''}`;
       case 'keys': return [S.ai?.ready && 'AI key saved', S.accounts.length ? `${S.accounts.length} ${S.accounts.length === 1 ? 'account' : 'accounts'}` : 'No accounts yet'].filter(Boolean).join(' · ');
       case 'pi': return { alarm: 'Alarm on this phone', ntfy: 'Push notifications', twilio: 'Phone calls', pi: 'Raspberry Pi calls' }[method] || 'How Onyx reaches you';
       case 'general': return `${S.settings.hour12 ? '12' : '24'}-hour time · week starts ${['Sunday', 'Monday', '', '', '', '', 'Saturday'][S.settings.weekStart] || 'Sunday'}`;
@@ -10331,6 +10504,47 @@
   }
 
   // Android, before it is paired with a PC (or when the PC can't be reached at all).
+  /**
+   * Onyx on the web, the first time in this browser: a setup link from a PC (Settings → Desktops), and the
+   * sync code typed in. The link carries the Drive account's sign-in locked with that code, after the "#",
+   * so it never reaches the website itself; only the code opens it.
+   */
+  function showWebSetup(problem) {
+    const fromLink = new URLSearchParams(location.hash.slice(1)).get('setup') || '';
+    const said = h('p', { class: 'problem', hidden: !problem }, problem || '');
+    const say = (err) => { said.textContent = err?.message || String(err); said.hidden = false; };
+    const link = h('input', { type: 'text', placeholder: 'Paste the setup link from your PC', spellcheck: false, autocomplete: 'off', hidden: !!fromLink });
+    const code = h('input', { type: 'text', class: 'code-input', placeholder: 'Sync code: ABCD-EFGH-JKLM-NPQR', spellcheck: false, autocomplete: 'off', maxlength: 19 });
+    const go = h('button', { class: 'btn primary wide', type: 'submit' }, 'Open my calendar');
+    const blobOf = () => fromLink || new URLSearchParams(String(link.value).replace(/^[^#]*#/, '')).get('setup') || String(link.value).trim();
+    const form = h('form', { class: 'connect-form', onsubmit: async (e) => {
+      e.preventDefault();
+      if (!blobOf()) return say('Paste the setup link from your PC first.');
+      go.disabled = true;
+      go.textContent = 'Opening… (the first sync can take a minute)';
+      try {
+        await onyx.standalone.setUp(code.value, blobOf());
+        window.history.replaceState(null, '', location.pathname); // the link is used up: off the address bar
+        location.reload();
+      } catch (err) {
+        say(err);
+        go.disabled = false;
+        go.textContent = 'Open my calendar';
+      }
+    } }, link, code, go);
+    $('#connect').replaceChildren(h('div', { class: 'connect-card' },
+      h('div', { class: 'brand big' }, h('span', { class: 'mark' }), 'Onyx'),
+      h('h2', null, 'Onyx on the web'),
+      said,
+      h('ol', null,
+        h('li', null, 'On your PC, open Onyx Calendar, then Settings → Desktops.'),
+        h('li', null, fromLink ? 'Under Onyx on the web, copy the setup link: done, you opened it.' : 'Under Onyx on the web, copy the setup link, and paste it below.'),
+        h('li', null, 'Type the sync code that PC shows (Show sync code).')),
+      form,
+      h('p', { class: 'hint' }, 'Your calendar stays in your own Google Drive and in this browser. Use a browser that is yours: anyone who can open it can see your calendar.')));
+    $('#connect').hidden = false;
+  }
+
   function showConnect(problem) {
     window.onyxReady = true; // the page is up (the phone app's watch over its start: MainActivity)
     // Why connecting failed goes on this screen: a toast would sit underneath it.
@@ -10382,11 +10596,12 @@
     window.addEventListener('onyx:toast', (e) => toast(e.detail, 'error'));
     // A pairing link that failed: the Connect screen says why (or a toast, once connected).
     window.addEventListener('onyx:pair-failed', (e) => (window.onyxPairFailed && !$('#connect').hidden ? window.onyxPairFailed(e) : toast(e.detail, 'error')));
-    if (onyx.isPhone && !onyx.paired()) return showConnect();
+    await onyx.whenReady?.(); // the phone's own engine, when it has one, has loaded what it keeps
+    if (onyx.isPhone && !onyx.paired()) return onyx.isWeb ? showWebSetup() : showConnect();
     try {
       S = await onyx.state();
     } catch (err) {
-      if (onyx.isPhone) return showConnect(err.message);
+      if (onyx.isPhone) return onyx.isWeb ? showWebSetup(err.message) : showConnect(err.message);
       throw err;
     }
     buildChrome();
@@ -10459,19 +10674,23 @@
     });
     if (onyx.onOnline) {
       onyx.onOnline((ok) => {
-        toast(ok ? 'Connected to your PC again.' : 'Your PC is out of reach. Keep going: what you change here syncs when it is back.', ok ? '' : 'warn');
-        if (ok) { refetch(true); loadTasks(true); sendBugs(); }
+        const own = onyx.connection?.()?.standalone;
+        toast(ok ? 'Connected to your PC again.'
+          : own ? 'Your PC is out of reach. This phone carries on by itself: changes reach your PC through Google Drive.'
+          : 'Your PC is out of reach. Keep going: what you change here syncs when it is back.', ok || own ? '' : 'warn');
+        if (ok || own) { refetch(true); loadTasks(true); }
+        if (ok) sendBugs();
       });
     }
     setTimeout(sendBugs, 5000); // any kept from last time
     // The phone's outbox: changes made while the PC was out of reach, waiting, then sent.
     if (onyx.onOutbox) {
-      const label = (n, online, syncing) => (!n ? (online ? '' : 'Offline: showing last sync')
+      const label = (n, online, syncing, own) => (!n ? (online ? '' : own ? 'PC off · working on its own' : 'Offline: showing last sync')
         : syncing || online ? `Syncing ${n} ${n === 1 ? 'change' : 'changes'}…`
         : `Offline · ${n} ${n === 1 ? 'change' : 'changes'} will sync`);
       onyx.onOutbox((o) => {
         const root = document.documentElement;
-        root.dataset.offlineLabel = label(o.pending, o.online, o.syncing) || 'Offline: showing last sync';
+        root.dataset.offlineLabel = label(o.pending, o.online, o.syncing, o.standalone) || 'Offline: showing last sync';
         root.classList.toggle('syncing', o.pending > 0 && (o.online || o.syncing));
         if (o.sent) {
           toast(`Synced ${o.sent} ${o.sent === 1 ? 'change' : 'changes'} made while your PC was out of reach.`);

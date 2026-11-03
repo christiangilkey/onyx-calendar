@@ -179,6 +179,9 @@ const handlers = {
   'desktops:leave': () => sync.leave(),
   'desktops:forget': (id) => sync.forget(id),
   'desktops:sync': () => sync.syncNow(),
+  // For the phone (or Onyx in a browser) to work while the PC is off: the Drive sync account's sign-in,
+  // locked with the sync code, which is typed on the phone (cloud.js handoff, src/engine).
+  'phone:handoff': () => require('./cloud').handoff(),
   // Breakdown (the hammer): a task split into steps, 1 (broad) to 5 (micro-steps).
   'ai:breakdown': (title, opts) => ai.breakdown(title, opts),
   // The same with lengths, laid out in the time it has (and a realistic timeline when that is too little).

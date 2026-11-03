@@ -98,6 +98,8 @@ contextBridge.exposeInMainWorld('onyx', {
   cloudAllow: () => call('cloud:allow'),
   cloudCode: (code) => call('cloud:code', code),
   cloudShowCode: () => call('cloud:show-code'),
+  // The setup for Onyx on the web: the Drive sync account's sign-in, locked with the sync code (cloud.js).
+  cloudHandoff: () => call('phone:handoff'),
   cloudOff: () => call('cloud:off'),
   globe: () => call('globe'),
   createNote: (data) => call('note:create', data),

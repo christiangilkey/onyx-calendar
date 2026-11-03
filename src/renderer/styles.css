@@ -327,6 +327,9 @@ body.mobile #calendar, body.mobile #calendar .fc-scroller { touch-action: pan-y;
 .fc .fc-daygrid-day.fc-day-today .fc-daygrid-day-number { background: var(--text); color: #000; border-radius: 12px; margin: 4px; padding: 2px 7px; font-weight: 700; }
 .fc .fc-day-other .fc-daygrid-day-top { opacity: .35; }
 .fc .fc-daygrid-more-link { color: var(--muted); font-size: 11px; padding: 0 6px; }
+/* past 5 entries at once: "+N" at the right of the day, opening the rest */
+.fc .fc-timegrid-more-link { background: color-mix(in srgb, var(--accent) 34%, #1b1a22); color: #fff; border: 1px solid rgba(255, 255, 255, .2); border-radius: 8px; box-shadow: none; }
+.fc .fc-timegrid-more-link-inner { padding: 5px 4px; font-size: 11px; font-weight: 700; text-align: center; }
 .fc .fc-popover { background: var(--raise); border: 1px solid var(--line-2); border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,.8); overflow: hidden; }
 .fc .fc-popover-header { background: transparent; padding: 8px 10px; color: var(--soft); }
 
@@ -2708,6 +2711,21 @@ body.mobile .tb-card { max-width: min(250px, calc(100vw - 24px)); }
 .tb-notes { margin-top: 5px; padding-top: 6px; border-top: 1px solid rgba(255, 255, 255, .08); font-size: 12.5px; line-height: 1.4; color: var(--soft);
   white-space: pre-line; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 8; overflow: hidden; }
 body.mobile .tb-card.has-notes { max-width: min(290px, calc(100vw - 24px)); }
+/* Entries at the same time: every one outlined, and a small card for each (in its colour) to pick from. */
+.fc .fc-event.is-grouped { outline: 2px solid rgba(255, 255, 255, .72); outline-offset: 1px; z-index: 5; }
+.fc .fc-event.is-grouped.is-peer-hot { outline: 3px solid #fff; z-index: 6; }
+.tap-bubble.stack-bubble { display: flex; flex-direction: column; align-items: stretch; gap: 5px; width: max-content; max-width: min(236px, calc(100vw - 24px)); }
+.tap-bubble.stack-bubble::before { display: none; }
+.stack-bubble .tb-card.mini { width: auto; max-width: none; min-height: 42px; gap: 8px; padding: 6px 8px 6px 10px; border-radius: 12px; }
+.stack-bubble .tb-card.mini.tapped { background: #24222e; border-color: rgba(255, 255, 255, .24); border-left-color: var(--c); }
+.tb-card.mini .tb-text { flex: 1; }
+.tb-card.mini .tb-title { font-size: 13px; line-height: 1.25; }
+.tb-card.mini .tb-meta { font-size: 11px; }
+.tb-card.mini .tb-chev { flex: none; color: var(--muted); margin: 0 4px 0 2px; }
+@media (hover: hover) { .stack-bubble .tb-card.mini:hover { background: #24222e; } }
+body.mobile .tap-bubble.stack-bubble { max-width: min(196px, calc(100vw - 24px)); gap: 4px; }
+body.mobile .stack-bubble .tb-card.mini { min-height: 38px; padding: 5px 7px 5px 9px; }
+body.mobile .tb-card.mini .tb-title { font-size: 12.5px; }
 
 /* ------------------------------------------------------------ a new block by a long press (the phone) */
 body.making-block #calendar .fc-timegrid .fc-event-mirror, body.making-block #calendar .fc-timegrid .fc-highlight { visibility: hidden; }

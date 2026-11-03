@@ -606,6 +606,7 @@
       return structuredClone(state.desktops);
     },
     cloudShowCode: async () => 'K7QM-4XPA-RT9C-WD2H',
+  cloudHandoff: async () => 'T05YMWV4YW1wbGUtc2V0dXA',
     cloudOff: async () => { state.desktops.cloud = mockCloud('off'); return structuredClone(state.desktops); },
     leaveDesktops: async () => { state.desktops = { linked: false, device: 'a1', name: 'DESKTOP-MAIN', invite: null, cloud: state.desktops.cloud, desktops: [] }; return structuredClone(state.desktops); },
     forgetDesktop: async (id) => { state.desktops.desktops = state.desktops.desktops.filter((x) => x.id !== id); return structuredClone(state.desktops); },

@@ -2,11 +2,19 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
-  "version": "1.96.0",
-  "date": "2026-11-02",
-  "title": "A live Excel sheet as a calendar",
+  "version": "1.97.0",
+  "date": "2026-11-03",
+  "title": "Side-by-side blocks, and the phone without the PC",
   "items": [
    "Small fixes"
+  ]
+ },
+ {
+  "version": "1.96.0",
+  "date": "2026-11-02",
+  "title": "A live Excel sheet as a calendar (1.96.0)",
+  "items": [
+   "A live Excel sheet as a calendar (1.96.0)"
   ]
  },
  {

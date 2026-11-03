@@ -1,6 +1,6 @@
 {
     "name": "onyx-calendar",
-    "version": "1.96.0",
+    "version": "1.97.0",
     "description": "A sleek black desktop calendar that merges Google, Outlook and local time blocks, with Raspberry Pi call reminders and a built-in MCP server.",
     "main": "src/main/main.js",
     "author": "Onyx Calendar contributors",
@@ -11,7 +11,8 @@
         "icon": "electron scripts/make-icon.js",
         "preview": "node scripts/preview.js",
         "dist": "electron-builder --win nsis --publish never",
-        "mobile": "node scripts/build-mobile.js"
+        "mobile": "node scripts/build-mobile.js",
+        "web": "node scripts/build-web.js"
     },
     "dependencies": {
         "electron-updater": "^6.8.9",

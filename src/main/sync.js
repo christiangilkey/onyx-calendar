@@ -570,9 +570,11 @@ function start(changed) {
 
 /** Another PC changed something (through Drive): show it. */
 const notify = (touched) => onRemote(touched);
+/** Who is told of changes from elsewhere, without the desktops' own timers (the phone's engine, src/engine). */
+const onChange = (fn) => { onRemote = fn; };
 
 module.exports = {
-  start, info, newInvite, cancelInvite, join, leave, forget, syncNow, leads, peerAddresses, updateSelf, notify,
+  start, info, newInvite, cancelInvite, join, leave, forget, syncNow, leads, peerAddresses, updateSelf, notify, onChange,
   handleSync, handleJoin, replica,
   // for tests
   createReplica, adoptAccounts, SECTIONS,

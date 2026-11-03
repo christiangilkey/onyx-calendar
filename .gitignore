@@ -10,6 +10,8 @@ credentials*.json
 # Android app: installed packages, generated web files, and the signing key
 mobile/node_modules/
 mobile/www/
+# Onyx on the web, built by npm run web
+web/
 mobile/android/app/release.p12
 *.p12
 *.keystore

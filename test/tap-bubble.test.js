@@ -9,9 +9,28 @@ const path = require('path');
 const app = fs.readFileSync(path.join(__dirname, '../src/renderer/app.js'), 'utf8');
 const css = fs.readFileSync(path.join(__dirname, '../src/renderer/styles.css'), 'utf8');
 
-test('one tap shows the bubble; only the PC opens on a double click', () => {
+test('one tap shows the bubble (one for each, when entries share the time); only the PC opens on a double click', () => {
   assert.match(app, /const again = !MOBILE && lastTap\.id === src\.id/);
-  assert.match(app, /if \(!again\) \{ showTapBubble\(src, info\.el\); return; \}/);
+  assert.match(app, /if \(peers\.length > 1\) showStackBubble\(peers, src\); else showTapBubble\(src, info\.el\);/);
+});
+
+test('entries at the same time sit side by side, up to 5; a tap on one picks out all of them, with a small card for each', () => {
+  assert.match(app, /slotEventOverlap: false,\s*eventMaxStack: 5,/);
+  assert.match(app, /const MAX_PEERS = 5;/);
+  // Only those sharing its time, in its own day, left to right as they sit; the tapped one always among them.
+  const peers = app.slice(app.indexOf('function overlapPeers('), app.indexOf('function markGroup('));
+  assert.ok(peers.includes("closest?.('.fc-timegrid-col')"), 'its own day');
+  assert.ok(peers.includes('xs < e && xe > s'), 'sharing some of its time');
+  assert.ok(peers.includes('.slice(0, MAX_PEERS)'));
+  assert.ok(peers.includes('getBoundingClientRect().left'), 'left to right');
+  // All of them outlined (and kept so through a redraw); a card opens its own entry.
+  assert.match(app, /tapBubble\.group\?\.includes\(arg\.event\.id\) \? \['is-grouped'\]/);
+  assert.match(app, /hideTapBubble\(\);\s*selectEntry\(p\);\s*openEntry\(p, r\);/);
+  // A press on any of them keeps the cards; anywhere else puts them away.
+  assert.match(app, /const ids = tapBubble\.group \|\| \(tapBubble\.src \? \[tapBubble\.src\.id\] : \[\]\);/);
+  assert.match(css, /\.fc \.fc-event\.is-grouped \{[^}]*outline/);
+  assert.match(css, /body\.mobile \.tap-bubble\.stack-bubble \{ max-width: min\(196px/);
+  assert.match(css, /\.fc \.fc-timegrid-more-link \{[^}]*color: #fff/);
 });
 
 test('a press on the bubble never reaches the calendar, and it goes at a drag or a new day', () => {

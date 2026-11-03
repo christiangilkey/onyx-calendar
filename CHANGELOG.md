@@ -2,11 +2,17 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.96.0 · A live Excel sheet as a calendar
+## 1.97.0 · Side-by-side blocks, and the phone without the PC
+
+_2026-11-03_
+
+- Small fixes
+
+## 1.96.0 · A live Excel sheet as a calendar (1.96.0)
 
 _2026-11-02_
 
-- Small fixes
+- A live Excel sheet as a calendar (1.96.0)
 
 ## 1.95.0 · Choose the apps the doomscroll saver watches (1.95.0)
 

@@ -2,11 +2,19 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
-  "version": "1.97.0",
+  "version": "1.97.1",
   "date": "2026-11-03",
-  "title": "Side-by-side blocks, and the phone without the PC",
+  "title": "Changes for the PC wait for it",
   "items": [
    "Small fixes"
+  ]
+ },
+ {
+  "version": "1.97.0",
+  "date": "2026-11-02",
+  "title": "Side-by-side blocks, and the phone without the PC (1.97.0)",
+  "items": [
+   "Side-by-side blocks, and the phone without the PC (1.97.0)"
   ]
  },
  {

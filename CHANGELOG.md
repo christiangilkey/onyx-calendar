@@ -2,11 +2,17 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.97.0 · Side-by-side blocks, and the phone without the PC
+## 1.97.1 · Changes for the PC wait for it
 
 _2026-11-03_
 
 - Small fixes
+
+## 1.97.0 · Side-by-side blocks, and the phone without the PC (1.97.0)
+
+_2026-11-02_
+
+- Side-by-side blocks, and the phone without the PC (1.97.0)
 
 ## 1.96.0 · A live Excel sheet as a calendar (1.96.0)
 

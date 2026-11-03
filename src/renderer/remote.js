@@ -276,7 +276,7 @@
     // A change while changes are still waiting goes after them, in order; offline, it waits too
     // (unless this phone works on its own: then they go to the engine, and so does this one).
     if (QUEUEABLE.has(name) && (outbox.length || !online)) {
-      if (own && !online && engine.can(name)) { await flushLocal(); if (!outbox.length) return runHere(name, args); }
+      if (own && !online && engine.can(name)) { await flushLocal(); if (!forEngine()) return runHere(name, args); }
       return enqueue(name, args);
     }
     if (own && !online && engine.can(name)) { probe(); return runHere(name, args); }
@@ -286,7 +286,7 @@
     } catch (err) {
       if (!(err instanceof Unreachable)) throw err;
       probe(); // and keep looking for it in the background
-      if (own && engine.can(name)) { await flushLocal(); if (!QUEUEABLE.has(name) || !outbox.length) return runHere(name, args); }
+      if (own && engine.can(name)) { await flushLocal(); if (!QUEUEABLE.has(name) || !forEngine()) return runHere(name, args); }
       if (QUEUEABLE.has(name)) return enqueue(name, args);
       const cached = CACHED.has(name) ? fromCache(name, args) : null;
       if (cached) return overlay(name, args, cached);
@@ -440,16 +440,24 @@
   let flushing = false;
   let held = false; // the PC is holding changes back (its connection dropped): said once, not every try
 
-  /** The waiting changes, made by this phone's own engine (the PC out of reach); kept if the internet is gone too. */
+  /** Waiting changes the engine can make (the rest are for the PC alone, and wait for it). */
+  const forEngine = () => outbox.some((o) => engine.can(o.name));
+
+  /**
+   * The waiting changes, made by this phone's own engine (the PC out of reach); kept if the internet is gone too.
+   * A change only the PC can make is stepped over and keeps waiting for the PC, in its place.
+   */
   async function flushLocal() {
     if (flushing || !outbox.length || !(await ready) || !own) return;
     flushing = true;
     let sent = 0;
     const failed = [];
+    const forPc = [];
     tellOutbox({ syncing: true });
     try {
       while (outbox.length) {
         const o = outbox[0];
+        if (!engine.can(o.name)) { forPc.push(outbox.shift()); continue; }
         try {
           const value = await engine.call(o.name, remap(o.args));
           if (o.temp && value && typeof value === 'object' && value.id) { ids[o.temp] = value.id; write(IDS, ids); }
@@ -459,9 +467,11 @@
           if (!/no longer exists|not found|doesn't exist|does not exist|isn't there|\b404\b|\b410\b/i.test(err?.message || '')) failed.push({ name: o.name, error: err?.message || 'It could not be saved.', at: o.at });
         }
         outbox.shift();
-        write(OUTBOX, outbox);
+        write(OUTBOX, [...forPc, ...outbox]);
       }
     } finally {
+      outbox = [...forPc, ...outbox];
+      write(OUTBOX, outbox);
       flushing = false;
     }
     if (failed.length) write(FAILED, [...read(FAILED, []), ...failed].slice(-50));

@@ -7779,6 +7779,7 @@
       return s < 60 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : new Date(t).toLocaleDateString();
     };
     onyx.standalone.info().then((i) => {
+      if (!i.on && i.needsCode) { box.replaceChildren(title('Almost'), noPcSetup(fail)); return; }
       if (!i.on) {
         const code = h('input', { type: 'text', class: 'code-input cloud-code-input', placeholder: 'ABCD-EFGH-JKLM-NPQR', spellcheck: false, autocomplete: 'off', maxlength: 19 });
         const go = h('button', { class: 'btn primary', onclick: async () => {
@@ -7801,23 +7802,31 @@
             h('li', null, 'On the PC: Settings → Desktops. Turn on Sync through Google Drive, then tap Show sync code.'),
             h('li', null, 'Type that code here. The PC needs to be in reach for this one step.')),
           h('div', { class: 'row' }, code, go),
-          h('p', { class: 'hint' }, 'The phone gets the Google sign-in your PCs sync with, locked with the code. What needs a PC stays on the PC: News, files from its disk, and new sign-ins.'));
+          h('p', { class: 'hint' }, 'The phone gets the Google sign-in your PCs sync with, locked with the code. What needs a PC stays on the PC: News, files from its disk, and new sign-ins.'),
+          h('details', { class: 'nopc-alt' }, h('summary', null, 'Or without any PC: sign in with Google on this phone'), noPcSetup(fail)));
         return;
       }
+      const showCode = h('button', { class: 'btn', onclick: () => {
+        showCode.replaceWith(h('div', { class: 'row' }, h('code', { class: 'sync-code' }, i.code || '?'),
+          h('button', { class: 'btn ghost', onclick: () => onyx.copy(i.code).then(() => toast('Copied')).catch(fail) }, 'Copy')));
+      } }, 'Show sync code');
       const pcs = i.pcs || [];
       const state = i.state === 'ok' ? ['ok', 'On'] : i.state === 'working' ? ['', 'Syncing…'] : ['bad', 'Not syncing'];
-      box.replaceChildren(title(state[1], state[0]),
+      box.replaceChildren(...[title(state[1], state[0]),
         h('p', null, `Synced through ${i.account}${i.last ? `, ${ago(i.last)}` : ''}. `,
-          onyx.isWeb ? 'Everything here is the same as on your PCs.' : 'When your PC is out of reach, this phone carries on by itself.'),
+          onyx.isWeb ? 'Everything here is the same as on your other devices.' : 'When your PC is out of reach, or with no PC at all, this phone carries on by itself.'),
         i.error && h('p', { class: 'problem' }, i.error),
         pcs.length > 0 && h('p', { class: 'hint' }, `Your PCs: ${pcs.map((p) => `${p.name} (${p.online ? 'on' : p.seen ? `last seen ${ago(p.seen)}` : 'off'})`).join(', ')}.`),
+        (i.others || []).length > 0 && h('p', { class: 'hint' }, `Also syncing: ${i.others.length === 1 ? 'one more phone or browser' : `${i.others.length} more phones or browsers`}.`),
+        i.code && h('p', { class: 'hint' }, 'Adding another device? Sign in there with the same Google account, then type this device\'s sync code.'),
+        i.code && showCode,
         h('div', { class: 'row' },
           h('button', { class: 'btn', onclick: () => onyx.standalone.syncNow().then(() => { toast('Synced'); openSettings('connection'); }).catch(fail) }, icon('update'), 'Sync now'),
           h('button', { class: 'btn danger', onclick: async () => {
-            if (!confirm(onyx.isWeb ? 'Sign Onyx out of this browser? What it keeps here is deleted; your PCs keep everything.' : 'Turn off working without the PC? This phone then needs the PC again; your PCs keep everything.')) return;
+            if (!confirm(onyx.isWeb ? 'Sign Onyx out of this browser? What it keeps here is deleted; your other devices keep everything.' : 'Turn off working without the PC? This phone then needs the PC again; your PCs keep everything.')) return;
             try { await onyx.standalone.turnOff(); } catch (err) { fail(err); }
             location.reload();
-          } }, onyx.isWeb ? 'Sign out of this browser' : 'Turn off')));
+          } }, onyx.isWeb ? 'Sign out of this browser' : 'Turn off'))].filter(Boolean));
     }).catch((err) => box.replaceChildren(title('?'), h('p', { class: 'problem' }, err.message)));
     return box;
   }
@@ -8703,7 +8712,7 @@
       if (onyx.isWeb) {
         return [
           h('h3', null, 'Connection'),
-          h('p', { class: 'lead' }, 'Onyx on the web works from the copy your PCs keep in Google Drive: what you change here reaches them, and theirs reaches here. Accounts are added and removed on a PC.'),
+          h('p', { class: 'lead' }, 'Onyx on the web keeps its copy in your own Google Drive, the same as your other devices (PCs, phones, other browsers): what you change here reaches them, and theirs reaches here.'),
           standaloneCard(),
         ];
       }
@@ -10591,17 +10600,116 @@
         go.textContent = 'Open my calendar';
       }
     } }, link, code, go);
-    $('#connect').replaceChildren(h('div', { class: 'connect-card' },
-      h('div', { class: 'brand big' }, h('span', { class: 'mark' }), 'Onyx'),
-      h('h2', null, 'Onyx on the web'),
-      said,
+    const fromPc = h('div', null,
       h('ol', null,
         h('li', null, 'On your PC, open Onyx Calendar, then Settings → Desktops.'),
         h('li', null, fromLink ? 'Under Onyx on the web, copy the setup link: done, you opened it.' : 'Under Onyx on the web, copy the setup link, and paste it below.'),
         h('li', null, 'Type the sync code that PC shows (Show sync code).')),
-      form,
+      form);
+    $('#connect').replaceChildren(h('div', { class: 'connect-card' },
+      h('div', { class: 'brand big' }, h('span', { class: 'mark' }), 'Onyx'),
+      h('h2', null, 'Onyx on the web'),
+      said,
+      fromLink ? fromPc : [
+        noPcSetup(say),
+        h('details', { class: 'nopc-alt' }, h('summary', null, 'Or set it up from Onyx on a PC'), fromPc),
+      ],
       h('p', { class: 'hint' }, 'Your calendar stays in your own Google Drive and in this browser. Use a browser that is yours: anyone who can open it can see your calendar.')));
     $('#connect').hidden = false;
+  }
+
+  /**
+   * Onyx with no PC at all (the web app, or the phone on its own): sign in to Google on this device with
+   * your own Google client (the "Web application" kind), and, if Onyx is already on another device with
+   * that account, type the sync code it shows. The first device makes the code.
+   */
+  function noPcSetup(say) {
+    if (!onyx.standalone?.signIn) return null;
+    const box = h('div', { class: 'nopc' }, h('p', { class: 'hint' }, 'Loading…'));
+    const err = onyx.standalone.signInError();
+    if (err) setTimeout(() => say(err));
+    onyx.standalone.info().then((i) => {
+      if (i.on) { box.replaceChildren(); return; }
+      if (i.needsCode) {
+        const code = h('input', { type: 'text', class: 'code-input', placeholder: 'Sync code: ABCD-EFGH-JKLM-NPQR', spellcheck: false, autocomplete: 'off', maxlength: 19 });
+        const go = h('button', { class: 'btn primary wide', type: 'submit' }, 'Open my calendar');
+        const form = h('form', { class: 'connect-form', onsubmit: async (e) => {
+          e.preventDefault();
+          go.disabled = true;
+          go.textContent = 'Opening… (the first sync can take a minute)';
+          try {
+            await onyx.standalone.enterCode(code.value);
+            location.reload();
+          } catch (x) {
+            say(x);
+            go.disabled = false;
+            go.textContent = 'Open my calendar';
+          }
+        } }, code, go);
+        box.replaceChildren(
+          h('p', null, `Signed in as ${i.account}. Onyx is already on another device with this account: type the sync code it shows.`),
+          h('p', { class: 'hint' }, 'On a PC: Settings → Desktops → Show sync code. On a phone or the web: Settings → Connection → Show sync code.'),
+          form,
+          h('button', { class: 'btn ghost wide', onclick: async () => { await onyx.standalone.turnOff().catch(() => {}); location.reload(); } }, 'Start over'));
+        return;
+      }
+      const redirect = onyx.standalone.redirect();
+      let file = null;
+      const id = h('input', { type: 'text', placeholder: 'Client ID (…apps.googleusercontent.com)', spellcheck: false, autocomplete: 'off' });
+      const secret = h('input', { type: 'password', placeholder: 'Client secret', spellcheck: false, autocomplete: 'off' });
+      const picked = h('span', { class: 'hint' });
+      const pick = h('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: async () => {
+        const f = pick.files[0];
+        if (!f) return;
+        file = await f.text();
+        picked.textContent = `✓ ${f.name}`;
+        id.hidden = true;
+        secret.hidden = true;
+      } });
+      const go = h('button', { class: 'btn primary wide', type: 'submit' }, 'Sign in with Google');
+      const form = h('form', { class: 'connect-form', onsubmit: async (e) => {
+        e.preventDefault();
+        go.disabled = true;
+        go.textContent = 'Opening Google…';
+        try {
+          await onyx.standalone.signIn(file || (i.hasClient && !id.value.trim() ? null : { id: id.value, secret: secret.value }));
+        } catch (x) {
+          say(x);
+          go.disabled = false;
+          go.textContent = 'Sign in with Google';
+        }
+      } },
+      h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: () => pick.click() }, 'Choose the client file (.json)'), picked),
+      pick, id, secret,
+      i.hasClient && h('p', { class: 'hint' }, 'Your Google client from last time is kept: leave these empty to use it.'),
+      go);
+      box.replaceChildren(
+        h('p', null, 'Sign in with your Google account. Your calendars, tasks and everything Onyx keeps sync through your own Google Drive, between all your devices: PCs, phones and browsers.'),
+        form,
+        h('details', { class: 'nopc-how' }, h('summary', null, 'Making your Google client (once)'),
+          h('ol', null,
+            h('li', null, 'Open console.cloud.google.com, in the project you use for Onyx (or a new one), then APIs & Services → Credentials.'),
+            h('li', null, 'Create credentials → OAuth client ID → Application type: Web application.'),
+            h('li', null, 'Under Authorized redirect URIs, add this address exactly: ', h('code', null, redirect), ' ',
+              h('button', { class: 'btn ghost', type: 'button', onclick: () => onyx.copy(redirect).then(() => toast('Copied')).catch(fail) }, 'Copy')),
+            h('li', null, 'Create it, then download its file (or copy its client ID and secret) and add it above.')),
+          h('p', { class: 'hint' }, 'A new project also needs the Google Calendar, Tasks, Drive and Gmail APIs turned on (APIs & Services → Library), and you added as a test user (OAuth consent screen).')));
+    }).catch((x) => box.replaceChildren(h('p', { class: 'problem' }, x.message)));
+    return box;
+  }
+
+  /** In the phone's browser, back from Google's sign-in: the answer goes on to the Onyx app. */
+  function showRelay() {
+    window.onyxReady = true;
+    const link = window.onyxRelay;
+    $('#connect').replaceChildren(h('div', { class: 'connect-card' },
+      h('div', { class: 'brand big' }, h('span', { class: 'mark' }), 'Onyx'),
+      h('h2', null, 'Signed in'),
+      h('p', null, 'Back to the Onyx app to finish.'),
+      h('a', { class: 'btn primary wide', href: link }, 'Open the Onyx app'),
+      h('p', { class: 'hint' }, 'Nothing happens? Make sure the Onyx app is up to date, then sign in again from it.')));
+    $('#connect').hidden = false;
+    setTimeout(() => { location.href = link; }, 300);
   }
 
   function showConnect(problem) {
@@ -10645,8 +10753,15 @@
       onyx.canScan && scan,
       h('p', { class: 'or' }, onyx.canScan ? 'Or type it in instead:' : 'Address and token (or paste the pairing link into the address box):'),
       form,
-      onyx.paired() && h('button', { class: 'btn ghost wide', onclick: () => location.reload() }, 'Try again')));
+      onyx.paired() && h('button', { class: 'btn ghost wide', onclick: () => location.reload() }, 'Try again'),
+      onyx.standalone?.signIn && !onyx.paired() && h('details', { class: 'nopc-alt' },
+        h('summary', null, 'No PC? Use Onyx on this phone by itself'), noPcSetup(say))));
     $('#connect').hidden = false;
+    // Back from Google with the sync code still to type (or a sign-in that failed): that part, open.
+    onyx.standalone?.info?.().then((i) => {
+      const alt = $('#connect .nopc-alt');
+      if (alt && (i.needsCode || $('#connect .problem:not([hidden])'))) alt.open = true;
+    }).catch(() => {});
   }
 
   async function init() {
@@ -10655,6 +10770,7 @@
     window.addEventListener('onyx:toast', (e) => toast(e.detail, 'error'));
     // A pairing link that failed: the Connect screen says why (or a toast, once connected).
     window.addEventListener('onyx:pair-failed', (e) => (window.onyxPairFailed && !$('#connect').hidden ? window.onyxPairFailed(e) : toast(e.detail, 'error')));
+    if (window.onyxRelay) return showRelay();
     await onyx.whenReady?.(); // the phone's own engine, when it has one, has loaded what it keeps
     if (onyx.isPhone && !onyx.paired()) return onyx.isWeb ? showWebSetup() : showConnect();
     try {

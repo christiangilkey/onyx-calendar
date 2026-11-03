@@ -21,7 +21,25 @@
   // The engine, when this build has it; `own`: it is set up here, so the PC is not needed.
   const engine = window.OnyxEngine || null;
   let own = false;
-  const ready = engine ? engine.boot().then((on) => { own = !!on; return own; }).catch(() => false) : Promise.resolve(false);
+
+  // Signing in to Google with no PC (engine.signInStart): Google comes back to the web app's page with
+  // ?code=…&state=…. A state of "web.…" is this browser's own sign-in, finished here; "app.…" was
+  // started in the phone app, so this page (in the phone's browser) hands it on to the app (onyx://signin).
+  const WEB_APP = 'https://christiangilkey.github.io/onyx-calendar/';
+  const answer = new URLSearchParams(location.search);
+  const back = answer.get('state') || '';
+  const SIGNIN_ERR = 'onyx.signin-error';
+  if (WEB && back.startsWith('app.')) window.onyxRelay = `onyx://signin?${answer}`;
+  const finishHere = async () => {
+    if (!WEB || !back.startsWith('web.')) return;
+    window.history.replaceState(null, '', location.pathname); // the code is used once: off the address bar
+    try {
+      await engine.signInFinish({ code: answer.get('code'), state: back, error: answer.get('error') });
+    } catch (err) {
+      write(SIGNIN_ERR, err.message || 'Google sign-in failed.');
+    }
+  };
+  const ready = engine ? engine.boot().then(finishHere).then(() => engine.boot()).then((on) => { own = !!on; return own; }).catch(() => false) : Promise.resolve(false);
   const isNet = (err) => !!err && (err.network || /fetch failed|couldn't reach|failed to fetch|network/i.test(err.message || ''));
 
   const CONN = 'onyx.connection';
@@ -655,6 +673,16 @@
     standalone: engine ? {
       info: () => engine.info(),
       setUp: (code, blob) => standaloneSetUp(code, blob),
+      // With no PC: Google sign-in on this device (your own Web client), then the sync code if others exist.
+      redirect: () => (WEB ? `${location.origin}${location.pathname}` : WEB_APP),
+      signIn: async (client) => {
+        write(SIGNIN_ERR, '');
+        const url = await engine.signInStart({ client, redirect: WEB ? `${location.origin}${location.pathname}` : WEB_APP, back: WEB ? 'web' : 'app' });
+        location.assign(url); // the web app goes to Google's page; the phone app opens it in the phone's browser
+      },
+      signInError: () => { const e = read(SIGNIN_ERR, ''); write(SIGNIN_ERR, ''); return e; },
+      enterCode: async (code) => { const r = await engine.enterCode(code); own = !!r.on; tellOutbox(); return r; },
+      handoff: () => engine.handoff(),
       syncNow: () => engine.syncNow(),
       turnOff: async () => { const r = await engine.leave(); own = false; tellOutbox(); return r; },
     } : null,
@@ -888,6 +916,18 @@
       // The launch link is reported again after the reload below, so each link is used once.
       if (!url || !url.startsWith('onyx://') || read('onyx.used-link', '') === url) return;
       write('onyx.used-link', url);
+      // Google's answer to a sign-in started here (handed on by the web app's page): finish it, then start again set up.
+      if (url.startsWith('onyx://signin')) {
+        const q = new URL(url.replace('onyx://signin', 'https://onyx.local/signin')).searchParams;
+        await ready;
+        try {
+          await engine.signInFinish({ code: q.get('code'), state: q.get('state'), error: q.get('error') });
+        } catch (err) {
+          write(SIGNIN_ERR, err.message || 'Google sign-in failed.');
+        }
+        location.reload();
+        return;
+      }
       // Another app hands over a task: onyx://task?title=…&minutes=…&due=…&id=…&from=… The PC makes it; Magic add opens to plan it.
       if (url.startsWith('onyx://task')) {
         let detail;

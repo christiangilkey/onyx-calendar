@@ -33,6 +33,8 @@
                 <data android:scheme="onyx" android:host="open" />
                 <!-- Another app hands over a task: onyx://task?title=…&minutes=…&due=…&id=…&from=… -->
                 <data android:scheme="onyx" android:host="task" />
+                <!-- Google sign-in with no PC: the web app's page hands the answer back, onyx://signin?code=…&state=… -->
+                <data android:scheme="onyx" android:host="signin" />
             </intent-filter>
 
         </activity>

@@ -182,7 +182,7 @@ function createCloud({ getData, save, replica, driveFor, notify = () => {}, adop
           c.joined = true;
           c.state = 'ok';
         } else {
-          const err = new Error('Enter the sync code from one of your other PCs (Settings → Desktops on it).');
+          const err = new Error('Enter the sync code from one of your other devices (Settings → Desktops on a PC, Settings → Connection on a phone or the web).');
           err.code = 'code';
           throw err;
         }
@@ -215,6 +215,7 @@ function createCloud({ getData, save, replica, driveFor, notify = () => {}, adop
         const merged = newest(bodies.map(([, b]) => b.entries));
         adoptAccounts(getData(), merged);
         s = secrets(); // adopting rebuilds the data objects
+        drive = driveFor(c.account); // and may give the sync account the others' id: its sign-in is found under that now
         const acct = (getData().accounts || []).find((a) => a.provider === 'google' && a.label === c.account);
         const keep = new Set(acct && s.tokens?.[acct.id] ? [`secrets.tokens|${acct.id}`] : []);
         for (const k of replica.apply(merged, { force: true, keep }).touched) touched.add(k);

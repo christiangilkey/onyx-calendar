@@ -2,11 +2,19 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
-  "version": "1.99.0",
+  "version": "1.100.0",
   "date": "2026-11-03",
-  "title": "Onyx on the web",
+  "title": "Onyx with no PC",
   "items": [
    "Small fixes"
+  ]
+ },
+ {
+  "version": "1.99.0",
+  "date": "2026-11-02",
+  "title": "Onyx on the web (1.99.0)",
+  "items": [
+   "Onyx on the web (1.99.0)"
   ]
  },
  {

@@ -71,7 +71,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .segmented button:hover { color: var(--text); }
 .segmented button.on { background: #26262c; color: var(--text); box-shadow: 0 1px 0 rgba(255,255,255,.05) inset; }
 
-input[type=text], input[type=url], input[type=number], input[type=date], input[type=time], select, textarea {
+input[type=text], input[type=password], input[type=url], input[type=number], input[type=date], input[type=time], select, textarea {
   height: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--bg);
   outline: none; min-width: 0; user-select: text; transition: border-color .12s, box-shadow .12s;
 }
@@ -3047,3 +3047,13 @@ body.mobile .set-at-home.set-back { animation: set-back .2s cubic-bezier(.2, .8,
 @keyframes set-in { from { transform: translateX(28px); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes set-back { from { transform: translateX(-28px); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { body.mobile .set-page.set-in, body.mobile .set-at-home.set-back, .set-flash { animation: none; } }
+
+/* Onyx with no PC: Google sign-in on this device, then the sync code (noPcSetup in app.js). */
+.nopc { display: flex; flex-direction: column; gap: 10px; text-align: left; }
+.nopc .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.nopc-alt, .nopc-how { margin-top: 12px; text-align: left; }
+.nopc-alt > summary, .nopc-how > summary { cursor: pointer; color: var(--muted, #9a9aa6); font-size: 13px; padding: 6px 0; }
+.nopc-alt[open] > summary { margin-bottom: 8px; }
+.nopc-how ol { padding-left: 20px; font-size: 13px; line-height: 1.5; }
+.nopc-how code, .sync-code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; background: rgba(255, 255, 255, .07); padding: 2px 6px; border-radius: 5px; word-break: break-all; user-select: all; }
+.sync-code { font-size: 15px; letter-spacing: .06em; padding: 6px 10px; }

@@ -25,7 +25,12 @@ const MICROSOFT_BEFORE_SEND = 'offline_access User.Read Calendars.ReadWrite Task
 
 const newId = (prefix) => prefix + crypto.randomBytes(4).toString('hex');
 
-function saveAccount(provider, label, tokens, extra = {}) {
+/**
+ * `client`: the Google client a sign-in was made with, when it is not this PC's own (one made in a
+ * browser or on the phone, src/engine): it is kept with the sign-in so whichever device renews it
+ * uses the right one. Left out, a renewed sign-in keeps the one it had; null drops it.
+ */
+function saveAccount(provider, label, tokens, extra = {}, client) {
   const { accounts, secrets } = store.data;
   let acct = accounts.find((a) => a.provider === provider && a.label === label);
   if (!acct) {
@@ -41,6 +46,8 @@ function saveAccount(provider, label, tokens, extra = {}) {
       ...(extra.scope || old.scope ? { scope: extra.scope || old.scope } : {}), // what the account agreed to (Microsoft)
       ...(provider === 'google' && (tokens.scope || old.granted) ? { granted: tokens.scope || old.granted } : {}), // what Google says it agreed to
     };
+    const keep = client === undefined ? old.client : client;
+    if (keep) secrets.tokens[acct.id].client = keep;
   }
   store.save();
   return acct;
@@ -62,7 +69,7 @@ async function connectGoogle() {
     grant_type: 'authorization_code', code_verifier: verifier,
   });
   const claims = JSON.parse(Buffer.from(tokens.id_token.split('.')[1], 'base64url').toString('utf8'));
-  return saveAccount('google', claims.email || 'Google', tokens);
+  return saveAccount('google', claims.email || 'Google', tokens, {}, null);
 }
 
 async function connectMicrosoft() {
@@ -153,7 +160,7 @@ async function accessToken(acct, force = false) {
   if (!refreshing.has(acct.id)) {
     const job = (async () => {
       const fields = acct.provider === 'google'
-        ? { client_id: store.data.google.clientId, client_secret: store.data.secrets.googleClientSecret }
+        ? (tok.client?.id ? { client_id: tok.client.id, client_secret: tok.client.secret } : { client_id: store.data.google.clientId, client_secret: store.data.secrets.googleClientSecret })
         : { client_id: store.data.microsoft.clientId, scope: tok.scope || MICROSOFT_BEFORE_SEND };
       try {
         const fresh = await postForm(acct.provider === 'google' ? GOOGLE.token : MICROSOFT.token,
@@ -204,4 +211,4 @@ async function authorised(acct, url, { method = 'GET', body, headers = {} } = {}
   }
 }
 
-module.exports = { connectGoogle, connectMicrosoft, addFeed, addSheet, remove, request, newId, accessToken };
+module.exports = { connectGoogle, connectMicrosoft, addFeed, addSheet, remove, request, newId, accessToken, GOOGLE_SCOPE: GOOGLE.scope };

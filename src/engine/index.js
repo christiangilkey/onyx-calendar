@@ -2,9 +2,11 @@
 // bundled by scripts/build-engine.js, so the phone works while the PC is off, and Onyx works in a
 // browser with no PC at all. It is one more copy in Drive sync (cloud.js): it keeps what the PCs
 // share, reads and writes Google and Outlook itself, and its changes reach the PCs through the
-// same hidden Drive folder. Set up once from a PC (the hand-off, locked with the sync code).
+// same hidden Drive folder. Set up once: from a PC (the hand-off, locked with the sync code), or with
+// no PC at all, by signing in to Google here (signInStart/signInFinish, then enterCode if others exist).
 //
-// window.OnyxEngine: boot, on, info, join, leave, call, active, onChanged, syncNow.
+// window.OnyxEngine: boot, on, info, join, leave, call, active, onChanged, syncNow, signInStart,
+// signInFinish, enterCode, handoff.
 'use strict';
 
 const store = require('../main/store'); // the engine's own (src/engine/store.js), by the bundle's alias
@@ -68,9 +70,14 @@ async function setActive(on) {
 /** What the phone's settings show: on or off, the Drive account, when it last synced, the PCs it sees. */
 async function info() {
   await boot();
-  if (!isOn()) return { on: false };
+  const own = store.data.standalone || {};
+  // Not set up: whether it waits for the sync code (signed in already), and whether a Google client is kept.
+  if (!isOn()) return { on: false, needsCode: !!own.joining, account: own.joining ? cloud().info().account : '', hasClient: !!own.client };
   const c = cloud().info();
-  return { on: true, since: store.data.standalone.since, account: c.account, state: c.state, error: c.error, last: c.last, pcs: c.peers.filter((p) => !/^(phone|web)-/.test(p.id)) };
+  return {
+    on: true, since: own.since, account: c.account, state: c.state, error: c.error, last: c.last, code: cloud().code(),
+    pcs: c.peers.filter((p) => !/^(phone|web)-/.test(p.id)), others: c.peers.filter((p) => /^(phone|web)-/.test(p.id)),
+  };
 }
 
 const deviceId = () => `${globalThis.ONYX_WEB ? 'web' : 'phone'}-${require('./shims/crypto').randomBytes(6).toString('hex')}`;
@@ -118,6 +125,133 @@ async function join(blob, code) {
   return info();
 }
 
+// ---------------------------------------------------------------- set up with no PC at all
+// Signing in to Google here, with the person's own Google client of the "Web application" kind
+// (Google Cloud → Credentials). Its sign-in page sends the browser back to the redirect address
+// with a code; the code, the client and the PKCE secret make the sign-in, kept here. The first
+// device makes the sync code; any later one (a PC, a phone, a browser) types it in.
+
+/** Kept now, through a reload (the trip to Google's page): the store writes only what it was told changed. */
+const keep = () => { store.save(); return store.flush(); };
+const GOOGLE_AUTH = 'https://accounts.google.com/o/oauth2/v2/auth';
+const GOOGLE_TOKEN = 'https://oauth2.googleapis.com/token';
+
+/** The Google client from its downloaded file (client_secret_….json), or { id, secret }. */
+function readClient(given) {
+  let v = given;
+  if (typeof v === 'string') {
+    try { v = JSON.parse(v); } catch { throw new Error('That is not a Google client file. Download it from Google Cloud → Credentials (the download button by your Web client).'); }
+  }
+  const c = v?.web || v?.installed || v || {};
+  const id = String(c.client_id || c.id || '').trim();
+  const secret = String(c.client_secret || c.secret || '').trim();
+  if (!/\.apps\.googleusercontent\.com$/.test(id)) throw new Error('The client ID ends in .apps.googleusercontent.com. Copy it from Google Cloud → Credentials.');
+  if (!secret) throw new Error('Add the client secret too (it is next to the client ID in Google Cloud).');
+  return { id, secret };
+}
+
+/**
+ * The address of Google's sign-in page for this device. `back` is 'web' (this page) or 'app' (the
+ * phone app: the web page it comes back to hands the answer on to the app). What is needed to
+ * finish is kept here until the answer comes.
+ */
+async function signInStart({ client, redirect, back = 'web' } = {}) {
+  await boot();
+  const c = client ? readClient(client) : store.data.standalone?.client;
+  if (!c) throw new Error('Add your Google client first.');
+  if (!/^https:\/\/|^http:\/\/(localhost|127\.0\.0\.1)[:/]/.test(String(redirect || ''))) throw new Error('No address for Google to come back to.');
+  const rnd = require('./shims/crypto');
+  const verifier = rnd.randomBytes(48).toString('base64url');
+  const challenge = rnd.createHash('sha256').update(verifier).digest('base64url');
+  const state = `${back === 'app' ? 'app' : 'web'}.${rnd.randomBytes(16).toString('base64url')}`;
+  store.data.standalone = { on: false, ...(store.data.standalone || {}), client: c, pending: { state, verifier, redirect, at: Date.now() } };
+  await keep();
+  return `${GOOGLE_AUTH}?${new URLSearchParams({
+    client_id: c.id, redirect_uri: redirect, response_type: 'code', scope: require('../main/accounts').GOOGLE_SCOPE,
+    code_challenge: challenge, code_challenge_method: 'S256', state, access_type: 'offline', prompt: 'consent',
+  })}`;
+}
+
+/**
+ * Google's answer ({ code, state } or { error }). The account is signed in here; on a device not set
+ * up yet, sync through its Drive starts: { on: true } when this is the first device (the sync code is
+ * made here), or { needsCode: true } when others are there already (enterCode next).
+ */
+async function signInFinish({ code, state, error } = {}) {
+  await boot();
+  const s = store.data.standalone || {};
+  const p = s.pending;
+  if (!p || p.state !== state) throw new Error('That sign-in was not started here. Start it again.');
+  delete s.pending;
+  await keep();
+  if (error) throw new Error(error === 'access_denied' ? 'Google sign-in was cancelled.' : `Google sign-in failed: ${error}`);
+  if (Date.now() - p.at > 15 * 60 * 1000) throw new Error('That sign-in took too long. Start it again.');
+  const tokens = await require('../main/oauth').postForm(GOOGLE_TOKEN, {
+    code, client_id: s.client.id, client_secret: s.client.secret, redirect_uri: p.redirect,
+    grant_type: 'authorization_code', code_verifier: p.verifier,
+  });
+  if (!tokens.refresh_token) throw new Error('Google did not give Onyx a lasting sign-in. Try again.');
+  let label = 'Google';
+  try { label = JSON.parse(Buffer.from(tokens.id_token.split('.')[1], 'base64url').toString('utf8')).email || label; } catch { /* no id token */ }
+
+  const d = store.data;
+  let acct = d.accounts.find((a) => a.provider === 'google' && a.label === label);
+  if (!acct) {
+    acct = { id: `g${require('./shims/crypto').randomBytes(4).toString('hex')}`, provider: 'google', label };
+    d.accounts.push(acct);
+  }
+  // The client goes with the sign-in: whichever device renews it later uses the client it was made with.
+  d.secrets.tokens[acct.id] = {
+    access: tokens.access_token, refresh: tokens.refresh_token, expires: Date.now() + (tokens.expires_in || 3600) * 1000,
+    ...(tokens.scope ? { granted: tokens.scope } : {}), client: { id: s.client.id, secret: s.client.secret },
+  };
+  if (isOn()) { // one more account on a device already set up
+    await keep();
+    hub().invalidate();
+    await hub().refreshCalendars().catch(() => {});
+    tell({ changed: ['accounts'] });
+    return info();
+  }
+  d.secrets.cloudCode = '';
+  delete d.secrets.cloudKey;
+  d.sync = { device: deviceId(), cloud: { on: true, account: label, state: 'working', joined: false, peers: {} } };
+  d.standalone = { on: false, client: s.client, joining: true };
+  await keep();
+  start();
+  await cloud().syncNow();
+  return settle(true);
+}
+
+/** After a first sync: on (the first device, or the code fit), the code still needed, or why not. */
+async function settle(leaveOnError) {
+  const c = cloud().info();
+  if (c.state === 'needs-code') return { on: false, needsCode: true, account: c.account };
+  if (c.state !== 'ok') {
+    const why = c.error || 'The first sync did not go through.';
+    if (leaveOnError) await leave();
+    throw new Error(why);
+  }
+  store.data.standalone = { on: true, since: Date.now(), client: store.data.standalone?.client };
+  await keep();
+  hub().invalidate();
+  await hub().refreshCalendars().catch(() => {});
+  await keep();
+  tell({ changed: ['all'] });
+  return info();
+}
+
+/** The sync code from another device (a PC, a phone, a browser), after signing in here. */
+async function enterCode(code) {
+  await boot();
+  if (!store.data.standalone?.joining) throw new Error('Sign in with Google first.');
+  try {
+    await cloud().enterCode(code);
+  } catch (err) {
+    throw new Error(/does not open/.test(err.message) ? 'That code does not open your other devices\' copies. Check it in Onyx on one of them: Settings → Desktops (on a PC) or Connection (on the phone or the web).' : err.message);
+  }
+  return settle(false);
+}
+
 /** Stops working on its own: its file leaves Drive, and what it kept here is forgotten. */
 async function leave() {
   await boot();
@@ -147,7 +281,8 @@ async function call(name, args = []) {
 const can = (name) => !!api().remote[name];
 
 module.exports = {
-  boot, on: isOn, info, join, leave, call, can, active: setActive,
+  boot, on: isOn, info, join, leave, call, can, active: setActive, signInStart, signInFinish, enterCode, readClient,
+  handoff: async () => { await boot(); if (!isOn()) throw new Error('Set this device up first.'); return cloud().handoff(); },
   onChanged: (fn) => { listeners.add(fn); return () => listeners.delete(fn); },
   syncNow: async () => { await boot(); if (isOn()) await cloud().syncNow(); return info(); },
 };

@@ -208,3 +208,103 @@ test('the PC only hands off with Drive sync on and the account signed in', async
   delete pc.data.secrets.tokens['g-pc'].refresh;
   await assert.rejects(pc.c.handoff(), /Sign in to me@gmail.com again/);
 });
+
+// ---------------------------------------------------------------- set up with no PC at all
+
+/** Google that also signs in: a code from its page is turned into a lasting sign-in, and renewals are seen. */
+function signingGoogle(files, { lasts = 3600 } = {}) {
+  const g = fakeGoogle(files);
+  const posts = [];
+  const idToken = (email) => ['e30', Buffer.from(JSON.stringify({ email })).toString('base64url'), 'sig'].join('.');
+  const fetchFake = async (url, init = {}) => {
+    const u = new URL(url);
+    if (u.hostname === 'oauth2.googleapis.com') {
+      const body = Object.fromEntries(new URLSearchParams(String(init.body)));
+      posts.push(body);
+      if (body.grant_type === 'authorization_code') {
+        if (body.code !== 'good-code' || !body.code_verifier || !body.client_secret) return new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400 });
+        return new Response(JSON.stringify({ access_token: 'first', refresh_token: 'lasting', expires_in: lasts, id_token: idToken('me@gmail.com'), scope: 'openid email' }), { status: 200 });
+      }
+    }
+    return g.fetchFake(url, init);
+  };
+  return { fetchFake, posts };
+}
+const WEB_CLIENT = JSON.stringify({ web: { client_id: 'web123.apps.googleusercontent.com', client_secret: 'web-secret', redirect_uris: ['https://example.github.io/onyx/'] } });
+
+async function signIn(engine, redirect = 'https://example.github.io/onyx/') {
+  const url = new URL(await engine.signInStart({ client: WEB_CLIENT, redirect, back: 'web' }));
+  assert.equal(url.hostname, 'accounts.google.com');
+  assert.equal(url.searchParams.get('client_id'), 'web123.apps.googleusercontent.com');
+  assert.equal(url.searchParams.get('redirect_uri'), redirect);
+  assert.equal(url.searchParams.get('code_challenge_method'), 'S256');
+  assert.match(url.searchParams.get('scope'), /drive\.appdata/);
+  const state = url.searchParams.get('state');
+  assert.match(state, /^web\./);
+  return JSON.parse(JSON.stringify(await engine.signInFinish({ code: 'good-code', state })));
+}
+
+test('with no PC: a browser starts it, a phone joins with its code, then a PC does too', async () => {
+  const files = new Map();
+  const google = signingGoogle(files);
+
+  // The first device: signed in, it makes the sync code, and its file goes up.
+  const web = browser(google.fetchFake);
+  await assert.rejects(web.signInFinish({ code: 'good-code', state: 'web.nope' }), /not started here/);
+  await assert.rejects(web.signInStart({ client: '{"web":{"client_id":"x"}}', redirect: 'https://example.github.io/onyx/' }), /client ID/);
+  const first = await signIn(web);
+  assert.equal(first.on, true);
+  assert.equal(first.account, 'me@gmail.com');
+  assert.match(first.code, /^[A-Z0-9]{4}(-[A-Z0-9]{4}){3}$/);
+  assert.equal(files.size, 1);
+  const exchange = google.posts.find((p) => p.grant_type === 'authorization_code');
+  assert.equal(exchange.client_id, 'web123.apps.googleusercontent.com');
+  assert.equal(exchange.redirect_uri, 'https://example.github.io/onyx/');
+
+  const start = new Date(Date.now() + 86400e3); start.setMinutes(0, 0, 0);
+  const made = await web.call('event:create', [{ title: 'Made on the web', start: start.toISOString(), end: new Date(start.getTime() + 3600e3).toISOString(), calendarId: 'local/blocks' }]);
+  await web.syncNow();
+
+  // A second device: signed in, it waits for the code; a wrong one is turned down, the right one opens it.
+  const phone = browser(google.fetchFake);
+  const second = await signIn(phone);
+  assert.deepEqual([second.on, second.needsCode, second.account], [false, true, 'me@gmail.com']);
+  assert.equal((await phone.info()).needsCode, true);
+  await assert.rejects(phone.enterCode('ABCD-EFGH-JKLM-NPQR'), /does not open/);
+  const joined = JSON.parse(JSON.stringify(await phone.enterCode(first.code)));
+  assert.equal(joined.on, true);
+  assert.equal(files.size, 2);
+  const there = await phone.call('events', [new Date(Date.now() - 86400e3).toISOString(), new Date(Date.now() + 3 * 86400e3).toISOString()]);
+  assert.ok(there.events.some((e) => e.title === 'Made on the web'), 'the browser\'s block is on the phone');
+
+  // A PC, signed in with its own client, joins with the same code and gets it too.
+  const pc = pcWith(files);
+  await pc.c.enable('me@gmail.com');
+  assert.equal(pc.c.info().state, 'needs-code');
+  await pc.c.enterCode(first.code);
+  assert.equal(pc.c.info().state, 'ok');
+  assert.ok(pc.data.local.events.some((e) => e.id === made.id.split('/').pop() || e.title === 'Made on the web'), 'the PC has the block');
+  for (const t of Object.values(pc.data.secrets.tokens)) {
+    if (t.client) assert.equal(t.client.id, 'web123.apps.googleusercontent.com', 'a sign-in from the web carries its own client');
+  }
+});
+
+test('a sign-in made in the browser is renewed with the client it was made with', async () => {
+  const files = new Map();
+  const google = signingGoogle(files, { lasts: 1 }); // its access runs out at once
+  const web = browser(google.fetchFake);
+  await signIn(web);
+  const renewals = google.posts.filter((p) => p.grant_type === 'refresh_token');
+  assert.ok(renewals.length > 0, 'renewed for the first sync');
+  for (const r of renewals) assert.deepEqual([r.client_id, r.client_secret, r.refresh_token], ['web123.apps.googleusercontent.com', 'web-secret', 'lasting']);
+});
+
+test('Google saying no, and a sign-in that took too long, are said plainly', async () => {
+  const google = signingGoogle(new Map());
+  const web = browser(google.fetchFake);
+  const url = new URL(await web.signInStart({ client: WEB_CLIENT, redirect: 'https://example.github.io/onyx/', back: 'app' }));
+  const state = url.searchParams.get('state');
+  assert.match(state, /^app\./, 'started in the phone app: the web page hands it back');
+  await assert.rejects(web.signInFinish({ error: 'access_denied', state }), /cancelled/);
+  assert.equal((await web.info()).on, false);
+});

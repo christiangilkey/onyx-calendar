@@ -2,11 +2,17 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.98.0 · An inbox for your lock screen notes
+## 1.99.0 · Onyx on the web
 
 _2026-11-03_
 
 - Small fixes
+
+## 1.98.0 · An inbox for your lock screen notes (1.98.0)
+
+_2026-11-02_
+
+- An inbox for your lock screen notes (1.98.0)
 
 ## 1.97.1 · Changes for the PC wait for it (1.97.1)
 

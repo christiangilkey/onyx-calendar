@@ -103,8 +103,8 @@
   // The Android app (remote.js) and narrow windows get the phone layout.
   // Onyx on the web goes by the screen: a phone's layout on a phone, the PC's on a wide window.
   const MOBILE = (!!onyx.isPhone && !onyx.isWeb) || matchMedia('(max-width: 760px)').matches;
-  // Where Onyx on the web lives (scripts/build-web.js, published from the releases). Empty: not offered yet.
-  const WEB_APP = '';
+  // Where Onyx on the web lives: built by scripts/build-web.js and published to GitHub Pages with each release.
+  const WEB_APP = 'https://christiangilkey.github.io/onyx-calendar/';
 
   // ------------------------------------------------------------ tags
 

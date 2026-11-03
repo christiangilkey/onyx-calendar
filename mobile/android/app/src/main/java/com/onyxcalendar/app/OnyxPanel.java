@@ -332,7 +332,7 @@ final class OnyxPanel {
         if (quickNote == null) return;
         int waiting = WidgetData.quickWaiting(ctx);
         String s = said != null ? said
-            : waiting > 0 ? waiting + (waiting == 1 ? " task waits" : " tasks wait") + " for your PC, then go to your tasks with no date"
+            : waiting > 0 ? waiting + (waiting == 1 ? " note waits" : " notes wait") + " for your PC, then go to Onyx's inbox"
             : "";
         quickNote.setText(s);
         quickNote.setVisibility(s.isEmpty() ? View.GONE : View.VISIBLE);
@@ -345,8 +345,8 @@ final class OnyxPanel {
         paintQuickNote("Adding \u201c" + title + "\u201d…");
         new Thread(() -> {
             boolean sent = WidgetData.quickTask(ctx, title);
-            root.post(() -> paintQuickNote(sent ? "Added \u201c" + title + "\u201d to your tasks with no date"
-                : "Saved \u201c" + title + "\u201d: it goes to your tasks once your PC is in reach"));
+            root.post(() -> paintQuickNote(sent ? "Added \u201c" + title + "\u201d to Onyx's inbox (the tray by the date)"
+                : "Saved \u201c" + title + "\u201d: it goes to Onyx's inbox once your PC is in reach"));
         }, "onyx-quick-add").start();
     }
 

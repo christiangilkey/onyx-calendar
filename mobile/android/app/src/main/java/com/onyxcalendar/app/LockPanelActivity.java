@@ -299,13 +299,33 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
             }
         });
 
+        // The keyboard: the list ends above it (the Unlock pill steps aside while typing), and the box being
+        // typed in, with the line under it that says what happened, scrolls up into sight.
         ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
             Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+            Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime());
+            boolean typing = ime.bottom > bars.bottom;
             content.setPadding(dp(16) + bars.left, bars.top + dp(36), dp(16) + bars.right, dp(12));
-            column.setPadding(0, 0, 0, bars.bottom + dp(18));
+            column.setPadding(0, 0, 0, typing ? ime.bottom + dp(8) : bars.bottom + dp(18));
+            unlock.setVisibility(typing ? View.GONE : View.VISIBLE);
+            if (typing) scroll.post(() -> showTyping(scroll));
             return WindowInsetsCompat.CONSUMED;
         });
         return root;
+    }
+
+    /** Scrolls the list so the focused box's card sits whole just above the keyboard. */
+    private void showTyping(ScrollView scroll) {
+        View f = scroll.findFocus();
+        if (f == null) return;
+        View card = f.getParent() instanceof View && ((View) f.getParent()).getParent() instanceof View ? (View) ((View) f.getParent()).getParent() : f; // box → its row → the card
+        android.graphics.Rect r = new android.graphics.Rect();
+        card.getDrawingRect(r);
+        scroll.offsetDescendantRectToMyCoords(card, r);
+        int visible = scroll.getHeight() - scroll.getPaddingTop() - scroll.getPaddingBottom();
+        // Its bottom just above the keyboard; a card taller than the space left shows from its top.
+        int target = Math.max(0, Math.min(r.bottom + dp(12) - visible, r.top - dp(12)));
+        if (target > scroll.getScrollY()) scroll.smoothScrollTo(0, target);
     }
 
     /** The panel, and the screen around it: in Hyperfocus the scene takes the clock's place on a deeper background. */

@@ -17,6 +17,7 @@
     x: '<path d="M6 6l12 12M18 6L6 18"/>',
     trash: '<path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13"/>',
     check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+    inbox: '<path d="M4 13.5l2.3-6.9A2.3 2.3 0 0 1 8.5 5h7a2.3 2.3 0 0 1 2.2 1.6l2.3 6.9V17.7A2.3 2.3 0 0 1 17.7 20H6.3A2.3 2.3 0 0 1 4 17.7z"/><path d="M4 13.5h4.6l1.3 2.2h4.2l1.3-2.2H20"/>',
     undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
     sparkles: '<path d="M10 3l1.7 4.6L16.5 9.3l-4.8 1.7L10 15.6 8.3 11 3.5 9.3l4.8-1.7z"/><path d="M18 14l.9 2.1 2.1.9-2.1.9L18 20l-.9-2.1-2.1-.9 2.1-.9z"/>',
     car: '<path d="M5 16.5V12l1.8-4.6A1.5 1.5 0 0 1 8.2 6.5h7.6a1.5 1.5 0 0 1 1.4.9L19 12v4.5"/><path d="M4 16.5h16M5 12h14"/><circle cx="8" cy="16.5" r="1.7"/><circle cx="16" cy="16.5" r="1.7"/>',
@@ -3939,7 +3940,7 @@
   let inboxIds = [];
   let inboxKnown = null; // the ones seen so far, to say when a new one arrives
   const inboxTasks = () => inboxIds.map((id) => tasks.find((t) => t.id === id)).filter(Boolean);
-  const FROM_NAME = { mcp: 'another app', tamkeen: 'Tamkeen' };
+  const FROM_NAME = { mcp: 'another app', tamkeen: 'Tamkeen', lock: 'your lock screen' };
   const appName = (from) => FROM_NAME[from] || String(from || 'another app').replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase());
   const sourceName = (t) => (t?.from ? appName(t.from)
     : t?.provider === 'microsoft' ? 'Microsoft To Do' : t?.provider === 'google' ? 'Google Tasks' : t?.listName || 'another app');
@@ -3951,6 +3952,11 @@
     paintInboxBadge();
     if (!fresh.length || !$('#modal').hidden) return; // the open Magic add window shows them itself
     const first = tasks.find((t) => t.id === fresh[0]);
+    // Notes from the lock screen go to the inbox by the date: the toast points there.
+    if (fresh.every((id) => tasks.find((t) => t.id === id)?.from === 'lock')) {
+      toast(fresh.length === 1 ? `In your inbox: "${first?.label || first?.title}"` : `${fresh.length} new notes in your inbox`, '', { label: 'Open', run: openLockInbox });
+      return;
+    }
     // Plan opens the day they were sent for (a day still to come), when they share one.
     const when = first?.date && first.date >= ymd(new Date()) && fresh.every((id) => tasks.find((t) => t.id === id)?.date === first.date) ? first.date : null;
     toast(fresh.length === 1 ? `New from ${sourceName(first)}: "${first?.label || first?.title}"` : `${fresh.length} new tasks from other apps`, '',
@@ -3965,6 +3971,56 @@
       el.classList.toggle('has-inbox', n > 0);
       if (n) el.append(h('span', { class: 'magic-count', title: `${n} task${n > 1 ? 's' : ''} from other apps waiting to be planned` }, n));
     }
+    paintLockInbox();
+  }
+
+  // ---- the inbox by the date: notes typed on the phone's lock screen (WidgetData.quickTask), each waiting
+  // there until it is planned into a day, ticked off or cleared. Each is also a task with no date.
+  const lockNotes = () => inboxTasks().filter((t) => t.from === 'lock' && !t.done);
+  let lockInboxOpen = false;
+  function paintLockInbox() {
+    const b = $('#inbox-btn');
+    if (!b) return;
+    const n = lockNotes().length;
+    b.querySelector('.inbox-count')?.remove();
+    b.classList.toggle('has', n > 0);
+    b.title = n ? `Inbox: ${n} ${n === 1 ? 'note' : 'notes'} from your lock screen` : 'Inbox: notes from your lock screen';
+    b.setAttribute('aria-label', b.title);
+    if (n) b.append(h('span', { class: 'inbox-count' }, n > 9 ? '9+' : String(n)));
+    if (lockInboxOpen) drawLockInbox();
+  }
+  function openLockInbox() {
+    lockInboxOpen = true;
+    drawLockInbox();
+  }
+  function drawLockInbox() {
+    const notes = lockNotes();
+    const gone = (t) => { inboxIds = inboxIds.filter((id) => id !== t.id); paintInboxBadge(); };
+    const row = (t) => {
+      const busy = (on) => { for (const b of r.querySelectorAll('button')) b.disabled = on; };
+      const r = h('div', { class: 'linbox-row' },
+        h('button', { type: 'button', class: 'linbox-text', title: 'Open it', onclick: (e) => { const a = e.currentTarget.getBoundingClientRect(); lockInboxOpen = false; closePopover(); openTask(t, a); } },
+          h('span', { class: 'linbox-title' }, t.label || t.title), h('span', { class: 'linbox-from' }, t.listName ? `Lock screen · ${t.listName}` : 'Lock screen')),
+        h('div', { class: 'linbox-acts' },
+          h('button', { type: 'button', class: 'btn small primary', title: 'Fit it into a day with Magic add', onclick: () => { lockInboxOpen = false; closePopover(); openMagic({ pick: [t.id], tab: 'apps' }); } }, icon('sparkles'), 'Plan'),
+          h('button', { type: 'button', class: 'btn small', title: 'Tick it off', onclick: async () => {
+            busy(true);
+            if (await completeTask(tasks.find((x) => x.id === t.id) || t)) gone(t); else busy(false);
+          } }, icon('check'), 'Done'),
+          h('button', { type: 'button', class: 'btn small ghost', title: 'Out of the inbox; it stays in your tasks with no date', onclick: async () => {
+            busy(true);
+            try { await onyx.dismissInbox(t.id); gone(t); } catch (err) { busy(false); fail(err); }
+          } }, 'Clear')));
+      return r;
+    };
+    const anchor = $('#inbox-btn').getBoundingClientRect();
+    showPopover(anchor, [
+      h('div', { class: 'linbox-head' }, h('h3', null, icon('inbox'), 'Inbox'), notes.length > 0 && h('span', { class: 'linbox-n' }, `${notes.length} from your lock screen`)),
+      notes.length
+        ? h('div', { class: 'linbox-list' }, ...notes.map(row))
+        : h('p', { class: 'linbox-empty' }, 'Nothing waiting. What you type on the lock screen lands here, ready to plan into a day.'),
+    ], () => { lockInboxOpen = false; });
+    lockInboxOpen = true; // (drawn again in place: the old one's closing said otherwise)
   }
 
   async function loadGoals() {
@@ -10406,6 +10462,9 @@
     watchGlobeDrops();
     $('#undo-btn').append(icon('undo'));
     $('#undo-btn').onclick = undoLast;
+    $('#inbox-btn').append(icon('inbox'));
+    $('#inbox-btn').onclick = (e) => { e.stopPropagation(); if (lockInboxOpen) { lockInboxOpen = false; closePopover(); } else openLockInbox(); };
+    paintLockInbox();
     $('#archive-prev').append(icon('left'));
     $('#archive-next').append(icon('right'));
     $('#update-btn').append(icon('update'));

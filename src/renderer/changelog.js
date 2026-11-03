@@ -2,11 +2,19 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
-  "version": "1.97.1",
+  "version": "1.98.0",
   "date": "2026-11-03",
-  "title": "Changes for the PC wait for it",
+  "title": "An inbox for your lock screen notes",
   "items": [
    "Small fixes"
+  ]
+ },
+ {
+  "version": "1.97.1",
+  "date": "2026-11-02",
+  "title": "Changes for the PC wait for it (1.97.1)",
+  "items": [
+   "Changes for the PC wait for it (1.97.1)"
   ]
  },
  {

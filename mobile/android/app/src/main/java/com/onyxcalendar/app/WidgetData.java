@@ -175,7 +175,8 @@ final class WidgetData {
             if (o == null) continue;
             if (!reach) { left.put(o); continue; }
             try {
-                rpc(ctx, "task:create", new JSONArray().put(new JSONObject().put("title", o.optString("title"))), o.optString("op"));
+                // Marked as from the lock screen: it waits in the app's inbox (the tray by the date) until it is dealt with.
+                rpc(ctx, "task:create", new JSONArray().put(new JSONObject().put("title", o.optString("title")).put("inbox", "lock")), o.optString("op"));
             } catch (IllegalStateException refused) {
                 reach = false; // this phone is no longer paired: kept for when it is again
                 left.put(o);

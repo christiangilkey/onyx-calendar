@@ -2,11 +2,17 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.97.1 · Changes for the PC wait for it
+## 1.98.0 · An inbox for your lock screen notes
 
 _2026-11-03_
 
 - Small fixes
+
+## 1.97.1 · Changes for the PC wait for it (1.97.1)
+
+_2026-11-02_
+
+- Changes for the PC wait for it (1.97.1)
 
 ## 1.97.0 · Side-by-side blocks, and the phone without the PC (1.97.0)
 

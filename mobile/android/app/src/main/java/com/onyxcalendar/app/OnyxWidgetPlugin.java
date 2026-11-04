@@ -171,13 +171,14 @@ public class OnyxWidgetPlugin extends Plugin {
         call.resolve();
     }
 
-    // ---- the lock screen editor: the panel's layout (LockLayout) and your shortcuts on it (LockShortcuts)
+    // ---- each screen's editor (the lock screen's, Onyx Home's): its layout (LockLayout) and your shortcuts on it (LockShortcuts)
 
-    private JSObject lockSetup() {
+    private JSObject lockSetup(String screen) {
         JSObject o = new JSObject();
         try {
-            o.put("layout", LockLayout.get(getContext()));
-            o.put("shortcuts", LockShortcuts.list(getContext()));
+            o.put("screen", screen);
+            o.put("layout", LockLayout.get(getContext(), screen));
+            o.put("shortcuts", LockShortcuts.list(getContext(), screen));
             o.put("max", LockShortcuts.MAX);
         } catch (Exception ignored) {
             // plain values
@@ -185,18 +186,22 @@ public class OnyxWidgetPlugin extends Plugin {
         return o;
     }
 
-    /** { layout, shortcuts, max }. */
+    /** { screen, layout, shortcuts, max } for { screen: "lock" (the default) | "home" }. */
     @PluginMethod
     public void lockSetup(PluginCall call) {
-        call.resolve(lockSetup());
+        call.resolve(lockSetup(LockLayout.screen(call.getString("screen", LockLayout.LOCK))));
     }
 
-    /** Saves either or both ({ layout?, shortcuts? }); the panel shows them the next time the screen turns on. */
+    /**
+     * Saves either or both ({ screen?, layout?, shortcuts? }): the lock screen shows them the next time it
+     * turns on, Onyx Home the next time it comes to the front.
+     */
     @PluginMethod
     public void setLockSetup(PluginCall call) {
-        if (call.hasOption("layout")) LockLayout.save(getContext(), call.getObject("layout"));
-        if (call.hasOption("shortcuts")) LockShortcuts.save(getContext(), call.getArray("shortcuts"));
-        call.resolve(lockSetup());
+        String screen = LockLayout.screen(call.getString("screen", LockLayout.LOCK));
+        if (call.hasOption("layout")) LockLayout.save(getContext(), screen, call.getObject("layout"));
+        if (call.hasOption("shortcuts")) LockShortcuts.save(getContext(), screen, call.getArray("shortcuts"));
+        call.resolve(lockSetup(screen));
     }
 
     /** The apps a shortcut can open: { apps: [{ pkg, label }] }. */

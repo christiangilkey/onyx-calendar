@@ -609,6 +609,27 @@
     cloudShowCode: async () => 'K7QM-4XPA-RT9C-WD2H',
   cloudHandoff: async () => 'T05YMWV4YW1wbGUtc2V0dXA',
     cloudOff: async () => { state.desktops.cloud = mockCloud('off'); return structuredClone(state.desktops); },
+    // The phone's own screens (?launcher): Home & lock screen, with a layout per screen as the app keeps them (LockLayout).
+    launcher: new URLSearchParams(location.search).has('launcher') ? (() => {
+      const info = { show: 'lock', isHome: false, notifications: true, overlay: false, notiflist: false, fullScreen: true, alarm: false, cover: true, doomscroll: false, doomMinutes: 10 };
+      const screens = {
+        lock: { layout: { order: ['clock', 'onyx', 'shortcuts', 'music', 'notifications'], hidden: [], clockSize: 'large', align: 'center', date: true, dim: 80 }, shortcuts: [{ id: 's1', kind: 'link', target: 'spotify:', label: 'Spotify', icon: '🎵' }] },
+        home: { layout: { order: ['clock', 'onyx', 'shortcuts', 'widgets', 'apps'], hidden: [], clockSize: 'medium', align: 'left', date: true, dim: 0 }, shortcuts: [] },
+      };
+      const setup = (screen) => ({ screen, ...structuredClone(screens[screen]), max: 12 });
+      return {
+        info: async () => ({ ...info }),
+        set: async (show) => { info.show = show; return { ...info }; },
+        setCover: async (v) => { info.cover = v; return { ...info }; },
+        setAlarm: async (v) => { info.alarm = v; return { ...info }; },
+        open: async () => {},
+        lockSetup: async (screen = 'lock') => setup(screen),
+        setLockSetup: async (o, screen = 'lock') => { if (o.layout) screens[screen].layout = structuredClone(o.layout); if (o.shortcuts) screens[screen].shortcuts = structuredClone(o.shortcuts); return setup(screen); },
+        shortcutApps: async () => [{ pkg: 'com.spotify.music', label: 'Spotify' }],
+        pickShortcutFile: async () => ({ cancelled: true }),
+        tryShortcut: async () => {},
+      };
+    })() : undefined,
     // A paired phone asking to sync through Drive too (?phoneask): answered here.
     phoneAsks: async () => (new URLSearchParams(location.search).has('phoneask') && !window.phoneAnswered ? [{ id: 'ph-preview-01', name: 'Pixel 8', at: Date.now() - 5000 }] : []),
     answerPhone: async (id, yes) => { window.phoneAnswered = { id, yes }; return []; },

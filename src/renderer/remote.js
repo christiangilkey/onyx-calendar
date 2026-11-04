@@ -825,9 +825,9 @@
         ...(on != null ? { doomscroll: !!on } : {}), ...(minutes ? { doomMinutes: Math.round(minutes) } : {}),
         ...(off ? { doomOff: off } : {}), ...(extra ? { doomExtra: extra } : {}) }),
       previewDoomscroll: () => (Widget.doomscrollPreview ? Widget.doomscrollPreview() : Promise.resolve({ shown: false })),
-      // The lock screen editor: the panel's layout and your shortcuts on it (LockLayout, LockShortcuts).
-      lockSetup: () => (Widget.lockSetup ? Widget.lockSetup() : Promise.reject(new Error('Update the Onyx app to use this.'))),
-      setLockSetup: (o) => Widget.setLockSetup(o),
+      // Each screen's editor, 'lock' or 'home': its layout and your shortcuts on it (LockLayout, LockShortcuts).
+      lockSetup: (screen = 'lock') => (Widget.lockSetup ? Widget.lockSetup({ screen }) : Promise.reject(new Error('Update the Onyx app to use this.'))),
+      setLockSetup: (o, screen = 'lock') => Widget.setLockSetup({ ...o, screen }),
       shortcutApps: () => Widget.shortcutApps().then((r) => r.apps || []),
       pickShortcutFile: () => Widget.pickShortcutFile(),
       tryShortcut: (shortcut) => Widget.tryShortcut({ shortcut }),

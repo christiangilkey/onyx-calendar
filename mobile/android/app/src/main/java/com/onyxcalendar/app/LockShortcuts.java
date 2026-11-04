@@ -28,28 +28,42 @@ import java.util.List;
 import java.util.function.Consumer;
 
 /**
- * Your own shortcuts on the Onyx panel over the lock screen, set in the app (Settings, Home and lock screen):
+ * Your own shortcuts on the Onyx panel over the lock screen, and on Onyx Home, set in the app (Settings, Home
+ * and lock screen), a list for each screen:
  * each a name, an icon (an emoji, or the app's own) and what it opens: a link (a web page, or an app's own
  * link such as spotify: or tel:), an app, or a file picked on the phone. A tap unlocks and opens it.
- * Kept on the phone as a list, in the order they show.
+ * Kept on the phone as a list per screen, in the order they show. The home screen starts with none.
  */
 final class LockShortcuts {
     static final int MAX = 12;
-    private static final String KEY = "shortcuts";
+    private static final String KEY = "shortcuts", HOME_KEY = "homeShortcuts";
 
     private LockShortcuts() {}
 
-    /** The list as saved: [{ id, label, icon, kind: link | app | file, target, name?, type? }]. */
+    private static String key(String screen) {
+        return LockLayout.HOME.equals(screen) ? HOME_KEY : KEY;
+    }
+
+    /** The lock screen's list. */
     static JSONArray list(Context ctx) {
+        return list(ctx, LockLayout.LOCK);
+    }
+
+    /** That screen's list as saved: [{ id, label, icon, kind: link | app | file, target, name?, type? }]. */
+    static JSONArray list(Context ctx, String screen) {
         try {
-            return new JSONArray(LauncherData.prefs(ctx).getString(KEY, "[]"));
+            return new JSONArray(LauncherData.prefs(ctx).getString(key(screen), "[]"));
         } catch (Exception e) {
             return new JSONArray();
         }
     }
 
-    /** Keeps the ones that make sense, in their order, at most MAX. */
     static JSONArray save(Context ctx, JSONArray in) {
+        return save(ctx, LockLayout.LOCK, in);
+    }
+
+    /** Keeps the ones that make sense, in their order, at most MAX, for that screen. */
+    static JSONArray save(Context ctx, String screen, JSONArray in) {
         JSONArray out = new JSONArray();
         for (int i = 0; in != null && i < in.length() && out.length() < MAX; i++) {
             JSONObject s = in.optJSONObject(i);
@@ -71,7 +85,7 @@ final class LockShortcuts {
                 // one bad entry is left out
             }
         }
-        LauncherData.prefs(ctx).edit().putString(KEY, out.toString()).apply();
+        LauncherData.prefs(ctx).edit().putString(key(screen), out.toString()).apply();
         return out;
     }
 
@@ -175,7 +189,12 @@ final class LockShortcuts {
      * given what to open once the phone is unlocked. Empty (and gone) with none set.
      */
     static View row(Activity a, Consumer<JSONObject> open) {
-        JSONArray list = list(a);
+        return row(a, LockLayout.LOCK, open);
+    }
+
+    /** The same for that screen (Onyx Home has its own list). */
+    static View row(Activity a, String screen, Consumer<JSONObject> open) {
+        JSONArray list = list(a, screen);
         HorizontalScrollView scroll = new HorizontalScrollView(a);
         scroll.setHorizontalScrollBarEnabled(false);
         scroll.setVisibility(list.length() == 0 ? View.GONE : View.VISIBLE);

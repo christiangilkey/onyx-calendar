@@ -65,6 +65,9 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.text.Collator;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -77,8 +80,9 @@ import java.util.concurrent.Executors;
 
 /**
  * Onyx Home: a plain home screen with Onyx on it. The clock, then (when Onyx shows on the
- * home screen) what is on now and next, the Pi's calls, goals and today; widgets; the apps
- * pinned to the home screen; and a dock. Swipe up (or tap the handle) for every app, with
+ * home screen) what is on now and next, the Pi's calls, goals and today; your shortcuts;
+ * widgets; the apps pinned to the home screen (in the order and with the look set in the app:
+ * the home screen's LockLayout); and a dock. Swipe up (or tap the handle) for every app, with
  * search; swipe down for notifications; hold an app for its shortcuts and options, or an
  * empty spot for the home screen's own (wallpaper, widgets, where Onyx shows).
  */
@@ -99,7 +103,10 @@ public class LauncherActivity extends Activity implements OnyxPanel.Host {
     private final Map<String, App> byKey = new HashMap<>();
 
     private ScrollView scroll;
-    private LinearLayout content, panelBox, widgetsBox, homeGrid, dock, dockBar;
+    private LinearLayout content, topBox, clockPart, panelBox, shortcutsPart, widgetsBox, homeGrid, dock, dockBar;
+    private JSONObject layout; // the home screen's (LockLayout), as last put in place
+    private String layoutKey = "";
+    private boolean clockOff, showDate = true;
     private FrameLayout drawer;
     private EditText search;
     private GridView drawerGrid;
@@ -189,6 +196,7 @@ public class LauncherActivity extends Activity implements OnyxPanel.Host {
     protected void onResume() {
         super.onResume();
         resumed = true;
+        applyLayout(); // changed in the app meanwhile?
         showPanel();
         scene.resume();
         if (System.currentTimeMillis() - lastFetch > 60_000) fetch();
@@ -266,16 +274,26 @@ public class LauncherActivity extends Activity implements OnyxPanel.Host {
         content.setOnLongClickListener(v -> { homeMenu(); return true; });
         scroll.addView(content, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
+        // The Pi's call, above everything, wherever the rest goes.
+        panel = new OnyxPanel(this, this, false);
+        topBox = new LinearLayout(this);
+        topBox.setOrientation(LinearLayout.VERTICAL);
+        topBox.addView(panel.top);
+        content.addView(topBox);
+
+        // Its parts, in the order (and with the look) set in the app (Settings, Home and lock screen: the home
+        // screen's LockLayout). applyLayout puts them in place, now and each time Onyx Home comes back.
+        clockPart = new LinearLayout(this);
+        clockPart.setOrientation(LinearLayout.VERTICAL);
         TextClock clock = new TextClock(this);
         clockView = clock;
         clock.setFormat12Hour("h:mm");
         clock.setFormat24Hour("H:mm");
-        clock.setTextSize(TypedValue.COMPLEX_UNIT_SP, 64);
         clock.setTextColor(Color.WHITE);
         clock.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
         clock.setShadowLayer(dp(6), 0, 0, 0x66000000);
         clock.setOnClickListener(v -> openClock());
-        content.addView(clock);
+        clockPart.addView(clock, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextClock date = new TextClock(this);
         date.setFormat12Hour("EEEE, MMMM d");
@@ -285,26 +303,25 @@ public class LauncherActivity extends Activity implements OnyxPanel.Host {
         date.setShadowLayer(dp(4), 0, 0, 0x66000000);
         date.setPadding(dp(2), 0, 0, dp(18));
         date.setOnClickListener(v -> openOnyx(null));
-        content.addView(date);
+        clockPart.addView(date, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         dateView = date;
+        scene = new FocusScene(this, false, v -> openOnyx(null));
+        clockPart.addView(scene.root); // Hyperfocus takes the clock's place
 
         panelBox = new LinearLayout(this);
         panelBox.setOrientation(LinearLayout.VERTICAL);
-        content.addView(panelBox);
-        panel = new OnyxPanel(this, this, false);
-        panelBox.addView(panel.top); // the Pi's call, above everything
-        scene = new FocusScene(this, false, v -> openOnyx(null));
-        panelBox.addView(scene.root);
         panelBox.addView(panel.root);
+
+        shortcutsPart = new LinearLayout(this);
+        shortcutsPart.setOrientation(LinearLayout.VERTICAL);
 
         widgetsBox = new LinearLayout(this);
         widgetsBox.setOrientation(LinearLayout.VERTICAL);
-        content.addView(widgetsBox);
 
         homeGrid = new LinearLayout(this);
         homeGrid.setOrientation(LinearLayout.VERTICAL);
         homeGrid.setPadding(0, dp(8), 0, 0);
-        content.addView(homeGrid);
+        applyLayout();
 
         // The handle for the app drawer, then the dock.
         dockBar = new LinearLayout(this);
@@ -450,14 +467,61 @@ public class LauncherActivity extends Activity implements OnyxPanel.Host {
 
     private void showPanel() {
         boolean on = LauncherData.onHome(this);
-        panelBox.setVisibility(on ? View.VISIBLE : View.GONE);
+        topBox.setVisibility(on ? View.VISIBLE : View.GONE);
+        panelBox.setVisibility(on && LockLayout.shows(layout, "onyx") ? View.VISIBLE : View.GONE);
         if (on) panel.render();
         // Hyperfocus: the scene takes the clock's place, over a deep backdrop that quiets the wallpaper.
         LauncherData.Focus f = on ? LauncherData.focus(this) : null;
         scene.show(f);
-        clockView.setVisibility(f != null ? View.GONE : View.VISIBLE);
-        dateView.setVisibility(f != null ? View.GONE : View.VISIBLE);
-        homeRoot.setBackgroundColor(f != null ? FocusScene.BACKDROP : Color.TRANSPARENT);
+        clockView.setVisibility(f != null || clockOff ? View.GONE : View.VISIBLE);
+        dateView.setVisibility(f != null || clockOff || !showDate ? View.GONE : View.VISIBLE);
+        homeRoot.setBackgroundColor(f != null ? FocusScene.BACKDROP : LockLayout.backdrop(layout));
+    }
+
+    /**
+     * The home screen's layout (LockLayout, home), set in the app: its parts in their order (each shown or
+     * not), the clock's size and side, the date, how dark the wallpaper is, and its own shortcuts. Read again
+     * each time Onyx Home comes to the front, so a change made in the app shows straight away.
+     */
+    private void applyLayout() {
+        JSONObject l = LockLayout.get(this, LockLayout.HOME);
+        String key = l.toString() + LockShortcuts.list(this, LockLayout.HOME);
+        if (key.equals(layoutKey)) return;
+        layoutKey = key;
+        layout = l;
+        int gravity = "left".equals(l.optString("align")) ? Gravity.START : Gravity.CENTER_HORIZONTAL;
+        TextView clock = (TextView) clockView;
+        clock.setTextSize(TypedValue.COMPLEX_UNIT_SP, LockLayout.clockSp(l));
+        clock.setGravity(gravity);
+        ((TextView) dateView).setGravity(gravity);
+
+        shortcutsPart.removeAllViews();
+        View row = LockShortcuts.row(this, LockLayout.HOME, (s) -> {
+            if (!LockShortcuts.open(this, s)) Toast.makeText(this, "Nothing on this phone can open " + LockShortcuts.labelOf(s) + ".", Toast.LENGTH_LONG).show();
+        });
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rp.gravity = gravity;
+        rp.bottomMargin = dp(12);
+        shortcutsPart.addView(row, rp);
+
+        Map<String, View> parts = new HashMap<>();
+        parts.put("clock", clockPart);
+        parts.put("onyx", panelBox);
+        parts.put("shortcuts", shortcutsPart);
+        parts.put("widgets", widgetsBox);
+        parts.put("apps", homeGrid);
+        for (View p : parts.values()) content.removeView(p);
+        int at = content.indexOfChild(topBox) + 1;
+        JSONArray order = l.optJSONArray("order");
+        for (int i = 0; order != null && i < order.length(); i++) {
+            View p = parts.get(order.optString(i));
+            if (p != null && p.getParent() == null) content.addView(p, at++);
+        }
+        clockOff = !LockLayout.shows(l, "clock");
+        showDate = l.optBoolean("date", true);
+        shortcutsPart.setVisibility(LockLayout.shows(l, "shortcuts") ? View.VISIBLE : View.GONE);
+        widgetsBox.setVisibility(LockLayout.shows(l, "widgets") ? View.VISIBLE : View.GONE);
+        homeGrid.setVisibility(LockLayout.shows(l, "apps") ? View.VISIBLE : View.GONE);
     }
 
     @Override

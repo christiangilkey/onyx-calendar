@@ -2,9 +2,20 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
-  "version": "1.102.0",
+  "version": "1.103.0",
   "date": "2026-11-04",
-  "title": "Sync through Google Drive is on by default",
+  "title": "Home and lock screen, each with its own editor",
+  "items": [
+   "Settings: Home & lock screen and the lock screen editor are one page now, with a Lock screen and a Home screen tab at the top",
+   "Each screen has its own switch in place of \"Where should Onyx show?\", and its own setup steps",
+   "Each screen has its own editor: what shows and in what order, clock size, side, the date, the background and its own shortcuts",
+   "Onyx Home follows its editor too, and can show shortcuts of its own. It starts as it looks today, and your lock screen keeps its layout"
+  ]
+ },
+ {
+  "version": "1.102.0",
+  "date": "2026-11-03",
+  "title": "Sync through Google Drive is on by default (1.102.0)",
   "items": [
    "Drive sync turns itself on with your Google account, on new installs and on this update. Turn it off any time in Settings → Desktops, and it stays off",
    "A paired phone sets itself up to sync through Google too, with no code to type: the next time it reaches your PC, Onyx on the PC asks you once to allow it",

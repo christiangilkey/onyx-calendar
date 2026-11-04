@@ -3061,3 +3061,12 @@ body.mobile .set-at-home.set-back { animation: set-back .2s cubic-bezier(.2, .8,
 .standalone-auto { background: color-mix(in srgb, var(--accent) 12%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); border-radius: 10px; padding: 10px 12px; line-height: 1.5; }
 .standalone-auto .btn { margin-top: 6px; }
 #ask-dialog .pop-actions { flex-wrap: wrap; }
+/* Home & lock screen: the screen picked at the top, and Onyx Home's picture (apps, widgets, a dock). */
+.ls-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+.ls-tab { align-items: center; text-align: center; }
+.lp-phone.home .lp-inner { bottom: 56px; }
+.lp-widget { min-height: 30px; }
+.lp-apps { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; padding: 4px 6px; }
+.lp-apps span, .lp-dock span { aspect-ratio: 1; border-radius: 8px; background: rgba(255,255,255,.22); }
+.lp-dock { position: absolute; left: 10px; right: 10px; bottom: 8px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; padding: 5px 8px; border-radius: 14px; background: rgba(0,0,0,.3); }
+.le-note { color: var(--muted); font-size: 11.5px; white-space: nowrap; }

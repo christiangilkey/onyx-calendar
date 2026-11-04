@@ -182,6 +182,9 @@ const handlers = {
   // For the phone (or Onyx in a browser) to work while the PC is off: the Drive sync account's sign-in,
   // locked with the sync code, which is typed on the phone (cloud.js handoff, src/engine).
   'phone:handoff': () => require('./cloud').handoff(),
+  // The same with no code to type: the phone asks with a key of its own, you allow it once on the PC,
+  // and the hand-off and the code come back locked to that key (phone-setup.js; the answer is the PC's alone).
+  'phone:setup': (req) => require('./phone-setup').request(req),
   // Breakdown (the hammer): a task split into steps, 1 (broad) to 5 (micro-steps).
   'ai:breakdown': (title, opts) => ai.breakdown(title, opts),
   // The same with lengths, laid out in the time it has (and a realistic timeline when that is too little).

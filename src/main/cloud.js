@@ -6,6 +6,8 @@
 //
 // The sync code is made on the first PC and typed once on each other one. The files
 // hold sign-ins and keys, so without the code they are unreadable, even to Google.
+// On by default: it turns itself on with the first Google account (auto), and a paired
+// phone sets itself up to sync this way too, with your OK on the PC (phone-setup.js).
 
 const crypto = require('crypto');
 const os = require('os');
@@ -142,6 +144,7 @@ function createCloud({ getData, save, replica, driveFor, notify = () => {}, adop
     return {
       on: !!c.on, state: c.on ? c.state || 'working' : 'off', error: c.on ? c.error || '' : '',
       account: c.account || '', accounts: googleLabels(), last: c.last || null, hasCode: !!secrets().cloudCode,
+      ask: !c.on && !c.off ? c.ask || '' : '', // a Google sign-in from before Drive sync: Google's OK is asked for once
       peers: Object.entries(c.peers).map(([id, p]) => ({ id, name: p.name || 'Desktop', seen: p.seen || null, online: !!p.seen && t - p.seen < ONLINE_MS })),
     };
   }
@@ -276,9 +279,35 @@ function createCloud({ getData, save, replica, driveFor, notify = () => {}, adop
     if (!googleLabels().includes(account)) throw new Error('Choose one of your Google accounts.');
     if (c.on && c.account !== account) Object.assign(c, { joined: false, file: null, sent: null, peers: {} });
     Object.assign(c, { on: true, account, state: 'working', error: '' });
+    delete c.off;
+    delete c.ask;
     save();
     await sync();
     return info();
+  }
+
+  /**
+   * On by default: with a Google account signed in here, Drive sync turns itself on, unless it was
+   * turned off here. Its account: one Google agreed to Drive for (or that says nothing either way).
+   * A sign-in from before Onyx asked for Drive is not tried (Google would say no every round): it is
+   * kept in `ask`, and the window asks once for Google's OK. Resolves to whether it turned on.
+   */
+  async function auto() {
+    const c = cfg();
+    if (c.on || c.off) return false;
+    const google = (getData().accounts || []).filter((a) => a.provider === 'google');
+    if (!google.length) return false;
+    const granted = (a) => secrets().tokens?.[a.id]?.granted;
+    const pick = google.find((a) => /drive\.appdata/.test(granted(a) || '')) || (!c.ask && google.find((a) => !granted(a)));
+    if (!pick) {
+      if (c.ask !== google[0].label) { c.ask = google[0].label; save(); }
+      return false;
+    }
+    await enable(pick.label);
+    if (cfg().state !== 'needs-permission') return true;
+    replica.meta().cloud = { on: false, ask: pick.label }; // not on after all: asked for once instead
+    save();
+    return false;
   }
 
   /** The code from another PC: opens their files, and this PC joins them. */
@@ -302,13 +331,13 @@ function createCloud({ getData, save, replica, driveFor, notify = () => {}, adop
     return info();
   }
 
-  /** Stops syncing through Drive. This PC keeps what it has; its file is taken out. */
+  /** Stops syncing through Drive. This PC keeps what it has; its file is taken out. Off stays off (auto). */
   async function disable() {
     const c = cfg();
     if (c.on && c.file && c.account && googleLabels().includes(c.account)) {
       try { await driveFor(c.account).remove(c.file); } catch { /* gone already, or offline */ }
     }
-    replica.meta().cloud = { on: false };
+    replica.meta().cloud = { on: false, off: true };
     const s = secrets();
     delete s.cloudKey; // the code stays, shared, for turning it back on
     save();
@@ -346,7 +375,7 @@ function createCloud({ getData, save, replica, driveFor, notify = () => {}, adop
     return Buffer.from(box1).toString('base64url');
   }
 
-  return { info, seen, sync, enable, enterCode, disable, forget, code, on, handoff };
+  return { info, seen, sync, enable, auto, enterCode, disable, forget, code, on, handoff };
 }
 
 // ---------------------------------------------------------------- this PC
@@ -377,12 +406,36 @@ function get() {
   return instance;
 }
 
+let autoRun = null;
+let onAuto = () => {};
+/**
+ * Drive sync turning itself on (auto), tried at start, with each check while it is off, and after a
+ * Google sign-in. Linked desktops leave the first go to the one that leads: the code it makes reaches
+ * the others over the link, and they join with it (two PCs making a code each would lock each other out).
+ */
+function autoOn() {
+  autoRun ??= (async () => {
+    try {
+      const s = require('./store').data.secrets;
+      if (s.group && !s.cloudCode && !require('./sync').leads()) return false;
+      const turned = await get().auto();
+      if (turned) onAuto(get().info());
+      return turned;
+    } catch {
+      return false;
+    } finally {
+      autoRun = null;
+    }
+  })();
+  return autoRun;
+}
+
 /** Starts the regular checks (sync.start calls this). */
 function start() {
   if (timer) return;
-  timer = setInterval(() => { if (get().on()) get().sync(); }, POLL_MS);
+  timer = setInterval(() => { if (get().on()) get().sync(); else autoOn(); }, POLL_MS);
   timer.unref?.();
-  if (get().on()) get().sync();
+  if (get().on()) get().sync(); else autoOn();
 }
 
 /** Something changed here: send it up shortly. */
@@ -394,7 +447,9 @@ function changed() {
 }
 
 module.exports = {
-  start, changed,
+  start, changed, autoOn,
+  /** Told when Drive sync turned itself on (main.js: the window says so). */
+  onAuto: (fn) => { onAuto = fn; },
   info: () => get().info(),
   seen: () => get().seen(),
   on: () => get().on(),

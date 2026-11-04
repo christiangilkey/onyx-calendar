@@ -246,6 +246,7 @@
         if (conn.last !== address) { conn.last = address; write(CONN, conn); }
         setOnline(true);
         await flush();
+        maybeSetUp();
       } catch { /* not in reach yet */ } finally {
         probing = null;
       }
@@ -323,6 +324,7 @@
     if (name === 'events') rememberEvents(body.value.events);
     nudgeWidget(name);
     if (own) engine.active(false); // the PC answers: the engine rests (it catches up through Drive when needed)
+    else maybeSetUp(); // and a phone that doesn't work on its own yet asks to
     return overlay(name, args, body.value);
   }
 
@@ -576,6 +578,7 @@
       if (!online) throw new Error('Could not reach the PC at that address.');
       write(CONN, conn);
       syncWidget();
+      auto.next = 0; // a new pairing: asked to work on its own straight away
       return state;
     } catch (err) {
       conn = previous;
@@ -661,6 +664,87 @@
     return info;
   }
 
+  // ------------------------------------------------------------ setting itself up to work on its own
+  // A paired phone sets itself up to sync through Google Drive by itself, with no code to type, so it
+  // keeps working with the PC off or out of reach (a VPN on, another network). It asks the PC
+  // (phone:setup) with a key of its own; the PC asks you once, on its screen; then the PC's hand-off and
+  // the sync code come back locked to that key (ECDH P-256, HKDF with the pairing token as salt, AES-GCM,
+  // as phone-setup.js on the PC makes it), and the engine joins with them.
+  const SETUP = 'onyx.setup'; // { id, pub, jwk, declined }
+  const WAIT_MS = 20000;      // asked again this often while the PC waits for your OK
+  const subtle = globalThis.crypto?.subtle;
+  const ECDH = { name: 'ECDH', namedCurve: 'P-256' };
+  const utf8 = (s) => new TextEncoder().encode(String(s));
+  const toB64u = (buf) => { let s = ''; for (const b of new Uint8Array(buf)) s += String.fromCharCode(b); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+  const fromB64u = (s) => Uint8Array.from(atob(String(s).replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+  const auto = { state: '', next: 0, busy: false };
+
+  /** The phone's model, from Android's own words ("Pixel 8"); the reduced user agent says only "K". */
+  function phoneName() {
+    const model = ((globalThis.navigator?.userAgent || '').match(/Android [\d.]+; ([^;)]+?)(?: Build\/[^;)]*)?[;)]/) || [])[1]?.trim() || '';
+    return model.length > 1 ? model : 'Your phone';
+  }
+
+  /** This phone's key for asking, kept through a restart: an OK given on the PC meanwhile still fits it. */
+  async function setupKeys() {
+    const kept = read(SETUP, {});
+    if (kept.id && kept.pub && kept.jwk) {
+      try { return { kept, priv: await subtle.importKey('jwk', kept.jwk, ECDH, false, ['deriveBits']) }; } catch { /* made again */ }
+    }
+    const pair = await subtle.generateKey(ECDH, true, ['deriveBits']);
+    const next = {
+      id: kept.id || `ph-${toB64u(globalThis.crypto.getRandomValues(new Uint8Array(12)))}`,
+      pub: toB64u(await subtle.exportKey('raw', pair.publicKey)), jwk: await subtle.exportKey('jwk', pair.privateKey),
+    };
+    write(SETUP, next);
+    return { kept: next, priv: pair.privateKey };
+  }
+
+  /** What the PC sent ({ pub, box }), opened with this phone's key: { handoff, code }. */
+  async function openSetup(priv, v) {
+    const theirs = await subtle.importKey('raw', fromB64u(v.pub), ECDH, false, []);
+    const shared = await subtle.deriveBits({ name: 'ECDH', public: theirs }, priv, 256);
+    const hk = await subtle.importKey('raw', shared, 'HKDF', false, ['deriveKey']);
+    const key = await subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: utf8(conn.token), info: utf8('onyx-phone-setup-v1') }, hk, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+    const box = fromB64u(v.box);
+    const plain = await subtle.decrypt({ name: 'AES-GCM', iv: box.slice(0, 12), additionalData: utf8('onyx-phone-setup') }, key, box.slice(12));
+    return JSON.parse(new TextDecoder().decode(plain));
+  }
+
+  /**
+   * One ask of the PC, when it is in reach and this phone doesn't work on its own yet. States: 'waiting'
+   * (for your OK on the PC), 'pc-off' (the PC doesn't sync through Drive yet), 'old-pc', 'declined', 'done'.
+   */
+  async function autoSetUp() {
+    if (auto.busy || own || !conn || !online || !native || !engine || !subtle || Date.now() < auto.next) return;
+    if (read(SETUP, {}).declined) { auto.state = 'declined'; return; }
+    auto.busy = true;
+    const later = (ms, state) => { auto.next = Date.now() + ms; auto.state = state; };
+    try {
+      const { kept, priv } = await setupKeys();
+      const body = await reach('phone:setup', [{ id: kept.id, pub: kept.pub, name: phoneName() }]);
+      if (!body.ok) {
+        const old = /^Unknown command/.test(body.error || '');
+        return later(old ? 6 * 3600000 : 10 * 60000, old ? 'old-pc' : 'error');
+      }
+      const v = body.value || {};
+      if (v.declined) { write(SETUP, { ...kept, declined: true }); return later(0, 'declined'); }
+      if (v.waiting) { later(WAIT_MS, 'waiting'); setTimeout(autoSetUp, WAIT_MS + 50); return; }
+      if (!v.box) return later(5 * 60000, 'pc-off');
+      const { handoff, code } = await openSetup(priv, v);
+      await standaloneSetUp(code, handoff);
+      write(SETUP, { id: kept.id }); // the key has done its job
+      auto.state = 'done';
+      tellOutbox({ setUp: true });
+    } catch (err) {
+      later(err?.offline ? 60000 : 10 * 60000, 'error');
+    } finally {
+      auto.busy = false;
+    }
+  }
+  /** After the PC answered something: an ask, if one is due. */
+  const maybeSetUp = () => { if (!own && !auto.busy && Date.now() >= auto.next) setTimeout(autoSetUp, 0); };
+
   window.ONYX_PHONE = true;
   window.onyx = {
     isPhone: true,
@@ -673,6 +757,9 @@
     standalone: engine ? {
       info: () => engine.info(),
       setUp: (code, blob) => standaloneSetUp(code, blob),
+      // Setting itself up through the PC (no code): how far it got, and asking again after a no.
+      auto: () => ({ state: native && subtle && conn ? auto.state : '' }),
+      askAgain: () => { write(SETUP, {}); Object.assign(auto, { state: '', next: 0 }); maybeSetUp(); },
       // With no PC: Google sign-in on this device (your own Web client), then the sync code if others exist.
       redirect: () => (WEB ? `${location.origin}${location.pathname}` : WEB_APP),
       signIn: async (client) => {

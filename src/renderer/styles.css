@@ -1235,7 +1235,7 @@ body.mobile #graph-bar .grow { display: none; }
   content: ""; position: absolute; top: 5px; right: 5px; width: 8px; height: 8px; border-radius: 50%;
   background: var(--accent); box-shadow: 0 0 0 2px var(--bg), 0 0 10px var(--accent);
 }
-#update-dialog { position: fixed; inset: 0; z-index: 90; background: rgba(0,0,0,.6); backdrop-filter: blur(6px); display: grid; place-items: center; padding: 20px; }
+#update-dialog, #ask-dialog { position: fixed; inset: 0; z-index: 90; background: rgba(0,0,0,.6); backdrop-filter: blur(6px); display: grid; place-items: center; padding: 20px; }
 .upd-card {
   width: min(440px, 100%); background: #0e0e10; border: 1px solid var(--line-2); border-radius: 18px; padding: 24px;
   box-shadow: 0 30px 90px rgba(0,0,0,.9); display: flex; flex-direction: column; gap: 10px; animation: pop .16s ease-out;
@@ -3057,3 +3057,7 @@ body.mobile .set-at-home.set-back { animation: set-back .2s cubic-bezier(.2, .8,
 .nopc-how ol { padding-left: 20px; font-size: 13px; line-height: 1.5; }
 .nopc-how code, .sync-code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; background: rgba(255, 255, 255, .07); padding: 2px 6px; border-radius: 5px; word-break: break-all; user-select: all; }
 .sync-code { font-size: 15px; letter-spacing: .06em; padding: 6px 10px; }
+/* The phone setting itself up to sync through Drive (remote.js autoSetUp): how far it got. */
+.standalone-auto { background: color-mix(in srgb, var(--accent) 12%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); border-radius: 10px; padding: 10px 12px; line-height: 1.5; }
+.standalone-auto .btn { margin-top: 6px; }
+#ask-dialog .pop-actions { flex-wrap: wrap; }

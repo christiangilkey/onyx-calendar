@@ -2,9 +2,18 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.101.0 · The + button adds to the globe
+## 1.102.0 · Sync through Google Drive is on by default
 
 _2026-11-04_
+
+- Drive sync turns itself on with your Google account, on new installs and on this update. Turn it off any time in Settings → Desktops, and it stays off
+- A paired phone sets itself up to sync through Google too, with no code to type: the next time it reaches your PC, Onyx on the PC asks you once to allow it
+- After that the phone syncs blocks and tasks whenever it has internet, with a VPN on, on another network, or with the PC off
+- A Google sign-in from before Drive sync asks once for Google's OK
+
+## 1.101.0 · The + button adds a node on the globe (1.101.0)
+
+_2026-11-03_
 
 - On the globe, the + button (and the N key) adds a new node instead of a calendar block: a task, a note, a goal, a Notion page, a Drive file, a link or a file
 - New: add a task right from the globe, with its tags and an optional due date

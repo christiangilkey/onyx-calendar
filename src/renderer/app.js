@@ -7796,8 +7796,18 @@
           }
         } }, 'Turn on');
         code.addEventListener('keydown', (e) => { if (e.key === 'Enter') go.click(); });
-        box.replaceChildren(title('Off'),
+        // Setting itself up through the PC (remote.js autoSetUp): how far it got.
+        const auto = onyx.standalone.auto?.()?.state || '';
+        const autoLine = {
+          waiting: h('p', { class: 'standalone-auto' }, h('b', null, 'Waiting for your OK on the PC. '), 'Onyx on your PC asks whether this phone may sync through Google Drive: choose Allow there.'),
+          'pc-off': h('p', { class: 'standalone-auto' }, 'This turns on by itself once your PC syncs through Google Drive (Settings → Desktops on the PC).'),
+          'old-pc': h('p', { class: 'standalone-auto' }, 'Update Onyx on your PC: newer versions set this phone up by themselves.'),
+          declined: h('p', { class: 'standalone-auto' }, 'Your PC said no to this phone. ',
+            h('button', { class: 'btn ghost', onclick: () => { onyx.standalone.askAgain(); toast('Asked again: choose Allow in Onyx on your PC.'); openSettings('connection'); } }, 'Ask the PC again')),
+        }[auto];
+        box.replaceChildren(title(auto === 'waiting' ? 'Waiting for the PC' : 'Off'),
           h('p', null, 'With this on, the calendar stays live on this phone while your PC is off or out of reach. Add, move and tick off blocks as usual: they reach your PC through Google Drive.'),
+          autoLine || (!onyx.isWeb && onyx.connection?.()?.addresses?.length > 0 && h('p', { class: 'hint' }, 'This sets itself up while the phone can reach your PC: Onyx on the PC asks you once to allow it. Or set it up by hand:')),
           h('ol', { class: 'standalone-steps' },
             h('li', null, 'On the PC: Settings → Desktops. Turn on Sync through Google Drive, then tap Show sync code.'),
             h('li', null, 'Type that code here. The PC needs to be in reach for this one step.')),
@@ -8563,7 +8573,7 @@
         // With Drive sync on, the phone can carry on while the PCs are off, and Onyx works in a browser too.
         const away = c.on && c.state === 'ok' && h('div', { class: 'card away-card' },
           h('h4', null, 'Your phone, with your PCs off'),
-          h('p', null, 'The phone can keep working while every PC is off: on the phone, open Settings → Connection → Work without the PC, and type the sync code (Show sync code, above).'),
+          h('p', null, 'A paired phone sets this up by itself, so it keeps working while every PC is off: the next time it reaches this PC, Onyx asks you here to allow it. Or, on the phone, open Settings → Connection → Work without the PC, and type the sync code (Show sync code, above).'),
           WEB_APP && [
             h('h4', null, 'Onyx on the web'),
             h('p', null, 'Your calendar in any browser, with no PC on. Copy the setup link, open it in that browser, and type the sync code there.'),
@@ -10453,6 +10463,64 @@
     box.hidden = false;
   }
 
+  // ---- Sync through Google Drive, on by default (cloud.js auto, phone-setup.js): asked here, on the PC.
+  /** The PC's own asks, one at a time, in a dialog of their own (the update dialog may be up too). */
+  function askDialog(kind, body) {
+    let box = $('#ask-dialog');
+    if (!box) { box = h('div', { id: 'ask-dialog', hidden: true }); document.body.append(box); }
+    if (!body) { if (!kind || box.dataset.kind === kind) { box.hidden = true; box.replaceChildren(); delete box.dataset.kind; } return box; }
+    box.dataset.kind = kind;
+    box.replaceChildren(h('div', { class: 'upd-card' }, body));
+    box.hidden = false;
+    return box;
+  }
+
+  /** A paired phone asking to sync through Drive too, so it keeps working with this PC off: allowed here only. */
+  function showPhoneAsk(asks) {
+    const a = (asks || [])[0];
+    if (!a) return askDialog('phone');
+    const answer = async (yes) => {
+      try {
+        const rest = await onyx.answerPhone(a.id, yes);
+        askDialog('phone');
+        toast(yes ? `Allowed. ${a.name} sets itself up the next time it reaches this PC, then syncs through Google Drive.` : `${a.name} keeps syncing only while it can reach this PC.`);
+        if (rest?.length) showPhoneAsk(rest);
+      } catch (err) { fail(err); }
+    };
+    askDialog('phone', [
+      h('div', { class: 'upd-icon' }, icon('phone')),
+      h('h3', null, `Let ${a.name} sync through Google Drive?`),
+      h('p', { class: 'upd-sub' }, 'Then it keeps working when this PC is off or out of reach (a VPN on, another network): what you change on it reaches this PC through your Google Drive. No code to type.'),
+      h('p', { class: 'upd-sub' }, 'It gets the Google sign-in this PC syncs with, so allow it only for your own phone.'),
+      h('div', { class: 'pop-actions' },
+        h('button', { class: 'btn ghost', onclick: () => answer(false) }, 'Don\'t allow'),
+        h('div', { class: 'grow' }),
+        h('button', { class: 'btn ghost', onclick: () => askDialog('phone') }, 'Not now'),
+        h('button', { class: 'btn primary', onclick: () => answer(true) }, 'Allow')),
+    ]);
+  }
+
+  /** Drive sync couldn't turn itself on: this Google sign-in is from before Onyx asked for Drive. Asked once. */
+  function showDriveAsk(account) {
+    if ($('#ask-dialog') && !$('#ask-dialog').hidden) return; // a phone's ask first
+    askDialog('drive', [
+      h('div', { class: 'upd-icon' }, icon('update')),
+      h('h3', null, 'Sync through Google Drive'),
+      h('p', { class: 'upd-sub' }, 'Onyx now syncs through your Google Drive, so your phone and your other PCs stay up to date from any network, even with this PC off. It keeps one locked file in a hidden folder of your Drive that only Onyx can open.'),
+      h('p', { class: 'upd-sub' }, 'Google needs your OK first. Your browser opens: sign in as ', h('b', null, account), ' and allow it.'),
+      h('div', { class: 'pop-actions' },
+        h('button', { class: 'btn ghost', onclick: () => {
+          askDialog('drive');
+          onyx.cloudOff().then(() => toast('Drive sync stays off. Turn it on any time in Settings → Desktops.')).catch(fail);
+        } }, 'Don\'t sync'),
+        h('div', { class: 'grow' }),
+        h('button', { class: 'btn primary', onclick: async () => {
+          askDialog('drive');
+          try { await onyx.cloudAllow(); toast('Drive sync is on.'); } catch (err) { fail(err); }
+        } }, 'Allow in Google')),
+    ]);
+  }
+
   /** The Update button (manual) and the background checks (automatic) end up here. */
   function onUpdateState(u, manual) {
     $('#update-btn').classList.toggle('has-update', u.status === 'available' || u.status === 'downloading');
@@ -10941,8 +11009,16 @@
         if (o.failed?.length) toast(`${o.failed.length === 1 ? 'A change' : `${o.failed.length} changes`} made offline couldn't be saved: ${o.failed[0].error}`, 'error');
         if (o.blocked) toast(o.blocked, 'error');
         if (o.waiting) toast(o.waiting);
+        if (o.setUp) toast('This phone now syncs through Google Drive: it keeps working when your PC is off or out of reach.');
       });
     }
+    // On the PC: Drive sync turned itself on (on by default), Google's OK for it, and a phone asking to sync that way too.
+    onyx.onCloudAuto?.(() => toast('Drive sync is on: your phone and your other PCs now sync through Google, from any network. Settings → Desktops to change it.'));
+    if (onyx.phoneAsks) {
+      onyx.onPhoneAsks?.((asks) => showPhoneAsk(asks));
+      onyx.phoneAsks().then(showPhoneAsk).catch(() => {});
+    }
+    if (!onyx.isPhone && onyx.desktops) setTimeout(() => onyx.desktops().then((d) => { if (d.cloud?.ask) showDriveAsk(d.cloud.ask); }).catch(() => {}), 4000);
     setInterval(() => { refetch(true); loadTasks(true); }, 5 * 60000);
     window.addEventListener('resize', () => { if (!MOBILE) closePopover(); });
   }

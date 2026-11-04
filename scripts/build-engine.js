@@ -26,6 +26,7 @@ function build() {
       [main('pairing.js')]: pcOnly,
       [main('news.js')]: pcOnly,
       [main('updater.js')]: pcOnly,
+      [main('phone-setup.js')]: pcOnly,
     },
     builtins: {
       crypto: engine('shims/crypto.js'),

@@ -122,9 +122,10 @@
   };
 
   // Drive sync (cloud.js on the PC), in one of its states.
+  // ?cloud=ask: a Google sign-in from before Drive sync (the window asks for Google's OK once).
   const mockCloud = (st, account = 'you@gmail.com') => ({
-    on: st !== 'off', state: st, account: st === 'off' ? '' : account, accounts: ['you@gmail.com', 'work@company.com'],
-    last: st === 'ok' ? Date.now() - 40000 : null, hasCode: st === 'ok',
+    on: st !== 'off' && st !== 'ask', state: st === 'ask' ? 'off' : st, account: st === 'off' || st === 'ask' ? '' : account, accounts: ['you@gmail.com', 'work@company.com'],
+    last: st === 'ok' ? Date.now() - 40000 : null, hasCode: st === 'ok', ask: st === 'ask' ? account : '',
     error: { 'needs-code': 'Enter the sync code from one of your other PCs (Settings → Desktops on it).', error: 'Google Drive: HTTP 503', 'no-account': 'Sign in to a Google account in Settings → Calendars, then choose it here.' }[st] || '',
     peers: [],
   });
@@ -608,6 +609,11 @@
     cloudShowCode: async () => 'K7QM-4XPA-RT9C-WD2H',
   cloudHandoff: async () => 'T05YMWV4YW1wbGUtc2V0dXA',
     cloudOff: async () => { state.desktops.cloud = mockCloud('off'); return structuredClone(state.desktops); },
+    // A paired phone asking to sync through Drive too (?phoneask): answered here.
+    phoneAsks: async () => (new URLSearchParams(location.search).has('phoneask') && !window.phoneAnswered ? [{ id: 'ph-preview-01', name: 'Pixel 8', at: Date.now() - 5000 }] : []),
+    answerPhone: async (id, yes) => { window.phoneAnswered = { id, yes }; return []; },
+    onPhoneAsks: () => {},
+    onCloudAuto: () => {},
     leaveDesktops: async () => { state.desktops = { linked: false, device: 'a1', name: 'DESKTOP-MAIN', invite: null, cloud: state.desktops.cloud, desktops: [] }; return structuredClone(state.desktops); },
     forgetDesktop: async (id) => { state.desktops.desktops = state.desktops.desktops.filter((x) => x.id !== id); return structuredClone(state.desktops); },
     tamkeen: { info: async () => ({ installed: true }), watch: async (id) => { window.lastTamkeen = id; return true; } },

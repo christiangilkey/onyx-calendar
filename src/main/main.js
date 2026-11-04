@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, clipboard, dialog, ipcMain, nativeImage, screen, session, shell } = require('electron');
+const { app, BrowserWindow, Menu, Notification, Tray, clipboard, dialog, ipcMain, nativeImage, screen, session, shell } = require('electron');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const path = require('path');
@@ -241,6 +241,16 @@ async function boot() {
   // Tasks another app sent through magic_add that were placed at once: the window offers the undo.
   require('./magic').onPlaced((d) => win?.webContents.send('magic-placed', d));
   await mcp.start(() => win?.webContents.send('changed'));
+  // Drive sync turned itself on (cloud.js auto): the window says so. A phone asking to sync through
+  // Drive too (phone-setup.js): the window asks you, and Windows says so while it is in the background.
+  cloud.onAuto(() => win?.webContents.send('cloud-auto'));
+  require('./phone-setup').onAsk((asks) => {
+    win?.webContents.send('phone-asks', asks);
+    if (win?.isFocused() || !asks.length || !Notification.isSupported()) return;
+    const n = new Notification({ title: 'Your phone asks to sync through Google Drive', body: `${asks[0].name} wants to keep working when this PC is off. Open Onyx to allow it.` });
+    n.on('click', showWindow);
+    n.show();
+  });
   // Another linked desktop changed something: show it. New sign-ins need their calendars read.
   sync.start((touched) => {
     if ([...touched].some((s) => s !== 'desktops')) hub.invalidate();
@@ -332,7 +342,8 @@ async function tamkeenEmbed(id, seconds) {
 const HANDLERS = {
   ...api.handlers,
   'google:load': loadGoogleCredentials,
-  'google:connect': async () => { await accounts.connectGoogle(); showWindow(); return afterAccountChange(); },
+  // A Google sign-in turns Drive sync on too, unless it was turned off here (cloud.js auto).
+  'google:connect': async () => { await accounts.connectGoogle(); showWindow(); cloud.autoOn(); return afterAccountChange(); },
   'microsoft:connect': async (clientId) => {
     store.data.microsoft.clientId = String(clientId || '').trim();
     store.save();
@@ -358,6 +369,9 @@ const HANDLERS = {
   'cloud:code': async (code) => { await cloud.enterCode(code); return sync.info(); },
   'cloud:show-code': () => cloud.code(),
   'cloud:off': async () => { await cloud.disable(); return sync.info(); },
+  // A paired phone asking to sync through Drive too (phone-setup.js): answered here only, never by the phone.
+  'phone:asks': () => require('./phone-setup').pending(),
+  'phone:answer': (id, yes) => require('./phone-setup').answer(id, !!yes),
   'update:check': () => updater.check(),
   'update:install': () => updater.install(),
   'update:state': () => updater.current(),

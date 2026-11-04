@@ -101,6 +101,12 @@ contextBridge.exposeInMainWorld('onyx', {
   // The setup for Onyx on the web: the Drive sync account's sign-in, locked with the sync code (cloud.js).
   cloudHandoff: () => call('phone:handoff'),
   cloudOff: () => call('cloud:off'),
+  // Drive sync turned itself on (on by default).
+  onCloudAuto: (fn) => ipcRenderer.on('cloud-auto', () => fn()),
+  // A paired phone asking to sync through Drive too: the asks waiting, your answer, and a new ask.
+  phoneAsks: () => call('phone:asks'),
+  answerPhone: (id, yes) => call('phone:answer', id, yes),
+  onPhoneAsks: (fn) => ipcRenderer.on('phone-asks', (_event, asks) => fn(asks)),
   globe: () => call('globe'),
   createNote: (data) => call('note:create', data),
   updateNote: (id, patch) => call('note:update', id, patch),

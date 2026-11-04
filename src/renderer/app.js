@@ -6967,7 +6967,7 @@
     })));
     drawSwatches();
     const notes = notesField(g?.notes, 'Why it matters, and how you will know you got there');
-    const tags = tagField(g ? g.tags : [...tagFilter].map((t) => tagInfo(t)?.name || t));
+    const tags = tagField(g ? g.tags : startingTags());
     const listPick = !g && lists.length > 1 && h('select', { class: 'goal-list-pick', title: 'The task list the steps go into' },
       lists.map((c) => h('option', { value: c.id }, `${c.name}  ·  ${c.accountLabel}`)));
     if (listPick) listPick.value = (lists.find((c) => c.id === S.settings.pi.taskList) || lists.find((c) => c.provider === 'google') || lists[0]).id;
@@ -9854,7 +9854,75 @@
   }
 
   /** Tags a new note or pin starts with: the ones picked in the sidebar, if any. */
-  const startingTags = () => [...tagFilter].map((t) => tagInfo(t)?.name || t);
+  /** Tags a new item starts with: those picked in the sidebar, and the tag of the cluster opened on the globe. */
+  const startingTags = () => {
+    const tags = [...tagFilter].map((t) => tagInfo(t)?.name || t);
+    const key = graph.on ? graph.view?.focused()?.key : null;
+    if (key?.startsWith('tag:')) {
+      const name = tagInfo(key.slice(4))?.name || key.slice(4);
+      if (!tags.some((t) => t.toLowerCase() === name.toLowerCase())) tags.push(name);
+    }
+    return tags;
+  };
+
+  /** The day of the cluster opened on the globe (Today, Tomorrow, a day), for a new task's due date. */
+  const startingDay = () => {
+    const key = graph.on ? graph.view?.focused()?.key : null;
+    return key?.match(/^(?:home:due:|day:)(\d{4}-\d{2}-\d{2})$/)?.[1] || '';
+  };
+
+  /** A new task from the globe: a name, an optional due date and its tags (the opened cluster's, if any). */
+  function openNewTask(anchor) {
+    const name = limitName(h('input', { type: 'text', class: 'pop-title', placeholder: 'Task name', spellcheck: false }));
+    const date = h('input', { type: 'date', value: startingDay(), title: 'Due date (optional)' });
+    const tags = tagField(startingTags());
+    let busy = false;
+    const save = async () => {
+      const title = name.value.trim();
+      if (!title) { name.focus(); return; }
+      if (busy) return;
+      busy = true;
+      const fields = { title, tags: tags.get(), ...(date.value ? { due: date.value } : {}) };
+      try {
+        let made = await onyx.createTask(fields);
+        recordAction(`Added "${made.label || title}"`, () => onyx.deleteTask(made.id), async () => { made = await onyx.createTask(fields); });
+        closePopover();
+        toast(fields.tags.length || fields.due ? 'Added to the globe' : 'Added to the Inbox: give it a tag or a date to place it');
+        await loadTasks();
+        refetch();
+        if (fields.tags.length) reloadTags();
+      } catch (err) {
+        busy = false;
+        fail(err);
+      }
+    };
+    showPopover(anchor, [
+      name,
+      h('div', { class: 'row' }, icon('calendar'), date),
+      h('div', { class: 'row' }, icon('tag'), tags.el),
+      h('p', { class: 'pop-meta' }, 'Tags place it in clusters on the globe; with neither a tag nor a date it waits in the Inbox.'),
+      h('div', { class: 'pop-actions' },
+        h('div', { class: 'grow' }),
+        h('button', { class: 'btn ghost', onclick: () => closePopover() }, 'Cancel'),
+        h('button', { class: 'btn primary', onclick: save }, 'Add task')),
+    ]);
+    name.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
+    if (!MOBILE) name.focus();
+  }
+
+  /** Everything that adds a node to the globe: the toolbar's New button and, on the globe, the + button. */
+  function openNewNode(anchor) {
+    const item = (ico, label, sub, fn) => h('button', { class: 'menu-item', onclick: () => { closePopover(); fn(anchor); } },
+      icon(ico), h('span', null, h('b', null, label), h('small', null, sub)));
+    showPopover(anchor, [h('div', { class: 'new-menu' },
+      item('check', 'Task', 'A to-do, with tags and a date', (r) => openNewTask(r)),
+      item('note', 'Note', 'Written here in Onyx', (r) => openNote(null, r)),
+      item('target', 'Goal', 'Long-term, with steps', (r) => openGoal(null, r)),
+      item('link', 'Notion page', 'Pin a page from Notion', (r) => openPicker('notion', r)),
+      item('link', 'Drive file', 'Pin a file from Google Drive', (r) => openPicker('drive', r)),
+      item('link', 'Link', 'Any web address', (r) => openAddLink(r)),
+      onyx.pickFiles && item('pin', 'File or folder', 'From this PC', (r) => openAddFile(r)))]);
+  }
 
   const afterGlobeChange = async (changedTags) => {
     closePopover();
@@ -10145,17 +10213,7 @@
       class: `chip-toggle ${graph.show[key] ? 'on' : ''}`, title,
       onclick: () => { graph.show[key] = !graph.show[key]; renderGraphBar(); loadGraph(); },
     }, label);
-    const newMenu = (e) => {
-      const anchor = e.currentTarget.getBoundingClientRect();
-      const item = (ico, label, sub, fn) => h('button', { class: 'menu-item', onclick: () => { closePopover(); fn(anchor); } },
-        icon(ico), h('span', null, h('b', null, label), h('small', null, sub)));
-      showPopover(anchor, [h('div', { class: 'new-menu' },
-        item('note', 'Note', 'Written here in Onyx', (r) => openNote(null, r)),
-        item('link', 'Notion page', 'Pin a page from Notion', (r) => openPicker('notion', r)),
-        item('link', 'Drive file', 'Pin a file from Google Drive', (r) => openPicker('drive', r)),
-        item('link', 'Link', 'Any web address', (r) => openAddLink(r)),
-        onyx.pickFiles && item('pin', 'File or folder', 'From this PC', (r) => openAddFile(r)))]);
-    };
+    const newMenu = (e) => openNewNode(e.currentTarget.getBoundingClientRect());
     graph.barOpen ??= readBarOpen();
     const open = graph.barOpen;
     const toggle = h('button', {
@@ -10198,7 +10256,7 @@
           chip('email', 'Emails', 'Starred Gmail and flagged Outlook emails from these days'))),
       // Right: one menu for everything that adds an item.
       open && h('div', { class: 'bar-zone create' },
-        h('button', { class: 'btn primary add-btn', title: 'Add a note, a Notion page, a Drive file, a link or a file', onclick: newMenu }, icon('plus'), 'New'))));
+        h('button', { class: 'btn primary add-btn', title: 'Add a task, a note, a goal, a Notion page, a Drive file, a link or a file', onclick: newMenu }, icon('plus'), 'New'))));
   }
 
   function openGraph() {
@@ -10223,6 +10281,7 @@
     for (const b of document.querySelectorAll('[data-view]')) b.classList.remove('on');
     $('#globe-toggle').classList.add('on');
     $('#globe-toggle').title = 'Back to the calendar (G)';
+    $('#fab').title = 'New: a task, a note, a goal or a pin';
     renderGraphBar();
     loadGraph();
   }
@@ -10232,6 +10291,7 @@
     $('#graph').hidden = true;
     $('#globe-toggle').classList.remove('on');
     $('#globe-toggle').title = 'Globe view (G)';
+    $('#fab').title = 'New block';
     $('#range').textContent = calendar.view.title;
     for (const b of document.querySelectorAll('[data-view]')) b.classList.toggle('on', b.dataset.view === calendar.view.type);
     calendar.updateSize();
@@ -10434,13 +10494,19 @@
   }
 
   function newBlock() {
-    if (graph.on) closeGraph();
     const now = new Date();
     const base = calendar.view.type === 'dayGridMonth' || (now >= calendar.view.currentStart && now < calendar.view.currentEnd) ? now : calendar.view.currentStart;
     const start = new Date(base.getFullYear(), base.getMonth(), base.getDate(), base === now ? now.getHours() + 1 : 9, 0);
     const r = $('#new-block').getBoundingClientRect();
     closeDrawers();
     openEditor({ start, end: new Date(start.getTime() + 3600000), allDay: false }, { left: r.left, right: r.right, top: r.bottom + 8, bottom: r.bottom + 8 });
+  }
+
+  /** The + button and the N key: a new block on the calendar, a new node on the globe. */
+  function addNew() {
+    if (!graph.on) return newBlock();
+    closeDrawers();
+    openNewNode((MOBILE ? $('#fab') : $('#graph-bar .add-btn') || $('#graph-bar'))?.getBoundingClientRect());
   }
 
   async function refreshAll() {
@@ -10492,8 +10558,8 @@
     $('#next').onclick = () => nav(1);
     $('#range').onclick = () => { if (MOBILE) nav(0); };
     $('#refresh').onclick = refreshAll;
-    $('#new-block').onclick = newBlock;
-    $('#fab').onclick = newBlock;
+    $('#new-block').onclick = () => { if (graph.on) closeGraph(); newBlock(); };
+    $('#fab').onclick = addNew;
     $('#magic-add').append(icon('sparkles'), 'Magic add');
     $('#magic-add').onclick = () => openMagic();
     $('#magic-fab').append(icon('sparkles'));
@@ -10533,7 +10599,7 @@
       const key = e.key.toLowerCase();
       if (views[key]) pickView(views[key]);
       else if (key === 't') nav(0);
-      else if (key === 'n') { e.preventDefault(); newBlock(); }
+      else if (key === 'n') { e.preventDefault(); addNew(); }
       else if (key === 'p') { e.preventDefault(); openMagic(); }
       else if (key === 'r') refreshAll();
       else if (e.key === 'ArrowLeft') nav(-1);

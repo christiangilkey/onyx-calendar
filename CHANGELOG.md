@@ -2,11 +2,20 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.100.0 · Onyx with no PC
+## 1.101.0 · The + button adds to the globe
+
+_2026-11-04_
+
+- On the globe, the + button (and the N key) adds a new node instead of a calendar block: a task, a note, a goal, a Notion page, a Drive file, a link or a file
+- New: add a task right from the globe, with its tags and an optional due date
+- With a cluster opened (tapped), what you add goes into it: its tag is filled in, and a day's cluster (like Today) fills in a task's due date
+- The globe's New menu has Task and Goal too
+
+## 1.100.0 · Onyx with no PC: Google sign-in on the web and the phone (1.100.0)
 
 _2026-11-03_
 
-- Small fixes
+- Onyx with no PC: Google sign-in on the web and the phone (1.100.0)
 
 ## 1.99.0 · Onyx on the web (1.99.0)
 

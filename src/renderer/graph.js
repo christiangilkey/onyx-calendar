@@ -732,6 +732,8 @@
         incoming = { x, y, s: 1, label, target };
         return target ? { key: target.key, label: target.label } : null;
       },
+      /** The cluster opened by tapping it, { key, label }, or null: what is added next goes into it. */
+      focused: () => (focus ? { key: focus.key, label: focus.label } : null),
       /** Where a node (or `hub:<key>`) is drawn, in canvas pixels, and what it is: for tests and tooling. */
       locate: (id) => {
         const n = nodes.find((x) => x.id === id);

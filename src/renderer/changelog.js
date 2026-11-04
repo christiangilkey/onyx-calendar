@@ -2,11 +2,22 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.101.0",
+  "date": "2026-11-04",
+  "title": "The + button adds to the globe",
+  "items": [
+   "On the globe, the + button (and the N key) adds a new node instead of a calendar block: a task, a note, a goal, a Notion page, a Drive file, a link or a file",
+   "New: add a task right from the globe, with its tags and an optional due date",
+   "With a cluster opened (tapped), what you add goes into it: its tag is filled in, and a day's cluster (like Today) fills in a task's due date",
+   "The globe's New menu has Task and Goal too"
+  ]
+ },
+ {
   "version": "1.100.0",
   "date": "2026-11-03",
-  "title": "Onyx with no PC",
+  "title": "Onyx with no PC: Google sign-in on the web and the phone (1.100.0)",
   "items": [
-   "Small fixes"
+   "Onyx with no PC: Google sign-in on the web and the phone (1.100.0)"
   ]
  },
  {

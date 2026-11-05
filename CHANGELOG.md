@@ -2,9 +2,16 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.103.0 · Home and lock screen, each with its own editor
+## 1.104.0 · Lock screen notifications show in full
 
-_2026-11-04_
+_2026-11-05_
+
+- The notifications under the Onyx panel on your lock screen show what they say again, in place of "Contents hidden" on every one
+- As on Android's own lock screen, content is hidden only if your phone is set to hide sensitive content, or for an app you set to hide its content
+
+## 1.103.0 · Home and lock screen, each with its own editor (1.103.0)
+
+_2026-11-03_
 
 - Settings: Home & lock screen and the lock screen editor are one page now, with a Lock screen and a Home screen tab at the top
 - Each screen has its own switch in place of "Where should Onyx show?", and its own setup steps

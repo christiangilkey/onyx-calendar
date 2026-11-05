@@ -8398,7 +8398,7 @@
           ];
           if ('notiflist' in info) {
             steps.push(step(3, info.notiflist, 'Show my music and notifications under it',
-              'Android hides its own lock screen behind the panel, so Onyx shows what is playing (Spotify and the like, with its controls) and your other apps\' notifications under it: tap one to unlock and open it, hold a notification to clear it. Private ones show only "Contents hidden". Needs Notification access.',
+              'Android hides its own lock screen behind the panel, so Onyx shows what is playing (Spotify and the like, with its controls) and your other apps\' notifications under it: tap one to unlock and open it, hold a notification to clear it. They show in full, unless your phone is set to hide sensitive content on the lock screen. Needs Notification access.',
               button('notiflist', 'Allow', false), { optional: true, extra: info.overlay && info.notiflist === false && greyedOut() }));
           }
           cards.push(screenCard('Onyx on your lock screen', 'Comes up each time you turn the screen on: your progress bars, the time until your next task, and the Pi\'s calls as they ring.',

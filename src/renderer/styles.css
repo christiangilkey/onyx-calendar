@@ -1423,6 +1423,22 @@ details.restricted-guide summary { cursor: pointer; font-weight: 600; color: var
 .edge-hover:hover { background: var(--raise-2, var(--raise)); }
 /* A highlighted entry (clicked: Ctrl+C copies it), and the right-click menu. */
 .fc .fc-event.is-selected { outline: 2px solid #fff; outline-offset: 1px; z-index: 5; }
+/* Several blocks picked (Shift and a drag, on the PC): each wears a white ring with a glow of the accent around it. */
+.fc .fc-event.is-multi { outline: 2px solid #fff; outline-offset: 1px; box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 55%, transparent); z-index: 5; }
+.fc .fc-event.multi-carried { opacity: .3; }
+.multi-band { position: fixed; z-index: 450; pointer-events: none; border: 1px solid var(--accent); border-radius: 4px; background: color-mix(in srgb, var(--accent) 16%, transparent); }
+body.banding, body.banding * { user-select: none; cursor: crosshair !important; }
+body.shift-held:not(.mobile) #calendar :is(.fc-timegrid-body, .fc-daygrid-body) { cursor: crosshair; }
+/* The other picked blocks ride along with the carried one, where they sit beside it. */
+.drag-float .drag-buddy { position: absolute; pointer-events: none; }
+.drag-float .drag-buddy > .fc-event { position: absolute !important; inset: 0 !important; margin: 0 !important; opacity: .8; box-shadow: 0 12px 28px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.18) !important; }
+.multi-pill { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 40; display: flex; align-items: center; gap: 6px; max-width: calc(100% - 32px); padding: 5px 5px 5px 14px; border-radius: 12px; background: #141417; border: 1px solid color-mix(in srgb, var(--accent) 60%, var(--line-2)); box-shadow: 0 10px 30px rgba(0,0,0,.7); color: var(--text); font-size: 13px; }
+.multi-pill .multi-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.multi-pill .multi-x { width: 28px; height: 28px; border-radius: 8px; border: 0; background: transparent; color: var(--muted); display: grid; place-items: center; cursor: pointer; }
+.multi-pill .multi-x:hover { background: var(--raise-2); color: var(--text); }
+.multi-pill .multi-x .ico { width: 15px; height: 15px; }
+body:has(.undo-bar.show) .multi-pill { bottom: 76px; }
+body.carrying .multi-pill { opacity: 0; }
 .ctx-menu { position: fixed; z-index: 600; min-width: 200px; padding: 5px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line-2, var(--line)); box-shadow: 0 14px 34px rgba(0,0,0,.55); display: flex; flex-direction: column; }
 .ctx-item { border: 0; background: transparent; color: var(--text); font: inherit; font-size: 13px; text-align: left; padding: 7px 10px; border-radius: 7px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; }
 .ctx-item:hover:not(:disabled) { background: var(--raise-2, var(--raise)); }

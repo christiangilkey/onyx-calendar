@@ -2,9 +2,20 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
-  "version": "1.104.0",
+  "version": "1.105.0",
   "date": "2026-11-05",
-  "title": "Lock screen notifications show in full",
+  "title": "Move several blocks at once",
+  "items": [
+   "On the PC, hold Shift and drag across the calendar: every block the box touches is picked out, with a white ring. Each Shift-drag adds more, and Shift and a click adds or takes away one",
+   "Drag any one of the picked blocks and they all move with it: as many days, and the same change of time. The others ride along while you carry it",
+   "One Undo (Ctrl+Z) puts them all back. A repeat moves once, however many of its days you picked",
+   "Esc, the x on the bar along the bottom, or a click on an empty spot lets them go. Read-only blocks say why they cannot be picked"
+  ]
+ },
+ {
+  "version": "1.104.0",
+  "date": "2026-11-04",
+  "title": "Lock screen notifications show in full (1.104.0)",
   "items": [
    "The notifications under the Onyx panel on your lock screen show what they say again, in place of \"Contents hidden\" on every one",
    "As on Android's own lock screen, content is hidden only if your phone is set to hide sensitive content, or for an app you set to hide its content"

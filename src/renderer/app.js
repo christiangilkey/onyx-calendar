@@ -1645,7 +1645,7 @@
   function showPeek(info) {
     hidePeek();
     const src = info.event.extendedProps.src;
-    if (MOBILE || !src || src.kind === 'goal' || dragging()) return;
+    if (MOBILE || !src || src.kind === 'goal' || dragging() || document.body.classList.contains('banding')) return;
     peek.timer = setTimeout(() => {
       if (!info.el.isConnected || dragging()) return;
       const e = info.event;
@@ -1699,9 +1699,10 @@
    * entry above, a bottom edge the start of the entry below. Only once it comes within SNAP_MS of that edge
    * (either side), so small changes anywhere else stay as fine as the grid's 15 minutes. `edge` is 'move'
    * (with `from`, where it started, for the way it is going), 'start' or 'end'. { start, end, by } or null.
+   * `skip`: ids it never meets (the other blocks carried with it).
    */
   const SNAP_MS = 10 * 60000;
-  function magnetFor(dragged, start, end, { from = null, edge = 'move' } = {}) {
+  function magnetFor(dragged, start, end, { from = null, edge = 'move', skip = null } = {}) {
     if (!start || !end || dragged.allDay) return null;
     const len = end - start;
     const dir = edge === 'move' && from ? Math.sign(start - from) : 0;
@@ -1709,7 +1710,7 @@
     let best = null;
     const take = (gap, s, e, by) => { if (gap > 0 && gap < SNAP_MS && (!best || gap < best.gap)) best = { gap, start: s, end: e, by }; };
     for (const o of calendar.getEvents()) {
-      if (o.id === dragged.id || o.allDay || o.display === 'background' || !o.end || !o.extendedProps?.src || o.extendedProps.src.pending) continue;
+      if (o.id === dragged.id || skip?.has(o.id) || o.allDay || o.display === 'background' || !o.end || !o.extendedProps?.src || o.extendedProps.src.pending) continue;
       // The entry above: its end, met by this one's start.
       if ((edge === 'start' || dir < 0) && sameDay(o.end, start)) {
         take(Math.abs(o.end - start), new Date(+o.end), edge === 'start' ? new Date(+end) : new Date(+o.end + len), o.title);
@@ -2103,8 +2104,8 @@
       events: source,
       eventContent,
       // The highlight is one of the calendar's own classes, so a redraw (its selection, say) keeps it.
-      eventClassNames: (arg) => (clip.selected && arg.event.id === clip.selected ? ['is-selected']
-        : tapBubble.group?.includes(arg.event.id) ? ['is-grouped'] : []),
+      eventClassNames: (arg) => [...(clip.selected && arg.event.id === clip.selected ? ['is-selected']
+        : tapBubble.group?.includes(arg.event.id) ? ['is-grouped'] : []), ...(multi.picked.has(arg.event.id) ? ['is-multi'] : [])],
       eventDidMount: (arg) => {
         arg.el.style.setProperty('--c', arg.event.extendedProps.src?.color || '#8b7cff');
         if (arg.event.extendedProps.src) arg.el.dataset.eid = arg.event.id; // for the timer pie (drainTimers)
@@ -2141,6 +2142,7 @@
         if (info.event.extendedProps.src?.pending) return; // a pasted entry still being made
         info.jsEvent.preventDefault();
         hidePeek();
+        clearMulti(); // a plain click on one of the picked blocks: just that one, as usual
         const src = info.event.extendedProps.src;
         if (src && (src.kind === 'event' || src.kind === 'task')) selectEntry(src);
         const anchor = info.el.getBoundingClientRect();
@@ -2180,7 +2182,8 @@
         }
         openEntry(src, anchor);
       },
-      eventDrop: onMove,
+      // One of several picked blocks (Shift and a drag): they all move together.
+      eventDrop: (info) => (carriedWith(info.event.id) ? moveMany(info) : onMove(info)),
       // While carried: where it would land, pulled to the end of an entry just above it (shown live).
       eventAllow: (drop, dragged) => { carryAt(dragged, drop); return true; },
       eventResize: onMove,
@@ -2188,13 +2191,14 @@
       // previous) week, so an entry can be carried there and dropped.
       // While it is carried, the entry itself follows the pointer freely; where it will land
       // (snapped to the grid) shows as an outline, and it snaps there when dropped.
-      eventDragStart: (info) => { hidePeek(); hideTapBubble(); edgeNavStart(); floatStart(info); },
+      eventDragStart: (info) => { hidePeek(); hideTapBubble(); edgeNavStart(); floatStart(info); multiCarryStart(info); },
       eventDragStop: (info) => {
         // Let go over the task list: off the calendar, to do another time (the calendar puts it back first).
         const p = info.jsEvent?.changedTouches?.[0] || info.jsEvent;
         const toList = MOBILE || !p ? null : listTargetAt(p.clientX, p.clientY);
         edgeNavStop();
         floatStop();
+        multiCarryStop();
         afterDrag(info);
         if (toList) laterFromCalendar(info.event.extendedProps.src, toList);
       },
@@ -2211,6 +2215,7 @@
     });
     calendar.render();
     explainLocked();
+    multiSelect();
     swipeToChangeDates($('#calendar'));
     if (MOBILE) {
       // A long press is the calendar's: the phone's own long-press menu never interrupts it.
@@ -2434,6 +2439,259 @@
   function clearSelection() {
     clip.selected = null;
     for (const el of document.querySelectorAll('#calendar .fc-event.is-selected')) el.classList.remove('is-selected');
+  }
+
+  // ---- several blocks at once (PC): hold Shift and drag across the calendar, and every block the box touches is
+  // picked out (each Shift-drag adds more; Shift and a click adds or takes away one). Drag any one of them and they
+  // all move with it: as many days, and the same change of time. One Undo puts them all back. Esc, the bar's ×, a
+  // click on the calendar's background or on a block not picked lets them go.
+  // `picked`: id → the block as it was when picked, for one the week shown no longer has (carried to another week).
+  const multi = { picked: new Map(), from: null, band: null, frame: 0, x: 0, y: 0, clickAfter: 0, pill: null, carried: [] };
+
+  /** Whether a block can be moved with others: one you can move here (not read-only, a mirrored task or a stand-in). */
+  const groupable = (src) => !!src && !src.pending && ((src.kind === 'event' && !!src.writable) || (src.kind === 'task' && !!src.movable && !src.mirror));
+  /** The picked blocks, when the one with this id is one of several of them (null otherwise). */
+  const carriedWith = (id) => (multi.picked.size > 1 && multi.picked.has(id) ? multi.picked : null);
+
+  function markMulti() {
+    for (const el of document.querySelectorAll('#calendar .fc-event[data-eid]')) el.classList.toggle('is-multi', multi.picked.has(el.dataset.eid));
+    multiPill();
+  }
+  function clearMulti() {
+    if (!multi.picked.size) return;
+    multi.picked.clear();
+    markMulti();
+  }
+  /** The bar over the calendar: how many are picked, and what to do with them. */
+  function multiPill() {
+    const n = multi.picked.size;
+    if (!n) { multi.pill?.remove(); multi.pill = null; return; }
+    if (!multi.pill) {
+      multi.pill = h('div', { class: 'multi-pill', role: 'status', 'aria-live': 'polite' }, h('span', { class: 'multi-text' }),
+        h('button', { class: 'multi-x', title: 'Let them go (Esc)', 'aria-label': 'Let them go', onclick: clearMulti }, icon('x')));
+      $('#stage').append(multi.pill);
+    }
+    multi.pill.querySelector('.multi-text').textContent = n === 1
+      ? '1 block picked. Shift-drag or Shift-click to pick more'
+      : `${n} blocks picked. Drag one to move them all`;
+  }
+
+  /** The blocks a box on the screen touches, from where they are drawn (not the month's hidden ones under "+N more"). */
+  function bandHits(r) {
+    const out = [];
+    for (const el of document.querySelectorAll('#calendar .fc-event[data-eid]:not(.fc-event-mirror)')) {
+      const b = el.getBoundingClientRect();
+      if (!b.width || b.right < r.left || b.left > r.right || b.bottom < r.top || b.top > r.bottom) continue;
+      if (getComputedStyle(el).visibility !== 'visible') continue;
+      const src = calendar.getEventById(el.dataset.eid)?.extendedProps?.src;
+      if (groupable(src)) out.push(src);
+    }
+    return out;
+  }
+
+  function bandFrame() {
+    multi.frame = 0;
+    const f = multi.from;
+    if (!f?.on || !multi.band) return;
+    const r = { left: Math.min(f.x, multi.x), top: Math.min(f.y, multi.y), right: Math.max(f.x, multi.x), bottom: Math.max(f.y, multi.y) };
+    Object.assign(multi.band.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.right - r.left}px`, height: `${r.bottom - r.top}px` });
+    multi.picked = new Map(f.had); // the ones picked before this drag stay, with whatever the box touches now
+    for (const src of bandHits(r)) multi.picked.set(src.id, src);
+    markMulti();
+  }
+
+  function multiSelect() {
+    if (MOBILE) return;
+    const cal = $('#calendar');
+    const onGrid = (t) => !!t?.closest?.('#calendar .fc-timegrid-body, #calendar .fc-daygrid-body') && !t.closest('.fc-popover');
+    // Shift and a press on the days: the calendar never sees it (no new block, no drag, no text picked out).
+    document.addEventListener('pointerdown', (e) => {
+      if (!e.shiftKey || e.button !== 0 || e.ctrlKey || e.metaKey || e.altKey || graph.on || !onGrid(e.target)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      hideTapBubble();
+      hidePeek();
+      // A block already highlighted (clicked) comes too: click one, Shift-click another, and both are picked.
+      const lit = clip.selected && calendar.getEventById(clip.selected)?.extendedProps?.src;
+      if (!multi.picked.size && groupable(lit)) multi.picked.set(lit.id, lit);
+      clearSelection();
+      multi.from = { x: e.clientX, y: e.clientY, id: e.target.closest('.fc-event[data-eid]')?.dataset.eid || null, had: new Map(multi.picked), on: false };
+      multi.x = e.clientX;
+      multi.y = e.clientY;
+      try { cal.setPointerCapture(e.pointerId); } catch { /* it still follows over the calendar */ }
+      markMulti();
+    }, true);
+    document.addEventListener('mousedown', (e) => { if (multi.from) { e.preventDefault(); e.stopPropagation(); } }, true);
+    document.addEventListener('pointermove', (e) => {
+      const f = multi.from;
+      if (!f) return;
+      multi.x = e.clientX;
+      multi.y = e.clientY;
+      if (!f.on) {
+        if (Math.hypot(multi.x - f.x, multi.y - f.y) < 6) return; // a click, so far
+        f.on = true;
+        multi.band = h('div', { class: 'multi-band', 'aria-hidden': 'true' });
+        document.body.append(multi.band);
+        document.body.classList.add('banding');
+      }
+      if (!multi.frame) multi.frame = requestAnimationFrame(bandFrame);
+    }, true);
+    const end = (e, cancelled) => {
+      const f = multi.from;
+      if (!f) return;
+      cancelAnimationFrame(multi.frame);
+      multi.frame = 0;
+      if (f.on && !cancelled) {
+        multi.x = e.clientX;
+        multi.y = e.clientY;
+        bandFrame();
+      } else if (!f.on && !cancelled && f.id) {
+        // Shift and a click on a block: picked, or let go if it already was.
+        const src = calendar.getEventById(f.id)?.extendedProps?.src;
+        if (!groupable(src)) toast(lockedWhy(src) || 'This one cannot be moved here, so it cannot be picked.', 'warn');
+        else if (multi.picked.has(src.id)) multi.picked.delete(src.id);
+        else multi.picked.set(src.id, src);
+      }
+      multi.from = null;
+      multi.band?.remove();
+      multi.band = null;
+      document.body.classList.remove('banding');
+      multi.clickAfter = Date.now();
+      markMulti();
+    };
+    document.addEventListener('pointerup', (e) => end(e, false), true);
+    document.addEventListener('pointercancel', (e) => end(e, true), true);
+    // The click that ends it is the box's: it does not open the block under it.
+    document.addEventListener('click', (e) => {
+      if (Date.now() - multi.clickAfter > 400 || !e.target.closest?.('#calendar')) return;
+      multi.clickAfter = 0;
+      e.preventDefault();
+      e.stopPropagation();
+    }, true);
+    // A press without Shift on the calendar, but not on a picked block (that may be the drag that moves them): let go.
+    // On the background that click does nothing more, as when one highlighted block is put away (no new block there).
+    document.addEventListener('pointerdown', (e) => {
+      if (e.shiftKey || !multi.picked.size || !e.target.closest?.('#calendar')) return;
+      const on = e.target.closest('.fc-event[data-eid]');
+      if (multi.picked.has(on?.dataset.eid)) return;
+      clearMulti();
+      if (!on) clickOff.at = Date.now();
+    }, true);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Shift') document.body.classList.add('shift-held');
+      if (e.key === 'Escape' && multi.picked.size && !midDrag()) clearMulti();
+    });
+    document.addEventListener('keyup', (e) => { if (e.key === 'Shift') document.body.classList.remove('shift-held'); });
+    addEventListener('blur', () => document.body.classList.remove('shift-held'));
+  }
+
+  /** One of the picked blocks is carried: copies of the others go along with it, where they sit beside it. */
+  function multiCarryStart(info) {
+    multiCarryStop();
+    if (!carriedWith(info.event.id) || !float.box) return;
+    const r = info.el.getBoundingClientRect();
+    for (const el of document.querySelectorAll('#calendar .fc-event.is-multi[data-eid]:not(.fc-event-mirror)')) {
+      if (el.dataset.eid === info.event.id || getComputedStyle(el).visibility !== 'visible') continue; // under "+N more": it moves, unseen
+      const b = el.getBoundingClientRect();
+      const copy = el.cloneNode(true);
+      copy.classList.remove('is-multi', 'is-selected', 'fc-event-selected', 'fc-event-dragging');
+      for (const extra of copy.querySelectorAll('.ev-timer, .fc-event-resizer')) extra.remove();
+      float.box.append(h('div', { class: 'drag-buddy', css: { left: `${b.left - r.left}px`, top: `${b.top - r.top}px`, width: `${b.width}px`, height: `${b.height}px` } }, copy));
+      el.classList.add('multi-carried');
+      multi.carried.push(el);
+    }
+  }
+  function multiCarryStop() {
+    for (const el of multi.carried) el.classList.remove('multi-carried');
+    multi.carried = [];
+  }
+
+  /**
+   * Saving one block's move from `was` to `to` ({ start, end, allDay }), and taking it back. A repeat moves whole,
+   * as when it is dragged by itself. `after`: the block as it is once moved (for the picked list).
+   */
+  function moveOf(src, was, to) {
+    const endOf = (x) => x.end || (x.allDay ? addDays(x.start, 1) : new Date(+x.start + 3600000));
+    if (src.kind === 'task') {
+      const spot = (x) => (x.allDay ? { date: ymd(x.start) } : { start: x.start.toISOString() });
+      const there = spot(to), back = spot(was);
+      return { src, task: true, id: () => src.id, go: () => onyx.moveTask(src.id, there), back: () => onyx.moveTask(src.id, back),
+        after: { ...src, start: there.date || there.start, end: to.end && !to.allDay ? to.end.toISOString() : src.end, allDay: !!to.allDay } };
+    }
+    const times = (x) => (x.allDay ? { start: ymd(x.start), end: ymd(endOf(x)), allDay: true } : { start: x.start.toISOString(), end: endOf(x).toISOString(), allDay: false });
+    const there = times(to), back = times(was);
+    let id = src.id;
+    const send = (t, from) => onyx.updateEvent(id, src.seriesId ? { ...t, seriesId: src.seriesId, from } : t);
+    return {
+      src, id: () => id, after: { ...src, ...there },
+      go: async (first) => {
+        const saved = await send(there, first ? src.start : back.start);
+        if (first && saved?.warning) toast(saved.warning, 'warn');
+        if (first && saved?.id && !src.seriesId) id = saved.id;
+      },
+      back: () => send(back, there.start),
+    };
+  }
+
+  /**
+   * One of the picked blocks was carried and let go: every one of them moves as far, the same number of days and the
+   * same change of time (an all-day one by the days alone). Each is read where it is shown now, or as it was when
+   * picked if the week shown no longer has it. A repeat moves once, however many of its days were picked.
+   */
+  async function moveMany(info) {
+    const e = info.event, old = info.oldEvent;
+    const lead = e.extendedProps.src;
+    let moves;
+    try {
+      if (!e.allDay) {
+        const m = magnetFor(e, e.start, e.end || new Date(+e.start + 3600000), { from: old.start, edge: 'move', skip: multi.picked });
+        if (m) e.setDates(m.start, m.end);
+      }
+      const days = Math.round((fromYmd(ymd(e.start)) - fromYmd(ymd(old.start))) / 86400000);
+      const ms = e.allDay || old.allDay ? 0 : e.start - addDays(old.start, days);
+      const shift = (d, allDay) => (allDay ? addDays(d, days) : new Date(+addDays(d, days) + ms));
+      const series = new Set(lead.seriesId ? [lead.seriesId] : []);
+      moves = [moveOf(lead, { start: old.start, end: old.end, allDay: old.allDay }, { start: e.start, end: e.end, allDay: e.allDay })];
+      for (const [id, picked] of multi.picked) {
+        if (id === lead.id) continue;
+        const ev = calendar.getEventById(id);
+        const src = ev?.extendedProps?.src || picked;
+        if (src.seriesId) { if (series.has(src.seriesId)) continue; series.add(src.seriesId); }
+        const allDay = ev ? ev.allDay : !!src.allDay;
+        const start = ev ? ev.start : toDate(src.start);
+        const end = ev ? ev.end : src.end ? toDate(src.end) : null;
+        const to = { start: shift(start, allDay), end: end && shift(end, allDay), allDay };
+        if (ev) ev.setDates(to.start, to.end, { allDay }); // there at once, while it is saved
+        moves.push(moveOf(src, { start, end, allDay }, to));
+      }
+    } catch (err) {
+      info.revert();
+      fail(err);
+      refetch(true);
+      return;
+    }
+    // One after another: each account takes them in turn.
+    const done = [], failed = [];
+    for (const m of moves) {
+      try { await m.go(true); done.push(m); } catch (err) { failed.push(err); }
+    }
+    if (failed.length) {
+      fail(failed[0]);
+      if (failed.length < moves.length) toast(`${failed.length} of ${moves.length} blocks could not be moved. The rest did.`, 'warn');
+    }
+    for (const m of done) { multi.picked.delete(m.src.id); multi.picked.set(m.id(), { ...m.after, id: m.id() }); }
+    if (done.length) {
+      // Undo and redo go through them all, and say so if any of them could not be done.
+      const each = async (fn) => {
+        let bad = null;
+        for (const m of done) { try { await fn(m); } catch (err) { bad = bad || err; } }
+        if (bad) throw bad;
+      };
+      recordAction(done.length === 1 ? `Moved "${done[0].src.title}"` : `Moved ${done.length} blocks`, () => each((m) => m.back()), () => each((m) => m.go(false)));
+    }
+    refetch(!!failed.length);
+    if (moves.some((m) => m.task)) loadTasks(true);
+    markMulti();
   }
 
   /** Deletes a calendar block; Undo brings it back with its tasks (a repeat taken whole: from this day on). */
@@ -3031,7 +3289,7 @@
     setTimeout(() => { if (refetch.later && !midDrag()) refetch(); }, 60);
     // The entry just carried or stretched is the highlighted one (its bars outside it, ready for more).
     const src = info?.event?.extendedProps?.src;
-    if (src && (src.kind === 'event' || src.kind === 'task') && !src.pending) setTimeout(() => selectEntry(src), 80);
+    if (src && (src.kind === 'event' || src.kind === 'task') && !src.pending && !multi.picked.has(src.id)) setTimeout(() => selectEntry(src), 80);
   }
 
   // A backstop for touch: once every finger is off the screen, a drag still going (its end got
@@ -3162,7 +3420,7 @@
       return;
     }
     if (!float.box) return;
-    const m = drop.allDay ? null : magnetFor(dragged, drop.start, drop.end, { from: dragged.start, edge: 'move' });
+    const m = drop.allDay ? null : magnetFor(dragged, drop.start, drop.end, { from: dragged.start, edge: 'move', skip: carriedWith(dragged.id) });
     float.magnet = m;
     float.shift = m ? (m.start - drop.start) / 60000 : 0;
   }

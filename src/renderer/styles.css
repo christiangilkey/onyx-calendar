@@ -1627,13 +1627,6 @@ body.mobile #undo-btn { display: none !important; } /* the bar along the bottom 
 
 .magic-btn { margin-top: 8px; }
 .magic-btn .ico { color: #c9b8ff; }
-#magic-fab { display: none; }
-body.mobile #magic-fab {
-  display: grid; place-items: center; position: fixed; right: 26px; bottom: calc(90px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); z-index: 20;
-  width: 40px; height: 40px; border-radius: 14px; border: 1px solid var(--line-2); background: #17171b; color: #c9b8ff; box-shadow: 0 8px 22px rgba(0,0,0,.6);
-}
-body.mobile #magic-fab .ico { width: 20px; height: 20px; }
-body:has(#popover:not([hidden])) #magic-fab, body:has(#modal:not([hidden])) #magic-fab { display: none; }
 
 .sheet.magic { grid-template-columns: 1fr; width: min(680px, calc(100vw - 40px)); height: min(760px, calc(100vh - 60px)); }
 body.mobile .sheet.magic { width: 100vw; height: 100vh; grid-template-rows: 1fr; }
@@ -1729,8 +1722,8 @@ body.stretching, body.stretching * { cursor: ns-resize !important; }
   font-size: 11px; font-weight: 700; line-height: 18px; text-align: center;
 }
 .magic-btn { display: flex; align-items: center; justify-content: center; }
-body.mobile #magic-fab { overflow: visible; }
-body.mobile #magic-fab .magic-count { position: absolute; top: -6px; right: -6px; margin: 0; box-shadow: 0 0 0 2px #0a0a0c; }
+/* On the phone the waiting count is on the + button (it opens Magic add too). */
+body.mobile #fab .magic-count { position: absolute; top: -6px; right: -6px; margin: 0; box-shadow: 0 0 0 2px #0a0a0c; }
 .magic-inbox { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 12px; border: 1px solid color-mix(in srgb, #c9b8ff 35%, var(--line-2)); background: color-mix(in srgb, #c9b8ff 7%, #0c0c0f); }
 .magic-inbox[hidden] { display: none; }
 .mi-head { display: flex; align-items: baseline; gap: 7px; font-size: 12px; font-weight: 700; color: #dcd3ff; flex-wrap: wrap; }
@@ -1766,7 +1759,22 @@ body.mobile #popover > .pop-actions {
 /* The date always has room: the pomodoro chip in the top bar is just its icon and stop button (the Now pill shows the time). */
 body.mobile #pomo-timer .pomo-time { display: none; }
 body.mobile #pomo-timer { gap: 4px; padding: 0 3px 0 8px; }
-body.mobile .nav h1 { min-width: 3.4em; flex: 0 1 auto; } /* as wide as the date, so the inbox sits just after it */
+/* The date in full, always; the buttons after it scroll sideways in a strip of their own (app.js, topTools). */
+body.mobile .nav { flex: none; max-width: 68vw; }
+body.mobile .nav h1 { flex: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.top-tools { display: none; }
+body.mobile .top-tools {
+  display: flex; align-items: center; flex: 1 1 auto; min-width: 0; margin-left: 2px;
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: none; overscroll-behavior-x: contain; touch-action: pan-x;
+  -webkit-mask-image: var(--tools-mask); mask-image: var(--tools-mask); --fade-l: #000; --fade-r: #000;
+  --tools-mask: linear-gradient(to right, var(--fade-l) 0, #000 22px, #000 calc(100% - 22px), var(--fade-r) 100%);
+}
+body.mobile .top-tools::-webkit-scrollbar { display: none; }
+/* When all of them fit, they keep to the right, as before. */
+body.mobile .top-tools::before { content: ''; flex: 1 0 0; }
+body.mobile .top-tools > * { flex: none; }
+body.mobile .top-tools.more-left { --fade-l: transparent; }
+body.mobile .top-tools.more-right { --fade-r: transparent; }
 
 /* ------------------------------------------------------------ the inbox by the date: notes from the lock screen */
 .inbox-btn { position: relative; flex: none; color: var(--muted); }
@@ -1799,8 +1807,7 @@ body:not(.mobile) #popover:has(.linbox-head) { width: min(360px, calc(100vw - 24
   body.mobile .nav h1 { font-size: 13.5px; }
 }
 /* The round buttons are not on the screen behind an open drawer, and a message sits above both of them. */
-body.mobile.drawer-left #fab, body.mobile.drawer-right #fab, body.mobile.drawer-news #fab,
-body.mobile.drawer-left #magic-fab, body.mobile.drawer-right #magic-fab, body.mobile.drawer-news #magic-fab { display: none; }
+body.mobile.drawer-left #fab, body.mobile.drawer-right #fab, body.mobile.drawer-news #fab { display: none; }
 body.mobile.mobile #toasts { bottom: calc(146px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); }
 body.mobile:has(.undo-bar.show) #toasts { bottom: calc(146px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); }
 /* The News handle: slimmer, so it covers less of the day. */
@@ -1821,7 +1828,7 @@ body.mobile .sheet nav { -webkit-mask-image: linear-gradient(to right, #000 calc
 .due-actions { display: flex; flex-wrap: wrap; }
 .due-actions .btn { flex: 1 1 28%; }
 .due-actions .btn.primary { flex: 1 1 100%; }
-body.due-on #fab, body.due-on #magic-fab, body.due-on #news-tab, body.due-on .undo-bar { display: none !important; }
+body.due-on #fab, body.due-on #news-tab, body.due-on .undo-bar { display: none !important; }
 
 .due-actions .btn { padding: 0 6px; font-size: 15px; white-space: nowrap; min-width: 0; }
 
@@ -2162,7 +2169,6 @@ body.mobile #graph-dock > #graph-clusters, body.mobile #graph-dock > #graph-inbo
 body.mobile #graph-dock:has(> .open) { right: 16px; }
 body.mobile #graph-dock > .open { flex: 1 1 auto; width: auto !important; }
 body.mobile #graph-dock:has(> .open) > :not(.open) { display: none; }
-body:has(#graph:not([hidden])) #magic-fab { display: none !important; }
 body.mobile:has(#graph:not([hidden]) #graph-dock > .open) #fab { display: none; }
 body.mobile #graph-foot { right: 26px; left: auto; top: auto; bottom: calc(90px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); z-index: 3; }
 body.mobile #graph-stats { display: none; }
@@ -2509,7 +2515,8 @@ body.mobile .bcolors { gap: 9px; }
 .ladder-opt.on:not([data-mode=off]) .lo-dot { background: var(--lc); border-color: var(--lc); color: #000; }
 
 /* ------------------------------------------------------------ changes made offline (the phone's outbox) */
-html:not([data-offline-label]) #titlebar::after { content: "Offline: showing last sync"; }
+/* Only while offline (or syncing): left on at other times, the label took room in the top bar unseen, and cut the date short. */
+html.offline:not([data-offline-label]) #titlebar::after, html.syncing:not([data-offline-label]) #titlebar::after { content: "Offline: showing last sync"; }
 html.syncing:not(.offline) #titlebar::after { background: var(--accent); color: #fff; }
 /* Made here while the PC was out of reach, not on it yet: a dashed edge until it is. */
 .fc .fc-event.is-offline { outline: 1.5px dashed rgba(255, 255, 255, .55); outline-offset: -1.5px; }
@@ -2970,6 +2977,22 @@ body.mobile .mg-footer .mg-days { flex-basis: 100%; }
 body.mobile .mg-footer .mg-go { width: 100%; }
 body.mobile .mg-footer .mg-add { flex: 1; justify-content: center; }
 body.mobile .mg-footer .magic-total { display: none; }
+
+/* ------------------------------------------------------------ the + button's sheet: both ways of adding (app.js, openMagic's add) */
+.mg-badge.plain { background: rgba(255, 255, 255, .08); color: var(--text); }
+.mg-wait-h { margin: 14px 0 6px; font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.mg-wait-h:has(+ .magic-pick[hidden]) { display: none; }
+/* Two buttons of the same size, each with what it does under its name. */
+.mg-footer .mg-ways { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.mg-footer .mg-way { width: 100%; height: 58px; padding: 0 14px; border-radius: 14px; justify-content: flex-start; gap: 10px; text-align: left; flex-wrap: nowrap; }
+.mg-way .ico { flex: none; width: 20px; height: 20px; }
+.mg-way-t { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.mg-way-t b { font-size: 15px; font-weight: 700; white-space: nowrap; }
+.mg-way-t small { font-size: 11.5px; font-weight: 500; opacity: .72; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mg-choose { background: rgba(255, 255, 255, .06); border: 1px solid var(--line-2); color: var(--text); }
+.mg-choose .ico { color: var(--muted); }
+.mg-way:disabled { opacity: .45; }
+.mg-footer .mg-way .mg-num { flex: none; }
 
 /* ------------------------------------------------------------ Reading a picture, a webpage or a Notion page (Magic add, Magic goal) */
 .src-box { display: flex; flex-direction: column; gap: 8px; min-width: 0; }

@@ -737,11 +737,11 @@
   const STATUS_TOOLS = ['pomo-timer', 'undo-btn', 'update-btn', 'refresh'];
   function placeStatus(inBar) {
     const tools = nextRun.parts?.tools;
-    const header = $('#titlebar');
+    const header = $('#top-tools') || $('#titlebar'); // the phone's buttons are in a strip of their own (topTools)
     if (inBar && tools) {
       for (const id of STATUS_TOOLS) { const el = document.getElementById(id); if (el && el.parentElement !== tools) tools.append(el); }
     } else if ($('#pomo-timer').parentElement !== header) {
-      header.insertBefore($('#pomo-timer'), $('#views'));
+      header.insertBefore($('#pomo-timer'), $('#top-tools') ? $('#globe-toggle') : $('#views'));
       for (const id of STATUS_TOOLS.slice(1)) header.insertBefore(document.getElementById(id), $('#toggle-tasks'));
     }
   }
@@ -3838,7 +3838,7 @@
     const multiDay = !sameDay(model.start, model.allDay ? lastDay : new Date(model.end.getTime() - 1));
     let busy = false;
 
-    const title = limitName(h('input', { type: 'text', class: 'pop-title', placeholder: 'What is this time for?', value: src ? src.title : '', disabled: readOnly, spellcheck: false }));
+    const title = limitName(h('input', { type: 'text', class: 'pop-title', placeholder: 'What is this time for?', value: src ? src.title : (model.title || ''), disabled: readOnly, spellcheck: false }));
     const date = h('input', { type: 'date', value: ymd(model.start), disabled: readOnly });
     const startTime = h('input', { type: 'time', value: hm(model.start), step: 300, disabled: readOnly });
     const endTime = h('input', { type: 'time', value: hm(model.end), step: 300, disabled: readOnly });
@@ -4223,7 +4223,8 @@
 
   function paintInboxBadge() {
     const n = inboxIds.length;
-    for (const el of [$('#magic-add'), $('#magic-fab'), $('#task-magic')]) {
+    // On the phone the count is on the + button, which opens Magic add as well (openMagic's add).
+    for (const el of [$('#magic-add'), MOBILE ? $('#fab') : null, $('#task-magic')]) {
       if (!el) continue;
       el.querySelector('.magic-count')?.remove();
       el.classList.toggle('has-inbox', n > 0);
@@ -9270,6 +9271,10 @@
     if (graph.on) closeGraph();
     closePopover();
     closeDrawers();
+    // From the phone's + button: one sheet for adding anything. What is typed goes in either way, and the two
+    // buttons at the foot say how: Choose a time (the block's own editor, the time yours to set) or Find time
+    // (Magic add, which fits it into the free time). Tasks waiting from other apps can be ticked here too.
+    const adding = !!preset.add;
     const m = { start: '08:00', end: '21:00', ...(S.settings.magic || {}) };
     const dayName = (d) => (d === ymd(new Date()) ? 'today' : d === ymd(addDays(new Date(), 1)) ? 'tomorrow' : fmtDay(fromYmd(d)));
     const mins = (n) => (n >= 60 ? `${Math.floor(n / 60)} h${n % 60 ? ` ${n % 60} min` : ''}` : `${n} min`);
@@ -9346,8 +9351,9 @@
           h('button', { type: 'button', class: 'mg-link', onclick: () => { picked.clear(); paintPick(); } }, 'Untick all')) : '');
       paintGo();
     }
-    const text = h('textarea', { class: 'magic-text', rows: 2, spellcheck: true, value: preset.text || '',
-      placeholder: PICK_TABS.some((s) => s.list().length) ? `Type tasks, one per line${MOBILE ? '' : ', paste a screenshot'}, or tick some below`
+    const text = h('textarea', { class: 'magic-text', rows: 2, spellcheck: true, value: preset.text || '', 'aria-label': adding ? 'What do you need to do?' : 'Tasks to plan',
+      placeholder: adding ? 'What do you need to do?\nOne per line to add a few at once'
+        : PICK_TABS.some((s) => s.list().length) ? `Type tasks, one per line${MOBILE ? '' : ', paste a screenshot'}, or tick some below`
         : `Pick up the prescription\nGroceries\nStudy Arabic for an hour and a half\nCall the bank by 4pm${MOBILE ? '' : '\n…or paste a screenshot of instructions (Ctrl+V)'}` });
     const grow = () => { text.style.height = 'auto'; text.style.height = `${Math.min(260, Math.max(52, text.scrollHeight))}px`; };
     text.addEventListener('input', () => { grow(); paintGo(); });
@@ -9377,13 +9383,33 @@
     }
     paintDay();
     const goCount = h('span', { class: 'mg-num' });
-    const go = h('button', { class: 'btn primary mg-go', onclick: () => run() }, icon('sparkles'), h('span', { class: 'mg-go-t' }, 'Plan my day'), goCount);
+    // Adding (the + button): two ways side by side, each saying what it does.
+    const way = (t, sub) => h('span', { class: 'mg-way-t' }, h('b', null, t), h('small', null, sub));
+    const chooseSub = h('small', null, 'You pick when');
+    const choose = adding && h('button', { type: 'button', class: 'btn mg-way mg-choose', onclick: () => chooseTime() },
+      icon('clock'), h('span', { class: 'mg-way-t' }, h('b', null, 'Choose a time'), chooseSub));
+    const go = h('button', { class: `btn primary mg-go${adding ? ' mg-way' : ''}`, onclick: () => run() }, icon('sparkles'),
+      adding ? way('Find time', 'Onyx fits it in') : h('span', { class: 'mg-go-t' }, 'Plan my day'), goCount);
     /** The button says how much it plans: the ticked tasks and the lines typed. */
     function paintGo() {
       const typed = text ? text.value.split('\n').filter((l) => l.trim()).length : 0;
       const count = picked.size + typed + (src ? src.count() : 0);
       goCount.textContent = String(count);
       goCount.hidden = !count;
+      if (!adding) return;
+      // One thing at a time gets a time of its own; several (or ticked tasks) are for Find time.
+      go.disabled = !count;
+      choose.disabled = typed > 1 || picked.size > 0;
+      chooseSub.textContent = choose.disabled ? 'One thing at a time' : 'You pick when';
+    }
+    /** Choose a time: the block's editor, on the day picked here, named as typed. */
+    function chooseTime() {
+      const [name = ''] = text.value.split('\n').map((l) => l.trim()).filter(Boolean);
+      const now = new Date(), d = fromYmd(date.value || ymd(now));
+      const start = new Date(d.getFullYear(), d.getMonth(), d.getDate(), date.value === ymd(now) ? Math.min(23, now.getHours() + 1) : 9, 0);
+      const r = ($('#fab') || document.body).getBoundingClientRect();
+      closeSettings();
+      openEditor({ start, end: new Date(start.getTime() + 3600000), allDay: false, title: name }, { left: r.left, right: r.right, top: r.top, bottom: r.top });
     }
     const out = h('div', { class: 'magic-out' });
     const claude = S.ai?.ready;
@@ -9660,7 +9686,7 @@
     const calName = () => writable.find((c) => c.id === calendarPick.value)?.name || '';
     const optsNote = h('span', { class: 'mg-opts-note' });
     const paintOpts = () => {
-      optsNote.textContent = [`${timeOf(start.value || '08:00')} – ${timeOf(end.value || '21:00')}`, writable.length > 1 ? calName() : null].filter(Boolean).join(' · ');
+      optsNote.textContent = [`${adding ? 'Find time between ' : ''}${timeOf(start.value || '08:00')} – ${timeOf(end.value || '21:00')}`, writable.length > 1 ? calName() : null].filter(Boolean).join(' · ');
     };
     for (const el of [start, end, calendarPick]) el.addEventListener('change', paintOpts);
     paintOpts();
@@ -9682,14 +9708,20 @@
         h('small', null, claude ? 'Claude estimates how long each takes. It is sent these tasks and the day\'s entries.' : 'Lengths are guessed from the words. Add a Claude key in Settings for better estimates.'),
         h('button', { type: 'button', class: 'btn', onclick: () => toggleOpts(false) }, 'Done')));
     const optsWrap = h('div', { class: 'mg-opts-wrap' }, optsPop, optsBtn);
+    // Adding: the tasks waiting to be planned get a heading of their own, under what is typed.
+    const waitHead = h('h4', { class: 'mg-wait-h' }, 'Or tick tasks that are waiting');
     function show(next) {
       stage = next;
       toggleOpts(false);
-      body.replaceChildren(...(next === 'compose' ? [text, src.el, pickBox, msg] : [out]));
+      body.replaceChildren(...(next === 'compose' ? [text, src.el, ...(adding ? [waitHead] : []), pickBox, msg] : [out]));
       body.scrollTop = 0;
       paintFoot();
     }
     function paintFoot() {
+      if (stage === 'compose' && adding) {
+        foot.replaceChildren(h('div', { class: 'mg-foot-row' }, dayChips), h('div', { class: 'mg-foot-row mg-ways' }, choose, go), optsWrap);
+        return;
+      }
       if (stage === 'compose') { foot.replaceChildren(optsWrap, h('div', { class: 'mg-foot-row' }, dayChips, go)); return; }
       const n = view?.result.blocks.length || 0;
       foot.replaceChildren(h('div', { class: 'mg-foot-row' },
@@ -9701,9 +9733,9 @@
     const sheet = h('div', { class: 'sheet magic' }, h('div', { class: 'pane mg-pane' },
       h('button', { class: 'icon-btn close', onclick: closeSettings, 'aria-label': 'Close' }, icon('x')),
       h('header', { class: 'mg-head' },
-        h('span', { class: 'mg-badge' }, icon('sparkles')),
-        h('div', null, h('h3', { class: 'mg-h' }, 'Magic add'),
-          h('p', { class: 'mg-sub' }, 'Onyx fits them into the free time in your day.'))),
+        h('span', { class: `mg-badge${adding ? ' plain' : ''}` }, icon(adding ? 'plus' : 'sparkles')),
+        h('div', null, h('h3', { class: 'mg-h' }, adding ? 'Add to your day' : 'Magic add'),
+          h('p', { class: 'mg-sub' }, adding ? 'Type what you need to do. Then choose the time yourself, or let Onyx find free time for it.' : 'Onyx fits them into the free time in your day.'))),
       body,
       foot));
     // A click anywhere else closes the settings panel.
@@ -10614,7 +10646,7 @@
     $('#graph').hidden = true;
     $('#globe-toggle').classList.remove('on');
     $('#globe-toggle').title = 'Globe view (G)';
-    $('#fab').title = 'New block';
+    $('#fab').title = 'Add to your day';
     $('#range').textContent = calendar.view.title;
     for (const b of document.querySelectorAll('[data-view]')) b.classList.toggle('on', b.dataset.view === calendar.view.type);
     calendar.updateSize();
@@ -10647,14 +10679,37 @@
     }
     return null;
   }
-  /** One step in (-1) or out (+1) from the view on screen. Returns whether it moved. */
-  function pinchStep(dir, x, y) {
-    if (graph.on || !calendar) return false;
+  /** The view one step in (-1) or out (+1) from the one on screen, or null at the end (the day, the month). */
+  function pinchTarget(dir) {
+    if (graph.on || !calendar) return null;
     const list = pinchViews();
     let i = list.indexOf(calendar.view.type);
     if (i < 0) i = 1; // the agenda: in goes to the day, out to the month
     const to = list[Math.max(0, Math.min(list.length - 1, i + dir))];
-    if (to === calendar.view.type) return false;
+    return to === calendar.view.type ? null : to;
+  }
+  /**
+   * The calendar as it should be after a pinch that stayed on the same view: no stretch or slide left on it,
+   * scrolled back to its left edge, and measured again. The phone could otherwise leave the grid blank, its
+   * hours and entries undrawn, until Onyx was closed.
+   */
+  function freshenCalendar() {
+    const el = $('#calendar');
+    if (!el) return;
+    el.classList.remove('pinch-in', 'pinch-out');
+    Object.assign(el.style, { transform: '', transformOrigin: '', transition: '' });
+    const v = el.querySelector('.fc-view-harness');
+    if (v) Object.assign(v.style, { transform: '', opacity: '', transition: '' });
+    for (const s of el.querySelectorAll('.fc-scroller')) if (s.scrollLeft) s.scrollLeft = 0;
+    calendar?.updateSize();
+    // Drawn afresh: the grid's scroller moves a pixel and back, which makes the phone paint it again.
+    const grid = el.querySelector('.fc-timegrid-body')?.closest('.fc-scroller');
+    if (grid) requestAnimationFrame(() => { const y = grid.scrollTop; grid.scrollTop = y + 1; requestAnimationFrame(() => { grid.scrollTop = y; }); });
+  }
+  /** One step in (-1) or out (+1) from the view on screen. Returns whether it moved. */
+  function pinchStep(dir, x, y) {
+    const to = pinchTarget(dir);
+    if (!to) return false;
     const day = dir < 0 ? dayAt(x, y) : null;
     const el = $('#calendar');
     pickView(to, day || calendar.getDate());
@@ -10668,24 +10723,31 @@
   function setupPinch() {
     const stage = $('#stage'), el = $('#calendar');
     const gap = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    // Not far enough: the calendar eases back, then is drawn afresh (freshenCalendar).
     const settle = () => {
+      if (!el.style.transform) { freshenCalendar(); return; }
       el.style.transition = 'transform .16s ease-out';
       el.style.transform = '';
-      setTimeout(() => { el.style.transition = ''; el.style.transformOrigin = ''; }, 170);
+      setTimeout(freshenCalendar, 170);
     };
     stage.addEventListener('touchstart', (e) => {
       if (e.touches.length !== 2 || graph.on) { if (e.touches.length > 2) pinch.s = null; return; }
       const x = (e.touches[0].clientX + e.touches[1].clientX) / 2, y = (e.touches[0].clientY + e.touches[1].clientY) / 2;
       const r = el.getBoundingClientRect();
-      pinch.s = { d: gap(e.touches), x, y, ratio: 1 };
+      // Which ways there is a view to go: at the day there is none further in, at the month none further out.
+      pinch.s = { d: gap(e.touches), x, y, ratio: 1, origin: `${x - r.left}px ${y - r.top}px`, canIn: !!pinchTarget(-1), canOut: !!pinchTarget(1) };
       el.style.transition = '';
-      el.style.transformOrigin = `${x - r.left}px ${y - r.top}px`;
     }, { passive: true });
     stage.addEventListener('touchmove', (e) => {
       if (!pinch.s || e.touches.length !== 2) return;
       e.preventDefault(); // no scrolling while two fingers pinch
-      pinch.s.ratio = gap(e.touches) / pinch.s.d;
-      const k = Math.max(0.9, Math.min(1.1, 1 + (pinch.s.ratio - 1) * 0.3));
+      const s = pinch.s;
+      s.ratio = gap(e.touches) / s.d;
+      // The calendar follows the fingers only toward a view it can go to. Already at the end, it holds still:
+      // stretched there and let go with nothing new to draw, the phone could leave the grid blank.
+      if (!(s.ratio > 1 ? s.canIn : s.canOut)) { if (el.style.transform) el.style.transform = ''; return; }
+      el.style.transformOrigin = s.origin;
+      const k = Math.max(0.9, Math.min(1.1, 1 + (s.ratio - 1) * 0.3));
       el.style.transform = `scale(${k.toFixed(3)})`;
     }, { passive: false });
     const end = () => {
@@ -10695,11 +10757,13 @@
       pinch.at = Date.now();
       const dir = s.ratio > 1.25 ? -1 : s.ratio < 0.8 ? 1 : 0;
       // Far enough: the next view settles in. Not far enough (or already at the end): the calendar eases back.
-      if (dir) { el.style.transform = ''; el.style.transformOrigin = ''; if (pinchStep(dir, s.x, s.y)) return; }
+      if (dir && (dir < 0 ? s.canIn : s.canOut)) { el.style.transform = ''; el.style.transformOrigin = ''; if (pinchStep(dir, s.x, s.y)) return; }
       settle();
     };
     stage.addEventListener('touchend', (e) => { if (e.touches.length < 2) end(); });
     stage.addEventListener('touchcancel', end);
+    // Back in Onyx: the calendar is drawn afresh, so a grid left blank before comes back without a restart.
+    if (MOBILE) document.addEventListener('visibilitychange', () => { if (!document.hidden && !pinch.s) freshenCalendar(); });
     // A trackpad pinch arrives as a wheel with Ctrl held: one step per pinch, however long it goes on.
     stage.addEventListener('wheel', (e) => {
       if (!e.ctrlKey || MOBILE) return;
@@ -10874,18 +10938,26 @@
     document.body.classList.remove('drawer-left', 'drawer-right');
   }
 
+  /** The day a new block goes on: today, unless the calendar shows other days (then the first of them). */
+  const newBlockDay = () => {
+    const now = new Date();
+    return calendar.view.type === 'dayGridMonth' || (now >= calendar.view.currentStart && now < calendar.view.currentEnd) ? now : calendar.view.currentStart;
+  };
   function newBlock() {
     const now = new Date();
-    const base = calendar.view.type === 'dayGridMonth' || (now >= calendar.view.currentStart && now < calendar.view.currentEnd) ? now : calendar.view.currentStart;
+    const base = newBlockDay();
     const start = new Date(base.getFullYear(), base.getMonth(), base.getDate(), base === now ? now.getHours() + 1 : 9, 0);
     const r = $('#new-block').getBoundingClientRect();
     closeDrawers();
     openEditor({ start, end: new Date(start.getTime() + 3600000), allDay: false }, { left: r.left, right: r.right, top: r.bottom + 8, bottom: r.bottom + 8 });
   }
 
-  /** The + button and the N key: a new block on the calendar, a new node on the globe. */
+  /**
+   * The + button and the N key: a new block on the calendar, a new node on the globe. On the phone the + opens
+   * one sheet for both ways of adding (openMagic's add): type it, then choose the time or let Onyx find one.
+   */
   function addNew() {
-    if (!graph.on) return newBlock();
+    if (!graph.on) return MOBILE ? openMagic({ add: true, date: ymd(newBlockDay()) }) : newBlock();
     closeDrawers();
     openNewNode((MOBILE ? $('#fab') : $('#graph-bar .add-btn') || $('#graph-bar'))?.getBoundingClientRect());
   }
@@ -10902,6 +10974,48 @@
     if (graph.on) return shiftGraph(n);
     if (n === 0) calendar.today(); else if (n < 0) calendar.prev(); else calendar.next();
   };
+
+  /**
+   * The phone's top bar: the date always shows in full, and the buttons after it (the inbox, the globe, Tasks,
+   * Settings and the rest) sit in a strip of their own that scrolls sideways when they don't all fit. Its edges
+   * fade where there is more to see, and until the strip has been scrolled once, it shows that it scrolls: a
+   * short slide over and back a moment after Onyx opens (at most three times).
+   */
+  const TOOLS_NUDGE = 'onyx.topToolsNudge';
+  function topTools() {
+    if (!MOBILE) return;
+    const bar = $('#titlebar');
+    const strip = h('div', { id: 'top-tools', class: 'top-tools', role: 'toolbar', 'aria-label': 'Onyx' });
+    $('.nav', bar).after(strip);
+    strip.append(...['inbox-btn', 'pomo-timer', 'globe-toggle', 'undo-btn', 'update-btn', 'refresh', 'toggle-tasks', 'open-settings']
+      .map((id) => document.getElementById(id)).filter(Boolean));
+    const edges = () => {
+      const max = strip.scrollWidth - strip.clientWidth;
+      strip.classList.toggle('more-left', strip.scrollLeft > 2);
+      strip.classList.toggle('more-right', max - strip.scrollLeft > 2);
+    };
+    let nudging = false;
+    strip.addEventListener('scroll', () => {
+      edges();
+      if (!nudging) { try { localStorage.setItem(TOOLS_NUDGE, 'done'); } catch { /* shown again next time */ } }
+    }, { passive: true });
+    new ResizeObserver(edges).observe(strip);
+    new MutationObserver(edges).observe(strip, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'disabled', 'class'] });
+    edges();
+    let seen = '0';
+    try { seen = localStorage.getItem(TOOLS_NUDGE) || '0'; } catch { /* no storage: shown */ }
+    if (seen === 'done' || +seen >= 3) return;
+    setTimeout(() => {
+      const room = strip.scrollWidth - strip.clientWidth;
+      if (room < 8 || strip.scrollLeft > 2 || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      try { localStorage.setItem(TOOLS_NUDGE, String(+seen + 1)); } catch { /* shown again next time */ }
+      nudging = true;
+      strip.classList.add('nudge');
+      strip.scrollTo({ left: Math.min(room, 72), behavior: 'smooth' });
+      setTimeout(() => strip.scrollTo({ left: 0, behavior: 'smooth' }), 650);
+      setTimeout(() => { nudging = false; strip.classList.remove('nudge'); }, 1400);
+    }, 1200);
+  }
 
   function buildChrome() {
     $('#prev').append(icon('left'));
@@ -10943,8 +11057,6 @@
     $('#fab').onclick = addNew;
     $('#magic-add').append(icon('sparkles'), 'Magic add');
     $('#magic-add').onclick = () => openMagic();
-    $('#magic-fab').append(icon('sparkles'));
-    $('#magic-fab').onclick = () => openMagic();
     $('#task-magic').append(icon('sparkles'), 'Magic add tasks'); // the Tasks panel's own way in, styled as Magic add goal
     $('#task-magic').onclick = () => openMagic();
     $('#add-calendar').onclick = () => openSettings(onyx.isPhone ? 'connection' : 'calendars');
@@ -10958,6 +11070,7 @@
     };
     for (const b of document.querySelectorAll('[data-view]')) b.onclick = () => pickView(b.dataset.view);
     setupPinch();
+    topTools();
     touchSelection();
     $('#calendar').addEventListener('click', (e) => {
       if (!e.target.closest?.('.fc-col-header .axis-month')) return;

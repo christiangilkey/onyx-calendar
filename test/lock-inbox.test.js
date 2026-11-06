@@ -21,7 +21,8 @@ test('the inbox sits just after the date, with how many wait, and each can be pl
   assert.ok(draw.includes("openMagic({ pick: [t.id], tab: 'apps' })"), 'Plan: Magic add with it');
   assert.ok(draw.includes('completeTask('), 'Done');
   assert.ok(draw.includes('onyx.dismissInbox(t.id)'), 'Clear: out of the inbox, still a task');
-  assert.match(read('src/renderer/styles.css'), /body\.mobile \.nav h1 \{ min-width: 3\.4em; flex: 0 1 auto; \}/);
+  // On the phone it leads the strip of buttons just after the date (topTools).
+  assert.match(app, /strip\.append\(\.\.\.\['inbox-btn', /);
 });
 
 test('with the keyboard up, the lock panel ends above it and scrolls the box into sight', () => {

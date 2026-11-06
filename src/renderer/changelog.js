@@ -2,9 +2,20 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.107.0",
+  "date": "2026-11-06",
+  "title": "One + button, a top bar that fits the date, and no blank screen after a pinch",
+  "items": [
+   "On the phone, the + button now opens one sheet for adding anything. Type what you need to do, then tap Choose a time to set the time yourself, or Find time to let Onyx fit it into your free time. Tasks waiting from your other apps can be ticked in the same sheet, and their count is on the + button. The separate Magic add button is gone.",
+   "The phone's top bar always shows the whole date. The buttons after it (inbox, globe, tasks, settings and the rest) scroll sideways when they don't all fit, and fade at the edge where there is more. The first few times Onyx opens, they slide over and back once to show it.",
+   "A hidden \"Offline\" label was taking up room in the top bar even when you were online. That's fixed, which also gives the date more room.",
+   "Spreading two fingers on the day view (or pinching in on the month) no longer leaves the calendar blank. The calendar holds still when there is no closer (or wider) view to go to, and is drawn afresh after every pinch, and whenever you come back to Onyx."
+  ]
+ },
+ {
   "version": "1.106.0",
   "date": "2026-11-06",
-  "title": "Daily limits for the doomscroll saver",
+  "title": "Daily limits for the doomscroll saver (1.106.0)",
   "items": [
    "Settings → Doomscroll saver → Daily limits: give any app it watches a most it may be open in a day, from 5 minutes to 4 hours. Each shows its time today so far",
    "A limit counts the app and its site in your browser together",

@@ -37,6 +37,9 @@ final class OnyxPanel {
 
         /** "Leaving now" on a call. */
         void acknowledge(LauncherData.Item item);
+
+        /** Turn off: everything going off now, at once (Alerts.offAll). */
+        void turnOff();
     }
 
     static final int TEXT = 0xFFF4F4F6, MUTED = 0xFFA4A8B4, FAINT = 0xFF6E7380;
@@ -52,6 +55,8 @@ final class OnyxPanel {
 
     // what tick() keeps moving
     private LauncherData.Item now, next, calling;
+    private boolean ringing; // the alarm (AlarmService) ringing as the cards were built
+    private int moreGoingOff;
     private LauncherData.Focus focus; // a Hyperfocus session: the scene above shows it, this shows the rest of the day
     private TextView nowLeft, nextIn, leaveIn, callIn, pomoLine;
     private BarView nowBar;
@@ -181,8 +186,9 @@ final class OnyxPanel {
         now = LauncherData.now(items, t);
         next = LauncherData.next(items, t);
         calling = LauncherData.calling(items, t);
+        ringing = AlarmService.isRinging();
 
-        if (calling != null) top.addView(callCard(calling, t));
+        if (calling != null || ringing) top.addView(callCard(calling, t));
         if (focus != null) {
             // Under the Hyperfocus scene: the rest of the day, quieter (what is on now is the scene itself).
             TextView rest = label("Rest of today", FAINT);
@@ -209,20 +215,41 @@ final class OnyxPanel {
         tick();
     }
 
+    /**
+     * What is going off now (the alarm ringing, the Pi calling or reminding), with one big Turn off for all of
+     * it, which works here on the lock screen whether the PC can be reached or not; then the item's own way out.
+     */
     private View callCard(LauncherData.Item it, long t) {
-        LauncherData.Alert a = it.calling(t);
+        LauncherData.Alert a = it == null ? null : it.calling(t);
         boolean push = a != null && "push".equals(a.kind);
+        int more = Alerts.calling(ctx).size() + (ringing ? 1 : 0) - 1;
+        moreGoingOff = Math.max(0, more);
         LinearLayout c = card(0xEB2A1C0C);
         ((GradientDrawable) c.getBackground()).setStroke(dp(1.5f), AMBER);
-        c.addView(label(push ? "Reminder from the Pi" : a != null && "alarm".equals(a.kind) ? "Alarm" : "The Pi is calling", AMBER));
-        c.addView(title(it.title));
-        callIn = text("", 14, 0xFFF7D9A0, false);
+        c.addView(label(ringing ? "Alarm ringing" : push ? "Reminder from the Pi" : a != null && "alarm".equals(a.kind) ? "Alarm" : "The Pi is calling", AMBER));
+        c.addView(title(ringing && (it == null || !it.id.equals(AlarmService.ringingId())) ? AlarmService.ringingTitle() : it.title));
+        callIn = text(more > 0 ? "And " + more + " more going off" : "", 14, 0xFFF7D9A0, false);
         c.addView(callIn);
+        TextView off = button(more > 0 ? "Turn off all" : "Turn off", true, v -> host.turnOff());
+        off.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
+        off.setPadding(dp(16), dp(14), dp(16), dp(14));
+        LinearLayout.LayoutParams op = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        op.topMargin = dp(12);
+        c.addView(off, op);
         LinearLayout row = new LinearLayout(ctx);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setPadding(0, dp(10), 0, 0);
-        row.addView(button("task".equals(it.kind) ? "Done" : "Leaving now", true, v -> host.acknowledge(it)));
-        row.addView(button("Open", false, v -> host.openOnyx(LauncherData.dayOf(it.start).toString())));
+        row.setPadding(0, dp(8), 0, 0);
+        if (ringing) row.addView(button("Snooze 5 min", false, v -> {
+            try {
+                ctx.startService(new android.content.Intent(ctx, AlarmService.class).setAction(AlarmService.ACTION_SNOOZE));
+            } catch (Exception e) {
+                host.turnOff(); // Android wouldn't pass it on: off, rather than ringing on
+            }
+        }));
+        if (it != null) {
+            row.addView(button("task".equals(it.kind) ? "Done" : "Leaving now", false, v -> host.acknowledge(it)));
+            row.addView(button("Open", false, v -> host.openOnyx(LauncherData.dayOf(it.start).toString())));
+        }
         c.addView(row);
         return c;
     }
@@ -449,6 +476,7 @@ final class OnyxPanel {
         if (now != null && t >= now.end) return true;
         if (next != null && t >= next.start) return true;
         if (calling != null && calling.calling(t) == null) return true;
+        if (ringing != AlarmService.isRinging()) return true; // the alarm started or stopped
         if (focus != null && t >= focus.end) return true;
         if (now != null && nowBar != null) {
             long[] ph = now.phase(t);
@@ -480,6 +508,7 @@ final class OnyxPanel {
             long leave = calling.leaveAt();
             String s = "Starts " + clock(calling.start) + " (in " + span(calling.start - t) + ")";
             if (leave > 0) s += leave > t ? "  ·  leave by " + clock(leave) : "  ·  time to leave";
+            if (moreGoingOff > 0) s += "  ·  and " + moreGoingOff + " more going off";
             callIn.setText(s);
         }
         // A new minute can bring a coming call into range.

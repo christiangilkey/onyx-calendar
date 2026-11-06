@@ -134,13 +134,20 @@ public class AlarmActivity extends Activity {
         View grow = new View(this);
         root.addView(grow, new LinearLayout.LayoutParams(1, 0, 1));
 
-        root.addView(button("Stop", 0xFFF5B83D, 0xFF1A1206, v -> send(AlarmService.ACTION_STOP)));
+        root.addView(button("Turn off", 0xFFF5B83D, 0xFF1A1206, v -> send(AlarmService.ACTION_STOP)));
         root.addView(button("Snooze 5 min", 0x33FFFFFF, Color.WHITE, v -> send(AlarmService.ACTION_SNOOZE)));
         root.addView(button("task".equals(intent.getStringExtra(EXTRA_KIND)) ? "Done" : "Leaving now", 0x33FFFFFF, Color.WHITE, v -> send(AlarmService.ACTION_LEAVING)));
         return root;
     }
 
     private void send(String action) {
+        // Stop: straight to the ringing itself, and everything else going off with it (Alerts), so it works
+        // whatever Android thinks of a service started from here.
+        if (AlarmService.ACTION_STOP.equals(action)) {
+            Alerts.offAll(this);
+            finish();
+            return;
+        }
         try {
             startService(new Intent(this, AlarmService.class).setAction(action));
         } catch (Exception ignored) {

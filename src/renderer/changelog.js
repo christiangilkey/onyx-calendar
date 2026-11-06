@@ -2,9 +2,22 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.110.0",
+  "date": "2026-11-06",
+  "title": "One Turn off for every alarm and alert, and quick options on boards",
+  "items": [
+   "Fixed: the button on your lock screen did not stop an alarm that was going off. It only told your PC, so the phone kept ringing, and when the PC could not be reached it did nothing at all. Now the lock screen and Onyx Home show a big Turn off on whatever is going off (the alarm ringing, the Pi calling or reminding). It works at once, on the phone, whether or not your PC can be reached.",
+   "Opening the app while anything is going off shows a bar across the top with one Turn off (Turn off all when there is more than one). It stops the phone's alarm, closes the PC's pop-ups and the due screen, and marks each one seen, so no more calls come about it.",
+   "The alarm's own full-screen button is now Turn off, and it turns everything off with it. Onyx's lock screen panel no longer opens on top of the alarm's screen and hides its button.",
+   "Leaving now and Done on the lock screen now work without the PC too. Your PC is told as soon as it can be reached, or by the app when you next open it.",
+   "Boards: tap a card to pick it, and quick options come up over it: Edit, Next (Add a way on a decision), Done, Calendar, Copy and Delete, or Colour on a sticky note.",
+   "Boards: press and hold a card to lift it and move it, or press and hold empty space to add a card right there. On the PC, right-click does the same. On a phone, a finger sliding across a card you haven't picked now moves the board, so a full board is easy to move around."
+  ]
+ },
+ {
   "version": "1.109.0",
   "date": "2026-11-06",
-  "title": "Boards: whiteboards for long, hard workflows, planned into your calendar",
+  "title": "Boards, whiteboards for long workflows, planned into the calendar",
   "items": [
    "New: Boards. Tap the board button in the top bar (or press B on the PC) for a whiteboard where you lay out something big: steps (with how long each takes), decisions, goals and sticky notes, joined by arrows.",
    "Drag the background to move around, pinch (or Ctrl and the mouse wheel) to zoom, and drag a card to move it. Drag a card's + onto another card to join them, or onto empty space for a new step. Tap the + for the next step.",

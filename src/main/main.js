@@ -391,6 +391,9 @@ const HANDLERS = {
   'files:open': (id, reveal) => library.openLocal(id, !!reveal),
   // The on-screen popup (only the PC has windows to pop up; the phone shows it in the app).
   'alert:show': (a) => showAlert(a),
+  // The popups up now (for the app's Turn off bar), and closing every one of them at once.
+  'alert:open': () => alerts.filter((w) => !w.isDestroyed()).map((w) => ({ key: w.alertData.key, kind: w.alertData.kind, id: w.alertData.id, title: w.alertData.title, start: w.alertData.start })),
+  'alert:closeAll': () => { let n = 0; for (const w of [...alerts]) if (!w.isDestroyed()) { w.close(); n++; } return n; },
   // Tamkeen on this PC (not offered to the phone, which opens its own Tamkeen).
   'tamkeen:info': () => ({ installed: tamkeenInstalled() }),
   'tamkeen:watch': (id, seconds) => watchInTamkeen(id, seconds),

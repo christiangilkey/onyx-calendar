@@ -322,6 +322,8 @@ public class OnyxLiveService extends Service {
         if (!LauncherData.onLock(this) || !LauncherData.overlayAllowed(this)) return;
         KeyguardManager km = getSystemService(KeyguardManager.class);
         if (km == null || !km.isKeyguardLocked()) return;
+        // An alarm ringing on its own screen: that stays in front (its Turn off), not covered by the panel.
+        if (AlarmService.coversNow(this)) return;
         try {
             startActivity(new Intent(this, LockPanelActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION));
         } catch (Exception ignored) {

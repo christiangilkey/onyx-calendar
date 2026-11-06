@@ -835,6 +835,13 @@
       // A Hyperfocus session on this phone, shown on Onyx Home and the lock screen (null: it is over).
       focus: (s) => Widget.setFocus?.(s ? { goal: s.goal, startedAt: s.startedAt, plannedEnd: s.plannedEnd } : { clear: true })?.catch?.(() => {}),
     } : null,
+    // Everything going off on this phone (Alerts): the alarm ringing, the Pi calling. off() turns it all off;
+    // take() also hands over what the PC still has to be told (it couldn't be reached), for the app to send.
+    alerts: Widget?.alerts ? {
+      state: () => Widget.alerts({}),
+      off: () => Widget.alerts({ off: true }),
+      take: () => Widget.alerts({ take: true }),
+    } : null,
     // The noise machine, played by the app on this phone (NoiseService): on with the screen off, and from the lock
     // screen. Each answers with { playing, kind, volume, minutes, endsAt }. An older app: the window plays it instead.
     noise: Widget?.noise ? {

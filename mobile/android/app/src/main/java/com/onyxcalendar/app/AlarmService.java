@@ -15,7 +15,9 @@ import android.media.MediaPlayer;
 import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.PowerManager;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
@@ -25,7 +27,6 @@ import android.text.format.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
-import java.util.concurrent.Executors;
 
 /**
  * The ringing itself: started by Android's alarm clock (AlarmReceiver), it loops the alarm
@@ -47,6 +48,44 @@ public class AlarmService extends Service {
     private Vibrator vibrator;
     private PowerManager.WakeLock wake;
     private Intent ringing; // the extras of what is ringing now
+    private static volatile AlarmService instance;
+
+    // ---- what is ringing, for the lock screen, Onyx Home and the app (Alerts)
+
+    static boolean isRinging() {
+        AlarmService s = instance;
+        return s != null && s.ringing != null;
+    }
+
+    private static Intent now() {
+        AlarmService s = instance;
+        return s == null ? null : s.ringing;
+    }
+
+    static String ringingId() { Intent i = now(); return i == null ? null : i.getStringExtra(AlarmActivity.EXTRA_ID); }
+    static String ringingTitle() { Intent i = now(); String t = i == null ? null : i.getStringExtra(AlarmActivity.EXTRA_TITLE); return t == null || t.isEmpty() ? "Onyx alarm" : t; }
+    static long ringingStart() { Intent i = now(); return i == null ? 0 : i.getLongExtra(AlarmActivity.EXTRA_START, 0); }
+    static String ringingKind() { Intent i = now(); String k = i == null ? null : i.getStringExtra(AlarmActivity.EXTRA_KIND); return k == null ? "event" : k; }
+
+    /** Whether the alarm ringing has its own screen over everything (Full-screen pop-ups on, or Hyperfocus's stop). */
+    static boolean coversNow(Context ctx) {
+        Intent i = now();
+        return i != null && (LauncherData.coverOn(ctx) || "hyperfocus-stop".equals(i.getStringExtra(AlarmActivity.EXTRA_ID)));
+    }
+
+    /** Stops the ringing now, from wherever it is asked (the lock screen, the app, its own screen). */
+    static void stopNow(Context ctx) {
+        AlarmService s = instance;
+        if (s == null) return;
+        if (Looper.myLooper() == Looper.getMainLooper()) s.end();
+        else new Handler(Looper.getMainLooper()).post(s::end);
+    }
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        instance = this;
+    }
 
     @Override
     public IBinder onBind(Intent intent) {
@@ -79,6 +118,12 @@ public class AlarmService extends Service {
             return START_NOT_STICKY;
         }
         Intent what = ringing != null ? ringing : intent;
+        // Stop: everything going off is turned off and marked seen, here at once and on the PC (Alerts).
+        if (ACTION_STOP.equals(action)) {
+            Alerts.offAll(this);
+            end();
+            return START_NOT_STICKY;
+        }
         if (ACTION_SNOOZE.equals(action) && what != null) {
             AlarmActivity.schedule(this, what.getStringExtra(AlarmActivity.EXTRA_ID), what.getStringExtra(AlarmActivity.EXTRA_TITLE),
                 what.getLongExtra(AlarmActivity.EXTRA_START, 0), what.getStringExtra(AlarmActivity.EXTRA_KIND), System.currentTimeMillis() + 5 * 60_000, true);
@@ -91,6 +136,8 @@ public class AlarmService extends Service {
     @Override
     public void onDestroy() {
         silence();
+        ringing = null;
+        if (instance == this) instance = null;
         super.onDestroy();
     }
 
@@ -132,6 +179,7 @@ public class AlarmService extends Service {
 
     private void end() {
         silence();
+        ringing = null;
         sendBroadcast(new Intent(ACTION_ENDED).setPackage(getPackageName()));
         NotificationManager nm = getSystemService(NotificationManager.class);
         if (nm != null) nm.cancel(ID);
@@ -250,23 +298,10 @@ public class AlarmService extends Service {
         return LauncherData.coverOn(this) || "hyperfocus-stop".equals(what.getStringExtra(AlarmActivity.EXTRA_ID));
     }
 
-    /** "Leaving now" (or Done, for a task): no more calls about it, through Onyx on the PC. */
+    /** "Leaving now" (or Done, for a task): seen here at once; the PC told, so no more calls come (Alerts). */
     private void leaving(Intent what) {
         String id = what.getStringExtra(AlarmActivity.EXTRA_ID);
-        long start = what.getLongExtra(AlarmActivity.EXTRA_START, 0);
         if (id == null) return;
-        Context app = getApplicationContext();
-        boolean task = "task".equals(what.getStringExtra(AlarmActivity.EXTRA_KIND));
-        Executors.newSingleThreadExecutor().execute(() -> {
-            try {
-                if (task) WidgetData.completeTask(app, id);
-                else WidgetData.rpc(app, "event:ack", new org.json.JSONArray().put(id));
-                LauncherData.prefs(app).edit().putBoolean("ack_" + id + "_" + start, true).apply();
-            } catch (Exception ignored) {
-                // the PC wasn't reachable
-            }
-            LauncherData.fetch(app);
-            OnyxLiveService.poke(app);
-        });
+        Alerts.off(this, id, what.getLongExtra(AlarmActivity.EXTRA_START, 0), "task".equals(what.getStringExtra(AlarmActivity.EXTRA_KIND)));
     }
 }

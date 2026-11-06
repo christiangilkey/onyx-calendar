@@ -209,14 +209,37 @@
     const labels = el('div', 'wb-labels');
     const cards = el('div', 'wb-cards');
     world.append(lines, labels, cards, temp);
-    space.replaceChildren(world);
+    // The quick options for the card picked (o.quick builds them): over it, at full size whatever the zoom.
+    const quick = el('div', 'wb-quick');
+    quick.setAttribute('role', 'toolbar');
+    quick.hidden = true;
+    space.replaceChildren(world, quick);
     temp.style.display = 'none';
     const sizes = new Map();
+    let quickFor = null; // the card the options were made for
+
+    /** Puts the quick options over the card picked (under it, near the top), or hides them. */
+    function placeQuick() {
+      const c = sel && !act?.moved && cards.querySelector(`.wb-card[data-id="${CSS.escape(sel)}"]`);
+      if (!c || !o.quick) { quick.hidden = true; return; }
+      if (quickFor !== sel) { quick.replaceChildren(o.quick(node(sel))); quickFor = sel; }
+      quick.hidden = false;
+      const s = space.getBoundingClientRect(), r = c.getBoundingClientRect();
+      const qh = quick.offsetHeight || 44, qw = quick.offsetWidth || 200;
+      const below = r.top - s.top < qh + 14;
+      const x = Math.max(qw / 2 + 6, Math.min(s.width - qw / 2 - 6, r.left - s.left + r.width / 2));
+      quick.style.left = `${Math.round(x)}px`;
+      quick.style.top = `${Math.round(below ? r.bottom - s.top + 10 : r.top - s.top - 10)}px`;
+      quick.classList.toggle('below', below);
+    }
+    /** The quick options made again (a change to the card picked: done, its colour). */
+    const freshQuick = () => { quickFor = null; placeQuick(); };
 
     const apply = () => {
       world.style.transform = `translate(${Math.round(cam.x)}px, ${Math.round(cam.y)}px) scale(${cam.z})`;
       space.style.setProperty('--z', String(cam.z));
       o.onCam?.({ ...cam });
+      placeQuick();
     };
     const toWorld = (cx, cy) => {
       const r = space.getBoundingClientRect();
@@ -318,6 +341,8 @@
       cards.replaceChildren(...board.nodes.map((n) => cardEl(n, r)));
       measure();
       drawLines(r);
+      if (sel && !node(sel)) sel = null;
+      quickFor = null; // made again for the card as it is now
       apply();
       o.onDraw?.(r);
     }
@@ -376,26 +401,65 @@
       const [a, b] = [...pts.values()];
       return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
     };
+    // Press and hold (a finger or a pen): on a card it lifts the card to move; on empty space it offers to add
+    // a card right there. A finger that slides off a card it hasn't picked moves the board instead, so a full
+    // board can still be moved about; the mouse drags cards straight away, and right-clicks for the same.
+    const HOLD_MS = 450;
+    const buzz = () => { try { navigator.vibrate?.(12); } catch { /* no buzz on this device */ } };
+    let touchAt = 0;
+    const pickCard = (id) => {
+      sel = id;
+      for (const c of cards.children) c.classList.toggle('sel', c.dataset.id === id);
+      quickFor = null;
+      placeQuick();
+    };
+    const held = (a) => {
+      if (act !== a || a.moved) return;
+      buzz();
+      if (a.type === 'card') {
+        a.picked = a.lifted = true;
+        a.el.classList.add('lifted');
+        pickCard(a.n.id);
+      } else if (a.type === 'pan') {
+        act = null;
+        if (sel) { sel = null; draw(); }
+        o.onAddHere?.(toWorld(a.x0, a.y0), { x: a.x0, y: a.y0 });
+      }
+    };
     space.addEventListener('pointerdown', (e) => {
       if (e.button > 0) return;
+      if (e.target.closest('.wb-quick')) return; // its own buttons
       pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (pts.size === 2) {
         const p = pinchInfo();
         tempEnd();
+        clearTimeout(act?.hold);
         act = { type: 'pinch', d0: p.d, z0: cam.z, w: toWorld(p.x, p.y) };
+        placeQuick();
         return;
       }
       if (pts.size > 2) return;
       const t = e.target;
       if (t.closest('input, textarea, select')) return;
+      const touchy = e.pointerType !== 'mouse';
+      if (touchy) touchAt = Date.now();
       const card = t.closest('.wb-card');
-      const base = { x0: e.clientX, y0: e.clientY, moved: false, id: e.pointerId };
+      const base = { x0: e.clientX, y0: e.clientY, moved: false, id: e.pointerId, touchy, cx: cam.x, cy: cam.y };
       if (t.closest('.wb-way')) { const w = t.closest('.wb-way'); act = { ...base, type: 'tap', run: () => choose(w.dataset.node, w.dataset.link) }; }
       else if (t.closest('.wb-plus') && card) act = { ...base, type: 'link', from: card.dataset.id };
-      else if (card) { const n = node(card.dataset.id); act = { ...base, type: 'card', n, nx: n.x, ny: n.y, el: card }; }
+      else if (card) { const n = node(card.dataset.id); act = { ...base, type: 'card', n, nx: n.x, ny: n.y, el: card, picked: !touchy || sel === n.id }; }
       else if (t.closest('.wb-label, .wb-hit')) { const l = t.closest('[data-link]'); act = { ...base, type: 'tap', run: () => o.onOpenLink?.(board.links.find((x) => x.id === l.dataset.link), l.getBoundingClientRect()) }; }
-      else act = { ...base, type: 'pan', cx: cam.x, cy: cam.y };
+      else act = { ...base, type: 'pan' };
+      if (touchy && (act.type === 'card' || act.type === 'pan')) { const a = act; a.hold = setTimeout(() => held(a), HOLD_MS); }
       if (act.type !== 'tap') e.preventDefault();
+    });
+    // The mouse's right button: the card's quick options, or what to add at that spot.
+    space.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      if (Date.now() - touchAt < 1500) return; // a finger's long press: already handled
+      const card = e.target.closest('.wb-card');
+      if (card) pickCard(card.dataset.id);
+      else if (!e.target.closest('.wb-quick, .wb-label')) o.onAddHere?.(toWorld(e.clientX, e.clientY), { x: e.clientX, y: e.clientY });
     });
     const onMove = (e) => {
       if (!pts.has(e.pointerId)) return;
@@ -412,7 +476,12 @@
       }
       if (e.pointerId !== act.id) return;
       const dx = e.clientX - act.x0, dy = e.clientY - act.y0;
-      if (!act.moved && Math.hypot(dx, dy) > 5) act.moved = true;
+      if (!act.moved && Math.hypot(dx, dy) > (act.touchy ? 8 : 5)) {
+        act.moved = true;
+        clearTimeout(act.hold);
+        if (act.type === 'card' && !act.picked) act.type = 'pan'; // a finger across a card not picked: the board moves
+        if (act.type === 'card' || act.type === 'link') placeQuick(); // out of the way while it moves
+      }
       if (!act.moved) return;
       if (act.type === 'tap') { act = null; return; }
       if (act.type === 'pan') { cam.x = act.cx + dx; cam.y = act.cy + dy; apply(); }
@@ -443,13 +512,16 @@
       if (!a) return;
       if (a.type === 'pinch') { if (pts.size < 2) act = null; return; }
       if (e.pointerId !== a.id) return;
+      clearTimeout(a.hold);
       act = null;
       if (a.type === 'tap') { a.run(); return; }
-      if (a.type === 'pan') { if (!a.moved && sel) { sel = null; draw(); } return; }
+      if (a.type === 'pan') { if (!a.moved && sel) { sel = null; draw(); } else placeQuick(); return; }
       if (a.type === 'card') {
-        if (a.moved) { changed(); draw(); return; }
+        a.el.classList.remove('lifted');
+        if (a.moved) { sel = a.n.id; changed(); draw(); return; }
+        if (a.lifted) { placeQuick(); return; } // held and let go: picked, with its options
         if (sel === a.n.id) o.onOpen?.(a.n); // a tap on the card picked: open it
-        else { sel = a.n.id; draw(); }
+        else pickCard(a.n.id);
         return;
       }
       if (a.type === 'link') {
@@ -464,7 +536,14 @@
         after(a.from, { x: w.x - KINDS.step.w / 2, y: w.y - 30 });
       }
     };
-    const onCancel = (e) => { pts.delete(e.pointerId); if (act?.type === 'link') tempEnd(); if (act?.type === 'card' && act.moved) { changed(); draw(); } act = null; };
+    const onCancel = (e) => {
+      pts.delete(e.pointerId);
+      clearTimeout(act?.hold);
+      if (act?.type === 'link') tempEnd();
+      if (act?.type === 'card') { act.el.classList.remove('lifted'); if (act.moved) { changed(); draw(); } }
+      act = null;
+      placeQuick();
+    };
     addEventListener('pointermove', onMove);
     addEventListener('pointerup', onUp);
     addEventListener('pointercancel', onCancel);

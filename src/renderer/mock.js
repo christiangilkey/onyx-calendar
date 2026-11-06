@@ -656,6 +656,12 @@
         tryShortcut: async () => {},
       };
     })() : undefined,
+    // The phone's alarm ringing (?ringing), as Alerts tells it: the Turn off bar, until it is turned off.
+    alerts: new URLSearchParams(location.search).has('ringing') ? (() => {
+      let on = true;
+      const state = () => ({ ringing: on ? { id: 'alarm-demo', title: 'Dentist', start: Date.now() + 10 * 60000, kind: 'event' } : null, calling: [], later: 0 });
+      return { state: async () => state(), off: async () => { on = false; window.turnedOff = (window.turnedOff || 0) + 1; return { ...state(), turnedOff: 1 }; }, take: async () => ({ ...state(), toSend: [] }) };
+    })() : undefined,
     // The phone's noise machine (?launcher), as the app keeps it (NoiseService): no sound here, only its state.
     noise: new URLSearchParams(location.search).has('launcher') ? (() => {
       const n = { playing: false, kind: 'waves', volume: 35, minutes: 0, endsAt: 0 };

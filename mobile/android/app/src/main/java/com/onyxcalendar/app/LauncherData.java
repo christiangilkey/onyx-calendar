@@ -263,6 +263,8 @@ final class LauncherData {
                 .putLong("updated", System.currentTimeMillis())
                 .putString("error", "")
                 .apply();
+            // The PC answered: what was turned off on the phone while it couldn't be reached is told to it now.
+            if (Alerts.later(ctx).length() > 0) Alerts.send(ctx);
         } catch (Exception e) {
             prefs(ctx).edit().putString("error", e.getMessage() == null ? "Can't reach the PC" : e.getMessage()).apply();
         }
@@ -327,10 +329,9 @@ final class LauncherData {
 
     /** "Leaving now": the Pi makes no more calls about this entry; a task is ticked off instead. */
     static void acknowledge(Context ctx, Item item) throws Exception {
-        if ("task".equals(item.kind)) WidgetData.completeTask(ctx, item.id);
-        else WidgetData.rpc(ctx, "event:ack", new JSONArray().put(item.id));
-        // Seen at once, before the next fetch.
-        prefs(ctx).edit().putBoolean("ack_" + item.id + "_" + item.start, true).apply();
+        // Seen here at once (its alarm stopped, its card gone), whether or not the PC can be reached; the PC is
+        // told now, or as soon as it can be (Alerts).
+        Alerts.off(ctx, item.id, item.start, "task".equals(item.kind));
     }
 
     // ------------------------------------------------------------ the model

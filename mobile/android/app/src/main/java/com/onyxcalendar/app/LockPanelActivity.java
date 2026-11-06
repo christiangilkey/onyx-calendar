@@ -495,6 +495,14 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
         });
     }
 
+    /** Turn off: everything going off, here at once (Alerts), and the cards drawn again without it. */
+    @Override
+    public void turnOff() {
+        int n = Alerts.offAll(this);
+        Toast.makeText(this, n > 1 ? "Turned off " + n + " alerts" : "Turned off", Toast.LENGTH_SHORT).show();
+        if (panel != null) panel.render();
+    }
+
     @Override
     public void acknowledge(LauncherData.Item item) {
         bg.execute(() -> {

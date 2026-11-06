@@ -116,3 +116,18 @@ test('the app: Plan it makes a block per step, a pinch on a board stays on it', 
   // Its classes are its own (Breakdown already has bd-).
   assert.doesNotMatch(read('src/renderer/boards.js'), /'bd-|"bd-|bd-card/);
 });
+
+test('a card picked shows its quick options; holding a card lifts it, holding empty space adds one there', () => {
+  const js = read('src/renderer/boards.js');
+  assert.match(js, /const HOLD_MS = 450;/);
+  assert.match(js, /if \(act\.type === 'card' && !act\.picked\) act\.type = 'pan';/, 'a finger across a card not picked moves the board');
+  assert.match(js, /a\.picked = a\.lifted = true;/, 'held: lifted to move');
+  assert.match(js, /o\.onAddHere\?\.\(toWorld\(a\.x0, a\.y0\), \{ x: a\.x0, y: a\.y0 \}\);/, 'held on empty space: add here');
+  assert.match(js, /space\.addEventListener\('contextmenu', \(e\) => \{/, 'the right button does the same on the PC');
+  assert.match(js, /if \(a\.lifted\) \{ placeQuick\(\); return; \}/, 'held and let go: picked, not opened');
+  const app = read('src/renderer/app.js');
+  const q = app.slice(app.indexOf('function boardQuick('), app.indexOf('function openBoardAdd('));
+  for (const label of ["'Edit'", "'Add a way' : 'Next'", "'Calendar'", "'Copy'", "'Delete'", "'Colour'"]) assert.ok(q.includes(label), label);
+  assert.match(q, /n\.done = !n\.done;/);
+  assert.match(app, /const n = board\.view\.add\(k, at && \{ x: at\.x - OnyxBoards\.KINDS\[k\]\.w \/ 2, y: at\.y - 30 \}\);/, 'placed where it was asked for');
+});

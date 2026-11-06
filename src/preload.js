@@ -82,6 +82,8 @@ contextBridge.exposeInMainWorld('onyx', {
   magicRemember: (opts) => call('magic:remember', opts),
   // On-screen popups: shown by the app, and what was pressed on them.
   alert: (a) => call('alert:show', a),
+  openAlerts: () => call('alert:open'),
+  closeAlerts: () => call('alert:closeAll'),
   onAlertAction: (fn) => ipcRenderer.on('alert-action', (_event, m) => fn(m)),
   // Tamkeen, the Arabic study app: open a news video in its player.
   tamkeen: { info: () => call('tamkeen:info'), watch: (id, seconds) => call('tamkeen:watch', id, seconds), embed: (id, seconds) => call('tamkeen:embed', id, seconds) },

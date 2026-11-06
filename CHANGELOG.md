@@ -2,7 +2,18 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.109.0 · Boards: whiteboards for long, hard workflows, planned into your calendar
+## 1.110.0 · One Turn off for every alarm and alert, and quick options on boards
+
+_2026-11-06_
+
+- Fixed: the button on your lock screen did not stop an alarm that was going off. It only told your PC, so the phone kept ringing, and when the PC could not be reached it did nothing at all. Now the lock screen and Onyx Home show a big Turn off on whatever is going off (the alarm ringing, the Pi calling or reminding). It works at once, on the phone, whether or not your PC can be reached.
+- Opening the app while anything is going off shows a bar across the top with one Turn off (Turn off all when there is more than one). It stops the phone's alarm, closes the PC's pop-ups and the due screen, and marks each one seen, so no more calls come about it.
+- The alarm's own full-screen button is now Turn off, and it turns everything off with it. Onyx's lock screen panel no longer opens on top of the alarm's screen and hides its button.
+- Leaving now and Done on the lock screen now work without the PC too. Your PC is told as soon as it can be reached, or by the app when you next open it.
+- Boards: tap a card to pick it, and quick options come up over it: Edit, Next (Add a way on a decision), Done, Calendar, Copy and Delete, or Colour on a sticky note.
+- Boards: press and hold a card to lift it and move it, or press and hold empty space to add a card right there. On the PC, right-click does the same. On a phone, a finger sliding across a card you haven't picked now moves the board, so a full board is easy to move around.
+
+## 1.109.0 · Boards, whiteboards for long workflows, planned into the calendar
 
 _2026-11-06_
 

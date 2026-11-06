@@ -6,6 +6,8 @@
   // ever written with text nodes (h() below), never as HTML.
 
   const ICONS = {
+    pencil: '<path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/>',
+    copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
     board: '<rect x="2.5" y="3" width="7" height="5" rx="1.2"/><rect x="14.5" y="16" width="7" height="5" rx="1.2"/><path d="M18 4.5l3 3-3 3-3-3z"/><path d="M9.5 5.5H15"/><path d="M18 10.5V16"/><path d="M6 8v8.5h8.5"/>',
     waves: '<path d="M3 8c1.5-1.5 3-1.5 4.5 0s3 1.5 4.5 0 3-1.5 4.5 0 3 1.5 4.5 0"/><path d="M3 13c1.5-1.5 3-1.5 4.5 0s3 1.5 4.5 0 3-1.5 4.5 0 3 1.5 4.5 0"/><path d="M3 18c1.5-1.5 3-1.5 4.5 0s3 1.5 4.5 0 3-1.5 4.5 0 3 1.5 4.5 0"/>',
     left: '<path d="M15 6l-6 6 6 6"/>',
@@ -392,6 +394,100 @@
       p.pomo.textContent = `${ph.kind === 'work' ? 'Work' : 'Break'} · ${countdown(ph.left)} left · round ${ph.round} of ${ph.rounds}${idea ? ` · ${idea}` : ''}`;
     }
   }
+
+  // ---- Turn off: whatever is going off right now (the phone's alarm ringing, the Pi calling or reminding, the
+  // due screen, the PC's popups) in a bar across the top of the app, with one button that turns all of it off
+  // and marks it seen, so no more calls come. Up as soon as the app opens; the lock screen has the same button.
+  const ringingNow = { phone: null, popups: [], at: 0, busy: false, el: null };
+  const CALL_SHOWS = 30 * 60000; // as on the phone (LauncherData.CALL_SHOWS)
+  /** What is going off now: [{ key, id, title, kind, from }], the alarm first. */
+  function goingOff() {
+    const now = Date.now(), out = [], seen = new Set();
+    const add = (x) => { if (!x.id || seen.has(x.id)) return; seen.add(x.id); out.push(x); };
+    const r = ringingNow.phone;
+    if (r?.ringing) add({ id: r.ringing.id || 'alarm', title: r.ringing.title, kind: r.ringing.kind, from: 'alarm' });
+    for (const c of r?.calling || []) add({ id: c.id, title: c.title, kind: c.kind, from: 'phone' });
+    for (const e of nextRun.items || []) {
+      if (e.done || e.callAck || !e.piCall || !e.piAlerts?.length) continue;
+      const start = new Date(e.start).getTime();
+      if (e.piAlerts.some((a) => { const at = Date.parse(a.at); return at <= now && now < start && now - at < CALL_SHOWS; })) add({ id: e.id, title: e.title, kind: e.kind || 'event', from: 'call' });
+    }
+    for (const t of tasks) {
+      if (!t.call || t.call.quiet || t.done || t.mirror || !t.start || t.callAck) continue;
+      const at = Date.parse(t.call.at), start = Date.parse(t.start);
+      if (at <= now && now < start && now - at < CALL_SHOWS) add({ id: t.id, title: t.label || t.title, kind: 'task', from: 'call' });
+    }
+    for (const p of ringingNow.popups) if (['call', 'push', 'leave'].includes(p.kind)) add({ id: p.id || p.key, title: p.title, kind: 'event', from: 'popup' });
+    if (due.el && due.key) { const [id] = due.key.split('|'); add({ id, title: due.parts?.title?.textContent || '', kind: 'event', from: 'due' }); }
+    return out;
+  }
+  /** Asks the phone (and the PC) what is going off; every couple of seconds while the app shows. */
+  async function readRinging(force) {
+    if (document.hidden || ringingNow.busy || (!force && Date.now() - ringingNow.at < 2000)) return;
+    ringingNow.busy = true;
+    ringingNow.at = Date.now();
+    try {
+      if (onyx.alerts) {
+        // Turned off on the lock screen while the PC was out of reach: sent now, through the app's own way.
+        const s = await onyx.alerts.state().catch(() => null);
+        if (s?.later) { const t = await onyx.alerts.take().catch(() => null); sendLater(t?.toSend); }
+        ringingNow.phone = s;
+      }
+      if (onyx.openAlerts) ringingNow.popups = await onyx.openAlerts().catch(() => []) || [];
+    } finally { ringingNow.busy = false; }
+    paintRinging();
+  }
+  function sendLater(list) {
+    for (const x of list || []) {
+      if (!x?.id) continue;
+      if (x.done) { const t = tasks.find((y) => y.id === x.id); if (t) completeTask(t); }
+      onyx.ackCall?.(x.id).catch(() => {}); // kept and sent later when the PC is out of reach (remote.js outbox)
+    }
+  }
+  function paintRinging() {
+    const list = goingOff();
+    if (!list.length) { ringingNow.el?.remove(); ringingNow.el = null; document.body.classList.remove('ringing-on'); return; }
+    const alarm = list.find((x) => x.from === 'alarm');
+    const head = alarm ? 'Alarm ringing' : list.some((x) => x.from === 'call' || x.from === 'phone' || x.from === 'popup') ? 'Going off now' : 'Due now';
+    const label = `${list[0].title || 'Your next thing'}${list.length > 1 ? ` and ${list.length - 1} more` : ''}`;
+    if (!ringingNow.el) {
+      ringingNow.el = h('div', { id: 'ringing-bar', role: 'alertdialog', 'aria-live': 'assertive' },
+        h('span', { class: 'rb-ico', 'aria-hidden': 'true' }, icon('bell')),
+        h('div', { class: 'rb-txt' }, h('small'), h('b')),
+        h('button', { type: 'button', class: 'btn rb-off', onclick: () => turnOffAll() }, 'Turn off'));
+      document.body.append(ringingNow.el);
+    }
+    ringingNow.el.querySelector('small').textContent = head;
+    ringingNow.el.querySelector('b').textContent = label;
+    ringingNow.el.querySelector('.rb-off').textContent = list.length > 1 ? 'Turn off all' : 'Turn off';
+    document.body.classList.add('ringing-on');
+  }
+  /** Turns off everything going off: the ringing stops, each one is marked seen, and the PC told. */
+  async function turnOffAll() {
+    const list = goingOff();
+    const btn = ringingNow.el?.querySelector('.rb-off');
+    if (btn) btn.disabled = true;
+    try {
+      if (onyx.alerts) { const s = await onyx.alerts.off().catch(() => null); if (s) ringingNow.phone = s; const t = await onyx.alerts.take().catch(() => null); sendLater(t?.toSend); }
+      if (onyx.closeAlerts) await onyx.closeAlerts().catch(() => {});
+      ringingNow.popups = [];
+      for (const x of list) {
+        if (x.from === 'alarm' || x.from === 'phone') continue; // the phone has sent (or kept) its own
+        const e = (nextRun.items || []).find((y) => y.id === x.id);
+        if (e) e.callAck = true;
+        const t = tasks.find((y) => y.id === x.id);
+        if (t) t.callAck = true;
+        onyx.ackCall?.(x.id).catch(() => {});
+      }
+      if (due.key) { due.hidden.set(due.key, Infinity); tickDue(); }
+      toast(list.length > 1 ? `Turned off ${list.length} alerts` : 'Turned off');
+    } finally {
+      if (btn) btn.disabled = false;
+      paintRinging();
+      setTimeout(() => readRinging(true), 800);
+    }
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) readRinging(true); });
 
   /** A soft two-note chime: rising for work, falling for rest. */
   function chime(kind) {
@@ -8273,7 +8369,7 @@
         inner,
         home ? h('div', { class: 'lp-dock' }, h('span'), h('span'), h('span'), h('span')) : h('div', { class: 'lp-unlock' }, '︿ Unlock'));
       // Moved by hand: a part up or down, a shortcut along its row. Saved as soon as it is let go.
-      dragToOrder(inner, { axis: 'y', items: () => [...inner.children], skip: (t) => t.closest('.lp-chip:not(.ghost)'), key: (el) => el.dataset.part,
+      dragToOrder(inner, { axis: 'y', items: () => [...inner.children], skip: (t) => t.closest('.lp-chip[data-i]:not(.ghost)'), key: (el) => el.dataset.part,
         done: (order) => {
           if (!order) { draw(); return; }
           const moved = [...order];
@@ -10967,12 +11063,27 @@
       when: placedText,
       onCam: (c) => { clearTimeout(boardCamT); boardCamT = setTimeout(() => writeLocal(`onyx.boardCam.${board.cur?.id}`, c), 400); },
       onDraw: (r) => { board.lastRoute = r; paintBoardBar(); },
+      quick: (n) => boardQuick(n),
+      onAddHere: (at, pt) => openBoardAdd({ getBoundingClientRect: () => ({ left: pt.x, right: pt.x, top: pt.y, bottom: pt.y, width: 0, height: 0 }) }, at),
     };
     if (board.view) board.view.setBoard(b, cam || { x: 40, y: 40, z: 1 });
     else board.view = OnyxBoards.mount(space, opts);
     Object.assign(board.view, { opts });
     paintBoardBar(true);
+    boardHint();
     if (!cam && b.nodes.length) requestAnimationFrame(() => board.view?.fit());
+  }
+
+  /** How to use it, along the foot of the board, until it is closed. */
+  function boardHint() {
+    $('#board .wb-hint')?.remove();
+    if (readLocal('onyx.boardHint', '') === 'done') return;
+    const hint = h('div', { class: 'wb-hint' },
+      h('span', null, MOBILE
+        ? 'Tap a card for its options, tap again to open it. Press and hold a card to move it, or hold empty space to add one there. Drag a card’s + to join it to another.'
+        : 'Click a card for its options, double-click to open it. Drag to move it; right-click empty space to add one there. Drag a card’s + to join it to another.'),
+      h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Got it', title: 'Got it', onclick: () => { writeLocal('onyx.boardHint', 'done'); hint.remove(); } }, icon('x')));
+    $('#board').append(hint);
   }
 
   async function makeBoard(example) {
@@ -11016,11 +11127,58 @@
       h('button', { type: 'button', class: 'btn primary wb-plan', onclick: (e) => planBoard(e.currentTarget) }, icon('calendar'), 'Plan it'));
   }
 
-  /** On the phone (no room for four buttons): what to add, in a little menu. */
-  function openBoardAdd(anchor) {
+  /**
+   * The quick options over the card picked: open it, the next step (a decision's next way), done, the calendar,
+   * a copy, delete; a note's colour. Each does it at once.
+   */
+  function boardQuick(n) {
+    const b = board.cur;
+    const redraw = () => { boardChanged(); board.view.draw(); };
+    const btn = (ico, label, run, cls = '') => h('button', { type: 'button', class: `wb-q${cls ? ` ${cls}` : ''}`, title: label, 'aria-label': label, onclick: (e) => { e.stopPropagation(); run(); } },
+      typeof ico === 'string' ? icon(ico) : ico, h('span', null, label));
+    const kids = [btn('pencil', 'Edit', () => openBoardCard(n))];
+    if (n.kind !== 'note') {
+      kids.push(btn('plus', n.kind === 'decision' ? 'Add a way' : 'Next', () => { const next = board.view.after(n.id); openBoardCard(next); }));
+    }
+    if (n.kind === 'step' || n.kind === 'goal') {
+      kids.push(btn('check', n.done ? 'Not done' : n.kind === 'goal' ? 'Reached' : 'Done', () => { n.done = !n.done; redraw(); }, n.done ? 'on' : ''));
+    }
+    if (n.kind === 'step') {
+      kids.push(btn('calendar', 'Calendar', () => {
+        const now = new Date();
+        const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), Math.min(23, now.getHours() + 1), 0);
+        openEditor({ start, end: new Date(start.getTime() + (n.minutes || 30) * 60000), allDay: false, title: n.title },
+          ($(`#board .wb-card[data-id="${CSS.escape(n.id)}"]`) || $('#board-space')).getBoundingClientRect());
+      }));
+    }
+    if (n.kind === 'note') {
+      const i = OnyxBoards.NOTE_COLORS.indexOf(n.color);
+      kids.push(btn(h('span', { class: 'wb-q-dot', css: { '--c': n.color || OnyxBoards.NOTE_COLORS[0] } }), 'Colour', () => {
+        n.color = OnyxBoards.NOTE_COLORS[(i + 1) % OnyxBoards.NOTE_COLORS.length];
+        redraw();
+      }));
+    }
+    kids.push(btn('copy', 'Copy', () => {
+      const copy = { ...structuredClone(n), id: OnyxBoards.newId('n'), x: n.x + 30, y: n.y + 30 };
+      delete copy.placed;
+      delete copy.chosen; // its ways are the original's
+      b.nodes.push(copy);
+      boardChanged();
+      board.view.select(copy.id);
+    }));
+    kids.push(btn('trash', 'Delete', () => deleteBoardCard(n), 'danger'));
+    return h('div', { class: 'wb-q-row' }, kids);
+  }
+
+  /** What to add: from the bar's Add (the phone), or pressed and held (right-clicked) on the board, put there. */
+  function openBoardAdd(anchor, at = null) {
     showPopover(anchor.getBoundingClientRect(), [h('div', { class: 'wb-menu' },
-      h('h4', null, 'Add to the board'),
-      ...['step', 'decision', 'goal', 'note'].map((k) => h('button', { type: 'button', class: `wb-menu-row k-${k}`, onclick: () => { closePopover(); const n = board.view.add(k); openBoardCard(n); } },
+      h('h4', null, at ? 'Add here' : 'Add to the board'),
+      ...['step', 'decision', 'goal', 'note'].map((k) => h('button', { type: 'button', class: `wb-menu-row k-${k}`, onclick: () => {
+        closePopover();
+        const n = board.view.add(k, at && { x: at.x - OnyxBoards.KINDS[k].w / 2, y: at.y - 30 });
+        openBoardCard(n);
+      } },
         h('span', { class: 'wb-add-ico', 'aria-hidden': 'true' }, OnyxBoards.KINDS[k].icon),
         h('span', null, h('b', null, OnyxBoards.KINDS[k].label), h('small', null, {
           step: 'Something to do, with how long it takes',
@@ -11939,7 +12097,8 @@
     buildNews();
     window.onyxReady = true; // the page is up (the phone app's watch over its start: MainActivity)
     refreshPomodoros();
-    setInterval(() => { tickPomodoro(); tickNext(); tickPopups(); tickDue(); }, 1000);
+    setInterval(() => { tickPomodoro(); tickNext(); tickPopups(); tickDue(); readRinging(); }, 1000);
+    readRinging(true); // anything going off as the app opens: the Turn off bar, straight away
     setInterval(refreshPomodoros, 60000);
 
     // A tap on a home-screen widget (phone): open the globe, or the calendar on that day.

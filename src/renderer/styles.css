@@ -3285,3 +3285,39 @@ body.mobile .wb-route { order: 11; }
 body.mobile .wb-zoom { order: 12; }
 /* On a board the + adds a step: the count of tasks waiting for Magic add is for the calendar. */
 body.board-on #fab .magic-count { display: none; }
+
+/* The quick options over the card picked (boards.js placeQuick; app.js boardQuick), and a card held to move. */
+.wb-quick { position: absolute; z-index: 4; transform: translate(-50%, -100%); padding: 4px; border-radius: 14px; background: #1c1c23; border: 1px solid #34343f;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .55); cursor: default; }
+.wb-quick.below { transform: translate(-50%, 0); }
+.wb-quick[hidden] { display: none; }
+.wb-q-row { display: flex; gap: 2px; }
+.wb-q { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 50px; padding: 6px 6px 5px; border: 0; border-radius: 10px; background: none; color: var(--text);
+  font: inherit; font-size: 10.5px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.wb-q:hover { background: rgba(255, 255, 255, .07); }
+.wb-q .ico { width: 17px; height: 17px; }
+.wb-q.on { color: #6fdc8c; }
+.wb-q.danger { color: #ff8a8a; }
+.wb-q-dot { width: 16px; height: 16px; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 2px rgba(255, 255, 255, .25); }
+.wb-card.lifted { transform: scale(1.04); box-shadow: 0 0 0 2px #fff, 0 22px 44px rgba(0, 0, 0, .65); z-index: 3; transition: transform .12s, box-shadow .12s; }
+.wb-card.k-note.lifted { transform: rotate(-1.2deg) scale(1.04); }
+.wb-hint { position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 5; display: flex; align-items: center; gap: 8px; max-width: 560px; margin: 0 auto; padding: 8px 8px 8px 14px;
+  border-radius: 12px; background: rgba(22, 22, 28, .94); border: 1px solid var(--line-2); color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+.wb-hint .icon-btn { flex: none; width: 30px; height: 30px; }
+body.mobile .wb-hint { right: 86px; bottom: calc(22px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); }
+
+/* ------------------------------------------------------------ Turn off: whatever is going off now (app.js, paintRinging) */
+/* Over everything (the due screen, Settings, a Hyperfocus session too), so it can always be turned off. */
+#ringing-bar { position: fixed; left: 0; right: 0; top: 0; z-index: 1000; display: flex; align-items: center; gap: 12px;
+  padding: calc(10px + var(--safe-top, env(safe-area-inset-top, 0px))) 14px 10px; background: #f5b83d; color: #1a1206;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, .55); animation: rb-in .25s ease-out; }
+@keyframes rb-in { from { transform: translateY(-100%); } to { transform: none; } }
+.rb-ico { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: rgba(0, 0, 0, .12); animation: rb-ring 1.2s ease-in-out infinite; }
+.rb-ico .ico { width: 18px; height: 18px; }
+@keyframes rb-ring { 0%, 60%, 100% { transform: rotate(0); } 10%, 30% { transform: rotate(-14deg); } 20%, 40% { transform: rotate(14deg); } }
+@media (prefers-reduced-motion: reduce) { #ringing-bar, .rb-ico { animation: none; } }
+.rb-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.rb-txt small { font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; opacity: .75; }
+.rb-txt b { font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rb-off { flex: none; height: 44px; padding: 0 20px; border-radius: 99px; border: 0; background: #1a1206; color: #fff; font-size: 15px; font-weight: 800; }
+.rb-off:hover { background: #000; }

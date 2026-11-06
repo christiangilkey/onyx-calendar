@@ -174,6 +174,32 @@ public class OnyxWidgetPlugin extends Plugin {
     }
 
     /**
+     * Everything going off on the phone (Alerts): { ringing, calling, later }. { off: true } turns it all off
+     * first ({ turnedOff: n }); { take: true } also hands over the ones the PC still has to be told about
+     * ({ toSend: [{ id, done }] }), for the app to send its own way.
+     */
+    @PluginMethod
+    public void alerts(PluginCall call) {
+        android.content.Context c = getContext();
+        int off = call.getBoolean("off", false) ? Alerts.offAll(c) : 0;
+        JSObject out;
+        try {
+            out = JSObject.fromJSONObject(Alerts.state(c));
+        } catch (Exception e) {
+            out = new JSObject();
+        }
+        out.put("turnedOff", off);
+        if (call.getBoolean("take", false)) {
+            try {
+                out.put("toSend", new JSArray(Alerts.take(c).toString()));
+            } catch (Exception e) {
+                out.put("toSend", new JSArray());
+            }
+        }
+        call.resolve(out);
+    }
+
+    /**
      * The noise machine (NoiseService), played on the phone itself: { play: kind, volume?, minutes? } plays or
      * changes the sound, { stop: true } stops it, { volume } alone changes how loud. Any of them, or {}, answers
      * with how it is: { playing, kind, name, volume, minutes, endsAt, kinds }.

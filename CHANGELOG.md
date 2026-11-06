@@ -2,7 +2,16 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.107.0 · One + button, a top bar that fits the date, and no blank screen after a pinch
+## 1.108.0 · A noise machine, on your lock screen too, and a lock screen preview you can drag
+
+_2026-11-06_
+
+- New: a noise machine. Tap the waves button in the top bar to play Hyperfocus's sounds on their own: brown, pink and white noise, rainforest rain, light rain and beach waves. Pick how loud, and a timer (15 minutes to 8 hours) if you want it to stop by itself.
+- On the phone the app plays the sounds itself, from the files inside it (nothing is streamed). It keeps going with the screen off or Onyx closed, and its notification has Next sound and Stop.
+- The noise machine can go on your lock screen and Onyx Home: in Settings → Home & lock screen, switch on Noise machine under "What shows". It plays, stops and changes sound right there, without unlocking.
+- The lock screen preview in Settings → Home & lock screen can be put in order by hand: press and hold a part (the clock, Now and next, the noise machine…) or one of your shortcuts, then drag it. It saves as soon as you let go, and your lock screen shows it the next time it turns on.
+
+## 1.107.0 · One + button, a top bar that fits the date, no blank grid after a pinch
 
 _2026-11-06_
 

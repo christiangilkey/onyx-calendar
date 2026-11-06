@@ -19,9 +19,11 @@ import java.util.List;
 final class LockLayout {
     static final String LOCK = "lock", HOME = "home";
     /** The lock screen's parts. */
-    static final List<String> PARTS = Arrays.asList("clock", "onyx", "shortcuts", "music", "notifications");
+    static final List<String> PARTS = Arrays.asList("clock", "onyx", "shortcuts", "music", "notifications", "noise");
     /** The home screen's: the apps are the ones kept on it, the widgets the ones added to it. */
-    static final List<String> HOME_PARTS = Arrays.asList("clock", "onyx", "shortcuts", "widgets", "apps");
+    static final List<String> HOME_PARTS = Arrays.asList("clock", "onyx", "shortcuts", "widgets", "apps", "noise");
+    /** Parts that start hidden, until switched on in the app: the noise machine (NoisePart). */
+    static final List<String> ADDED = Arrays.asList("noise");
 
     private LockLayout() {}
 
@@ -79,10 +81,15 @@ final class LockLayout {
             String p = o.optString(i);
             if (all.contains(p) && !order.contains(p)) order.add(p);
         }
-        for (String p : all) if (!order.contains(p)) order.add(p); // a part added in a later version goes last
         JSONArray hidden = new JSONArray();
         JSONArray h = in.optJSONArray("hidden");
         for (int i = 0; h != null && i < h.length(); i++) if (all.contains(h.optString(i))) hidden.put(h.optString(i));
+        // A part added in a later version goes last; one that is added by choice (ADDED) starts hidden there.
+        for (String p : all) {
+            if (order.contains(p)) continue;
+            order.add(p);
+            if (ADDED.contains(p) && !has(hidden, p)) hidden.put(p);
+        }
         String size = in.optString("clockSize", home ? "medium" : "large");
         if (!Arrays.asList("small", "medium", "large", "huge").contains(size)) size = home ? "medium" : "large";
         String align = in.optString("align", home ? "left" : "center");
@@ -103,9 +110,12 @@ final class LockLayout {
     }
 
     static boolean shows(JSONObject l, String part) {
-        JSONArray h = l.optJSONArray("hidden");
-        for (int i = 0; h != null && i < h.length(); i++) if (part.equals(h.optString(i))) return false;
-        return true;
+        return !has(l.optJSONArray("hidden"), part);
+    }
+
+    private static boolean has(JSONArray a, String part) {
+        for (int i = 0; a != null && i < a.length(); i++) if (part.equals(a.optString(i))) return true;
+        return false;
     }
 
     static float clockSp(JSONObject l) {

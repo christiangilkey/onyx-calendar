@@ -617,8 +617,8 @@
         doomOff: ['LinkedIn', 'BeReal', 'CapCut', 'VK', '9GAG', 'Tumblr', 'Twitch', 'Bluesky', 'Pinterest'], doomExtra: [{ pkg: 'com.supercell.clashroyale', label: 'Clash Royale' }],
         doomLimits: { Instagram: 30, YouTube: 60 }, doomUsed: { Instagram: 31 * 60000, YouTube: 22 * 60000, TikTok: 9 * 60000, 'Clash Royale': 40000 } };
       const screens = {
-        lock: { layout: { order: ['clock', 'onyx', 'shortcuts', 'music', 'notifications'], hidden: [], clockSize: 'large', align: 'center', date: true, dim: 80 }, shortcuts: [{ id: 's1', kind: 'link', target: 'spotify:', label: 'Spotify', icon: '🎵' }] },
-        home: { layout: { order: ['clock', 'onyx', 'shortcuts', 'widgets', 'apps'], hidden: [], clockSize: 'medium', align: 'left', date: true, dim: 0 }, shortcuts: [] },
+        lock: { layout: { order: ['clock', 'onyx', 'shortcuts', 'music', 'notifications', 'noise'], hidden: ['noise'], clockSize: 'large', align: 'center', date: true, dim: 80 }, shortcuts: [{ id: 's1', kind: 'link', target: 'spotify:', label: 'Spotify', icon: '🎵' }, { id: 's2', kind: 'link', target: 'tel:', label: 'Call', icon: '📞' }, { id: 's3', kind: 'link', target: 'https://maps.google.com', label: 'Maps', icon: '🗺️' }] },
+        home: { layout: { order: ['clock', 'onyx', 'shortcuts', 'widgets', 'apps', 'noise'], hidden: ['noise'], clockSize: 'medium', align: 'left', date: true, dim: 0 }, shortcuts: [] },
       };
       const setup = (screen) => ({ screen, ...structuredClone(screens[screen]), max: 12 });
       return {
@@ -641,6 +641,17 @@
         shortcutApps: async () => [{ pkg: 'com.spotify.music', label: 'Spotify' }],
         pickShortcutFile: async () => ({ cancelled: true }),
         tryShortcut: async () => {},
+      };
+    })() : undefined,
+    // The phone's noise machine (?launcher), as the app keeps it (NoiseService): no sound here, only its state.
+    noise: new URLSearchParams(location.search).has('launcher') ? (() => {
+      const n = { playing: false, kind: 'waves', volume: 35, minutes: 0, endsAt: 0 };
+      const out = () => ({ ...n, endsAt: n.playing ? n.endsAt : 0 });
+      return {
+        state: async () => out(),
+        play: async (kind, volume, minutes = 0) => { Object.assign(n, { playing: true, kind, volume, minutes, endsAt: minutes ? Date.now() + minutes * 60000 : 0 }); return out(); },
+        stop: async () => { n.playing = false; return out(); },
+        volume: async (volume) => { n.volume = volume; return out(); },
       };
     })() : undefined,
     // A paired phone asking to sync through Drive too (?phoneask): answered here.

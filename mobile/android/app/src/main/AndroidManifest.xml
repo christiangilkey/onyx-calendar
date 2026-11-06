@@ -150,6 +150,12 @@
                 android:value="Rings an alarm for a calendar entry until the user presses Stop, Snooze or Leaving now" />
         </service>
 
+        <!-- The noise machine: Hyperfocus's sounds (in the app, not streamed), playing with the screen off. -->
+        <service
+            android:name=".NoiseService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+
         <!-- Onyx on the lock screen: the live notification, call alerts and the panel. -->
         <service
             android:name=".OnyxLiveService"
@@ -206,6 +212,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />

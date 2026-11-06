@@ -173,6 +173,24 @@ public class OnyxWidgetPlugin extends Plugin {
         call.resolve();
     }
 
+    /**
+     * The noise machine (NoiseService), played on the phone itself: { play: kind, volume?, minutes? } plays or
+     * changes the sound, { stop: true } stops it, { volume } alone changes how loud. Any of them, or {}, answers
+     * with how it is: { playing, kind, name, volume, minutes, endsAt, kinds }.
+     */
+    @PluginMethod
+    public void noise(PluginCall call) {
+        android.content.Context c = getContext();
+        if (call.getBoolean("stop", false)) NoiseService.stop(c);
+        else if (call.hasOption("play")) NoiseService.play(c, call.getString("play", "brown"), call.getInt("volume", NoiseService.volume(c)), call.getInt("minutes", 0));
+        else if (call.hasOption("volume")) NoiseService.setVolume(c, call.getInt("volume", NoiseService.volume(c)));
+        try {
+            call.resolve(JSObject.fromJSONObject(NoiseService.state(c)));
+        } catch (Exception e) {
+            call.resolve(new JSObject());
+        }
+    }
+
     // ---- each screen's editor (the lock screen's, Onyx Home's): its layout (LockLayout) and your shortcuts on it (LockShortcuts)
 
     private JSObject lockSetup(String screen) {

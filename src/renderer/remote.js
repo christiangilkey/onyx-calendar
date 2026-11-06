@@ -835,6 +835,14 @@
       // A Hyperfocus session on this phone, shown on Onyx Home and the lock screen (null: it is over).
       focus: (s) => Widget.setFocus?.(s ? { goal: s.goal, startedAt: s.startedAt, plannedEnd: s.plannedEnd } : { clear: true })?.catch?.(() => {}),
     } : null,
+    // The noise machine, played by the app on this phone (NoiseService): on with the screen off, and from the lock
+    // screen. Each answers with { playing, kind, volume, minutes, endsAt }. An older app: the window plays it instead.
+    noise: Widget?.noise ? {
+      state: () => Widget.noise({}),
+      play: (kind, volume, minutes = 0) => Widget.noise({ play: kind, volume: Math.round(volume), minutes: Math.round(minutes) }),
+      stop: () => Widget.noise({ stop: true }),
+      volume: (volume) => Widget.noise({ volume: Math.round(volume) }),
+    } : null,
     // Tamkeen on this phone (not on the PC): checked and opened through the app's own plugin.
     tamkeen: {
       info: async () => {

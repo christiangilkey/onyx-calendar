@@ -58,6 +58,7 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
     private LinearLayout notifs; // your other apps' notifications, under the panel
     private NowPlaying music; // what is playing, between the panel and the notifications
     private LockAudio.Card audio; // an audio file from a shortcut, playing on the panel
+    private NoisePart noise; // the noise machine, when it is on the lock screen
     private org.json.JSONObject layout = new org.json.JSONObject(); // the lock screen editor's settings (LockLayout)
     private boolean clockOff, showDate = true;
     private final Runnable notifsChanged = () -> ui.post(this::renderNotifs);
@@ -126,6 +127,7 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
         OnyxNotificationListener.watch(notifsChanged);
         renderNotifs();
         if (music != null) music.start();
+        if (noise != null) noise.start();
         if (audio != null) {
             audio.watch(() -> ui.post(audio::update));
             audio.update();
@@ -141,6 +143,7 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
         ui.removeCallbacks(ticker);
         OnyxNotificationListener.unwatch(notifsChanged);
         if (music != null) music.stop();
+        if (noise != null) noise.stop(); // it plays on; the panel just stops showing it
         if (audio != null) audio.watch(null); // it keeps playing; the panel just stops showing it
         if (scene != null) scene.pause();
     }
@@ -253,12 +256,20 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
         np.topMargin = dp(6);
         notifsPart.addView(notifs, np);
 
+        // The noise machine: plays and stops right here, without unlocking (NoisePart, NoiseService).
+        LinearLayout noisePart = section();
+        noise = new NoisePart(this);
+        LinearLayout.LayoutParams zp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        zp.topMargin = dp(12);
+        noisePart.addView(noise.root, zp);
+
         java.util.Map<String, View> parts = new java.util.HashMap<>();
         parts.put("clock", clockPart);
         parts.put("onyx", onyxPart);
         parts.put("shortcuts", shortcutsPart);
         parts.put("music", musicPart);
         parts.put("notifications", notifsPart);
+        parts.put("noise", noisePart);
         org.json.JSONArray order = layout.optJSONArray("order");
         for (int i = 0; order != null && i < order.length(); i++) {
             View p = parts.get(order.optString(i));
@@ -270,6 +281,7 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
         if (!LockLayout.shows(layout, "shortcuts")) shortcutsPart.setVisibility(View.GONE);
         if (!LockLayout.shows(layout, "music")) { musicPart.setVisibility(View.GONE); music = null; }
         if (!LockLayout.shows(layout, "notifications")) { notifsPart.setVisibility(View.GONE); notifs = null; }
+        if (!LockLayout.shows(layout, "noise")) { noisePart.setVisibility(View.GONE); noise = null; }
 
         TextView unlock = new TextView(this);
         unlock.setText("︿  Unlock");

@@ -103,7 +103,8 @@ public class LauncherActivity extends Activity implements OnyxPanel.Host {
     private final Map<String, App> byKey = new HashMap<>();
 
     private ScrollView scroll;
-    private LinearLayout content, topBox, clockPart, panelBox, shortcutsPart, widgetsBox, homeGrid, dock, dockBar;
+    private LinearLayout content, topBox, clockPart, panelBox, shortcutsPart, widgetsBox, homeGrid, dock, dockBar, noisePart;
+    private NoisePart noise;
     private JSONObject layout; // the home screen's (LockLayout), as last put in place
     private String layoutKey = "";
     private boolean clockOff, showDate = true;
@@ -199,6 +200,7 @@ public class LauncherActivity extends Activity implements OnyxPanel.Host {
         applyLayout(); // changed in the app meanwhile?
         showPanel();
         scene.resume();
+        noise.start();
         if (System.currentTimeMillis() - lastFetch > 60_000) fetch();
         ui.removeCallbacks(ticker);
         ui.post(ticker);
@@ -210,6 +212,7 @@ public class LauncherActivity extends Activity implements OnyxPanel.Host {
         resumed = false;
         ui.removeCallbacks(ticker);
         scene.pause();
+        noise.stop();
     }
 
     /** The Home button on the home screen: back to the top, drawer closed. */
@@ -321,6 +324,14 @@ public class LauncherActivity extends Activity implements OnyxPanel.Host {
         homeGrid = new LinearLayout(this);
         homeGrid.setOrientation(LinearLayout.VERTICAL);
         homeGrid.setPadding(0, dp(8), 0, 0);
+
+        // The noise machine, when it is added to the home screen (NoisePart).
+        noisePart = new LinearLayout(this);
+        noisePart.setOrientation(LinearLayout.VERTICAL);
+        noise = new NoisePart(this);
+        LinearLayout.LayoutParams zp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        zp.bottomMargin = dp(12);
+        noisePart.addView(noise.root, zp);
         applyLayout();
 
         // The handle for the app drawer, then the dock.
@@ -510,6 +521,7 @@ public class LauncherActivity extends Activity implements OnyxPanel.Host {
         parts.put("shortcuts", shortcutsPart);
         parts.put("widgets", widgetsBox);
         parts.put("apps", homeGrid);
+        parts.put("noise", noisePart);
         for (View p : parts.values()) content.removeView(p);
         int at = content.indexOfChild(topBox) + 1;
         JSONArray order = l.optJSONArray("order");
@@ -522,6 +534,7 @@ public class LauncherActivity extends Activity implements OnyxPanel.Host {
         shortcutsPart.setVisibility(LockLayout.shows(l, "shortcuts") ? View.VISIBLE : View.GONE);
         widgetsBox.setVisibility(LockLayout.shows(l, "widgets") ? View.VISIBLE : View.GONE);
         homeGrid.setVisibility(LockLayout.shows(l, "apps") ? View.VISIBLE : View.GONE);
+        noisePart.setVisibility(LockLayout.shows(l, "noise") ? View.VISIBLE : View.GONE);
     }
 
     @Override

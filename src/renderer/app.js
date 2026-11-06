@@ -6,6 +6,7 @@
   // ever written with text nodes (h() below), never as HTML.
 
   const ICONS = {
+    waves: '<path d="M3 8c1.5-1.5 3-1.5 4.5 0s3 1.5 4.5 0 3-1.5 4.5 0 3 1.5 4.5 0"/><path d="M3 13c1.5-1.5 3-1.5 4.5 0s3 1.5 4.5 0 3-1.5 4.5 0 3 1.5 4.5 0"/><path d="M3 18c1.5-1.5 3-1.5 4.5 0s3 1.5 4.5 0 3-1.5 4.5 0 3 1.5 4.5 0"/>',
     left: '<path d="M15 6l-6 6 6 6"/>',
     right: '<path d="M9 6l6 6-6 6"/>',
     down: '<path d="M6 9l6 6 6-6"/>',
@@ -5315,19 +5316,23 @@
   }
   function playNoise(kind, volume) {
     if (kind === 'none' || kind === 'spotify' || !volume) { stopNoise(); return; }
-    noise.want = { kind, volume };
+    playOn(noise, kind, volume);
+  }
+  /** Plays a sound on a player (Hyperfocus's, or the noise machine's): blended in over the one before. */
+  function playOn(p, kind, volume) {
+    p.want = { kind, volume };
     try {
       const ctx = chime.ctx || (chime.ctx = new AudioContext());
       ctx.resume?.();
-      if (noise.kind === kind && noise.src) {
-        noise.gain.gain.setTargetAtTime(OnyxFocus.soundLevel(kind, volume), ctx.currentTime, 0.25);
+      if (p.kind === kind && p.src) {
+        p.gain.gain.setTargetAtTime(OnyxFocus.soundLevel(kind, volume), ctx.currentTime, 0.25);
         return;
       }
       noiseLoop(ctx, kind).then((buf) => {
-        const want = noise.want;
+        const want = p.want;
         if (want?.kind !== kind) return; // switched or stopped while it loaded
-        if (noise.kind === kind && noise.src) return;
-        fadeNoise(false); // the last sound fades out under this one
+        if (p.kind === kind && p.src) return;
+        fadeOn(p, false); // the last sound fades out under this one
         const src = ctx.createBufferSource();
         src.buffer = buf;
         src.loop = true;
@@ -5343,24 +5348,113 @@
         }
         head.connect(gain).connect(ctx.destination);
         src.start();
-        Object.assign(noise, { src, gain, kind });
+        Object.assign(p, { src, gain, kind });
         gain.gain.setTargetAtTime(OnyxFocus.soundLevel(kind, want.volume), ctx.currentTime, 0.25);
       }).catch(() => { /* no sound: the session still runs */ });
     } catch { /* no sound: the session still runs */ }
   }
   function stopNoise(now) {
     noise.want = null;
-    fadeNoise(now);
+    fadeOn(noise, now);
   }
-  function fadeNoise(now) {
-    if (!noise.src) return;
-    const { src, gain } = noise;
-    Object.assign(noise, { src: null, gain: null, kind: 'none' });
+  function fadeOn(p, now) {
+    if (!p.src) return;
+    const { src, gain } = p;
+    Object.assign(p, { src: null, gain: null, kind: 'none' });
     try {
       const t = chime.ctx.currentTime;
       gain.gain.setTargetAtTime(0.0001, t, now ? 0.01 : 0.6);
       src.stop(t + (now ? 0.05 : 3));
     } catch { /* already stopped */ }
+  }
+
+  // ---- the noise machine (the waves button in the top bar): the same recordings on their own, for as long as
+  // wanted or with a timer, apart from Hyperfocus. On the phone they play in the Onyx app itself (NoiseService),
+  // on with the screen off, and from the lock screen and Onyx Home too; nothing is streamed. Here (the PC, the
+  // web) they play in this window, on a player of their own, so a session ending leaves it on.
+  const NOISE_KINDS = [['brown', '🟤', 'Brown noise'], ['pink', '🌸', 'Pink noise'], ['white', '⚪', 'White noise'], ['rain', '🌧️', 'Rainforest rain'], ['lightrain', '🌦️', 'Light rain'], ['waves', '🌊', 'Beach waves']];
+  const NOISE_TIMERS = [[0, 'No timer'], [15, '15 min'], [30, '30 min'], [60, '1 h'], [120, '2 h'], [480, '8 h']];
+  const machine = { src: null, gain: null, kind: 'none', want: null, endsAt: 0, timer: 0 };
+  const readMachine = () => {
+    const base = { kind: 'brown', volume: 35, minutes: 0 };
+    try { return { ...base, ...JSON.parse(localStorage.getItem('onyx.noiseMachine') || '{}') }; } catch { return base; }
+  };
+  const saveMachine = (p) => { try { localStorage.setItem('onyx.noiseMachine', JSON.stringify(p)); } catch { /* this visit only */ } };
+  /** This window's own: { state, play, stop, volume }, each answering with { playing, kind, volume, minutes, endsAt }. */
+  const webMachine = {
+    state: async () => {
+      const p = readMachine();
+      return { playing: !!machine.want, kind: machine.want?.kind || p.kind, volume: p.volume, minutes: p.minutes, endsAt: machine.want ? machine.endsAt : 0 };
+    },
+    play: async (kind, volume, minutes) => {
+      saveMachine({ kind, volume, minutes });
+      clearTimeout(machine.timer);
+      machine.endsAt = minutes ? Date.now() + minutes * 60000 : 0;
+      if (minutes) machine.timer = setTimeout(() => { webMachine.stop(); paintNoiseButton(); }, minutes * 60000);
+      playOn(machine, kind, volume);
+      return webMachine.state();
+    },
+    stop: async () => {
+      clearTimeout(machine.timer);
+      machine.want = null;
+      machine.endsAt = 0;
+      fadeOn(machine, false);
+      return webMachine.state();
+    },
+    volume: async (volume) => {
+      saveMachine({ ...readMachine(), volume });
+      if (machine.want) playOn(machine, machine.want.kind, volume);
+      return webMachine.state();
+    },
+  };
+  /** The phone's (in the app, NoiseService) when there is one, else this window's. */
+  const noiseMachine = () => onyx.noise || webMachine;
+  let noiseNow = { playing: false };
+  function paintNoiseButton(state = noiseNow) {
+    noiseNow = state || { playing: false };
+    const b = $('#noise-btn');
+    if (!b) return;
+    b.classList.toggle('on', !!noiseNow.playing);
+    const name = NOISE_KINDS.find(([k]) => k === noiseNow.kind)?.[2];
+    b.title = noiseNow.playing ? `Noise machine: ${name || 'playing'}` : 'Noise machine';
+  }
+  const refreshNoise = () => noiseMachine().state().then(paintNoiseButton).catch(() => {});
+
+  /** The noise machine's panel, under its button: the sounds, how loud, a timer, and Play or Stop. */
+  async function openNoise() {
+    let st = await noiseMachine().state().catch(() => null);
+    if (!st) { toast('Update the Onyx app to use the noise machine.', 'error'); return; }
+    let minutes = st.minutes || 0;
+    const set = (next) => { st = next; paintNoiseButton(st); draw(); };
+    const go = (kind) => noiseMachine().play(kind, st.volume || 35, minutes).then(set).catch(fail);
+    const box = h('div', { class: 'nm' });
+    const draw = () => {
+      const until = st.playing && st.endsAt ? `until ${fmtTime(new Date(st.endsAt))}` : '';
+      const vol = h('input', { type: 'range', min: 1, max: 100, value: st.volume || 35, class: 'nm-vol', 'aria-label': 'Volume',
+        onchange: (e) => noiseMachine().volume(+e.target.value).then(set).catch(fail) });
+      vol.addEventListener('input', (e) => { st.volume = +e.target.value; if (!onyx.noise) webMachine.volume(st.volume); });
+      box.replaceChildren(
+        h('div', { class: 'nm-head' }, h('h3', null, icon('waves'), 'Noise machine'),
+          h('span', { class: `nm-status${st.playing ? ' on' : ''}` }, st.playing ? ['Playing', until].filter(Boolean).join(' · ') : 'Off')),
+        h('div', { class: 'nm-sounds', role: 'radiogroup', 'aria-label': 'Sound' }, NOISE_KINDS.map(([k, ico, name]) => h('button', {
+          type: 'button', role: 'radio', 'aria-checked': String(st.kind === k), class: `nm-sound${st.kind === k ? ' on' : ''}${st.kind === k && st.playing ? ' playing' : ''}`,
+          onclick: () => go(k),
+        }, h('span', { class: 'nm-ico', 'aria-hidden': 'true' }, ico), h('span', null, name)))),
+        h('label', { class: 'nm-row' }, h('span', null, 'Volume'), vol),
+        h('div', { class: 'nm-row' }, h('span', null, 'Stop after'),
+          h('div', { class: 'nm-timers', role: 'radiogroup', 'aria-label': 'Stop after' }, NOISE_TIMERS.map(([m, label]) => h('button', {
+            type: 'button', role: 'radio', 'aria-checked': String(minutes === m), class: `nm-timer${minutes === m ? ' on' : ''}`,
+            onclick: () => { minutes = m; if (st.playing) go(st.kind); else draw(); },
+          }, label)))),
+        h('button', { type: 'button', class: `btn ${st.playing ? '' : 'primary '}nm-go`,
+          onclick: () => (st.playing ? noiseMachine().stop().then(set).catch(fail) : go(st.kind || 'brown')) },
+          st.playing ? 'Stop' : `Play ${NOISE_KINDS.find(([k]) => k === st.kind)?.[2] || 'Brown noise'}`),
+        h('small', { class: 'nm-note' }, onyx.noise
+          ? 'Plays from the app on this phone, with the screen off too. Put it on your lock screen in Settings → Home & lock screen.'
+          : 'Plays in this window, from the sounds that come with Onyx.'));
+    };
+    draw();
+    showPopover($('#noise-btn').getBoundingClientRect(), [box]);
   }
 
   /** The exit bell: three soft, falling notes, clearly not one of the usual chimes. */
@@ -8026,6 +8120,103 @@
   }
 
   /**
+   * Things in a box put in order by hand: press and hold one (a mouse needs no wait), then move it; the others
+   * slide out of its way as it passes their middle, and letting go gives done() the new order of their keys
+   * (null when the browser took the touch back). A swipe that moves before the hold is up still scrolls.
+   * axis 'y' is a column; 'x' is a row, which may wrap. skip(target) leaves a press to something inside.
+   */
+  function dragToOrder(box, { axis = 'y', items, key, done, skip, hold = 230 }) {
+    let d = null; // { el, x, y, sx, sy, gx, gy, on, timer }
+    const place = () => {
+      d.el.style.transform = '';
+      const r = d.el.getBoundingClientRect();
+      d.el.style.transform = `translate(${axis === 'y' ? 0 : d.x - d.gx - r.left}px, ${d.y - d.gy - r.top}px)`;
+    };
+    // The others slide to their new places rather than jump.
+    const slide = (change) => {
+      const others = items().filter((e) => e !== d.el);
+      const was = new Map(others.map((e) => [e, e.getBoundingClientRect()]));
+      change();
+      for (const e of others) {
+        const a = was.get(e), b = e.getBoundingClientRect();
+        if (a.left === b.left && a.top === b.top) continue;
+        e.style.transition = 'none';
+        e.style.transform = `translate(${a.left - b.left}px, ${a.top - b.top}px)`;
+        requestAnimationFrame(() => { e.style.transition = ''; e.style.transform = ''; });
+      }
+    };
+    const reorder = () => {
+      const list = items(), i = list.indexOf(d.el);
+      const mid = (e) => { const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, r }; };
+      let to = i;
+      if (axis === 'y') {
+        for (let j = i + 1; j < list.length; j++) if (d.y > mid(list[j]).y) to = j;
+        for (let j = i - 1; j >= 0; j--) if (d.y < mid(list[j]).y) to = j;
+      } else {
+        list.forEach((e, j) => {
+          if (e === d.el) return;
+          const { x, r } = mid(e);
+          if (d.y < r.top || d.y > r.bottom) return;
+          if ((j > i && d.x > x) || (j < i && d.x < x)) to = j;
+        });
+      }
+      if (to !== i) slide(() => (to > i ? list[to].after(d.el) : list[to].before(d.el)));
+    };
+    const end = (keep) => {
+      if (!d) return;
+      const { el, on, timer } = d;
+      d = null;
+      clearTimeout(timer);
+      removeEventListener('pointermove', move, true);
+      removeEventListener('pointerup', up, true);
+      removeEventListener('pointercancel', cancel, true);
+      if (!on) return;
+      el.classList.remove('lp-lift');
+      el.style.transform = '';
+      box.closest('.lp-phone')?.classList.remove('lp-dragging');
+      done(keep ? items().map(key) : null);
+    };
+    const lift = () => {
+      if (!d || d.on) return;
+      d.on = true;
+      d.el.classList.add('lp-lift');
+      box.closest('.lp-phone')?.classList.add('lp-dragging');
+      try { navigator.vibrate?.(10); } catch { /* no buzz */ }
+      place();
+    };
+    const move = (e) => {
+      if (!d) return;
+      d.x = e.clientX;
+      d.y = e.clientY;
+      if (!d.on) {
+        if (Math.hypot(d.x - d.sx, d.y - d.sy) > 8) end(false); // moved before the hold: a scroll, left alone
+        return;
+      }
+      e.preventDefault();
+      place();
+      reorder();
+      place();
+    };
+    const up = () => end(true);
+    const cancel = () => end(false);
+    box.addEventListener('pointerdown', (e) => {
+      if (d || (e.pointerType === 'mouse' && e.button !== 0) || skip?.(e.target)) return;
+      const el = items().find((x) => x.contains(e.target));
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      d = { el, x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, gx: e.clientX - r.left, gy: e.clientY - r.top, on: false, timer: 0 };
+      addEventListener('pointermove', move, true);
+      addEventListener('pointerup', up, true);
+      addEventListener('pointercancel', cancel, true);
+      if (e.pointerType === 'mouse') lift();
+      else d.timer = setTimeout(lift, hold);
+    });
+    // Held and moving: the page doesn't scroll under the finger (only a touch's own events can stop that).
+    box.addEventListener('touchmove', (e) => { if (d?.on) e.preventDefault(); }, { passive: false });
+    box.addEventListener('contextmenu', (e) => { if (d) e.preventDefault(); });
+  }
+
+  /**
    * A screen's editor (the Android app), 'lock' or 'home', in Settings → Home & lock screen: how Onyx looks
    * on it, with a live picture. Its parts in any order, each shown or not; the clock's size and side, the
    * date, how dark the screen behind is; and its own shortcuts, each opening a link, an app or a file. Each
@@ -8035,8 +8226,8 @@
     const home = screen === 'home';
     const box = h('div', { class: 'le', 'data-screen': screen }, h('div', { class: 'card' }, h('p', null, 'Checking…')));
     const PARTS = home
-      ? { clock: 'Clock and date', onyx: 'Now and next', shortcuts: 'Shortcuts', widgets: 'Widgets', apps: 'Your apps' }
-      : { clock: 'Clock and date', onyx: 'Now and next', shortcuts: 'Shortcuts', music: 'Now playing', notifications: 'Notifications' };
+      ? { clock: 'Clock and date', onyx: 'Now and next', shortcuts: 'Shortcuts', widgets: 'Widgets', apps: 'Your apps', noise: 'Noise machine' }
+      : { clock: 'Clock and date', onyx: 'Now and next', shortcuts: 'Shortcuts', music: 'Now playing', notifications: 'Notifications', noise: 'Noise machine' };
     const KINDS = { link: 'Link', app: 'App', file: 'File' };
     let setup = null, apps = null;
     // D.editing: the shortcut in the form (a copy), its place (-1: new) and its screen. It is kept outside this
@@ -8065,16 +8256,38 @@
           l.date && h('div', { class: 'lp-date' }, now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }))),
         onyx: h('div', { class: 'lp-card' }, h('small', null, next && new Date(next.start) <= Date.now() ? 'NOW' : 'NEXT'), h('b', null, next?.title || 'What is on now and next'), h('i')),
         shortcuts: setup.shortcuts.length
-          ? h('div', { class: 'lp-chips' }, setup.shortcuts.map((s) => h('span', { class: 'lp-chip' }, h('em', null, kindIcon(s)), labelOf(s))))
+          ? h('div', { class: 'lp-chips' }, setup.shortcuts.map((s, i) => h('span', { class: 'lp-chip', 'data-i': i }, h('em', null, kindIcon(s)), labelOf(s))))
           : h('div', { class: 'lp-chips' }, h('span', { class: 'lp-chip ghost' }, 'Your shortcuts')),
+        noise: h('div', { class: 'lp-card lp-noise' }, h('span', { class: 'lp-play' }, '▶'),
+          h('div', null, h('small', null, 'NOISE MACHINE'), h('b', null, NOISE_KINDS.find(([k]) => k === noiseNow.kind)?.[2] || 'Brown noise')), h('span', { class: 'lp-next' }, 'Next ›')),
         music: h('div', { class: 'lp-card lp-music' }, h('span', { class: 'lp-art' }), h('div', null, h('small', null, 'NOW PLAYING'), h('b', null, 'When something plays')), h('span', { class: 'lp-play' }, '▶')),
         notifications: h('div', { class: 'lp-notes' }, h('small', null, 'NOTIFICATIONS'), h('div', { class: 'lp-card' }), h('div', { class: 'lp-card' })),
         widgets: h('div', { class: 'lp-card lp-widget' }, h('small', null, 'WIDGETS'), h('b', null, 'The ones you add')),
         apps: h('div', { class: 'lp-apps' }, Array.from({ length: 8 }, () => h('span'))),
       };
-      return h('div', { class: `lp-phone${left ? ' left' : ''}${home ? ' home' : ''}`, css: { '--dim': String(l.dim / 100) }, 'aria-label': `How your ${home ? 'home' : 'lock'} screen will look` },
-        h('div', { class: 'lp-inner' }, l.order.filter(shows).map((p) => parts[p]).filter(Boolean)),
+      const shown = l.order.filter((p) => shows(p) && parts[p]);
+      for (const p of shown) parts[p].dataset.part = p;
+      const inner = h('div', { class: 'lp-inner' }, shown.map((p) => parts[p]));
+      const phone = h('div', { class: `lp-phone${left ? ' left' : ''}${home ? ' home' : ''}`, css: { '--dim': String(l.dim / 100) }, 'aria-label': `How your ${home ? 'home' : 'lock'} screen will look` },
+        inner,
         home ? h('div', { class: 'lp-dock' }, h('span'), h('span'), h('span'), h('span')) : h('div', { class: 'lp-unlock' }, '︿ Unlock'));
+      // Moved by hand: a part up or down, a shortcut along its row. Saved as soon as it is let go.
+      dragToOrder(inner, { axis: 'y', items: () => [...inner.children], skip: (t) => t.closest('.lp-chip:not(.ghost)'), key: (el) => el.dataset.part,
+        done: (order) => {
+          if (!order) { draw(); return; }
+          const moved = [...order];
+          const next = l.order.map((p) => (shown.includes(p) ? moved.shift() : p));
+          if (next.join() === l.order.join()) return;
+          setLayout({ order: next });
+        } });
+      const chips = parts.shortcuts; // the row of them
+      if (setup.shortcuts.length > 1) dragToOrder(chips, { axis: 'x', items: () => [...chips.querySelectorAll('.lp-chip:not(.ghost)')], key: (el) => +el.dataset.i,
+        done: (order) => {
+          if (!order) { draw(); return; }
+          if (order.every((i, j) => i === j)) return;
+          save({ shortcuts: order.map((i) => setup.shortcuts[i]) });
+        } });
+      return phone;
     };
 
     /** One shortcut being made or changed. */
@@ -8127,9 +8340,11 @@
       const l = L();
       const size = (v, name) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(l.clockSize === v), class: `le-kind${l.clockSize === v ? ' on' : ''}`, onclick: () => setLayout({ clockSize: v }) }, name);
       box.replaceChildren(
-        h('div', { class: 'le-top' }, preview(), h('small', { class: 'le-saved' }, home
-          ? 'Changes save as you make them, and show the next time you go to your home screen.'
-          : 'Changes save as you make them, and show the next time your screen turns on.')),
+        h('div', { class: 'le-top' }, preview(),
+          h('small', { class: 'le-drag-hint' }, 'Press and hold a part or a shortcut on it, then drag it where you want it.'),
+          h('small', { class: 'le-saved' }, home
+            ? 'Changes save as you make them, and show the next time you go to your home screen.'
+            : 'Changes save as you make them, and show the next time your screen turns on.')),
         h('div', { class: 'card' },
           h('h4', null, 'What shows, and in what order'),
           h('p', null, 'The Pi\'s calls always come first, and Hyperfocus takes the clock\'s place while it runs.'),
@@ -10987,7 +11202,7 @@
     const bar = $('#titlebar');
     const strip = h('div', { id: 'top-tools', class: 'top-tools', role: 'toolbar', 'aria-label': 'Onyx' });
     $('.nav', bar).after(strip);
-    strip.append(...['inbox-btn', 'pomo-timer', 'globe-toggle', 'undo-btn', 'update-btn', 'refresh', 'toggle-tasks', 'open-settings']
+    strip.append(...['inbox-btn', 'pomo-timer', 'noise-btn', 'globe-toggle', 'undo-btn', 'update-btn', 'refresh', 'toggle-tasks', 'open-settings']
       .map((id) => document.getElementById(id)).filter(Boolean));
     const edges = () => {
       const max = strip.scrollWidth - strip.clientWidth;
@@ -11029,6 +11244,11 @@
     $('#add-calendar').append(icon('plus'), onyx.isPhone ? 'Settings' : 'Add calendar');
     $('#globe-toggle').append(icon('globe'));
     $('#globe-toggle').onclick = toggleGlobe;
+    $('#noise-btn').append(icon('waves'));
+    $('#noise-btn').onclick = (e) => { e.stopPropagation(); openNoise(); };
+    refreshNoise();
+    // Stopped from the lock screen or its notification meanwhile: the button shows it on coming back.
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshNoise(); });
     watchGlobeDrops();
     $('#undo-btn').append(icon('undo'));
     $('#undo-btn').onclick = undoLast;

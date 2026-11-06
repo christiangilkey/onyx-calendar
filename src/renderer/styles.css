@@ -2421,6 +2421,16 @@ body.mobile .fs-flame { max-width: none; width: 100%; box-sizing: border-box; }
 .doom-pick-row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .doom-pick-row b { flex: none; font-size: 13px; color: #ff9f4a; }
 .doom-pick-row:active { background: rgba(255, 255, 255, .05); }
+/* Daily limits: a row per counted app, its time today and its limit; one used up for today in red. */
+.doom-limit-list { display: grid; border-radius: 14px; background: #0e0f12; border: 1px solid var(--line); }
+.doom-limit { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 54px; padding: 6px 10px 6px 14px; border-bottom: 1px solid var(--line); }
+.doom-limit:last-child { border-bottom: 0; }
+.doom-limit .dl-name { display: grid; gap: 1px; min-width: 0; }
+.doom-limit .dl-name b { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doom-limit .dl-name small { font-size: 12px; color: var(--muted); }
+.doom-limit select { flex: none; min-width: 0; max-width: 46%; }
+.doom-limit.set .dl-name small { color: var(--soft); }
+.doom-limit.done .dl-name small { color: #ff6b6b; }
 
 /* ------------------------------------------------------------ a block's tasks, in its window */
 .btask-field { display: grid; gap: 8px; flex: 1; min-width: 0; }

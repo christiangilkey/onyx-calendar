@@ -821,9 +821,10 @@
       open: (what) => Widget.launcherOpen({ what }),
       // The doomscroll saver (DoomscrollService): on or off, after how many minutes, and a ten-second look at its card.
       // Which apps count: off = the built-in names left out, extra = the apps added ([{ pkg, label }]).
-      setDoomscroll: ({ on, minutes, off, extra } = {}) => Widget.setLauncher({
+      // limits = the daily limits, { name: minutes } for all of them (one left out has none).
+      setDoomscroll: ({ on, minutes, off, extra, limits } = {}) => Widget.setLauncher({
         ...(on != null ? { doomscroll: !!on } : {}), ...(minutes ? { doomMinutes: Math.round(minutes) } : {}),
-        ...(off ? { doomOff: off } : {}), ...(extra ? { doomExtra: extra } : {}) }),
+        ...(off ? { doomOff: off } : {}), ...(extra ? { doomExtra: extra } : {}), ...(limits ? { doomLimits: limits } : {}) }),
       previewDoomscroll: () => (Widget.doomscrollPreview ? Widget.doomscrollPreview() : Promise.resolve({ shown: false })),
       // Each screen's editor, 'lock' or 'home': its layout and your shortcuts on it (LockLayout, LockShortcuts).
       lockSetup: (screen = 'lock') => (Widget.lockSetup ? Widget.lockSetup({ screen }) : Promise.reject(new Error('Update the Onyx app to use this.'))),

@@ -8533,8 +8533,42 @@
               if (!r?.shown) toast('Turn on Accessibility access first.');
             } }, 'Show me')),
           watched(info, set),
+          limitsPart(info, set),
           privacy,
         ].filter(Boolean));
+      };
+      // Daily limits: the most each counted app may be open in a day (in its app and in a browser). Two minutes before,
+      // the card says so; once the time is used up, the phone covers the app until midnight (DoomscrollService).
+      const LIMITS = [5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240];
+      const mins = (m) => (m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`);
+      const limitsPart = (info, set) => {
+        if (!info.doomLimits || !Array.isArray(info.doomNames)) return null; // an Onyx app from before limits
+        const off = new Set(info.doomOff || []);
+        const names = [...new Set([...info.doomNames.filter((n) => !off.has(n)), ...(info.doomExtra || []).map((a) => a.label)])];
+        const limits = info.doomLimits;
+        const used = info.doomUsed || {};
+        const setOne = (n, m) => {
+          const next = { ...limits };
+          if (m > 0) next[n] = m; else delete next[n];
+          set({ limits: next });
+        };
+        const count = names.filter((n) => limits[n] > 0).length;
+        const rows = names.map((n) => {
+          const lim = limits[n] || 0;
+          const usedMin = Math.floor((used[n] || 0) / 60000);
+          const done = lim > 0 && (used[n] || 0) >= lim * 60000;
+          const note = done ? `Done for today: all ${mins(lim)} used`
+            : lim ? `${mins(usedMin)} of ${mins(lim)} today`
+              : usedMin ? `${mins(usedMin)} today` : used[n] > 0 ? 'Under a minute today' : 'No time today yet';
+          return h('div', { class: `doom-limit${done ? ' done' : ''}${lim ? ' set' : ''}` },
+            h('div', { class: 'dl-name' }, h('b', null, n), h('small', null, note)),
+            h('select', { 'aria-label': `Daily limit for ${n}`, onchange: (e) => setOne(n, +e.target.value) },
+              [...new Set([0, ...LIMITS, lim])].sort((a, b) => a - b).map((m) => h('option', { value: m, selected: m === lim }, m ? `${mins(m)} a day` : 'No limit'))));
+        });
+        return h('div', { class: 'doom-apps doom-limits' },
+          h('div', { class: 'doom-head' }, h('h4', null, 'Daily limits'), h('small', null, count ? `${count} set` : 'None set')),
+          h('small', null, 'The most each app may be open in a day, in its app and in your browser. Two minutes before, the card says how much is left. Once it is used up, Onyx covers the app until midnight. Limits work even with the card above off.'),
+          rows.length ? h('div', { class: 'doom-limit-list' }, rows) : h('small', null, 'No apps are counted. Count some above to give them limits.'));
       };
       // Which apps count. The built-in ones (each in its app and in a browser) tap on and off; any other app on
       // the phone can be added. The add list keeps its search and scroll across a save.
@@ -9051,7 +9085,7 @@
     // The lock screen editor was its own page before: its name (and "Where should Onyx show?") still finds this one.
     launcher: { name: 'Home & lock screen', icon: 'lock', c: '#3fd0c9', items: ['Onyx on your lock screen', 'Onyx on your home screen', 'Make Onyx Home your home app', 'What shows, and in what order', 'Clock size', 'Clock and shortcuts on', 'Date under the clock', 'Background', 'Shortcuts', 'Full-screen pop-ups', 'Alarm for everything as it starts', 'Full-screen alarms'],
       words: 'onyx home launcher overlay notifications music spotify alarms lock screen editor home screen editor where should onyx show set up layout look wallpaper dark link app file audio macro widgets' },
-    doomscroll: { name: 'Doomscroll saver', icon: 'target', c: '#ff9f4a', items: ['Doomscroll saver', 'Show it after', 'Accessibility access', 'See the card', 'Apps it watches'], words: 'social media instagram tiktok youtube minutes apps choose pick add games which apps' },
+    doomscroll: { name: 'Doomscroll saver', icon: 'target', c: '#ff9f4a', items: ['Doomscroll saver', 'Show it after', 'Accessibility access', 'See the card', 'Apps it watches', 'Daily limits'], words: 'social media instagram tiktok youtube minutes apps choose pick add games which apps daily limit limits time limit block blocked maximum max screen time' },
     general: { name: 'General', icon: 'sliders', c: '#b9b9c2', items: ['New blocks go to', 'Updates', 'Now / Next bar', 'Popups', 'Tick-off sound', '24-hour time', 'Week starts on', 'Keep running when closed', 'Start with Windows'], words: 'default calendar chime clock tray' },
     changelog: { name: 'Changelog', icon: 'note', c: '#5fd38d', items: [], words: 'versions changes new what\'s new' },
     calendars: { name: 'Calendars', icon: 'calendar', c: '#4aa8ff', items: ['Connected', 'Google Calendar and Tasks', 'Outlook (Microsoft account)', 'Calendar link (read-only)', 'Excel sheet (live)', 'On this PC'], words: 'sign in accounts ics feed local excel spreadsheet google sheets onedrive xlsx csv rows' },
@@ -9097,7 +9131,13 @@
     };
     onyx.launcher?.info?.().then((i) => {
       put('launcher', { lock: 'Lock screen on · home screen off', home: 'Home screen on · lock screen off', both: 'Lock and home screens on', off: 'Off: just the app' }[i?.show] || 'Onyx on your lock and home screens');
-      if (i && 'doomscroll' in i) put('doomscroll', i.doomscroll ? `On · after ${i.doomMinutes} ${i.doomMinutes === 1 ? 'minute' : 'minutes'}` : 'Off');
+      if (i && 'doomscroll' in i) {
+        // Limits work with the card off, so they show either way.
+        const lims = Object.keys(i.doomLimits || {}).length;
+        const limText = lims ? `${lims} daily ${lims === 1 ? 'limit' : 'limits'}` : '';
+        put('doomscroll', i.doomscroll ? [`On · after ${i.doomMinutes} ${i.doomMinutes === 1 ? 'minute' : 'minutes'}`, limText].filter(Boolean).join(' · ')
+          : limText ? `Card off · ${limText}` : 'Off');
+      }
     }).catch(() => {});
   }
 

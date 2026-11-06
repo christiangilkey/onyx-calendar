@@ -124,6 +124,8 @@ public class OnyxWidgetPlugin extends Plugin {
                 call.hasOption("doomOff") ? call.getData().optJSONArray("doomOff") : null,
                 call.hasOption("doomExtra") ? call.getData().optJSONArray("doomExtra") : null);
         }
+        // The daily limits: { name: minutes } for all of them (one left out has none).
+        if (call.hasOption("doomLimits")) DoomscrollService.setLimits(getContext(), call.getData().optJSONObject("doomLimits"));
         call.resolve(launcherState());
     }
 

@@ -611,7 +611,11 @@
     cloudOff: async () => { state.desktops.cloud = mockCloud('off'); return structuredClone(state.desktops); },
     // The phone's own screens (?launcher): Home & lock screen, with a layout per screen as the app keeps them (LockLayout).
     launcher: new URLSearchParams(location.search).has('launcher') ? (() => {
-      const info = { show: 'lock', isHome: false, notifications: true, overlay: false, notiflist: false, fullScreen: true, alarm: false, cover: true, doomscroll: false, doomMinutes: 10 };
+      const info = { show: 'lock', isHome: false, notifications: true, overlay: false, notiflist: false, fullScreen: true, alarm: false, cover: true, doomscroll: false, doomMinutes: 10,
+        // The doomscroll saver as the app keeps it: which apps count, the daily limits, and today's time on each (ms).
+        doomAllowed: true, doomNames: ['Instagram', 'TikTok', 'YouTube', 'Facebook', 'X', 'Snapchat', 'Reddit', 'Threads', 'Pinterest', 'Bluesky', 'Tumblr', 'Twitch', 'LinkedIn', 'BeReal', 'CapCut', 'VK', '9GAG'],
+        doomOff: ['LinkedIn', 'BeReal', 'CapCut', 'VK', '9GAG', 'Tumblr', 'Twitch', 'Bluesky', 'Pinterest'], doomExtra: [{ pkg: 'com.supercell.clashroyale', label: 'Clash Royale' }],
+        doomLimits: { Instagram: 30, YouTube: 60 }, doomUsed: { Instagram: 31 * 60000, YouTube: 22 * 60000, TikTok: 9 * 60000, 'Clash Royale': 40000 } };
       const screens = {
         lock: { layout: { order: ['clock', 'onyx', 'shortcuts', 'music', 'notifications'], hidden: [], clockSize: 'large', align: 'center', date: true, dim: 80 }, shortcuts: [{ id: 's1', kind: 'link', target: 'spotify:', label: 'Spotify', icon: '🎵' }] },
         home: { layout: { order: ['clock', 'onyx', 'shortcuts', 'widgets', 'apps'], hidden: [], clockSize: 'medium', align: 'left', date: true, dim: 0 }, shortcuts: [] },
@@ -622,6 +626,15 @@
         set: async (show) => { info.show = show; return { ...info }; },
         setCover: async (v) => { info.cover = v; return { ...info }; },
         setAlarm: async (v) => { info.alarm = v; return { ...info }; },
+        setDoomscroll: async ({ on, minutes, off, extra, limits } = {}) => {
+          if (on != null) info.doomscroll = !!on;
+          if (minutes) info.doomMinutes = minutes;
+          if (off) info.doomOff = off;
+          if (extra) info.doomExtra = extra;
+          if (limits) info.doomLimits = Object.fromEntries(Object.entries(limits).filter(([, m]) => m > 0));
+          return structuredClone(info);
+        },
+        previewDoomscroll: async () => ({ shown: true }),
         open: async () => {},
         lockSetup: async (screen = 'lock') => setup(screen),
         setLockSetup: async (o, screen = 'lock') => { if (o.layout) screens[screen].layout = structuredClone(o.layout); if (o.shortcuts) screens[screen].shortcuts = structuredClone(o.shortcuts); return setup(screen); },

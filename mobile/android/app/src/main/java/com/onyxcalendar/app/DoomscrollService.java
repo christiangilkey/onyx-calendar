@@ -1,6 +1,7 @@
 package com.onyxcalendar.app;
 
 import android.accessibilityservice.AccessibilityService;
+import android.app.KeyguardManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -46,6 +47,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -57,6 +59,11 @@ import java.util.concurrent.Executors;
  * been, and the next thing on your calendar with a bar filling as it nears. A tap brings Onyx
  * back; the × hides it for another stretch of the same length.
  *
+ * Daily limits (Settings → Doomscroll saver → Daily limits): each app (its site too) can have a
+ * most it may be open in a day. With two minutes left the card says so; once the time is used up,
+ * a screen covers the app until midnight, with the way back to Onyx and the way out of the app.
+ * The limits work whether or not the card is on.
+ *
  * Nothing it sees is kept or sent. It holds, in memory, only the app or site in front and when
  * the current stretch began; the card is drawn here, as an accessibility overlay.
  */
@@ -66,6 +73,8 @@ public class DoomscrollService extends AccessibilityService {
     private static final long TICK = 5_000;       // a look at what is in front, every five seconds
     private static final long GAP = 60_000;       // away from social media this long ends the stretch
     private static final long MIN = 60_000;
+    private static final long WARN = 2 * MIN;     // a daily limit this close: the card says how much is left
+    static final int MAX_LIMIT = 12 * 60;         // the longest daily limit, in minutes
 
     /** The apps that count, by package, with the name the card shows. */
     static final Map<String, String> APPS = new HashMap<>();
@@ -216,6 +225,81 @@ public class DoomscrollService extends AccessibilityService {
         if (live != null) live.handler.post(live::tick);
     }
 
+    // ---- daily limits (Settings → Doomscroll saver → Daily limits): the most each one may be open in a day
+
+    private static Map<String, Integer> limitsCache;
+
+    /** The daily limits, by the name the card shows ("Instagram", or an added app's name) → minutes. */
+    static synchronized Map<String, Integer> limits(Context ctx) {
+        if (limitsCache == null) {
+            Map<String, Integer> m = new LinkedHashMap<>();
+            try {
+                JSONObject o = new JSONObject(prefs(ctx).getString("limits", "{}"));
+                for (Iterator<String> k = o.keys(); k.hasNext(); ) {
+                    String n = k.next();
+                    int min = o.optInt(n, 0);
+                    if (min > 0) m.put(n, Math.min(MAX_LIMIT, min));
+                }
+            } catch (Exception ignored) {
+                // none set yet
+            }
+            limitsCache = m;
+        }
+        return limitsCache;
+    }
+
+    static JSONObject limitsJson(Context ctx) {
+        JSONObject o = new JSONObject();
+        try {
+            for (Map.Entry<String, Integer> e : limits(ctx).entrySet()) o.put(e.getKey(), (int) e.getValue());
+        } catch (Exception ignored) {
+            // a JSON key can't fail here
+        }
+        return o;
+    }
+
+    /** Settings → Daily limits: { name: minutes } for every one (0 or none: no limit). */
+    static synchronized void setLimits(Context ctx, JSONObject in) {
+        Map<String, Integer> m = new LinkedHashMap<>();
+        JSONObject keep = new JSONObject();
+        if (in != null) {
+            for (Iterator<String> k = in.keys(); k.hasNext(); ) {
+                String n = k.next();
+                int min = in.optInt(n, 0);
+                if (n.isEmpty() || min <= 0) continue;
+                min = Math.min(MAX_LIMIT, min);
+                m.put(n, min);
+                try {
+                    keep.put(n, min);
+                } catch (Exception ignored) {
+                    // a JSON key can't fail here
+                }
+            }
+        }
+        prefs(ctx).edit().putString("limits", keep.toString()).apply();
+        limitsCache = m;
+        if (live != null) live.handler.post(live::tick);
+    }
+
+    /** Today's time on each one, in ms (for Settings): from the running service, or as it last saved it. */
+    static JSONObject usedJson(Context ctx) {
+        JSONObject out = new JSONObject();
+        String today = LauncherData.dayOf(System.currentTimeMillis()).toString();
+        try {
+            DoomscrollService s = live;
+            if (s != null) {
+                if (today.equals(s.usedDay)) for (Map.Entry<String, Long> e : s.used.entrySet()) out.put(e.getKey(), (long) e.getValue());
+                return out;
+            }
+            JSONObject o = new JSONObject(prefs(ctx).getString("today", "{}"));
+            JSONObject u = today.equals(o.optString("day")) ? o.optJSONObject("used") : null;
+            if (u != null) for (Iterator<String> k = u.keys(); k.hasNext(); ) { String n = k.next(); out.put(n, u.optLong(n)); }
+        } catch (Exception ignored) {
+            // nothing yet today
+        }
+        return out;
+    }
+
     /** Whether Android's Accessibility switch for it is on. */
     static boolean allowed(Context ctx) {
         String list = Settings.Secure.getString(ctx.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
@@ -241,9 +325,13 @@ public class DoomscrollService extends AccessibilityService {
     private TextView title, timer, sub, nextLabel, nextWhen, nextTitle, nextLeft;
     // Today's time on each app or site (its name → ms), counted as it is looked at, for "1 h 40 min today".
     // Kept on the phone (so a restart keeps it), only for today: it starts again each day. Never sent.
-    private final Map<String, Long> used = new HashMap<>();
-    private String usedDay = "";
-    private long lastTick = 0, lastSave = 0;
+    // Read by Settings from another thread too (usedJson).
+    private final Map<String, Long> used = new ConcurrentHashMap<>();
+    private volatile String usedDay = "";
+    // The screen over an app whose time is up today (null: none), and which one it is for.
+    private View block;
+    private String blockFor = null;
+    private long lastTick = 0, lastSave = 0, blockQuietUntil = 0;
     private ImageView icon;
     private View nextBox, barFill;
     private FrameLayout bar;
@@ -263,7 +351,12 @@ public class DoomscrollService extends AccessibilityService {
         if (e == null || e.getEventType() != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || e.getPackageName() == null) return;
         String pkg = e.getPackageName().toString();
         if (passing(pkg)) return;
-        if (!pkg.equals(frontPkg)) { frontPkg = pkg; frontSite = null; }
+        if (!pkg.equals(frontPkg)) {
+            frontPkg = pkg;
+            frontSite = null;
+            // An app whose time is up today is covered at once, not at the next tick.
+            if (!limits(this).isEmpty()) handler.post(this::tick);
+        }
     }
 
     @Override
@@ -276,6 +369,7 @@ public class DoomscrollService extends AccessibilityService {
         saveUsed();
         handler.removeCallbacksAndMessages(null);
         hideCard();
+        hideBlock();
         bg.shutdownNow();
         super.onDestroy();
     }
@@ -291,7 +385,9 @@ public class DoomscrollService extends AccessibilityService {
             AccessibilityNodeInfo root = getRootInActiveWindow();
             if (root != null && root.getPackageName() != null) {
                 String pkg = root.getPackageName().toString();
-                if (!passing(pkg)) {
+                // Onyx itself in front (its window has the focus; the card and the cover never take it): nothing counts.
+                if (pkg.equals(getPackageName())) { frontPkg = pkg; frontSite = null; }
+                else if (!passing(pkg)) {
                     if (!pkg.equals(frontPkg)) { frontPkg = pkg; frontSite = null; }
                     String[] ids = BROWSERS.get(pkg);
                     if (ids != null) {
@@ -346,19 +442,34 @@ public class DoomscrollService extends AccessibilityService {
         handler.removeCallbacksAndMessages(null);
         long now = System.currentTimeMillis();
         PowerManager pm = getSystemService(PowerManager.class);
-        boolean screenOn = pm == null || pm.isInteractive();
-        String name = on(this) && screenOn ? social() : null;
+        KeyguardManager km = getSystemService(KeyguardManager.class);
+        // On the lock screen nothing counts (the app last open is not in front, whatever is under it).
+        boolean screenOn = (pm == null || pm.isInteractive()) && (km == null || !km.isKeyguardLocked());
+        boolean nudge = on(this);
+        // The limits work with the card off too.
+        String name = screenOn && (nudge || !limits(this).isEmpty()) ? social() : null;
         // The time since the last look counts toward today's total for what is in front (not a gap, a sleep).
         long dt = lastTick > 0 ? now - lastTick : 0;
         lastTick = now;
-        if (name != null && dt > 0 && dt <= 2 * TICK + 1_000) addUsed(name, dt, now);
+        boolean over = name != null && leftToday(name, now) == 0;
+        if (name != null && !over && dt > 0 && dt <= 2 * TICK + 1_000) addUsed(name, dt, now);
+        // Its time for today used up: covered until midnight (unless just sent away from it, while that happens).
+        if (name != null && leftToday(name, now) == 0) {
+            hideCard();
+            if (now >= blockQuietUntil) showBlock(name);
+            handler.postDelayed(this::tick, 2_000);
+            return;
+        }
+        hideBlock();
         if (name != null) {
             if (stretchStart == 0 || now - lastSocial > GAP) { stretchStart = now; names.clear(); hiddenUntil = 0; }
             lastSocial = now;
             names.remove(name);
             names.add(name); // the one in front last
             iconPkg = frontPkg;
-            if (now - stretchStart >= minutes(this) * MIN && now >= hiddenUntil) showCard(now);
+            long left = leftToday(name, now);
+            boolean due = (nudge && now - stretchStart >= minutes(this) * MIN) || (left > 0 && left <= WARN); // or its limit near
+            if (due && now >= hiddenUntil) showCard(now);
             else if (now >= previewUntil) hideCard();
         } else {
             if (now >= previewUntil) hideCard();
@@ -366,6 +477,13 @@ public class DoomscrollService extends AccessibilityService {
         }
         if (card != null) drawCard(now);
         handler.postDelayed(this::tick, card != null ? 1_000 : TICK);
+    }
+
+    /** How much of its daily limit is left today, in ms: 0 when used up, -1 with no limit. */
+    private long leftToday(String name, long now) {
+        Integer lim = name == null ? null : limits(this).get(name);
+        if (lim == null) return -1;
+        return Math.max(0, lim * MIN - usedToday(name, now));
     }
 
     // ---- today's totals
@@ -569,6 +687,122 @@ public class DoomscrollService extends AccessibilityService {
         card = null;
     }
 
+    // ---- the screen over an app whose time is up today
+
+    /** A button for the cover: filled (the way back to Onyx) or outlined. */
+    private TextView coverButton(String label, boolean primary, View.OnClickListener tap) {
+        TextView b = text(15, primary ? 0xFF111114 : Color.WHITE, true);
+        b.setText(label);
+        b.setGravity(Gravity.CENTER);
+        b.setPadding(dp(18), 0, dp(18), 0);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(14));
+        if (primary) bg.setColor(Color.WHITE);
+        else { bg.setColor(0x14FFFFFF); bg.setStroke(dp(1), 0x33FFFFFF); }
+        b.setBackground(bg);
+        b.setOnClickListener(tap);
+        return b;
+    }
+
+    /**
+     * Covers the app in front (or the site, in a browser): its time for today is used up. The whole screen, so the
+     * app can't be used under it, with the way back to Onyx and the way out (home, or back off the site in a
+     * browser). Android's own home and back still work. Gone as soon as something else is in front.
+     */
+    private void showBlock(String name) {
+        if (block != null && name.equals(blockFor)) return;
+        hideBlock();
+        WindowManager wm = getSystemService(WindowManager.class);
+        if (wm == null) return;
+        boolean site = BROWSERS.containsKey(frontPkg) && !APPS.containsKey(frontPkg) && extra(this).get(frontPkg) == null;
+        Integer lim = limits(this).get(name);
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(0xFA0B0B0F);
+        root.setClickable(true); // every touch stops here: nothing reaches the app under it
+        root.setFocusable(false);
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setGravity(Gravity.CENTER_HORIZONTAL);
+        col.setPadding(dp(28), 0, dp(28), 0);
+        ImageView pic = new ImageView(this);
+        try {
+            pic.setImageDrawable(getPackageManager().getApplicationIcon(frontPkg));
+        } catch (Exception e) {
+            pic.setImageDrawable(null);
+        }
+        pic.setAlpha(0.55f);
+        col.addView(pic, new LinearLayout.LayoutParams(dp(64), dp(64)));
+        TextView head = text(24, Color.WHITE, true);
+        head.setSingleLine(false);
+        head.setMaxLines(3);
+        head.setGravity(Gravity.CENTER);
+        head.setText(name + " is done for today");
+        LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hp.topMargin = dp(20);
+        col.addView(head, hp);
+        TextView why = text(15, 0xFF9AA0A8, false);
+        why.setSingleLine(false);
+        why.setMaxLines(4);
+        why.setGravity(Gravity.CENTER);
+        why.setLineSpacing(dp(3), 1f);
+        why.setText("You gave it " + span((lim == null ? 0 : lim) * MIN) + " a day, and today's is used up. It opens again at midnight.");
+        LinearLayout.LayoutParams wp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        wp.topMargin = dp(10);
+        col.addView(why, wp);
+        // What's next on the calendar, if anything: somewhere better to put the time.
+        LauncherData.Item next = LauncherData.next(LauncherData.items(this), System.currentTimeMillis());
+        if (next != null) {
+            TextView then = text(14, 0xFF5FD38D, true);
+            then.setGravity(Gravity.CENTER);
+            then.setText("Next: " + next.title + " · " + DateFormat.getTimeFormat(this).format(new Date(next.start)));
+            LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            np.topMargin = dp(18);
+            col.addView(then, np);
+        }
+        LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(dp(260), dp(50));
+        bp.topMargin = dp(30);
+        col.addView(coverButton("Back to Onyx", true, v -> { leaveBlock(); openOnyx(); }), bp);
+        LinearLayout.LayoutParams bp2 = new LinearLayout.LayoutParams(dp(260), dp(50));
+        bp2.topMargin = dp(12);
+        col.addView(coverButton(site ? "Leave the site" : "Close " + name, false, v -> {
+            leaveBlock();
+            performGlobalAction(site ? GLOBAL_ACTION_BACK : GLOBAL_ACTION_HOME);
+        }), bp2);
+        root.addView(col, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER));
+        WindowManager.LayoutParams lp = new WindowManager.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT);
+        lp.windowAnimations = android.R.style.Animation_Dialog;
+        try {
+            wm.addView(root, lp);
+            block = root;
+            blockFor = name;
+        } catch (Exception ignored) {
+            block = null; // not allowed just now: the next tick tries again
+            blockFor = null;
+        }
+    }
+
+    /** Sent away from it: the cover goes, and stays away a moment while the app leaves the front. */
+    private void leaveBlock() {
+        blockQuietUntil = System.currentTimeMillis() + 3_000;
+        hideBlock();
+        handler.postDelayed(this::tick, 3_100);
+    }
+
+    private void hideBlock() {
+        if (block == null) return;
+        try {
+            WindowManager wm = getSystemService(WindowManager.class);
+            if (wm != null) wm.removeView(block);
+        } catch (Exception ignored) {
+            // already gone
+        }
+        block = null;
+        blockFor = null;
+    }
+
     private void openOnyx() {
         hideCard();
         previewUntil = 0;
@@ -609,7 +843,20 @@ public class DoomscrollService extends AccessibilityService {
         String front = null;
         for (String n : names) front = n;
         long onToday = usedToday(front, now);
-        if (onToday >= MIN) {
+        Integer lim = front == null ? null : limits(this).get(front);
+        if (lim != null) {
+            // With a daily limit: "25m of 30m today", and in its last two minutes "2 min left today" in amber.
+            long left = Math.max(0, lim * MIN - onToday);
+            boolean near = left <= WARN;
+            SpannableStringBuilder s = new SpannableStringBuilder();
+            int a = s.length();
+            s.append(near ? span(left) + " left today" : compact(onToday) + " of " + compact(lim * MIN));
+            s.setSpan(new ForegroundColorSpan(near ? 0xFFF5B83D : 0xFFE8E9EE), a, s.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            s.setSpan(new StyleSpan(Typeface.BOLD), a, s.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            if (names.size() > 1) s.append(" on " + front);
+            else if (!near) s.append(" today");
+            sub.setText(s);
+        } else if (onToday >= MIN) {
             SpannableStringBuilder s = new SpannableStringBuilder();
             int a = s.length();
             s.append(compact(onToday));

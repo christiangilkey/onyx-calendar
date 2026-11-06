@@ -2,9 +2,20 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.105.0 · Move several blocks at once
+## 1.106.0 · Daily limits for the doomscroll saver
 
-_2026-11-05_
+_2026-11-06_
+
+- Settings → Doomscroll saver → Daily limits: give any app it watches a most it may be open in a day, from 5 minutes to 4 hours. Each shows its time today so far
+- A limit counts the app and its site in your browser together
+- Two minutes before the limit, the corner card comes up and says how much is left
+- Once the time is used up, Onyx covers the app until midnight, with Back to Onyx and a way out (Close the app, or Leave the site in a browser). Android's own home and back still work
+- Limits work even with the corner card turned off
+- Time on the lock screen, or in Onyx itself, no longer counts as time on the last app you had open
+
+## 1.105.0 · Move several blocks at once (1.105.0)
+
+_2026-11-04_
 
 - On the PC, hold Shift and drag across the calendar: every block the box touches is picked out, with a white ring. Each Shift-drag adds more, and Shift and a click adds or takes away one
 - Drag any one of the picked blocks and they all move with it: as many days, and the same change of time. The others ride along while you carry it

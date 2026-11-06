@@ -1811,25 +1811,30 @@ body.mobile .top-tools > * { flex: none; }
 body.mobile .top-tools.more-left { --fade-l: transparent; }
 body.mobile .top-tools.more-right { --fade-r: transparent; }
 
-/* ------------------------------------------------------------ the inbox by the date: notes from the lock screen */
-.inbox-btn { position: relative; flex: none; color: var(--muted); }
-.inbox-btn.has { color: #c9b8ff; }
+/* ------------------------------------------------------------ the Inbox, at the top of the task list (app.js, inboxGroup) */
+/* How many wait, on the Tasks button. */
+#toggle-tasks { position: relative; }
+#toggle-tasks.has-inbox { color: #c9b8ff; }
 .inbox-count { position: absolute; top: 0; right: -2px; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 8px;
   background: var(--accent); color: #fff; font-size: 10px; font-weight: 800; line-height: 16px; text-align: center; box-shadow: 0 0 0 2px #000; pointer-events: none; }
+.inbox-head { color: #c9b8ff; }
+.inbox-head .ico { width: 15px; height: 15px; }
+.inbox-group.flash .task-cards { animation: inbox-flash 1.3s ease-out; border-radius: 12px; }
+@keyframes inbox-flash { 0% { box-shadow: 0 0 0 2px #c9b8ff; } 100% { box-shadow: 0 0 0 2px transparent; } }
+.task.in-inbox { border-left-color: #c9b8ff; }
+.inbox-acts { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.inbox-from { flex: 1 1 auto; min-width: 0; font-size: 11.5px; color: var(--muted); }
+.inbox-act { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 11px; border-radius: 99px; border: 1px solid var(--line-2); background: none;
+  color: var(--text); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.inbox-act.primary { background: color-mix(in srgb, #8b7cff 26%, transparent); border-color: color-mix(in srgb, #8b7cff 55%, transparent); color: #fff; }
+.inbox-act .ico { width: 13px; height: 13px; }
+.inbox-act:disabled { opacity: .5; }
+/* The headings these share with Plan it on a board. */
 .linbox-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
 .linbox-head h3 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 16px; }
 .linbox-head h3 svg { width: 18px; height: 18px; color: #c9b8ff; }
 .linbox-n { font-size: 12px; color: var(--muted); }
-.linbox-list { display: flex; flex-direction: column; gap: 8px; max-height: min(60vh, 460px); overflow-y: auto; }
-.linbox-row { display: flex; flex-direction: column; gap: 9px; padding: 10px 12px; border: 1px solid var(--line-2); border-left: 3px solid #c9b8ff; border-radius: 12px; background: rgba(255, 255, 255, .03); }
-.linbox-text { appearance: none; -webkit-appearance: none; display: flex; flex-direction: column; gap: 2px; padding: 0; border: 0; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
-.linbox-title { font-size: 14.5px; font-weight: 650; line-height: 1.3; overflow-wrap: anywhere; }
-.linbox-from { font-size: 11.5px; color: var(--muted); }
-.linbox-acts { display: flex; flex-wrap: wrap; gap: 6px; }
-.linbox-acts .btn { height: 30px; padding: 0 11px; font-size: 12.5px; gap: 5px; }
-.linbox-acts .btn svg { width: 14px; height: 14px; }
 .linbox-empty { margin: 2px 0 4px; color: var(--soft); font-size: 13px; line-height: 1.45; }
-body:not(.mobile) #popover:has(.linbox-head) { width: min(360px, calc(100vw - 24px)); }
 @media (max-width: 400px) {
   /* Narrow: less room at the sides, but the top keeps the status bar's room (without it the icons sat in the middle of a taller bar). */
   body.mobile #titlebar { padding: var(--safe-top, env(safe-area-inset-top, 0px)) 4px 0; gap: 0; }
@@ -3321,3 +3326,35 @@ body.mobile .wb-hint { right: 86px; bottom: calc(22px + var(--safe-bottom, env(s
 .rb-txt b { font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rb-off { flex: none; height: 44px; padding: 0 20px; border-radius: 99px; border: 0; background: #1a1206; color: #fff; font-size: 15px; font-weight: 800; }
 .rb-off:hover { background: #000; }
+
+/* ------------------------------------------------------------ the + sheet's two ways, as tabs (app.js, openMagic's add) */
+.mg-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0 14px; }
+.mg-tab { display: flex; align-items: center; gap: 10px; height: 56px; padding: 0 14px; border-radius: 14px; border: 1px solid var(--line-2); background: rgba(255, 255, 255, .03);
+  color: var(--muted); font: inherit; text-align: left; cursor: pointer; }
+.mg-tab .ico { flex: none; width: 19px; height: 19px; }
+.mg-tab.on { background: color-mix(in srgb, #8b7cff 22%, #121217); border-color: color-mix(in srgb, #8b7cff 65%, transparent); color: #fff; box-shadow: 0 0 0 1px color-mix(in srgb, #8b7cff 40%, transparent); }
+.mg-tab .mg-way-t small { opacity: .72; }
+.mg-time-note { margin: -4px 0 12px; font-size: 12.5px; color: var(--muted); }
+.mg-time-note[hidden] { display: none; }
+/* The block's own editor, in the sheet: as it is in its popover. */
+.mg-editor { display: flex; flex-direction: column; gap: 10px; }
+.mg-editor > * { flex-shrink: 0; }
+.mg-editor input.scrub { cursor: ew-resize; }
+.mg-editor input.scrub:focus { cursor: text; }
+.mg-editor input.scrubbing { outline: 2px solid var(--accent, #8b7cff); }
+.mg-editor input[type=time] { min-width: 112px; }
+.mg-editor input[type=date] { min-width: 134px; color-scheme: dark; }
+.mg-editor select.ampm { width: auto; min-width: 58px; flex: none; padding: 0 6px; }
+.mg-editor select.ampm[hidden] { display: none; }
+.mg-footer.mg-foot-editor { padding-top: 10px; }
+.mg-editor-foot .pop-actions { margin: 0; flex-wrap: wrap; row-gap: 8px; }
+.mg-editor-foot .pop-actions .btn.primary { height: 46px; padding: 0 22px; border-radius: 13px; font-size: 15px; font-weight: 700; }
+body.mobile .mg-editor .row { flex-wrap: wrap; min-width: 0; row-gap: 8px; }
+body.mobile .mg-editor input, body.mobile .mg-editor select { height: 40px; font-size: 15px; }
+body.mobile .mg-editor input[type=date], body.mobile .mg-editor input[type=time] { min-width: 0; flex: 1 1 38%; }
+body.mobile .mg-editor select { min-width: 0; flex: 1 1 auto; }
+body.mobile .mg-editor select.ampm { display: none; }
+body.mobile .mg-editor textarea { width: 100%; }
+body.mobile .mg-editor-foot .pop-actions .focus-btn { order: -1; flex: 1 1 100%; justify-content: center; height: 42px; }
+body.mobile .mg-editor-foot .pop-actions > .btn { flex: 1 1 auto; justify-content: center; }
+body.mobile .mg-editor-foot .pop-actions .grow { display: none; }

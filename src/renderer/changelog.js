@@ -2,9 +2,20 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.111.0",
+  "date": "2026-11-06",
+  "title": "The + sheet with all of the block editor and Magic add, and the Inbox in your task list",
+  "items": [
+   "The + sheet on the phone now has both ways as tabs under what you type, and neither loses anything. Choose a time is the whole block editor, right in the sheet: the day and times, the calendar, all day, colour, repeat, tasks, links, notes, tags, breakdown, pomodoro, travel and reminders, with Hyperfocus and Add block. Find time is all of Magic add: pictures and links to read, the tasks waiting to be planned, the day, the hours, and the plan before anything is added.",
+   "What you type carries over between the tabs, as does the day you picked. Choose a time names the block from your first line; with several lines it points you to Find time to plan them all. The sheet remembers which tab you used last.",
+   "The Inbox is now part of your task list: notes from your lock screen and tasks your other apps sent wait in an Inbox section at the top. Each is a task like the others (tick it off, give it a day, open it, drag it onto the calendar), with Plan (Magic add) and Clear, plus Plan all for the lot. They no longer show up a second time under No date.",
+   "How many are waiting now shows on the Tasks button, and the separate inbox button is gone, which leaves more room in the top bar. A new note's \"Open\" takes you to the Inbox in the list."
+  ]
+ },
+ {
   "version": "1.110.0",
   "date": "2026-11-06",
-  "title": "One Turn off for every alarm and alert, and quick options on boards",
+  "title": "One Turn off for every alarm and alert; quick options on boards",
   "items": [
    "Fixed: the button on your lock screen did not stop an alarm that was going off. It only told your PC, so the phone kept ringing, and when the PC could not be reached it did nothing at all. Now the lock screen and Onyx Home show a big Turn off on whatever is going off (the alarm ringing, the Pi calling or reminding). It works at once, on the phone, whether or not your PC can be reached.",
    "Opening the app while anything is going off shows a bar across the top with one Turn off (Turn off all when there is more than one). It stops the phone's alarm, closes the PC's pop-ups and the due screen, and marks each one seen, so no more calls come about it.",

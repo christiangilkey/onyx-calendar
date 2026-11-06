@@ -2,7 +2,16 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.110.0 · One Turn off for every alarm and alert, and quick options on boards
+## 1.111.0 · The + sheet with all of the block editor and Magic add, and the Inbox in your task list
+
+_2026-11-06_
+
+- The + sheet on the phone now has both ways as tabs under what you type, and neither loses anything. Choose a time is the whole block editor, right in the sheet: the day and times, the calendar, all day, colour, repeat, tasks, links, notes, tags, breakdown, pomodoro, travel and reminders, with Hyperfocus and Add block. Find time is all of Magic add: pictures and links to read, the tasks waiting to be planned, the day, the hours, and the plan before anything is added.
+- What you type carries over between the tabs, as does the day you picked. Choose a time names the block from your first line; with several lines it points you to Find time to plan them all. The sheet remembers which tab you used last.
+- The Inbox is now part of your task list: notes from your lock screen and tasks your other apps sent wait in an Inbox section at the top. Each is a task like the others (tick it off, give it a day, open it, drag it onto the calendar), with Plan (Magic add) and Clear, plus Plan all for the lot. They no longer show up a second time under No date.
+- How many are waiting now shows on the Tasks button, and the separate inbox button is gone, which leaves more room in the top bar. A new note's "Open" takes you to the Inbox in the list.
+
+## 1.110.0 · One Turn off for every alarm and alert; quick options on boards
 
 _2026-11-06_
 

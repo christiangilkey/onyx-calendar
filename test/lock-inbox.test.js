@@ -13,16 +13,19 @@ test('the lock screen sends its notes marked as from the lock screen', () => {
   assert.match(java('OnyxPanel.java'), /to Onyx's inbox/);
 });
 
-test('the inbox sits just after the date, with how many wait, and each can be planned, ticked off or cleared', () => {
-  assert.match(read('src/renderer/index.html'), /<h1 id="range"><\/h1>\s*<!--[^>]*-->\s*<button id="inbox-btn"/);
-  assert.match(app, /const lockNotes = \(\) => inboxTasks\(\)\.filter\(\(t\) => t\.from === 'lock' && !t\.done\);/);
-  assert.match(app, /h\('span', \{ class: 'inbox-count' \}/);
-  const draw = app.slice(app.indexOf('function drawLockInbox('), app.indexOf("lockInboxOpen = true; // (drawn again"));
-  assert.ok(draw.includes("openMagic({ pick: [t.id], tab: 'apps' })"), 'Plan: Magic add with it');
-  assert.ok(draw.includes('completeTask('), 'Done');
-  assert.ok(draw.includes('onyx.dismissInbox(t.id)'), 'Clear: out of the inbox, still a task');
-  // On the phone it leads the strip of buttons just after the date (topTools).
-  assert.match(app, /strip\.append\(\.\.\.\['inbox-btn', /);
+test('the Inbox is the top of the task list, with how many wait on the Tasks button; each can be planned, ticked off or cleared', () => {
+  assert.doesNotMatch(read('src/renderer/index.html'), /id="inbox-btn"/, 'one place for both, not a button of its own');
+  assert.match(app, /const inboxOpen = \(\) => inboxTasks\(\)\.filter\(\(t\) => !t\.done && !t\.mirror\);/, 'the lock screen\'s notes and what other apps sent');
+  assert.match(app, /const b = \$\('#toggle-tasks'\);[\s\S]{0,300}h\('span', \{ class: 'inbox-count' \}/);
+  assert.match(app, /box\.replaceChildren\(\.\.\.\[inboxGroup\(inbox\), rolloverTray\(earlier, someday\)/, 'first in the list');
+  assert.match(app, /visible\(t\.listId\) && matchesFilter\(t\.tags\) && !inInbox\.has\(t\.id\)\);/, 'not twice');
+  const row = app.slice(app.indexOf('function inboxRow('), app.indexOf('async function loadGoals('));
+  assert.ok(row.includes('const row = taskRow(t);'), 'a task card like the rest: tick it off, give it a day, open it, drag it');
+  assert.ok(row.includes("openMagic({ pick: [t.id], tab: 'apps' })"), 'Plan: Magic add with it');
+  assert.ok(row.includes('onyx.dismissInbox(t.id)'), 'Clear: out of the inbox, still a task');
+  assert.ok(row.includes("t.from === 'lock' ? 'From your lock screen'"));
+  assert.match(app, /openMagic\(\{ pick: items\.map\(\(t\) => t\.id\), tab: 'apps' \}\)/, 'Plan all');
+  assert.match(app, /\{ label: 'Open', run: openInbox \}/, 'a new note\'s toast opens the list there');
 });
 
 test('with the keyboard up, the lock panel ends above it and scrolls the box into sight', () => {

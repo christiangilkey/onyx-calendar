@@ -3929,6 +3929,10 @@
   }
 
   function openEditor(model, anchor) {
+    // In the + sheet (openMagic's add), the editor draws into it: `into` = { body, foot, close }, its name typed in the
+    // sheet's own box (setTitle), and closing it closes the sheet. Otherwise it is a popover of its own.
+    const into = model.into || null;
+    const done = () => (into ? into.close() : closePopover());
     const src = model.src;
     const readOnly = !!src && !src.writable;
     const writable = S.calendars.filter((c) => c.kind === 'calendar' && c.writable);
@@ -4120,7 +4124,7 @@
         // Ticks on tasks new in this window (the others were saved as they were ticked), on this day of the block.
         const day = saved?.id || src?.id;
         for (const t of list.items) if (day && t.done && !had.some((x) => x.id === t.id)) await onyx.tickBlockTask(day, t.id, true);
-        closePopover();
+        done();
         refetch();
         refreshPomodoros();
         if (!sameTags(data.tags, src?.tags)) reloadTags();
@@ -4167,7 +4171,7 @@
         made = await make();
         if (back) await onyx.deleteEvent(back.id);
       });
-      closePopover();
+      done();
       refetch();
       toast(`${rows.length} steps on the calendar${replaced ? ` in place of "${name}"` : ''}.`);
     };
@@ -4186,7 +4190,7 @@
         recordAction(`"${src.title}" on the backburner`,
           async () => { back = await onyx.createEvent(copy); await onyx.deleteTask(task.id); },
           async () => { task = await onyx.createTask(keep); await onyx.deleteEvent(back.id); });
-        closePopover();
+        done();
         refetch();
         loadTasks(true);
       } catch (err) {
@@ -4200,7 +4204,7 @@
     const remove = async (scope = 'all') => {
       try {
         await deleteBlock(src, scope);
-        closePopover();
+        done();
         refetch();
       } catch (err) {
         fail(err);
@@ -4241,12 +4245,12 @@
       readOnly && h('div', { class: 'pop-meta' }, 'This calendar is read-only here. ',
         src.link && h('a', { href: '#', onclick: (e) => { e.preventDefault(); onyx.open(src.link); } }, 'Open it in the browser')),
       h('div', { class: 'pop-actions' },
-        src && h('button', { class: 'btn complete', title: src.done ? 'Bring it back' : 'Mark it done (Undo brings it back)', onclick: () => { closePopover(); if (src.done) restoreEvent(src); else completeEvent(src); } },
+        src && h('button', { class: 'btn complete', title: src.done ? 'Bring it back' : 'Mark it done (Undo brings it back)', onclick: () => { done(); if (src.done) restoreEvent(src); else completeEvent(src); } },
           icon('check'), src.done ? 'Not done' : 'Complete'),
         src && !readOnly && h('button', { class: 'btn danger', title: src.seriesId ? 'Delete every repeat' : null, onclick: () => remove('all') }, icon('trash'), src.seriesId ? 'Delete all' : 'Delete'),
         src?.seriesId && !readOnly && h('button', { class: 'btn', title: 'Take just this day off; the others stay', onclick: () => remove('one') }, 'Skip this day'),
         src && !src.done && focusButton(src),
-        src && h('button', { class: 'btn send-btn', title: 'Send it to someone by email (with an invite), or onto a Notion page', onclick: () => { closePopover(); openSend(src); } }, icon('send'), 'Send'),
+        src && h('button', { class: 'btn send-btn', title: 'Send it to someone by email (with an invite), or onto a Notion page', onclick: () => { done(); openSend(src); } }, icon('send'), 'Send'),
         // The backburner: the block comes off the calendar and waits as a task with no date, its name, notes,
         // tags and length kept. Undo puts the block back.
         src && !readOnly && !src.seriesId && !src.done && h('button', {
@@ -4257,14 +4261,21 @@
         !src && h('button', { class: 'btn focus-btn', title: 'Add this block and start Hyperfocus on it',
           onclick: () => save((made) => openFocusSetup(focusEntry(made))) }, icon('target'), 'Hyperfocus'),
         h('div', { class: 'grow' }),
-        h('button', { class: 'btn ghost', onclick: () => closePopover() }, 'Cancel'),
+        h('button', { class: 'btn ghost', onclick: () => done() }, 'Cancel'),
         h('button', { class: 'btn primary', onclick: () => save() }, src ? 'Save' : 'Add block')),
     ];
-    showPopover(anchor, nodes);
+    if (into) {
+      const actions = nodes.find((n) => n?.classList?.contains('pop-actions'));
+      into.body.replaceChildren(...nodes.filter((n) => n && n.nodeType && n !== title && n !== actions));
+      addLinkButtons(into.body);
+      for (const input of into.body.querySelectorAll('input[type=time], input[type=date]')) scrubbable(input);
+      into.foot.replaceChildren(...(actions ? [actions] : []));
+    } else showPopover(anchor, nodes);
     sync();
     title.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
     for (const box of [notes, memo]) if (box) box.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) save(); });
-    if (!readOnly && !MOBILE) title.focus();
+    if (!readOnly && !MOBILE && !into) title.focus();
+    return { setTitle: (v) => { title.value = v; }, save: () => save() };
   }
 
   // ------------------------------------------------------------ tasks
@@ -4310,7 +4321,7 @@
     const first = tasks.find((t) => t.id === fresh[0]);
     // Notes from the lock screen go to the inbox by the date: the toast points there.
     if (fresh.every((id) => tasks.find((t) => t.id === id)?.from === 'lock')) {
-      toast(fresh.length === 1 ? `In your inbox: "${first?.label || first?.title}"` : `${fresh.length} new notes in your inbox`, '', { label: 'Open', run: openLockInbox });
+      toast(fresh.length === 1 ? `In your inbox: "${first?.label || first?.title}"` : `${fresh.length} new notes in your inbox`, '', { label: 'Open', run: openInbox });
       return;
     }
     // Plan opens the day they were sent for (a day still to come), when they share one.
@@ -4331,53 +4342,76 @@
     paintLockInbox();
   }
 
-  // ---- the inbox by the date: notes typed on the phone's lock screen (WidgetData.quickTask), each waiting
-  // there until it is planned into a day, ticked off or cleared. Each is also a task with no date.
+  // ---- the Inbox, at the top of the task list: what is waiting to be planned, the notes typed on the phone's
+  // lock screen (WidgetData.quickTask) and the tasks other apps sent. Each is a task like the rest (tick it off,
+  // give it a day, open it, drag it onto the calendar), with Plan (Magic add) and Clear (out of the inbox, kept
+  // as a task with no date). How many wait is on the Tasks button, which opens the list with the Inbox first.
   const lockNotes = () => inboxTasks().filter((t) => t.from === 'lock' && !t.done);
-  let lockInboxOpen = false;
+  const inboxOpen = () => inboxTasks().filter((t) => !t.done && !t.mirror);
   function paintLockInbox() {
-    const b = $('#inbox-btn');
+    const b = $('#toggle-tasks');
     if (!b) return;
-    const n = lockNotes().length;
+    const n = inboxOpen().length;
     b.querySelector('.inbox-count')?.remove();
-    b.classList.toggle('has', n > 0);
-    b.title = n ? `Inbox: ${n} ${n === 1 ? 'note' : 'notes'} from your lock screen` : 'Inbox: notes from your lock screen';
+    b.classList.toggle('has-inbox', n > 0);
+    b.title = n ? `Tasks: ${n} waiting in your inbox` : 'Tasks';
     b.setAttribute('aria-label', b.title);
     if (n) b.append(h('span', { class: 'inbox-count' }, n > 9 ? '9+' : String(n)));
-    if (lockInboxOpen) drawLockInbox();
   }
-  function openLockInbox() {
-    lockInboxOpen = true;
-    drawLockInbox();
+  /** The task list, open at its Inbox. */
+  function openInbox() {
+    closePopover();
+    if (taskTab !== 'open') setTaskTab('open');
+    if (MOBILE) document.body.classList.add('drawer-right');
+    else if (S.settings.tasksPanel === false) saveSettings({ tasksPanel: true });
+    else if (collapsed('tasks')) setCollapsed('tasks', false);
+    setTimeout(() => {
+      const s = $('#task-items .inbox-group');
+      if (!s) return;
+      s.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      s.classList.add('flash');
+      setTimeout(() => s.classList.remove('flash'), 1400);
+    }, 60);
   }
-  function drawLockInbox() {
-    const notes = lockNotes();
-    const gone = (t) => { inboxIds = inboxIds.filter((id) => id !== t.id); paintInboxBadge(); };
-    const row = (t) => {
-      const busy = (on) => { for (const b of r.querySelectorAll('button')) b.disabled = on; };
-      const r = h('div', { class: 'linbox-row' },
-        h('button', { type: 'button', class: 'linbox-text', title: 'Open it', onclick: (e) => { const a = e.currentTarget.getBoundingClientRect(); lockInboxOpen = false; closePopover(); openTask(t, a); } },
-          h('span', { class: 'linbox-title' }, t.label || t.title), h('span', { class: 'linbox-from' }, t.listName ? `Lock screen · ${t.listName}` : 'Lock screen')),
-        h('div', { class: 'linbox-acts' },
-          h('button', { type: 'button', class: 'btn small primary', title: 'Fit it into a day with Magic add', onclick: () => { lockInboxOpen = false; closePopover(); openMagic({ pick: [t.id], tab: 'apps' }); } }, icon('sparkles'), 'Plan'),
-          h('button', { type: 'button', class: 'btn small', title: 'Tick it off', onclick: async () => {
-            busy(true);
-            if (await completeTask(tasks.find((x) => x.id === t.id) || t)) gone(t); else busy(false);
-          } }, icon('check'), 'Done'),
-          h('button', { type: 'button', class: 'btn small ghost', title: 'Out of the inbox; it stays in your tasks with no date', onclick: async () => {
-            busy(true);
-            try { await onyx.dismissInbox(t.id); gone(t); } catch (err) { busy(false); fail(err); }
-          } }, 'Clear')));
-      return r;
+  /** The Inbox's section: folds away like the others, with Plan all (Magic add with every one of them). */
+  function inboxGroup(items) {
+    if (!items.length) return null;
+    const shut = shutTaskGroups(), closed = shut.has('inbox');
+    const toggle = () => {
+      if (closed) shut.delete('inbox'); else shut.add('inbox');
+      try { localStorage.setItem('onyx.task-groups-shut', JSON.stringify([...shut])); } catch { /* this visit only */ }
+      renderTasks();
     };
-    const anchor = $('#inbox-btn').getBoundingClientRect();
-    showPopover(anchor, [
-      h('div', { class: 'linbox-head' }, h('h3', null, icon('inbox'), 'Inbox'), notes.length > 0 && h('span', { class: 'linbox-n' }, `${notes.length} from your lock screen`)),
-      notes.length
-        ? h('div', { class: 'linbox-list' }, ...notes.map(row))
-        : h('p', { class: 'linbox-empty' }, 'Nothing waiting. What you type on the lock screen lands here, ready to plan into a day.'),
-    ], () => { lockInboxOpen = false; });
-    lockInboxOpen = true; // (drawn again in place: the old one's closing said otherwise)
+    const head = h('div', {
+      class: `task-section inbox-head${closed ? ' shut' : ''}`, role: 'button', tabindex: '0', 'aria-expanded': String(!closed),
+      title: 'Waiting to be planned: notes from your lock screen and tasks from your other apps',
+      onclick: (e) => { if (!e.target.closest('.carry')) toggle(); },
+      onkeydown: (e) => { if ((e.key === 'Enter' || e.key === ' ') && !e.target.closest('.carry')) { e.preventDefault(); toggle(); } },
+    },
+      icon('inbox'), h('span', null, 'Inbox'), h('span', { class: 'sec-count' }, items.length), h('span', { class: 'grow' }),
+      items.length > 1 && h('button', { class: 'carry', title: 'Fit them all into a day with Magic add', onclick: (e) => { e.stopPropagation(); openMagic({ pick: items.map((t) => t.id), tab: 'apps' }); } }, 'Plan all'));
+    return h('section', { class: 'task-group inbox-group' }, head,
+      !closed && h('div', { class: 'task-cards' }, items.map(inboxRow)));
+  }
+  /** A task waiting in the Inbox: the task's own card, with where it came from, Plan and Clear. */
+  function inboxRow(t) {
+    const row = taskRow(t);
+    row.classList.add('in-inbox');
+    const clear = h('button', { type: 'button', class: 'inbox-act', title: 'Out of the inbox; it stays in your tasks with no date', onclick: async (e) => {
+      e.stopPropagation();
+      clear.disabled = true;
+      try {
+        await onyx.dismissInbox(t.id);
+        inboxIds = inboxIds.filter((id) => id !== t.id);
+        paintInboxBadge();
+        renderTasks();
+      } catch (err) { clear.disabled = false; fail(err); }
+    } }, 'Clear');
+    row.querySelector('.task-body')?.append(h('div', { class: 'inbox-acts' },
+      h('span', { class: 'inbox-from' }, t.from === 'lock' ? 'From your lock screen' : `From ${sourceName(t)}`),
+      h('button', { type: 'button', class: 'inbox-act primary', title: 'Fit it into a day with Magic add', onclick: (e) => { e.stopPropagation(); openMagic({ pick: [t.id], tab: 'apps' }); } }, icon('sparkles'), 'Plan'),
+      clear));
+    return row;
   }
 
   async function loadGoals() {
@@ -4810,14 +4844,17 @@
     if (taskTab === 'archived' && lists.length) return renderArchive();
 
     const box = $('#task-items');
-    const shown = tasks.filter((t) => !t.mirror && !t.done && visible(t.listId) && matchesFilter(t.tags));
-    $('#task-count').textContent = shown.length || '';
+    // The Inbox comes first, whatever the filters (it is what is waiting); its tasks are not in the groups below too.
+    const inbox = inboxOpen();
+    const inInbox = new Set(inbox.map((t) => t.id));
+    const shown = tasks.filter((t) => !t.mirror && !t.done && visible(t.listId) && matchesFilter(t.tags) && !inInbox.has(t.id));
+    $('#task-count').textContent = (shown.length + inbox.length) || '';
     if (!lists.length) {
       box.replaceChildren(h('div', { class: 'empty' }, 'Connect Google or Outlook to see your tasks here.',
         h('div', { css: { 'margin-top': '12px' } }, h('button', { class: 'btn', onclick: () => openSettings('calendars') }, 'Connect an account'))));
       return;
     }
-    if (!shown.length) {
+    if (!shown.length && !inbox.length) {
       box.replaceChildren(h('div', { class: 'empty' }, tagFilter.size
         ? 'No open tasks with the selected tags.'
         : 'Nothing to do. Add a task above; put a time in its name and the Pi will phone you about it.'));
@@ -4859,7 +4896,7 @@
       return h('section', { class: 'task-group', ...(drop ? { 'data-drop': drop } : {}) }, head,
         !closed && h('div', { class: 'task-cards' }, items.sort((a, b) => sortKey(a).localeCompare(sortKey(b))).map(taskRow)));
     };
-    box.replaceChildren(...[rolloverTray(earlier, someday), ...groups.filter(([, items]) => items.length).map(group),
+    box.replaceChildren(...[inboxGroup(inbox), rolloverTray(earlier, someday), ...groups.filter(([, items]) => items.length).map(group),
       burnerBar(shown.filter((t) => !t.date && t.backburner))].filter(Boolean));
   }
 
@@ -9695,13 +9732,45 @@
     }
     paintDay();
     const goCount = h('span', { class: 'mg-num' });
-    // Adding (the + button): two ways side by side, each saying what it does.
-    const way = (t, sub) => h('span', { class: 'mg-way-t' }, h('b', null, t), h('small', null, sub));
-    const chooseSub = h('small', null, 'You pick when');
-    const choose = adding && h('button', { type: 'button', class: 'btn mg-way mg-choose', onclick: () => chooseTime() },
-      icon('clock'), h('span', { class: 'mg-way-t' }, h('b', null, 'Choose a time'), chooseSub));
-    const go = h('button', { class: `btn primary mg-go${adding ? ' mg-way' : ''}`, onclick: () => run() }, icon('sparkles'),
-      adding ? way('Find time', 'Onyx fits it in') : h('span', { class: 'mg-go-t' }, 'Plan my day'), goCount);
+    const go = h('button', { class: 'btn primary mg-go', onclick: () => run() }, icon('sparkles'),
+      h('span', { class: 'mg-go-t' }, adding ? 'Find time' : 'Plan my day'), goCount);
+    // Adding (the + button): the two ways are tabs under what is typed, and each brings all it had. Choose a time
+    // is the block's own editor, in the sheet (openEditor's into): its day and times, calendar, all day, colour,
+    // repeat, tasks, links, notes, tags, breakdown, pomodoro, travel and reminders, Hyperfocus and Add block.
+    // Find time is Magic add: pictures and links to read, the tasks waiting, the day, the hours, the plan.
+    let wayNow = preset.way || (picked.size ? 'find' : (() => { try { return localStorage.getItem('onyx.addWay') || 'time'; } catch { return 'time'; } })());
+    const firstLine = () => text.value.split('\n').map((l) => l.trim()).find(Boolean) || '';
+    const lines = () => text.value.split('\n').filter((l) => l.trim()).length;
+    const editorBody = h('div', { class: 'mg-editor' }), editorFoot = h('div', { class: 'mg-editor-foot' });
+    let editor = null;
+    /** The block's editor, made once (what is set in it is kept while the tabs change), on the day picked. */
+    function ensureEditor() {
+      if (editor || !adding) return;
+      const now = new Date(), d = fromYmd(date.value || ymd(now));
+      const begin = new Date(d.getFullYear(), d.getMonth(), d.getDate(), date.value === ymd(now) ? Math.min(23, now.getHours() + 1) : 9, 0);
+      editor = openEditor({ start: begin, end: new Date(begin.getTime() + 3600000), allDay: false, into: { body: editorBody, foot: editorFoot, close: () => closeSettings() } }, null);
+      editor.setTitle(firstLine());
+    }
+    const wayTab = (key, ico, t, sub) => h('button', { type: 'button', role: 'tab', class: `mg-way mg-tab${wayNow === key ? ' on' : ''}`, 'aria-selected': String(wayNow === key),
+      onclick: () => setWay(key) }, icon(ico), h('span', { class: 'mg-way-t' }, h('b', null, t), h('small', null, sub)));
+    const wayTabs = h('div', { class: 'mg-ways mg-tabs', role: 'tablist', 'aria-label': 'How to add it' });
+    const paintTabs = () => wayTabs.replaceChildren(wayTab('time', 'clock', 'Choose a time', 'You pick when'), wayTab('find', 'sparkles', 'Find time', 'Onyx fits it in'));
+    // Several lines on Choose a time: the first is this block; Find time plans them all.
+    const timeNote = h('p', { class: 'mg-time-note' });
+    const paintTimeNote = () => {
+      const n = lines();
+      timeNote.hidden = n < 2;
+      timeNote.replaceChildren(`Only the first line becomes this block. `,
+        h('button', { type: 'button', class: 'mg-link', onclick: () => setWay('find') }, `Find time for all ${n}`));
+    };
+    function setWay(key) {
+      if (wayNow === key) return;
+      wayNow = key;
+      try { localStorage.setItem('onyx.addWay', key); } catch { /* this visit only */ }
+      if (key === 'find' && editor) { const d = editorBody.querySelector('input[type=date]')?.value; if (d) { date.value = d; paintDay(); } } // the day carries over
+      paintTabs();
+      show('compose');
+    }
     /** The button says how much it plans: the ticked tasks and the lines typed. */
     function paintGo() {
       const typed = text ? text.value.split('\n').filter((l) => l.trim()).length : 0;
@@ -9709,19 +9778,9 @@
       goCount.textContent = String(count);
       goCount.hidden = !count;
       if (!adding) return;
-      // One thing at a time gets a time of its own; several (or ticked tasks) are for Find time.
       go.disabled = !count;
-      choose.disabled = typed > 1 || picked.size > 0;
-      chooseSub.textContent = choose.disabled ? 'One thing at a time' : 'You pick when';
-    }
-    /** Choose a time: the block's editor, on the day picked here, named as typed. */
-    function chooseTime() {
-      const [name = ''] = text.value.split('\n').map((l) => l.trim()).filter(Boolean);
-      const now = new Date(), d = fromYmd(date.value || ymd(now));
-      const start = new Date(d.getFullYear(), d.getMonth(), d.getDate(), date.value === ymd(now) ? Math.min(23, now.getHours() + 1) : 9, 0);
-      const r = ($('#fab') || document.body).getBoundingClientRect();
-      closeSettings();
-      openEditor({ start, end: new Date(start.getTime() + 3600000), allDay: false, title: name }, { left: r.left, right: r.right, top: r.top, bottom: r.top });
+      editor?.setTitle(firstLine());
+      paintTimeNote();
     }
     const out = h('div', { class: 'magic-out' });
     const claude = S.ai?.ready;
@@ -10025,13 +10084,19 @@
     function show(next) {
       stage = next;
       toggleOpts(false);
-      body.replaceChildren(...(next === 'compose' ? [text, src.el, ...(adding ? [waitHead] : []), pickBox, msg] : [out]));
+      if (next === 'compose' && adding && wayNow === 'time') ensureEditor();
+      body.replaceChildren(...(next !== 'compose' ? [out]
+        : !adding ? [text, src.el, pickBox, msg]
+          : wayNow === 'time' ? [text, wayTabs, timeNote, editorBody]
+            : [text, wayTabs, src.el, waitHead, pickBox, msg]));
       body.scrollTop = 0;
       paintFoot();
     }
     function paintFoot() {
       if (stage === 'compose' && adding) {
-        foot.replaceChildren(h('div', { class: 'mg-foot-row' }, dayChips), h('div', { class: 'mg-foot-row mg-ways' }, choose, go), optsWrap);
+        foot.classList.toggle('mg-foot-editor', wayNow === 'time');
+        if (wayNow === 'time') foot.replaceChildren(editorFoot);
+        else foot.replaceChildren(h('div', { class: 'mg-foot-row' }, dayChips), h('div', { class: 'mg-foot-row' }, go), optsWrap);
         return;
       }
       if (stage === 'compose') { foot.replaceChildren(optsWrap, h('div', { class: 'mg-foot-row' }, dayChips, go)); return; }
@@ -10041,8 +10106,9 @@
         h('span', { class: 'magic-total' }, !view ? '' : n ? `${n} block${n > 1 ? 's' : ''} · ${mins(view.result.blocks.reduce((t, b) => t + b.minutes + b.travel, 0))}` : 'Nothing fits in that window'),
         h('button', { class: 'btn primary mg-add', disabled: !n || working, onclick: commit }, icon('plus'), n ? `Add ${n} to my calendar` : 'Add')));
     }
+    if (adding) paintTabs();
     paintGo();
-    const sheet = h('div', { class: 'sheet magic' }, h('div', { class: 'pane mg-pane' },
+    const sheet = h('div', { class: `sheet magic${adding ? ' adding' : ''}` }, h('div', { class: 'pane mg-pane' },
       h('button', { class: 'icon-btn close', onclick: closeSettings, 'aria-label': 'Close' }, icon('x')),
       h('header', { class: 'mg-head' },
         h('span', { class: `mg-badge${adding ? ' plain' : ''}` }, icon(adding ? 'plus' : 'sparkles')),
@@ -11729,7 +11795,7 @@
     const bar = $('#titlebar');
     const strip = h('div', { id: 'top-tools', class: 'top-tools', role: 'toolbar', 'aria-label': 'Onyx' });
     $('.nav', bar).after(strip);
-    strip.append(...['inbox-btn', 'pomo-timer', 'noise-btn', 'globe-toggle', 'board-toggle', 'undo-btn', 'update-btn', 'refresh', 'toggle-tasks', 'open-settings']
+    strip.append(...['pomo-timer', 'noise-btn', 'globe-toggle', 'board-toggle', 'undo-btn', 'update-btn', 'refresh', 'toggle-tasks', 'open-settings']
       .map((id) => document.getElementById(id)).filter(Boolean));
     const edges = () => {
       const max = strip.scrollWidth - strip.clientWidth;
@@ -11781,9 +11847,7 @@
     watchGlobeDrops();
     $('#undo-btn').append(icon('undo'));
     $('#undo-btn').onclick = undoLast;
-    $('#inbox-btn').append(icon('inbox'));
-    $('#inbox-btn').onclick = (e) => { e.stopPropagation(); if (lockInboxOpen) { lockInboxOpen = false; closePopover(); } else openLockInbox(); };
-    paintLockInbox();
+    paintLockInbox(); // the Inbox's count, on the Tasks button
     $('#archive-prev').append(icon('left'));
     $('#archive-next').append(icon('right'));
     $('#update-btn').append(icon('update'));

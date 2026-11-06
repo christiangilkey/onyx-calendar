@@ -64,7 +64,7 @@ test('the app reaches it through the plugin, and plays it itself on the PC, apar
   const kinds = [...app.matchAll(/\['(\w+)', '[^']+', '[^']+'\]/g)].map((m) => m[1]).filter((k) => F.SOUND_FILES[k]);
   assert.deepEqual([...new Set(kinds)].sort(), Object.keys(F.SOUND_FILES).sort(), 'every recording, in the panel');
   assert.match(read('src/renderer/index.html'), /<button id="noise-btn" class="icon-btn noise-btn" title="Noise machine"><\/button>/);
-  assert.match(app, /strip\.append\(\.\.\.\['inbox-btn', 'pomo-timer', 'noise-btn',/, 'on the phone, near the start of the strip');
+  assert.match(app, /strip\.append\(\.\.\.\['pomo-timer', 'noise-btn',/, 'on the phone, at the start of the strip');
 });
 
 test('the preview is put in order by hand: a part up or down, a shortcut along its row', () => {

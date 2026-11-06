@@ -46,12 +46,20 @@ test('one + button on the phone: type it, then Choose a time or Find time', () =
   assert.match(app, /if \(!graph\.on\) return MOBILE \? openMagic\(\{ add: true, date: ymd\(newBlockDay\(\)\) \}\) : newBlock\(\);/);
   const magic = between('function openMagic(', '// ------------------------------------------------------------ globe view');
   assert.match(magic, /'Add to your day'/);
-  assert.match(magic, /h\('b', null, 'Choose a time'\)/);
-  assert.match(magic, /way\('Find time', 'Onyx fits it in'\)/);
-  assert.match(magic, /choose\.disabled = typed > 1 \|\| picked\.size > 0;/, 'a time of its own is for one thing');
+  // The two ways are tabs, and each keeps all it had: the block's own editor, drawn in the sheet, and Magic add.
+  assert.match(magic, /wayTab\('time', 'clock', 'Choose a time', 'You pick when'\), wayTab\('find', 'sparkles', 'Find time', 'Onyx fits it in'\)/);
+  assert.match(magic, /editor = openEditor\(\{ start: begin, end: new Date\(begin\.getTime\(\) \+ 3600000\), allDay: false, into: \{ body: editorBody, foot: editorFoot, close: \(\) => closeSettings\(\) \} \}, null\);/);
+  assert.match(magic, /wayNow === 'time' \? \[text, wayTabs, timeNote, editorBody\]\s*: \[text, wayTabs, src\.el, waitHead, pickBox, msg\]/);
+  assert.match(magic, /editor\?\.setTitle\(firstLine\(\)\);/, 'named as typed');
+  assert.match(magic, /`Only the first line becomes this block\. `/);
   assert.match(magic, /go\.disabled = !count;/);
-  assert.match(magic, /openEditor\(\{ start, end: new Date\(start\.getTime\(\) \+ 3600000\), allDay: false, title: name \}/, 'named as typed, on the day picked');
   assert.match(magic, /'Or tick tasks that are waiting'/);
+  // The editor in the sheet is the same editor: everything it shows, its actions in the sheet's foot, closing the sheet.
+  const ed = between('function openEditor(model, anchor)', '// ------------------------------------------------------------ tasks');
+  assert.match(ed, /const done = \(\) => \(into \? into\.close\(\) : closePopover\(\)\);/);
+  assert.doesNotMatch(ed, /closePopover\(\);/, 'every way out closes the sheet when it is in one');
+  assert.match(ed, /into\.body\.replaceChildren\(\.\.\.nodes\.filter\(\(n\) => n && n\.nodeType && n !== title && n !== actions\)\);/);
+  assert.match(ed, /into\.foot\.replaceChildren\(\.\.\.\(actions \? \[actions\] : \[\]\)\);/);
   assert.match(app, /value: src \? src\.title : \(model\.title \|\| ''\)/);
   // The waiting count moved to the + button.
   assert.match(app, /for \(const el of \[\$\('#magic-add'\), MOBILE \? \$\('#fab'\) : null, \$\('#task-magic'\)\]\)/);

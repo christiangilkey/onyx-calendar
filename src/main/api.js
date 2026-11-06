@@ -149,6 +149,10 @@ const handlers = {
   'pin:add': (item) => library.addPin(item),
   'pin:update': (id, patch) => library.updatePin(id, patch),
   'pin:remove': (id) => library.removePin(id),
+  // Boards: whiteboards for long workflows (boards.js); the app makes each board's id.
+  boards: () => require('./boards').boards(),
+  'board:save': (board) => require('./boards').save(board),
+  'board:delete': (id) => require('./boards').remove(id),
   'notion:search': (query) => notion.search(query),
   // Sending a block: by email from a connected account, or onto a Notion page (share.js).
   'share:senders': () => ({ senders: require('./share').senders(), recents: require('./share').recents() }),

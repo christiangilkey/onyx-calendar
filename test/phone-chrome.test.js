@@ -27,7 +27,7 @@ test('a pinch toward a view that is not there leaves the calendar still, and dra
 test('the phone keeps the whole date: the buttons after it scroll in a strip, and show once that they do', () => {
   const tools = between('function topTools()', 'function buildChrome()');
   assert.match(tools, /if \(!MOBILE\) return;/, 'the PC\'s bar is as it was');
-  assert.match(tools, /'globe-toggle', 'undo-btn', 'update-btn', 'refresh', 'toggle-tasks', 'open-settings'\]/);
+  assert.match(tools, /'globe-toggle', 'board-toggle', 'undo-btn', 'update-btn', 'refresh', 'toggle-tasks', 'open-settings'\]/);
   assert.match(tools, /strip\.scrollTo\(\{ left: Math\.min\(room, 72\), behavior: 'smooth' \}\);\s*setTimeout\(\(\) => strip\.scrollTo\(\{ left: 0, behavior: 'smooth' \}\), 650\);/, 'over and back');
   assert.match(tools, /if \(seen === 'done' \|\| \+seen >= 3\) return;/, 'until it has been scrolled, three times at most');
   assert.match(tools, /if \(room < 8 \|\| strip\.scrollLeft > 2 \|\| matchMedia\('\(prefers-reduced-motion: reduce\)'\)\.matches\) return;/, 'only when there is more to see');

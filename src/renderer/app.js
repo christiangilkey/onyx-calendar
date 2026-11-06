@@ -6,6 +6,7 @@
   // ever written with text nodes (h() below), never as HTML.
 
   const ICONS = {
+    board: '<rect x="2.5" y="3" width="7" height="5" rx="1.2"/><rect x="14.5" y="16" width="7" height="5" rx="1.2"/><path d="M18 4.5l3 3-3 3-3-3z"/><path d="M9.5 5.5H15"/><path d="M18 10.5V16"/><path d="M6 8v8.5h8.5"/>',
     waves: '<path d="M3 8c1.5-1.5 3-1.5 4.5 0s3 1.5 4.5 0 3-1.5 4.5 0 3 1.5 4.5 0"/><path d="M3 13c1.5-1.5 3-1.5 4.5 0s3 1.5 4.5 0 3-1.5 4.5 0 3 1.5 4.5 0"/><path d="M3 18c1.5-1.5 3-1.5 4.5 0s3 1.5 4.5 0 3-1.5 4.5 0 3 1.5 4.5 0"/>',
     left: '<path d="M15 6l-6 6 6 6"/>',
     right: '<path d="M9 6l6 6-6 6"/>',
@@ -10832,6 +10833,7 @@
   function openGraph() {
     closePopover();
     closeDrawers();
+    if (board.on) closeBoards();
     if (!graph.on) {
       const v = calendar.view.type;
       graph.kind = v === 'timeGridDay' ? 'day' : v === 'dayGridMonth' ? 'month' : 'week';
@@ -10872,8 +10874,373 @@
     if (graph.on) closeGraph(); else openGraph();
   }
 
+  // ------------------------------------------------------------ boards
+  // Whiteboards for long, hard workflows, drawn by boards.js: steps, decisions, goals and sticky notes joined by
+  // arrows. Pick a way at each decision and the route through the board lights up; Plan it puts the route's steps
+  // in the calendar, each a block of its own: one after another from a time, or fitted into free time by Magic add.
+  // Kept and synced with the rest of Onyx (src/main/boards.js); where each board was looked at is kept here only.
+
+  const board = { on: false, all: [], cur: null, view: null, saveT: 0, route: true, dirty: false };
+  const readLocal = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } };
+  const writeLocal = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* this visit only */ } };
+  let boardCamT = 0;
+  const STEP_LENGTHS = [15, 30, 45, 60, 90, 120, 180];
+  const rangeTitle = () => (MOBILE ? shortTitle(calendar.view.currentStart, calendar.view.currentEnd, calendar.view.type) : calendar.view.title);
+  const placedText = (p) => { const d = new Date(p.start); return `${d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}, ${fmtTime(d)}`; };
+
+  async function openBoards(id) {
+    closePopover();
+    closeDrawers();
+    if (graph.on) closeGraph();
+    board.on = true;
+    document.body.classList.add('board-on');
+    $('#board').hidden = false;
+    $('#board-toggle').classList.add('on');
+    $('#board-toggle').title = 'Back to the calendar (B)';
+    $('#fab').title = 'Add a step';
+    try { board.all = await onyx.boards(); } catch (err) { fail(err); }
+    if (!board.on) return; // closed while they loaded
+    const want = id || readLocal('onyx.board', null);
+    showBoard(board.all.find((b) => b.id === want) || board.all[0] || null);
+  }
+
+  function closeBoards() {
+    flushBoard();
+    board.on = false;
+    document.body.classList.remove('board-on');
+    $('#board').hidden = true;
+    $('#board-toggle').classList.remove('on');
+    $('#board-toggle').title = 'Boards (B)';
+    $('#fab').title = 'Add to your day';
+    $('#range').textContent = rangeTitle();
+    calendar.updateSize();
+  }
+  const toggleBoards = () => (board.on ? closeBoards() : openBoards());
+
+  /** Saves the board a moment after the last change (and at once on leaving it). */
+  function boardChanged() {
+    board.dirty = true;
+    clearTimeout(board.saveT);
+    board.saveT = setTimeout(flushBoard, 700);
+    paintBoardBar();
+  }
+  function flushBoard() {
+    clearTimeout(board.saveT);
+    if (!board.dirty || !board.cur) return;
+    board.dirty = false;
+    const b = board.cur;
+    onyx.saveBoard(b).then((kept) => {
+      const i = board.all.findIndex((x) => x.id === kept.id);
+      if (i >= 0) board.all[i] = { ...board.all[i], updated: kept.updated, title: kept.title }; else board.all.unshift(kept);
+    }).catch((err) => { board.dirty = true; fail(err); });
+  }
+
+  function showBoard(b) {
+    flushBoard();
+    board.cur = b;
+    const space = $('#board-space'), empty = $('#board-empty');
+    $('#range').textContent = 'Boards'; // the board's own name is on its bar
+    if (!b) {
+      board.view?.destroy();
+      board.view = null;
+      space.replaceChildren();
+      $('#board-bar').replaceChildren();
+      empty.hidden = false;
+      empty.replaceChildren(h('div', { class: 'wb-intro' },
+        h('span', { class: 'wb-intro-ico' }, icon('board')),
+        h('h3', null, 'Lay out a big job'),
+        h('p', null, 'A board is a whiteboard for something long and hard: the steps, the goals, and the decisions where it could go more than one way. Pick a way at each decision, and Onyx shows the route through it. Then Plan it puts each step on the route in your calendar as a block of its own.'),
+        h('div', { class: 'row' },
+          h('button', { type: 'button', class: 'btn primary', onclick: () => makeBoard(false) }, icon('plus'), 'New board'),
+          h('button', { type: 'button', class: 'btn', onclick: () => makeBoard(true) }, 'See an example'))));
+      return;
+    }
+    empty.hidden = true;
+    writeLocal('onyx.board', b.id);
+    const cam = readLocal(`onyx.boardCam.${b.id}`, null);
+    const opts = {
+      board: b, cam, route: board.route,
+      onChange: boardChanged,
+      onOpen: (n) => openBoardCard(n),
+      onOpenLink: (l, rect) => openBoardLink(l, rect),
+      onDelete: (n) => deleteBoardCard(n),
+      when: placedText,
+      onCam: (c) => { clearTimeout(boardCamT); boardCamT = setTimeout(() => writeLocal(`onyx.boardCam.${board.cur?.id}`, c), 400); },
+      onDraw: (r) => { board.lastRoute = r; paintBoardBar(); },
+    };
+    if (board.view) board.view.setBoard(b, cam || { x: 40, y: 40, z: 1 });
+    else board.view = OnyxBoards.mount(space, opts);
+    Object.assign(board.view, { opts });
+    paintBoardBar(true);
+    if (!cam && b.nodes.length) requestAnimationFrame(() => board.view?.fit());
+  }
+
+  async function makeBoard(example) {
+    const b = OnyxBoards.newBoard('New board', example);
+    if (!example) b.title = `Board ${board.all.length + 1}`;
+    board.all.unshift(b);
+    board.cur = b;
+    board.dirty = true;
+    flushBoard();
+    showBoard(b);
+    if (!example) { const n = board.view.add('goal'); openBoardCard(n); }
+  }
+
+  /** The bar over the board: which board, adding cards, the route, and Plan it. */
+  function paintBoardBar(full) {
+    const bar = $('#board-bar'), b = board.cur;
+    if (!b || !board.view) return;
+    const steps = OnyxBoards.planSteps(b).filter((n) => !n.done);
+    const mins = steps.reduce((t, n) => t + (Number(n.minutes) || 30), 0);
+    const open = board.lastRoute?.open.length || 0;
+    const sum = [steps.length ? `${steps.length} step${steps.length > 1 ? 's' : ''} on the route · ${OnyxBoards.lengthText(mins)}` : 'No steps on the route yet', open ? `${open} decision${open > 1 ? 's' : ''} to make` : ''].filter(Boolean).join(' · ');
+    if (!full && bar.querySelector('.wb-sum')) {
+      bar.querySelector('.wb-sum').textContent = sum;
+      bar.querySelector('.wb-sum').classList.toggle('warn', !!open);
+      bar.querySelector('.wb-name-t').textContent = b.title;
+      return;
+    }
+    const addBtn = (kind) => h('button', { type: 'button', class: `btn wb-add k-${kind}`, title: `Add a ${OnyxBoards.KINDS[kind].label.toLowerCase()}`,
+      onclick: () => { const n = board.view.add(kind); openBoardCard(n); } }, h('span', { class: 'wb-add-ico', 'aria-hidden': 'true' }, OnyxBoards.KINDS[kind].icon), OnyxBoards.KINDS[kind].label);
+    bar.replaceChildren(
+      h('button', { type: 'button', class: 'btn wb-name', title: 'Your boards', onclick: (e) => openBoardsMenu(e.currentTarget) }, icon('board'), h('span', { class: 'wb-name-t' }, b.title), icon('down')),
+      h('div', { class: 'wb-adds' }, ...['step', 'decision', 'goal', 'note'].map(addBtn)),
+      h('button', { type: 'button', class: 'btn wb-add-menu', onclick: (e) => openBoardAdd(e.currentTarget) }, icon('plus'), 'Add'),
+      h('span', { class: `wb-sum${open ? ' warn' : ''}` }, sum),
+      h('div', { class: 'grow' }),
+      h('label', { class: 'wb-route', title: 'Dim what is off the route' }, toggle(board.route, (v) => { board.route = v; board.view.setRoute(v); }), h('span', null, 'Route')),
+      h('div', { class: 'wb-zoom' },
+        h('button', { type: 'button', class: 'icon-btn', title: 'Zoom out', 'aria-label': 'Zoom out', onclick: () => board.view.zoom(1 / 1.25) }, '−'),
+        h('button', { type: 'button', class: 'icon-btn', title: 'See all of it', 'aria-label': 'See all of it', onclick: () => board.view.fit() }, icon('target')),
+        h('button', { type: 'button', class: 'icon-btn', title: 'Zoom in', 'aria-label': 'Zoom in', onclick: () => board.view.zoom(1.25) }, '+')),
+      h('button', { type: 'button', class: 'btn primary wb-plan', onclick: (e) => planBoard(e.currentTarget) }, icon('calendar'), 'Plan it'));
+  }
+
+  /** On the phone (no room for four buttons): what to add, in a little menu. */
+  function openBoardAdd(anchor) {
+    showPopover(anchor.getBoundingClientRect(), [h('div', { class: 'wb-menu' },
+      h('h4', null, 'Add to the board'),
+      ...['step', 'decision', 'goal', 'note'].map((k) => h('button', { type: 'button', class: `wb-menu-row k-${k}`, onclick: () => { closePopover(); const n = board.view.add(k); openBoardCard(n); } },
+        h('span', { class: 'wb-add-ico', 'aria-hidden': 'true' }, OnyxBoards.KINDS[k].icon),
+        h('span', null, h('b', null, OnyxBoards.KINDS[k].label), h('small', null, {
+          step: 'Something to do, with how long it takes',
+          decision: 'A question with more than one way to go',
+          goal: 'Where it is all heading, or a milestone',
+          note: 'A sticky note, never planned',
+        }[k]))))) ]);
+  }
+
+  /** The boards: open another, rename this one, make a new one, or delete this one. */
+  function openBoardsMenu(anchor) {
+    const b = board.cur;
+    let sure = false;
+    const name = h('input', { type: 'text', value: b.title, maxLength: 120, 'aria-label': 'Board name',
+      oninput: (e) => { b.title = e.target.value.trim() || 'Untitled board'; boardChanged(); } });
+    const del = h('button', { type: 'button', class: 'btn ghost danger', onclick: async () => {
+      if (!sure) { sure = true; del.textContent = 'Sure? Delete it'; return; }
+      closePopover();
+      try { await onyx.deleteBoard(b.id); } catch (err) { fail(err); return; }
+      board.dirty = false;
+      board.all = board.all.filter((x) => x.id !== b.id);
+      showBoard(board.all[0] || null);
+      toast(`Deleted "${b.title}"`);
+    } }, 'Delete this board');
+    showPopover(anchor.getBoundingClientRect(), [h('div', { class: 'wb-menu' },
+      h('label', { class: 'le-lbl' }, 'Name', name),
+      board.all.length > 1 && h('h4', null, 'Your boards'),
+      board.all.length > 1 && h('div', { class: 'wb-list' }, board.all.filter((x) => x.id !== b.id).map((x) => h('button', { type: 'button', class: 'wb-list-row', onclick: () => { closePopover(); showBoard(x); } },
+        h('b', null, x.title), h('small', null, `${x.nodes?.length || 0} cards`)))),
+      h('div', { class: 'row' },
+        h('button', { type: 'button', class: 'btn', onclick: () => { closePopover(); makeBoard(false); } }, icon('plus'), 'New board'),
+        h('button', { type: 'button', class: 'btn ghost', onclick: () => { closePopover(); makeBoard(true); } }, 'Example')),
+      del)]);
+    setTimeout(() => name.select(), 30);
+  }
+
+  /** A card's editor: what it is, its name and details, and for a step how long it takes; for a decision its ways. */
+  function openBoardCard(n) {
+    if (!n) return;
+    const b = board.cur;
+    const redraw = () => { boardChanged(); board.view.draw(); };
+    const anchor = () => ($(`#board .wb-card[data-id="${CSS.escape(n.id)}"]`) || $('#board-space')).getBoundingClientRect();
+    const draw = () => {
+      const k = OnyxBoards.KINDS[n.kind];
+      const title = h('input', { type: 'text', class: 'pop-title', value: n.title, maxLength: 300, placeholder: k.empty, spellcheck: true,
+        oninput: (e) => { n.title = e.target.value; redraw(); },
+        onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); closePopover(); } } });
+      const kinds = h('div', { class: 'le-kinds', role: 'radiogroup', 'aria-label': 'What it is' }, Object.entries(OnyxBoards.KINDS).map(([key, v]) => h('button', {
+        type: 'button', role: 'radio', 'aria-checked': String(n.kind === key), class: `le-kind${n.kind === key ? ' on' : ''}`,
+        onclick: () => { if (n.kind === key) return; n.kind = key; if (key === 'step' && !n.minutes) n.minutes = 30; if (key === 'note' && !n.color) n.color = OnyxBoards.NOTE_COLORS[0]; redraw(); draw(); },
+      }, `${v.icon} ${v.label}`)));
+      const parts = [kinds, title];
+      if (n.kind === 'step') {
+        const custom = h('input', { type: 'number', min: 5, max: 720, step: 5, value: n.minutes || 30, class: 'wb-mins', 'aria-label': 'Minutes',
+          onchange: (e) => { n.minutes = Math.max(5, Math.min(720, Math.round(+e.target.value || 30))); redraw(); draw(); } });
+        parts.push(h('div', { class: 'wb-field' }, h('span', null, 'How long'),
+          h('div', { class: 'nm-timers' }, STEP_LENGTHS.map((m) => h('button', { type: 'button', class: `nm-timer${n.minutes === m ? ' on' : ''}`, onclick: () => { n.minutes = m; redraw(); draw(); } }, OnyxBoards.lengthText(m))),
+            h('label', { class: 'wb-mins-l' }, custom, 'min'))));
+      }
+      if (n.kind === 'decision') {
+        const outs = b.links.filter((l) => l.from === n.id);
+        parts.push(h('div', { class: 'wb-field col' }, h('span', null, outs.length ? 'The ways it can go (pick the one you are taking)' : 'The ways it can go'),
+          ...outs.map((l) => {
+            const to = b.nodes.find((x) => x.id === l.to);
+            return h('div', { class: `wb-branch-row${n.chosen === l.id ? ' on' : ''}` },
+              h('button', { type: 'button', role: 'radio', 'aria-checked': String(n.chosen === l.id), class: 'wb-pick', title: 'Take this way',
+                onclick: () => { n.chosen = n.chosen === l.id ? null : l.id; redraw(); draw(); } }),
+              h('input', { type: 'text', value: l.label, maxLength: 80, placeholder: 'Name this way', 'aria-label': 'Name of this way', oninput: (e) => { l.label = e.target.value; redraw(); } }),
+              h('small', null, `→ ${to?.title || 'Untitled'}`),
+              h('button', { type: 'button', class: 'icon-btn', title: 'Remove this way', 'aria-label': 'Remove this way', onclick: () => {
+                b.links = b.links.filter((x) => x.id !== l.id);
+                if (n.chosen === l.id) n.chosen = null;
+                redraw(); draw();
+              } }, icon('x')));
+          }),
+          h('button', { type: 'button', class: 'btn', onclick: () => { closePopover(); const next = board.view.after(n.id); openBoardCard(next); } }, icon('plus'), 'Add a way')));
+      }
+      if (n.kind === 'note') {
+        parts.push(h('div', { class: 'wb-colors', role: 'radiogroup', 'aria-label': 'Colour' }, OnyxBoards.NOTE_COLORS.map((c) => h('button', {
+          type: 'button', role: 'radio', 'aria-checked': String(n.color === c), class: `wb-color${n.color === c ? ' on' : ''}`, css: { '--c': c }, 'aria-label': c,
+          onclick: () => { n.color = c; redraw(); draw(); } }))));
+      }
+      parts.push(h('textarea', { class: 'wb-notes', rows: n.kind === 'note' ? 4 : 2, placeholder: n.kind === 'note' ? 'Write the note' : 'Details, links, what done looks like', value: n.notes || '',
+        oninput: (e) => { n.notes = e.target.value; redraw(); } }));
+      if (n.kind === 'step' || n.kind === 'goal') {
+        parts.push(h('label', { class: 'wb-done' }, toggle(!!n.done, (v) => { n.done = v; redraw(); }), h('span', null, n.kind === 'goal' ? 'Reached' : 'Done')));
+      }
+      if (n.placed) parts.push(h('p', { class: 'wb-placed' }, `In your calendar: ${placedText(n.placed)}`));
+      parts.push(h('div', { class: 'pop-actions' },
+        h('button', { type: 'button', class: 'btn ghost danger', onclick: () => { closePopover(); deleteBoardCard(n); } }, icon('trash'), 'Delete'),
+        h('div', { class: 'grow' }),
+        n.kind === 'step' && h('button', { type: 'button', class: 'btn', title: 'Put this step in your calendar at a time you choose', onclick: () => {
+          closePopover();
+          const now = new Date();
+          const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), Math.min(23, now.getHours() + 1), 0);
+          openEditor({ start, end: new Date(start.getTime() + (n.minutes || 30) * 60000), allDay: false, title: n.title }, anchor());
+        } }, icon('calendar'), 'Add to calendar'),
+        h('button', { type: 'button', class: 'btn primary', onclick: closePopover }, 'Done')));
+      showPopover(anchor(), [h('div', { class: `wb-edit k-${n.kind}` }, ...parts)]);
+      if (!n.title) setTimeout(() => title.focus(), 30);
+    };
+    board.view.select(n.id);
+    draw();
+  }
+
+  /** Takes a card off the board, with the arrows to and from it; Undo puts them back. */
+  function deleteBoardCard(n) {
+    const b = board.cur;
+    if (!b || !n) return;
+    const before = { nodes: structuredClone(b.nodes), links: structuredClone(b.links) };
+    b.links = b.links.filter((l) => l.from !== n.id && l.to !== n.id);
+    b.nodes = b.nodes.filter((x) => x.id !== n.id);
+    for (const x of b.nodes) if (x.chosen && !b.links.some((l) => l.id === x.chosen)) x.chosen = null;
+    boardChanged();
+    board.view.draw();
+    toast(`Deleted "${n.title || OnyxBoards.KINDS[n.kind].empty}"`, '', { label: 'Undo', run: () => { if (board.cur !== b) return; Object.assign(b, before); boardChanged(); board.view.draw(); } });
+  }
+
+  /** An arrow: its name (a decision's way), taking it, or taking it away. */
+  function openBoardLink(l, rect) {
+    const b = board.cur;
+    const from = b.nodes.find((x) => x.id === l.from);
+    if (!l || !from) return;
+    const redraw = () => { boardChanged(); board.view.draw(); };
+    const label = h('input', { type: 'text', value: l.label, maxLength: 80, placeholder: from.kind === 'decision' ? 'Name this way (Yes, No, Rent…)' : 'A label (optional)',
+      oninput: (e) => { l.label = e.target.value; redraw(); }, onkeydown: (e) => { if (e.key === 'Enter') closePopover(); } });
+    showPopover(rect, [h('div', { class: 'wb-menu' },
+      h('label', { class: 'le-lbl' }, from.kind === 'decision' ? `A way from "${from.title || 'the decision'}"` : 'Arrow', label),
+      h('div', { class: 'row' },
+        from.kind === 'decision' && h('button', { type: 'button', class: `btn${from.chosen === l.id ? '' : ' primary'}`, onclick: () => { from.chosen = from.chosen === l.id ? null : l.id; redraw(); closePopover(); } },
+          from.chosen === l.id ? 'Undecide' : 'Take this way'),
+        h('button', { type: 'button', class: 'btn ghost danger', onclick: () => {
+          b.links = b.links.filter((x) => x.id !== l.id);
+          if (from.chosen === l.id) from.chosen = null;
+          redraw();
+          closePopover();
+        } }, icon('trash'), 'Remove arrow')))]);
+    setTimeout(() => label.focus(), 30);
+  }
+
+  /**
+   * Plan it: the steps on the route (not done), each to be a block of its own. One after another from a day and
+   * time, made here at once (with undo), or handed to Magic add to fit into the free time.
+   */
+  function planBoard(anchor) {
+    flushBoard();
+    const b = board.cur;
+    const r = OnyxBoards.route(b);
+    const steps = OnyxBoards.planSteps(b);
+    const pick = new Set(steps.filter((n) => !n.done && !n.placed).map((n) => n.id));
+    const now = new Date();
+    const next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours() + 1, 0);
+    const startAt = next.getHours() >= 21 || next.getHours() < 8 ? new Date(now.getFullYear(), now.getMonth(), now.getDate() + (now.getHours() >= 8 ? 1 : 0), 9, 0) : next;
+    const date = h('input', { type: 'date', value: ymd(startAt) });
+    const time = h('input', { type: 'time', value: hm(startAt), step: 300 });
+    const gap = h('select', { 'aria-label': 'Break between blocks' }, [[0, 'No break'], [5, '5 min break'], [10, '10 min break'], [15, '15 min break']].map(([v, t]) => h('option', { value: v }, t)));
+    const box = h('div', { class: 'wb-plan-sheet' });
+    const chosen = () => steps.filter((n) => pick.has(n.id));
+    const total = h('span', { class: 'wb-total' });
+    const goBack = h('button', { type: 'button', class: 'btn primary mg-way' }, icon('clock'), h('span', { class: 'mg-way-t' }, h('b', null, 'One after another'), h('small', null, 'From the day and time above')));
+    const goMagic = h('button', { type: 'button', class: 'btn mg-way mg-choose' }, icon('sparkles'), h('span', { class: 'mg-way-t' }, h('b', null, 'Find time'), h('small', null, 'Magic add fits them in')));
+    const paint = () => {
+      const list = chosen();
+      const mins = list.reduce((t, n) => t + (Number(n.minutes) || 30), 0);
+      total.textContent = list.length ? `${list.length} block${list.length > 1 ? 's' : ''} · ${OnyxBoards.lengthText(mins)}` : 'Nothing ticked';
+      goBack.disabled = goMagic.disabled = !list.length;
+    };
+    const openNames = r.open.map((id) => b.nodes.find((n) => n.id === id)?.title || 'a decision');
+    box.append(
+      h('div', { class: 'linbox-head' }, h('h3', null, icon('calendar'), 'Plan it'), h('span', { class: 'linbox-n' }, b.title)),
+      openNames.length ? h('p', { class: 'wb-warn' }, `Pick a way at ${openNames.map((t) => `"${t}"`).join(', ')} first: the steps after ${openNames.length > 1 ? 'them' : 'it'} are not on the route yet.`) : null,
+      steps.length
+        ? h('div', { class: 'wb-plan-list' }, steps.map((n) => h('label', { class: `mg-row${pick.has(n.id) ? ' on' : ''}${n.done ? ' done' : ''}` },
+          h('input', { type: 'checkbox', class: 'mg-check', checked: pick.has(n.id), onchange: (e) => { if (e.target.checked) pick.add(n.id); else pick.delete(n.id); e.target.closest('.mg-row').classList.toggle('on', e.target.checked); paint(); } }),
+          h('span', { class: 'mg-main' }, h('span', { class: 'mg-title' }, n.title || 'Untitled step'),
+            h('span', { class: 'mg-meta' }, [OnyxBoards.lengthText(n.minutes || 30), n.done ? 'done' : null, n.placed ? `already in your calendar (${placedText(n.placed)})` : null].filter(Boolean).join(' · '))))))
+        : h('p', { class: 'linbox-empty' }, 'No steps on the route yet. Add steps, join them with arrows, and pick a way at each decision.'),
+      steps.length ? h('div', { class: 'wb-plan-when' }, h('span', null, 'Start'), date, time, gap) : null,
+      steps.length ? h('div', { class: 'wb-plan-foot' }, total) : null,
+      steps.length ? h('div', { class: 'mg-ways wb-plan-ways' }, goBack, goMagic) : null);
+    goBack.onclick = async () => {
+      const list = chosen();
+      const cal = newBlockCalendar();
+      if (!cal) { toast('Add a calendar Onyx can write to first (Settings → Calendars).', 'error'); return; }
+      const start = new Date(`${date.value}T${time.value || '09:00'}`);
+      if (Number.isNaN(+start)) { toast('Pick a day and a time to start.', 'error'); return; }
+      goBack.disabled = goMagic.disabled = true;
+      const slots = OnyxBoards.backToBack(list, +start, +gap.value);
+      const made = [];
+      try {
+        for (const [i, n] of list.entries()) {
+          const fields = { title: n.title || 'Untitled step', notes: [`From the board "${b.title}"`, n.notes].filter(Boolean).join('\n\n'), start: new Date(slots[i].start).toISOString(), end: new Date(slots[i].end).toISOString(), allDay: false, calendarId: cal.id };
+          const ev = await onyx.createEvent(fields);
+          made.push({ n, ev, fields });
+          n.placed = { start: fields.start, id: ev.id };
+        }
+      } catch (err) { fail(err); }
+      boardChanged();
+      board.view.draw();
+      closePopover();
+      if (!made.length) return;
+      refetch(true);
+      recordAction(`Planned ${made.length} step${made.length > 1 ? 's' : ''} from "${b.title}"`,
+        async () => { for (const m of made) { await onyx.deleteEvent(m.ev.id); delete m.n.placed; } boardChanged(); board.view?.draw(); },
+        async () => { for (const m of made) { m.ev = await onyx.createEvent(m.fields); m.n.placed = { start: m.fields.start, id: m.ev.id }; } boardChanged(); board.view?.draw(); });
+      toast(`Added ${made.length} block${made.length > 1 ? 's' : ''} to your calendar, from ${fmtDay(start)} ${fmtTime(start)}`, '', { label: 'Show', run: () => { closeBoards(); calendar.gotoDate(start); } });
+    };
+    goMagic.onclick = () => {
+      const lines = chosen().map((n) => `${(n.title || 'Untitled step').replace(/\n/g, ' ')} (${OnyxBoards.lengthText(n.minutes || 30)})`);
+      closePopover();
+      closeBoards();
+      openMagic({ text: lines.join('\n'), date: date.value });
+    };
+    paint();
+    showPopover(anchor.getBoundingClientRect(), [box], null, { wide: true });
+  }
+
   function pickView(view, date) {
     if (view === 'graph') return toggleGlobe();
+    if (board.on) closeBoards();
     if (graph.on) closeGraph();
     calendar.changeView(view, date);
     for (const b of document.querySelectorAll('[data-view]')) b.classList.toggle('on', b.dataset.view === view);
@@ -10896,7 +11263,7 @@
   }
   /** The view one step in (-1) or out (+1) from the one on screen, or null at the end (the day, the month). */
   function pinchTarget(dir) {
-    if (graph.on || !calendar) return null;
+    if (graph.on || board.on || !calendar) return null;
     const list = pinchViews();
     let i = list.indexOf(calendar.view.type);
     if (i < 0) i = 1; // the agenda: in goes to the day, out to the month
@@ -10946,7 +11313,7 @@
       setTimeout(freshenCalendar, 170);
     };
     stage.addEventListener('touchstart', (e) => {
-      if (e.touches.length !== 2 || graph.on) { if (e.touches.length > 2) pinch.s = null; return; }
+      if (e.touches.length !== 2 || graph.on || board.on) { if (e.touches.length > 2) pinch.s = null; return; }
       const x = (e.touches[0].clientX + e.touches[1].clientX) / 2, y = (e.touches[0].clientY + e.touches[1].clientY) / 2;
       const r = el.getBoundingClientRect();
       // Which ways there is a view to go: at the day there is none further in, at the month none further out.
@@ -11172,6 +11539,7 @@
    * one sheet for both ways of adding (openMagic's add): type it, then choose the time or let Onyx find one.
    */
   function addNew() {
+    if (board.on) { const n = board.view?.add('step'); if (n) openBoardCard(n); return; } // on a board: a new step
     if (!graph.on) return MOBILE ? openMagic({ add: true, date: ymd(newBlockDay()) }) : newBlock();
     closeDrawers();
     openNewNode((MOBILE ? $('#fab') : $('#graph-bar .add-btn') || $('#graph-bar'))?.getBoundingClientRect());
@@ -11186,6 +11554,7 @@
   }
 
   const nav = (n) => {
+    if (board.on) return; // a board has no days to go through
     if (graph.on) return shiftGraph(n);
     if (n === 0) calendar.today(); else if (n < 0) calendar.prev(); else calendar.next();
   };
@@ -11202,7 +11571,7 @@
     const bar = $('#titlebar');
     const strip = h('div', { id: 'top-tools', class: 'top-tools', role: 'toolbar', 'aria-label': 'Onyx' });
     $('.nav', bar).after(strip);
-    strip.append(...['inbox-btn', 'pomo-timer', 'noise-btn', 'globe-toggle', 'undo-btn', 'update-btn', 'refresh', 'toggle-tasks', 'open-settings']
+    strip.append(...['inbox-btn', 'pomo-timer', 'noise-btn', 'globe-toggle', 'board-toggle', 'undo-btn', 'update-btn', 'refresh', 'toggle-tasks', 'open-settings']
       .map((id) => document.getElementById(id)).filter(Boolean));
     const edges = () => {
       const max = strip.scrollWidth - strip.clientWidth;
@@ -11244,6 +11613,8 @@
     $('#add-calendar').append(icon('plus'), onyx.isPhone ? 'Settings' : 'Add calendar');
     $('#globe-toggle').append(icon('globe'));
     $('#globe-toggle').onclick = toggleGlobe;
+    $('#board-toggle').append(icon('board'));
+    $('#board-toggle').onclick = toggleBoards;
     $('#noise-btn').append(icon('waves'));
     $('#noise-btn').onclick = (e) => { e.stopPropagation(); openNoise(); };
     refreshNoise();
@@ -11314,6 +11685,7 @@
       if (views[key]) pickView(views[key]);
       else if (key === 't') nav(0);
       else if (key === 'n') { e.preventDefault(); addNew(); }
+      else if (key === 'b') { e.preventDefault(); toggleBoards(); }
       else if (key === 'p') { e.preventDefault(); openMagic(); }
       else if (key === 'r') refreshAll();
       else if (e.key === 'ArrowLeft') nav(-1);
@@ -11333,6 +11705,7 @@
       } else closeSettings();
     } else if (['drawer-left', 'drawer-right', 'drawer-news'].some((c) => document.body.classList.contains(c))) closeDrawers();
     else if (graph.on) closeGraph();
+    else if (board.on) closeBoards();
     else return false;
     return true;
   };

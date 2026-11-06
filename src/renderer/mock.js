@@ -67,6 +67,10 @@
     { id: 'g1/tl~main/i', title: 'Pay phone bill', label: 'Pay phone bill', date: ymd(day(-1)), time: null, start: null, call: null, done: true, completed: day(-1, 18).toISOString() },
   ].map((t) => ({ listId: 'g1/tl~main', listName: 'My Tasks', color: '#f5b83d', provider: 'google', notes: '', due: t.date, done: false, mirror: false, ...t }));  Object.assign(tags, { 'g1/tl~main/a': ['work'], 'g1/tl~main/d': ['admin'], 'g1/tl~main/e': ['study', 'arabic'], 'g1/tl~main/f': ['admin', 'work'], 'g1/tl~main/g': ['arabic'] });
 
+  // Boards (whiteboards): none to start with, so the preview shows the first visit (?boards: the example).
+  let mockBoards = null; // made when first asked for (boards.js loads after this file)
+  const allBoards = () => mockBoards || (mockBoards = new URLSearchParams(location.search).has('boards') && globalThis.OnyxBoards ? [OnyxBoards.newBoard('New board', true)] : []);
+
   // Globe-only items: notes, and pinned Notion pages and Drive files.
   let notes = [
     { id: 'note/1', title: 'Arabic verb patterns', body: 'Form I-X cheat sheet…', kind: 'note' },
@@ -546,6 +550,15 @@
     createNote: async (d) => { const n = { id: `note/${seq++}`, title: d.title || 'Untitled note', body: d.body || '', created: new Date().toISOString(), updated: new Date().toISOString(), kind: 'note' }; notes.push(n); setTags(n.id, d.tags); return withTags(n); },
     updateNote: async (id, d) => { const n = notes.find((x) => x.id === id); Object.assign(n, { title: d.title ?? n.title, body: d.body ?? n.body }); if (d.tags) setTags(id, d.tags); return withTags(n); },
     deleteNote: async (id) => { notes = notes.filter((x) => x.id !== id); delete tags[id]; },
+    // Boards (whiteboards), kept for this visit as the PC keeps them (src/main/boards.js).
+    boards: async () => structuredClone(allBoards()).sort((a, b) => (a.updated < b.updated ? 1 : -1)),
+    saveBoard: async (b) => {
+      const kept = { ...structuredClone(b), updated: new Date().toISOString() };
+      const i = allBoards().findIndex((x) => x.id === b.id);
+      if (i >= 0) mockBoards[i] = kept; else mockBoards.push(kept);
+      return structuredClone(kept);
+    },
+    deleteBoard: async (id) => { mockBoards = allBoards().filter((x) => x.id !== id); return { ok: true }; },
     addPin: async (r) => {
       if (r.source === 'web') {
         let u; try { u = new URL(/^www\./i.test(r.url) ? `https://${r.url}` : r.url); } catch { throw new Error('That is not a web address.'); }

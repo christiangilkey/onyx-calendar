@@ -2,9 +2,21 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.109.0",
+  "date": "2026-11-06",
+  "title": "Boards: whiteboards for long, hard workflows, planned into your calendar",
+  "items": [
+   "New: Boards. Tap the board button in the top bar (or press B on the PC) for a whiteboard where you lay out something big: steps (with how long each takes), decisions, goals and sticky notes, joined by arrows.",
+   "Drag the background to move around, pinch (or Ctrl and the mouse wheel) to zoom, and drag a card to move it. Drag a card's + onto another card to join them, or onto empty space for a new step. Tap the + for the next step.",
+   "A decision has the ways it can go (Yes and No, Rent and Buy, or names of your own). Tap the one you are taking, right on the card, and the route through the board lights up. Whatever is off the route is dimmed. One decision leads to the next, so you can lay out a whole tree of choices and see the way through it.",
+   "Plan it puts the steps on the route in your calendar, each as a block of its own: one after another from a day and time (with an optional break between them, and undo), or handed to Magic add to fit into your free time. Each step then shows when it is booked.",
+   "Boards sync between your PC and phone like the rest of Onyx. Start from the example board to see how it works."
+  ]
+ },
+ {
   "version": "1.108.0",
   "date": "2026-11-06",
-  "title": "A noise machine, on your lock screen too, and a lock screen preview you can drag",
+  "title": "A noise machine (on the phone, the lock screen and Onyx Home) and a draggable lock screen preview",
   "items": [
    "New: a noise machine. Tap the waves button in the top bar to play Hyperfocus's sounds on their own: brown, pink and white noise, rainforest rain, light rain and beach waves. Pick how loud, and a timer (15 minutes to 8 hours) if you want it to stop by itself.",
    "On the phone the app plays the sounds itself, from the files inside it (nothing is streamed). It keeps going with the screen off or Onyx closed, and its notification has Next sound and Stop.",

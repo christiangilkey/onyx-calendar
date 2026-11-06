@@ -30,6 +30,7 @@
     <!-- The noise machine: Hyperfocus's sounds on their own (app.js, openNoise) -->
     <button id="noise-btn" class="icon-btn noise-btn" title="Noise machine"></button>
     <button id="globe-toggle" class="icon-btn globe-btn" title="Globe view (G)"></button>
+    <button id="board-toggle" class="icon-btn board-btn" title="Boards (B)"></button>
     <button id="undo-btn" class="icon-btn" title="Nothing to undo" disabled></button>
     <button id="update-btn" class="icon-btn" title="Check for updates"></button>
     <button id="refresh" class="icon-btn" title="Refresh (R)"></button>
@@ -67,6 +68,12 @@
         <div id="graph-empty" hidden>Nothing here yet. Add a note, pin a Notion page or Drive file, or try a longer range.</div>
         <div id="graph-hint">Drag to spin · click a cluster to open it and see its names · click an item to open it · drag an item onto a cluster to move it · double-click to reset</div>
         <div id="graph-foot"><span id="graph-stats"></span><button id="graph-reset" class="icon-btn" title="Reset the view (or double-click the graph)"></button></div>
+      </section>
+      <!-- Boards: whiteboards for long workflows, their steps planned into the calendar (boards.js; app.js, openBoards) -->
+      <section id="board" hidden>
+        <div id="board-bar"></div>
+        <div id="board-space"></div>
+        <div id="board-empty" hidden></div>
       </section>
     </main>
 
@@ -133,6 +140,7 @@
   <script src="remote.js"></script>
   <script src="mock.js"></script>
   <script src="graph.js"></script>
+  <script src="boards.js"></script>
   <script src="changelog.js"></script>
   <script src="focus-plan.js"></script>
   <script src="app.js"></script>

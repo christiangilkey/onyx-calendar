@@ -39,6 +39,7 @@ const DEFAULTS = {
   notes: [],             // { id, title, body, created, updated } written in Onyx, shown on the globe
   pins: [],              // { id, source: 'notion' | 'drive', ref, title, url, kind, added, notes } pinned to the globe
   notion: null,          // { name, workspace } of the connected Notion integration
+  boards: [],            // whiteboards: { id, title, nodes: [{ id, kind, x, y, title, notes, minutes, chosen, placed }], links: [{ id, from, to, label }] } (boards.js)
   goals: [],             // long-term goals: { id, title, notes, start, end, color, listId, steps: [{ id, title, due, done, taskId }] } (goals.js)
   repeats: {},           // task id -> { rule, day } for tasks that repeat; Onyx adds the next one when it is done (repeat.js)
   repeatSpawned: {},

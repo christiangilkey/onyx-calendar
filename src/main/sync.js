@@ -19,7 +19,7 @@ const VALUE = 0, MAP = 1, LIST = 2;
 // key of an object, or one piece per item (by id) of a list.
 const SECTIONS = {
   tags: MAP, tagColors: MAP, backburner: MAP, doneEvents: MAP, stoppedSeries: MAP, memos: MAP, leaveBy: MAP, repeats: MAP, repeatSpawned: MAP, pomodoro: MAP, blockTasks: MAP, blockLinks: MAP, blockTicks: MAP, eventColors: MAP, opsDone: MAP, madeHere: MAP, piLinks: MAP, inboxItems: MAP, inboxLists: MAP, taskMinutes: MAP, linkedTasks: MAP,
-  calendars: MAP, notes: LIST, goals: LIST, pins: LIST, accounts: LIST,
+  calendars: MAP, notes: LIST, goals: LIST, pins: LIST, accounts: LIST, boards: LIST,
   'local.calendars': LIST, 'local.events': LIST,
   'settings.hidden': MAP, 'settings.hour12': VALUE, 'settings.weekStart': VALUE, 'settings.defaultCalendar': VALUE, 'settings.pi': VALUE, 'settings.magic': VALUE,
   google: VALUE, microsoft: VALUE, notion: VALUE, news: VALUE,

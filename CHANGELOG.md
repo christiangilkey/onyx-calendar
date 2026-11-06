@@ -2,7 +2,17 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.108.0 · A noise machine, on your lock screen too, and a lock screen preview you can drag
+## 1.109.0 · Boards: whiteboards for long, hard workflows, planned into your calendar
+
+_2026-11-06_
+
+- New: Boards. Tap the board button in the top bar (or press B on the PC) for a whiteboard where you lay out something big: steps (with how long each takes), decisions, goals and sticky notes, joined by arrows.
+- Drag the background to move around, pinch (or Ctrl and the mouse wheel) to zoom, and drag a card to move it. Drag a card's + onto another card to join them, or onto empty space for a new step. Tap the + for the next step.
+- A decision has the ways it can go (Yes and No, Rent and Buy, or names of your own). Tap the one you are taking, right on the card, and the route through the board lights up. Whatever is off the route is dimmed. One decision leads to the next, so you can lay out a whole tree of choices and see the way through it.
+- Plan it puts the steps on the route in your calendar, each as a block of its own: one after another from a day and time (with an optional break between them, and undo), or handed to Magic add to fit into your free time. Each step then shows when it is booked.
+- Boards sync between your PC and phone like the rest of Onyx. Start from the example board to see how it works.
+
+## 1.108.0 · A noise machine (on the phone, the lock screen and Onyx Home) and a draggable lock screen preview
 
 _2026-11-06_
 

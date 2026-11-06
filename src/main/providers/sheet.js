@@ -2,24 +2,22 @@
 // added to the sheet shows up in Onyx on its own. The sheet is either a file on this PC (.xlsx or .csv;
 // one in a OneDrive or Google Drive folder stays live as it syncs) or a link: a Google Sheet or a
 // OneDrive / SharePoint workbook shared as "Anyone with the link", or a link to an .xlsx or .csv file.
-// Workbooks are read here (they are zip files of XML), so no library is needed.
+// Workbooks are read here (they are zip files of XML), so no library is needed. How rows become blocks,
+// by the headings or by rules of your own, is in sheet-rows.js.
 
 const fs = require('fs');
 const os = require('os');
 const zlib = require('zlib');
 const crypto = require('crypto');
 const { sturdyFetch } = require('../net');
+const rowsOf = require('./sheet-rows');
+const { MAX_ROWS, toItems, parseWhen, parseTime, parseMinutes } = rowsOf;
 
 const LINK_EVERY_MS = 60000; // a link is read again each minute
 const FILE_EVERY_MS = 5000;  // a file: its saved time is looked at every 5 seconds, and it is read when it changes
-const MAX_ROWS = 5000;
 const MAX_BYTES = 25 * 1024 * 1024;
-const DEFAULT_MINUTES = 60;
-const DAY = 86400000;
 
 const pad = (n) => String(n).padStart(2, '0');
-const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const str = (v) => (v == null || typeof v === 'boolean' ? '' : String(v).replace(/\s+/g, ' ').trim());
 
 // ---------------------------------------------------------------- reading an .xlsx (a zip of XML)
 
@@ -68,8 +66,44 @@ const attr = (s, name) => {
 const textOf = (xml) => [...xml.replace(/<rPh\b[\s\S]*?<\/rPh>/g, '').matchAll(/<t\b[^>]*\/>|<t\b[^>]*>([\s\S]*?)<\/t>/g)].map((m) => unxml(m[1] || '')).join('');
 const column = (ref) => [...(ref.match(/^[A-Z]+/i)?.[0] || 'A').toUpperCase()].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
 
-/** The rows of one tab of a workbook (the first one shown, or the one named `tab`): arrays of values. */
-function readXlsx(buf, tab) {
+// Excel keeps a date or a time as a number (days since 1900); its number format says which it is. The
+// formats Excel has built in, by number: dates, times, both, and lengths of time like [h]:mm.
+const BUILT_IN_FORMATS = { 14: 'date', 15: 'date', 16: 'date', 17: 'date', 22: 'datetime', 18: 'time', 19: 'time', 20: 'time', 21: 'time', 45: 'time', 46: 'elapsed', 47: 'time' };
+for (let id = 27; id <= 36; id++) BUILT_IN_FORMATS[id] = 'date';
+for (let id = 50; id <= 58; id++) BUILT_IN_FORMATS[id] = 'date';
+/** What a format of your own shows: 'date', 'time', 'datetime', 'elapsed', or null for a plain number. */
+function formatKind(code) {
+  const c = String(code || '').split(';')[0].replace(/"[^"]*"/g, '').replace(/\\./g, '').replace(/[_*]./g, '');
+  if (/\[h+\]|\[m+\]|\[s+\]/i.test(c)) return 'elapsed';
+  const bare = c.replace(/\[[^\]]*\]/g, '');
+  const date = /[dy]/i.test(bare) || /m{3,}/i.test(bare) && !/[hs]/i.test(bare);
+  const time = /[hs]/i.test(bare) || /am\/pm|a\/p/i.test(bare);
+  return date && time ? 'datetime' : date ? 'date' : time ? 'time' : null;
+}
+/** Each cell style's kind of number (by its index, the s="…" of a cell), from xl/styles.xml. */
+function styleKinds(xml) {
+  if (!xml) return [];
+  const own = {};
+  for (const m of xml.matchAll(/<numFmt\b([^>]*?)\/?>/g)) own[attr(m[1], 'numFmtId')] = unxml(attr(m[1], 'formatCode') || '');
+  const xfs = xml.match(/<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/)?.[1] || '';
+  return [...xfs.matchAll(/<xf\b([^>]*?)\/?>/g)].map((m) => {
+    const id = parseInt(attr(m[1], 'numFmtId'), 10) || 0;
+    return id in own ? formatKind(own[id]) : BUILT_IN_FORMATS[id] || null;
+  });
+}
+/** A number Excel shows as a date or time, written as it reads: 2026-11-06, 09:30, 2026-11-06 09:30, or 1:30 for a length. */
+function asShown(n, kind, base1904) {
+  const minutes = Math.round((n - Math.floor(n)) * 1440) % 1440;
+  const hm = `${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}`;
+  if (kind === 'elapsed') { const all = Math.round(n * 1440); return `${Math.floor(all / 60)}:${pad(all % 60)}`; }
+  if (n < 1) return kind === 'date' ? n : hm; // a time on its own (a "date" of 0 is no date)
+  const d = new Date(1899, 11, 30 + Math.floor(n) + (base1904 ? 1462 : 0));
+  const day = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return kind === 'date' ? day : `${day} ${hm}`; // a date shown without its time (as =NOW() is) is that day, all of it
+}
+
+/** One tab of a workbook (the first one shown, or the one named `tab`): { rows, tabs, tab }, its rows arrays of values. */
+function readBook(buf, tab) {
   const get = unzip(buf);
   const read = (name) => { const b = get(name); return b ? noPrefixes(b.toString('utf8')) : null; };
   const book = read('xl/workbook.xml');
@@ -92,6 +126,8 @@ function readXlsx(buf, tab) {
   const xml = read(target.startsWith('/') ? target.slice(1) : `xl/${target.replace(/^\.\//, '')}`);
   if (!xml) throw new Error(`the tab "${pick.name}" could not be read`);
   const shared = [...(read('xl/sharedStrings.xml') || '').matchAll(/<si\b[^>]*\/>|<si\b[^>]*>([\s\S]*?)<\/si>/g)].map((m) => textOf(m[1] || ''));
+  const kinds = styleKinds(read('xl/styles.xml'));
+  const base1904 = /<workbookPr\b[^>]*\bdate1904\s*=\s*"(1|true)"/i.test(book);
 
   const rows = [];
   for (const m of xml.matchAll(/<row\b([^>]*?)(?:\/>|>([\s\S]*?)<\/row>)/g)) {
@@ -111,13 +147,18 @@ function readXlsx(buf, tab) {
       else if (type === 'inlineStr') val = textOf(inner);
       else if (type === 'str' || type === 'd') val = v != null ? unxml(v) : null;
       else if (type === 'b') val = v === '1';
-      else if (type !== 'e' && v != null && v !== '') val = Number(v); // a number, or a date or time Excel keeps as one
+      else if (type !== 'e' && v != null && v !== '') {
+        val = Number(v); // a number, or a date or time Excel keeps as one: its style says which
+        const kind = kinds[parseInt(attr(c[1], 's'), 10) || 0];
+        if (kind && Number.isFinite(val) && val >= 0) val = asShown(val, kind, base1904);
+      }
       cells[col] = val === '' ? null : val;
     }
     rows[r] = cells;
   }
-  return rows;
+  return { rows, tabs: tabs.filter((t) => !t.hidden || t === pick).map((t) => t.name), tab: pick.name };
 }
+const readXlsx = (buf, tab) => readBook(buf, tab).rows;
 
 /** The rows of a .csv (commas, or semicolons or tabs when the first line has more of those). */
 function readCsv(text) {
@@ -148,198 +189,13 @@ function readCsv(text) {
   return rows.map((r) => r.map((c) => (c.trim() === '' ? null : c.trim())));
 }
 
-/** The rows of a file's bytes: a workbook (it starts PK, being a zip) or a .csv. */
-function readRows(buf, tab) {
-  if (buf[0] === 0x50 && buf[1] === 0x4b) return readXlsx(buf, tab);
+/** A file's bytes as { rows, tabs, tab }: a workbook (it starts PK, being a zip) or a .csv (no tabs). */
+function readSheet(buf, tab) {
+  if (buf[0] === 0x50 && buf[1] === 0x4b) return readBook(buf, tab);
   if (buf[0] === 0xd0 && buf[1] === 0xcf) throw new Error('that is an old .xls workbook: in Excel, save it as .xlsx (File → Save As)');
-  return readCsv(buf.toString('utf8'));
+  return { rows: readCsv(buf.toString('utf8')), tabs: [], tab: null };
 }
-
-// ---------------------------------------------------------------- dates, times and lengths
-
-const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-
-/** Excel's day number (1 is 1 January 1900, with its famous 29 February 1900) as a date here. */
-const serialDay = (n) => { const d = new Date(1899, 11, 30 + Math.floor(n)); return { y: d.getFullYear(), m: d.getMonth() + 1, d: d.getDate() }; };
-const validDay = (y, m, d) => {
-  const t = new Date(y, m - 1, d);
-  return t.getFullYear() === y && t.getMonth() === m - 1 && t.getDate() === d ? { y, m, d } : null;
-};
-
-/** Minutes after midnight, from "9", "9:30", "9am", "9:30 pm", "21:30", "noon"; null when it is no time. */
-function parseTime(s, bare = false) {
-  s = String(s).trim().toLowerCase().replace(/\./g, (m, i, all) => (/\d\.\d/.test(all.slice(i - 1, i + 2)) ? ':' : ''));
-  if (s === 'noon' || s === 'midday') return 720;
-  if (s === 'midnight') return 0;
-  const m = s.match(/^(\d{1,2})(?::(\d{2}))?(?::\d{2})?\s*(am?|pm?)?$/);
-  if (!m || (!m[2] && !m[3] && !bare)) return null;
-  let h = +m[1];
-  const min = +(m[2] || 0);
-  if (m[3]) {
-    if (h < 1 || h > 12) return null;
-    h = (h % 12) + (m[3][0] === 'p' ? 12 : 0);
-  }
-  return h < 24 && min < 60 ? h * 60 + min : null;
-}
-
-/**
- * A day and/or a time from one cell: { day: {y,m,d}?, min? }, or null. `kind` is 'date' or 'time':
- * what a bare number in that column means (a time column's 9 is 9:00; a date column's is Excel's day).
- */
-function parseWhen(v, kind, now = new Date()) {
-  if (v == null || typeof v === 'boolean') return null;
-  if (typeof v === 'number' && Number.isFinite(v)) {
-    if (kind === 'time' && v >= 0 && v < 1) return { min: Math.round(v * 1440) % 1440 };
-    if (kind === 'time' && v >= 1 && v <= 24) return { min: Math.round(v * 60) % 1440 };
-    if (v < 60) return null;
-    const frac = v - Math.floor(v);
-    return { day: serialDay(v), ...(frac > 1e-6 ? { min: Math.round(frac * 1440) % 1440 } : {}) };
-  }
-  const s = String(v).trim();
-  if (!s) return null;
-  const low = s.toLowerCase();
-  const rel = { today: 0, tomorrow: 1, yesterday: -1 }[low];
-  if (rel != null) { const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + rel); return { day: { y: d.getFullYear(), m: d.getMonth() + 1, d: d.getDate() } }; }
-  const withTime = (day, rest) => {
-    if (!day) return null;
-    const t = rest ? parseTime(rest.replace(/^(at|@)\s*/i, ''), true) : null;
-    return t == null ? { day } : { day, min: t };
-  };
-  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s,]+(.+?))?(?:Z|[+-]\d{2}:?\d{2})?$/i);
-  if (m) return withTime(validDay(+m[1], +m[2], +m[3]), m[4]);
-  m = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2}|\d{4})(?:[T\s,]+(.+))?$/);
-  if (m) {
-    const y = +m[3] < 100 ? 2000 + +m[3] : +m[3];
-    const [mo, d] = +m[1] > 12 ? [+m[2], +m[1]] : [+m[1], +m[2]]; // month first, as in the US, unless it can't be
-    return withTime(validDay(y, mo, d), m[4]);
-  }
-  const t = parseTime(s, kind === 'time');
-  if (t != null) return { min: t };
-  // Words: "Nov 3, 2026", "Tuesday 3 November 9am", "3 Nov".
-  const words = low.replace(/(\d)(st|nd|rd|th)\b/g, '$1').replace(/,/g, ' ');
-  const month = MONTHS.findIndex((name) => new RegExp(`\\b${name}`).test(words));
-  if (month < 0) return null;
-  const nums = [...words.matchAll(/\b(\d{1,4})\b(?!\s*(?::|am|pm|a\b|p\b))/g)].map((x) => +x[1]);
-  const year = nums.find((n) => n > 1900) ?? now.getFullYear();
-  const day = nums.find((n) => n >= 1 && n <= 31);
-  if (!day) return null;
-  const time = words.match(/\b(\d{1,2}(?::\d{2})?\s*(?:am?|pm?)|\d{1,2}:\d{2})\b/)?.[1];
-  return withTime(validDay(year, month + 1, day), time);
-}
-
-/** A length in minutes, from 90, "1:30", "1h30", "90 min", "1.5 hours" (`hours`: the column is in hours). */
-function parseMinutes(v, hours = false) {
-  let n = null;
-  if (typeof v === 'number' && Number.isFinite(v)) n = hours ? v * 60 : v > 0 && v < 1 ? v * 1440 : v;
-  else if (v != null && typeof v !== 'boolean') {
-    const s = String(v).trim().toLowerCase();
-    let m;
-    if ((m = s.match(/^(\d+):(\d{2})$/))) n = +m[1] * 60 + +m[2];
-    else if (/^\d+(\.\d+)?$/.test(s)) n = hours ? +s * 60 : +s;
-    else {
-      // "1h30", "2 hours 15 min", "1.5 hours", "45 min": the minutes are what follows the hours.
-      const h = s.match(/(\d+(?:\.\d+)?)\s*h(?:ours?|rs?)?/);
-      const mm = (h ? s.slice(h.index + h[0].length) : s).match(/(\d+)\s*(?:m(?!o)|$)/);
-      if (h || mm) n = (h ? +h[1] * 60 : 0) + (mm ? +mm[1] : 0);
-    }
-  }
-  return n != null && n > 0 ? Math.min(Math.round(n), 14 * 1440) : null;
-}
-
-// ---------------------------------------------------------------- rows into blocks
-
-// What a heading means, written without spaces or signs ("Start time" is starttime).
-const HEADINGS = [
-  ['id', ['id', 'uid', 'key', 'rowid']],
-  ['hours', ['hours', 'hrs', 'durationhours', 'durationh', 'lengthhours']],
-  ['minutes', ['duration', 'length', 'minutes', 'mins', 'min', 'howlong', 'durationmin', 'durationminutes']],
-  ['title', ['title', 'name', 'task', 'event', 'block', 'what', 'subject', 'activity', 'summary', 'item', 'todo']],
-  ['date', ['date', 'day', 'when', 'startdate', 'on']],
-  ['start', ['start', 'starttime', 'starts', 'from', 'begin', 'begins', 'time', 'at', 'startat']],
-  ['end', ['end', 'endtime', 'ends', 'to', 'until', 'finish', 'finishes', 'stop', 'endat', 'enddate']],
-  ['notes', ['notes', 'note', 'description', 'details', 'comments', 'comment', 'info']],
-  ['location', ['location', 'where', 'place', 'room', 'address', 'venue']],
-];
-const squash = (s) => str(s).toLowerCase().replace(/[^a-z0-9]/g, '');
-
-function headingsOf(row) {
-  const cols = {};
-  const names = (row || []).map(squash);
-  for (const exact of [true, false]) {
-    names.forEach((name, i) => {
-      if (!name || Object.values(cols).includes(i)) return;
-      const hit = HEADINGS.find(([key, words]) => !(key in cols) && words.some((w) => (exact ? name === w : w.length >= 4 && name.startsWith(w))));
-      if (hit) cols[hit[0]] = i;
-    });
-  }
-  return cols;
-}
-
-/**
- * The blocks in a sheet's rows. Its headings (in one of the first rows) say which column is what:
- * Title, Date, Start, End, Duration or Hours, Notes, Location and ID, under any of their usual names;
- * with no headings, the columns are Title, Date, Start, End, Notes. Returns { items, skipped }.
- */
-function toItems(rows, now = new Date()) {
-  let head = -1, cols = null;
-  for (let i = 0; i < Math.min(rows.length, 10); i++) {
-    const c = headingsOf(rows[i]);
-    if (Object.keys(c).length >= 2 && ('date' in c || 'start' in c)) { head = i; cols = c; break; }
-  }
-  if (!cols) cols = { title: 0, date: 1, start: 2, end: 3, notes: 4 };
-  if (!('title' in cols)) {
-    // A sheet with dates but no Title heading: its first column of words is the title.
-    const used = new Set(Object.values(cols));
-    const sample = rows.slice(head + 1, head + 30).filter(Boolean);
-    for (let i = 0; i < 30 && !('title' in cols); i++) if (!used.has(i) && sample.some((r) => typeof r[i] === 'string' && parseWhen(r[i], 'date', now) == null)) cols.title = i;
-  }
-  const items = [];
-  const seen = new Map();
-  let skipped = 0;
-  for (let i = head + 1; i < rows.length && items.length < MAX_ROWS; i++) {
-    const row = rows[i];
-    if (!row) continue;
-    const cell = (k) => (k in cols ? row[cols[k]] ?? null : null);
-    const title = str(cell('title'));
-    if (!title) continue; // a blank row
-    const d = parseWhen(cell('date'), 'date', now), s = parseWhen(cell('start'), 'time', now), e = parseWhen(cell('end'), 'time', now);
-    const day = d?.day || s?.day;
-    if (!day) { skipped++; continue; }
-    const startMin = s?.min ?? d?.min ?? null;
-    const item = { title, allDay: startMin == null, location: str(cell('location')), notes: str(cell('notes')), link: '' };
-    if (item.allDay) {
-      const first = new Date(day.y, day.m - 1, day.d);
-      const lastDay = e?.day ? new Date(e.day.y, e.day.m - 1, e.day.d) : first;
-      const last = lastDay < first ? first : lastDay;
-      item.start = ymd(first);
-      item.end = ymd(new Date(last.getFullYear(), last.getMonth(), last.getDate() + 1));
-      item.from = first.getTime();
-      item.to = new Date(last.getFullYear(), last.getMonth(), last.getDate() + 1).getTime();
-    } else {
-      const start = new Date(day.y, day.m - 1, day.d, 0, startMin);
-      const length = cols.hours != null ? parseMinutes(cell('hours'), true) : parseMinutes(cell('minutes'));
-      let end = null;
-      if (e?.min != null) {
-        const ed = e.day || day;
-        end = new Date(ed.y, ed.m - 1, ed.d, 0, e.min);
-        if (!e.day && end <= start) end = new Date(end.getTime() + DAY); // 22:00 to 01:00 runs past midnight
-      }
-      if (!end || end <= start) end = new Date(start.getTime() + (length || DEFAULT_MINUTES) * 60000);
-      item.start = start.toISOString();
-      item.end = end.toISOString();
-      item.from = start.getTime();
-      item.to = end.getTime();
-    }
-    // The same row keeps the same id while it is the same: by its ID column, or by what it says.
-    const id = str(cell('id'));
-    const base = id ? `id-${id}` : crypto.createHash('sha1').update(`${title}|${item.start}`).digest('hex').slice(0, 12);
-    const n = seen.get(base) || 0;
-    seen.set(base, n + 1);
-    item.rawId = n ? `${base}-${n}` : base;
-    items.push(item);
-  }
-  return { items, skipped };
-}
+const readRows = (buf, tab) => readSheet(buf, tab).rows;
 
 // ---------------------------------------------------------------- where the sheet is
 
@@ -398,16 +254,16 @@ const isFile = (acct) => !!acct.path;
 /** A file chosen on another PC (linked desktops share their accounts) that isn't on this one. */
 const elsewhere = (acct) => isFile(acct) && acct.host && acct.host !== os.hostname() && !fs.existsSync(acct.path);
 
+async function bytes(acct) {
+  if (!isFile(acct)) return fetchSheet(acct.url);
+  const st = fs.statSync(acct.path);
+  if (st.size > MAX_BYTES) throw new Error('the sheet is too big to read (over 25 MB)');
+  return fs.readFileSync(acct.path);
+}
+
+/** The sheet's blocks, by its rules when it has some (sheet-rows.js), else by its headings. */
 async function read(acct) {
-  let buf;
-  if (isFile(acct)) {
-    const st = fs.statSync(acct.path);
-    if (st.size > MAX_BYTES) throw new Error('the sheet is too big to read (over 25 MB)');
-    buf = fs.readFileSync(acct.path);
-  } else {
-    buf = await fetchSheet(acct.url);
-  }
-  return toItems(readRows(buf, acct.tab));
+  return toItems(readRows(await bytes(acct), acct.tab), new Date(), acct.rules || null);
 }
 
 /** The sheet's blocks, read again when it changed (a file) or each minute (a link). */
@@ -425,9 +281,9 @@ async function load(acct, force = false) {
     return hit.items;
   }
   try {
-    const { items, skipped } = await read(acct);
+    const { items, skipped, left } = await read(acct);
     const sig = crypto.createHash('sha1').update(JSON.stringify(items)).digest('hex');
-    cache.set(acct.id, { at: Date.now(), mtime, sig, items, skipped, error: null });
+    cache.set(acct.id, { at: Date.now(), mtime, sig, items, skipped, left, error: null });
     return items;
   } catch (err) {
     // Excel holding the file while it saves, or the wifi dropping: keep showing what was read last.
@@ -443,10 +299,68 @@ async function events(acct, start, end, force) {
     .map(({ from: _f, to: _t, ...it }) => ({ ...it }));
 }
 
-/** How the sheet was read last, for Settings: { blocks, skipped, at, error }. */
+/** How the sheet was read last, for Settings: { blocks, skipped, left, at, error } (left: rows its rules leave out). */
 function status(id) {
   const hit = cache.get(id);
-  return hit ? { blocks: hit.items?.length || 0, skipped: hit.skipped || 0, at: hit.at, error: hit.error || null } : null;
+  return hit ? { blocks: hit.items?.length || 0, skipped: hit.skipped || 0, left: hit.left || 0, at: hit.at, error: hit.error || null } : null;
+}
+
+// ---------------------------------------------------------------- rules of your own
+
+const books = new Map(); // "account id|tab" -> { at, mtime, book }: what the rules editor is looking at
+
+/** The sheet as it is now, for the rules editor: a file read again once it is saved, a link at most each 20 seconds. */
+async function bookOf(acct, tab) {
+  if (elsewhere(acct)) throw new Error(`${acct.label} is a file on another PC (${acct.host}): change its rules there`);
+  const key = `${acct.id}|${tab || ''}`;
+  const hit = books.get(key);
+  let mtime = null;
+  if (isFile(acct)) {
+    try { mtime = fs.statSync(acct.path).mtimeMs; } catch { throw new Error(`the sheet is no longer at ${acct.path}`); }
+    if (hit && hit.mtime === mtime) return hit.book;
+  } else if (hit && Date.now() - hit.at < 20000) {
+    return hit.book;
+  }
+  const book = readSheet(await bytes(acct), tab);
+  books.delete(key);
+  books.set(key, { at: Date.now(), mtime, book });
+  if (books.size > 12) books.delete(books.keys().next().value);
+  return book;
+}
+
+/**
+ * What the rules editor opens with: the sheet's tabs, its rules (or Onyx's own reading of it, written as
+ * rules), and the preview of its rows. A `tab` other than its own starts from Onyx's reading of that tab.
+ */
+async function peek(acct, tab) {
+  const own = tab === undefined;
+  const book = await bookOf(acct, own ? acct.tab : tab);
+  const suggested = rowsOf.suggest(book.rows);
+  const rules = own && acct.rules ? acct.rules : suggested;
+  return { label: acct.label, tabs: book.tabs, tab: book.tab, saved: !!acct.rules, suggested, ...rowsOf.preview(book.rows, rules) };
+}
+
+/** What `rules` would make of the sheet (and of `tab`, if given), without keeping them. */
+async function preview(acct, { tab, rules } = {}) {
+  const book = await bookOf(acct, tab === undefined ? acct.tab : tab);
+  return rowsOf.preview(book.rows, rules);
+}
+
+/** Keeps a sheet's rules (null: back to reading it by its headings) and its tab; it is read again with them. */
+function setRules(acct, { tab, rules } = {}) {
+  if (tab !== undefined) {
+    if (tab) acct.tab = String(tab).slice(0, 120);
+    else delete acct.tab;
+  }
+  const r = rules == null ? null : rowsOf.clean(rules);
+  if (r) acct.rules = r;
+  else delete acct.rules;
+  forget(acct.id);
+  return acct;
+}
+function forget(id) {
+  cache.delete(id);
+  for (const key of books.keys()) if (key.startsWith(`${id}|`)) books.delete(key);
 }
 
 /**
@@ -479,14 +393,16 @@ function start(accountsOf, changed, every = FILE_EVERY_MS) {
 }
 const stop = () => { clearInterval(timer); timer = null; };
 
-/** Reads a sheet once before it is added, so a wrong link or a sheet with no dates says so straight away. */
+/**
+ * Reads a sheet once before it is added, so a wrong link says so straight away. A sheet whose dates Onyx
+ * can't find on its own is added all the same: its rules (opened next) say where they are.
+ */
 async function check(acct) {
   const { items, skipped } = await read(acct);
-  // An empty sheet is fine (its rows show up as they are added); rows without a readable date are not.
-  if (!items.length && skipped) {
-    throw new Error(`none of its ${skipped} rows has a date Onyx can read: give it a Date column (like 11/3/2026) and, for a time, a Start column (like 9:00 AM)`);
-  }
   return { blocks: items.length, skipped };
 }
 
-module.exports = { events, load, status, start, stop, check, forget: (id) => cache.delete(id), readXlsx, readCsv, readRows, toItems, parseWhen, parseTime, parseMinutes, downloadUrls };
+module.exports = {
+  events, load, status, start, stop, check, forget, peek, preview, setRules,
+  readXlsx, readBook, readCsv, readRows, readSheet, formatKind, toItems, parseWhen, parseTime, parseMinutes, downloadUrls,
+};

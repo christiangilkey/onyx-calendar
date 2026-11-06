@@ -8249,7 +8249,8 @@
   function sheetStatus(a) {
     const s = a.sheet;
     const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
-    const bits = [a.file || 'Link', a.tab && `tab "${a.tab}"`, s && plural(s.blocks, 'block'), s?.skipped && `${plural(s.skipped, 'row')} without a date`].filter(Boolean);
+    const bits = [a.file || 'Link', a.tab && `tab "${a.tab}"`, a.rules && 'your rules', s && plural(s.blocks, 'block'),
+      s?.skipped && `${plural(s.skipped, 'row')} without a date`, s?.left && `${s.left} left out by the rules`].filter(Boolean);
     return bits.join(' · ') + (s?.error ? `. Last read failed: ${s.error}` : '');
   }
 
@@ -8612,15 +8613,18 @@
     const name = h('input', { type: 'text', placeholder: 'Name, e.g. Study plan' });
     const link = h('input', { type: 'url', placeholder: 'Google Sheets or OneDrive link', spellcheck: false });
     const tab = h('input', { type: 'text', placeholder: 'Tab (optional)', class: 'sheet-tab' });
+    // Once added, its rules open: what Onyx made of it, to put right where it guessed wrong.
     const added = (r) => {
       if (r) toast(r.blocks ? `Sheet added: ${r.blocks} block${r.blocks === 1 ? '' : 's'} so far` : 'Sheet added: rows you add show up as blocks');
+      if (r?.id) setTimeout(() => openSheetRules(r.id, { fresh: true }), 0);
       return r;
     };
     const mine = S.accounts.filter((a) => a.provider === 'sheet');
     return h('div', { class: 'card' },
       h('h4', null, 'Excel sheet (live)'),
-      h('p', null, 'Each row is a block, and rows you add later show up on their own: from a file a few seconds after you save it, from a link within a minute. Head the columns Title and Date, and for a time Start with End or Duration (minutes). A row with no time is an all-day block.'),
-      mine.map((a) => h('div', { class: 'acct desk' }, h('span', { class: 'badge' }, 'Sheet'), h('span', { class: 'who' }, a.label, h('small', null, sheetStatus(a))))),
+      h('p', null, 'Rows become blocks, and rows you add or change later show up on their own: from a file a few seconds after you save it, from a link within a minute. Onyx goes by headings like Title, Date, Start and Duration, or by rules of your own: which rows to take (like Status contains “Insert”), which column holds the date, time and length, and what to use when a cell is empty.'),
+      mine.map((a) => h('div', { class: 'acct desk' }, h('span', { class: 'badge' }, 'Sheet'), h('span', { class: 'who' }, a.label, h('small', null, sheetStatus(a))),
+        h('button', { class: 'btn', onclick: () => openSheetRules(a.id) }, icon('sliders'), a.rules ? 'Rules' : 'Set rules'))),
       !phone && onyx.pickSheet && h('div', { class: 'row' },
         h('button', { class: 'btn primary', onclick: () => act(async () => added(await onyx.pickSheet({ name: name.value, tab: tab.value }))) }, 'Choose a file on this PC')),
       h('div', { class: 'row' }, name, link, tab,
@@ -8628,6 +8632,274 @@
       h('p', { class: 'hint' }, phone
         ? 'A Google Sheet: Share → Anyone with the link → Viewer, then copy the link. An Excel file on your PC is chosen on the PC, in Settings → Calendars.'
         : 'An .xlsx or .csv in your OneDrive or Google Drive folder stays live as it syncs. A Google Sheet: Share → Anyone with the link → Viewer, then copy the link. OneDrive works the same way.'));
+  }
+
+  // ---- a live sheet's rules
+  // Which rows of a live Excel sheet become blocks, which column holds what, and what to use when a cell is empty
+  // (providers/sheet-rows.js, on the PC). Beside the rules, a preview shows each row and what it becomes, read by
+  // the same code as the calendar, drawn again as the rules change. On a phone the two are tabs.
+  const SR_OPS = [
+    ['has', 'contains'], ['lacks', 'doesn’t contain'], ['is', 'is exactly'], ['isnt', 'isn’t'], ['starts', 'starts with'], ['ends', 'ends with'],
+    ['filled', 'has anything in it'], ['empty', 'is empty'], ['more', 'is a number over'], ['less', 'is a number under'],
+    ['upcoming', 'is a date from today on'], ['past', 'is a date before today'], ['ticked', 'is ticked (TRUE, yes, x)'], ['unticked', 'isn’t ticked'],
+  ];
+  const SR_BARE = new Set(['filled', 'empty', 'upcoming', 'past', 'ticked', 'unticked']); // conditions with no words to type
+  let sheetRulesClose = null; // closes the rules editor, back to where it was opened
+
+  async function openSheetRules(id, { fresh = false } = {}) {
+    const from = !$('#modal').hidden && $('.sheet.settings', $('#modal')) ? settingsTab : null;
+    let info;
+    try { info = await onyx.sheetPeek(id); } catch (err) { return fail(err); }
+    let rules = structuredClone(info.rules);
+    let suggested = info.suggested;
+    let tab = info.tab;
+    let view = info; // the latest preview: { columns, shown, totals }
+    let show = 'all';
+    let timer = null, seq = 0;
+    const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+    const opt = (value, label) => h('option', { value: String(value) }, label);
+
+    const sheet = h('div', { class: 'sheet sr', 'data-show': 'rules' });
+    const form = h('div', { class: 'sr-form' });
+    const left = h('div', { class: 'sr-left' }, form);
+    const counts = h('p', { class: 'sr-counts' });
+    const chips = h('div', { class: 'sr-chips', role: 'tablist' });
+    const problem = h('p', { class: 'sr-problem', hidden: true });
+    const list = h('div', { class: 'sr-list' });
+    const tabRules = h('button', { type: 'button', class: 'sr-tab on', onclick: () => flip('rules') }, 'Rules');
+    const tabPreview = h('button', { type: 'button', class: 'sr-tab', onclick: () => flip('preview') }, 'Preview');
+    const flip = (to) => {
+      sheet.dataset.show = to;
+      tabRules.classList.toggle('on', to === 'rules');
+      tabPreview.classList.toggle('on', to === 'preview');
+    };
+
+    const close = () => {
+      sheetRulesClose = null;
+      clearTimeout(timer);
+      if (from) openSettings(from); else closeSettings();
+    };
+    sheetRulesClose = close;
+
+    // ---- trying the rules: the preview is asked for again a moment after each change
+    const changed = () => { clearTimeout(timer); timer = setTimeout(refresh, 160); };
+    async function refresh() {
+      const n = ++seq;
+      try {
+        const next = await onyx.sheetPreview(id, { tab, rules });
+        if (n !== seq) return;
+        const columnsMoved = JSON.stringify(next.columns) !== JSON.stringify(view.columns);
+        view = next;
+        problem.hidden = true;
+        paintPreview();
+        if (columnsMoved) paintForm(); // another headings row: the columns have other names
+      } catch (err) {
+        if (n !== seq) return;
+        problem.textContent = err.message;
+        problem.hidden = false;
+      }
+    }
+
+    // ---- the rules
+    const colLabel = (c) => `${c.letter}${c.name ? `  ·  ${c.name}` : ''}`;
+    const colOptions = (none) => [...(none ? [opt(-1, none)] : []), ...view.columns.map((c) => opt(c.i, colLabel(c)))];
+    /** A select showing `value`: a column that is not in the sheet any more shows as its letter, not as another one. */
+    const pick = (value, options, onchange, cls) => {
+      const s = h('select', { class: cls || null }, options);
+      s.value = String(value);
+      if (s.value !== String(value)) { s.prepend(opt(value, +value >= 0 ? `Column ${+value + 1}` : 'Choose…')); s.value = String(value); }
+      s.addEventListener('change', () => onchange(s.value));
+      return s;
+    };
+    const tokenOf = (c) => (c.name && !/[{}]/.test(c.name) ? c.name : c.letter);
+    const insertAt = (input, words) => {
+      const at = input.selectionStart ?? input.value.length, end = input.selectionEnd ?? at;
+      input.value = input.value.slice(0, at) + words + input.value.slice(end);
+      input.focus();
+      input.setSelectionRange(at + words.length, at + words.length);
+      input.dispatchEvent(new Event('input'));
+    };
+    /** The title, notes or place: a column, or words of your own with {Heading} in them. */
+    const wordsField = (key, none) => {
+      const v = rules[key];
+      const own = typeof v === 'string';
+      const sel = pick(own ? 'own' : v, [...colOptions(none), opt('own', 'Write my own…')], (val) => {
+        if (val === 'own') {
+          const c = view.columns[typeof rules[key] === 'number' && rules[key] >= 0 ? rules[key] : 0];
+          rules[key] = c && key !== 'notes' ? `{${tokenOf(c)}}` : '';
+        } else rules[key] = +val;
+        paintForm();
+        changed();
+        if (val === 'own') setTimeout(() => $(`.sr-own[data-key="${key}"]`, form)?.focus(), 0);
+      });
+      if (!own) return [sel];
+      const input = h(key === 'notes' ? 'textarea' : 'input', { ...(key === 'notes' ? { rows: 2 } : { type: 'text' }), class: 'sr-own', 'data-key': key, spellcheck: false,
+        placeholder: key === 'title' ? 'Like {Job} for {Client}' : key === 'notes' ? 'Like Client: {Client}' : 'Like {Site}' });
+      input.value = v;
+      input.addEventListener('input', () => { rules[key] = input.value; changed(); });
+      const tokens = h('div', { class: 'sr-tokens' }, h('small', null, 'Add a column:'),
+        view.columns.slice(0, 40).map((c) => h('button', { type: 'button', class: 'sr-token', onclick: () => insertAt(input, `{${tokenOf(c)}}`) }, c.name || c.letter)));
+      return [sel, input, tokens];
+    };
+    const section = (title, ...kids) => h('section', { class: 'sr-sec' }, h('h4', null, title), ...kids);
+    const field = (label, controls, hint) => h('div', { class: 'sr-field' }, h('span', { class: 'sr-label' }, label),
+      h('div', { class: 'sr-ctl' }, ...controls.filter(Boolean), hint && h('small', { class: 'sr-hint' }, hint)));
+    /** A column a new condition is likely about: one called Status, Type or the like, else one not used yet. */
+    const likelyColumn = () => {
+      const named = view.columns.find((c) => /status|type|kind|category|state|import|onyx|calendar|tag|add/i.test(c.name));
+      if (named) return named.i;
+      const used = new Set([rules.title, rules.date, rules.start, rules.end, rules.length, rules.notes, rules.location].filter((v) => typeof v === 'number'));
+      return (view.columns.find((c) => !used.has(c.i)) || view.columns[0] || { i: 0 }).i;
+    };
+
+    function paintForm() {
+      const scroller = left;
+      const top = scroller.scrollTop;
+      const head = h('input', { type: 'number', min: 0, max: 100, value: rules.head, class: 'sr-num', 'aria-label': 'The row with the headings' });
+      head.addEventListener('change', () => { rules.head = Math.max(0, Math.min(100, parseInt(head.value, 10) || 0)); changed(); });
+      const condition = (c, i) => {
+        const words = h('input', { type: 'text', class: 'sr-cond-v', placeholder: 'Words', hidden: SR_BARE.has(c.op), spellcheck: false });
+        words.value = c.value;
+        words.addEventListener('input', () => { c.value = words.value; changed(); });
+        return h('div', { class: 'sr-cond' },
+          pick(c.col, colOptions(), (v) => { c.col = +v; changed(); }, 'sr-cond-col'),
+          pick(c.op, SR_OPS.map(([k, label]) => opt(k, label)), (v) => { c.op = v; words.hidden = SR_BARE.has(v); changed(); if (!words.hidden) words.focus(); }, 'sr-cond-op'),
+          words,
+          h('button', { type: 'button', class: 'icon-btn sr-cond-x', title: 'Remove this condition', 'aria-label': 'Remove this condition',
+            onclick: () => { rules.when.splice(i, 1); paintForm(); changed(); } }, icon('x')));
+      };
+      const time = h('input', { type: 'time', value: rules.time || '09:00', 'aria-label': 'Start time when a row has none' });
+      time.addEventListener('change', () => { rules.time = time.value || '09:00'; changed(); });
+      const minutes = h('input', { type: 'number', min: 5, max: 1440, step: 5, value: rules.minutes, class: 'sr-num', 'aria-label': 'Minutes when a row has no end or length' });
+      minutes.addEventListener('input', () => { const n = parseInt(minutes.value, 10); if (n >= 5) { rules.minutes = Math.min(n, 1440); changed(); } });
+
+      form.replaceChildren(
+        section('The sheet',
+          info.tabs.length > 1 && field('Tab', [pick(tab, info.tabs.map((t) => opt(t, t)), async (v) => {
+            try {
+              const next = await onyx.sheetPeek(id, v);
+              tab = next.tab; rules = structuredClone(next.rules); suggested = next.suggested; view = next;
+              paintForm(); paintPreview();
+            } catch (err) { fail(err); }
+          })]),
+          field('Headings', [h('div', { class: 'sr-inline' }, 'In row', head)], 'The row with the names of the columns; the rows below it are read. 0 when there are no headings.')),
+        section('Which rows become blocks',
+          !rules.when.length && h('p', { class: 'sr-note' }, 'Every row with a date. Add a condition to take only some rows, like Status contains “Insert”.'),
+          rules.when.length > 1 && h('div', { class: 'sr-inline sr-match' }, 'Take a row when it meets',
+            pick(rules.match, [opt('all', 'all of these'), opt('any', 'any of these')], (v) => { rules.match = v; changed(); })),
+          rules.when.map(condition),
+          h('button', { type: 'button', class: 'btn sr-add', onclick: () => {
+            rules.when.push({ col: likelyColumn(), op: 'has', value: '' });
+            paintForm();
+            changed();
+            setTimeout(() => [...form.querySelectorAll('.sr-cond-v')].pop()?.focus(), 0);
+          } }, icon('plus'), rules.when.length ? 'Add another condition' : 'Add a condition')),
+        section('Where things are',
+          field('Title', wordsField('title', null), 'Words of your own can be fixed (“Shift”) or mix in columns.'),
+          field('Date', [pick(rules.date, colOptions('None'), (v) => { rules.date = +v; changed(); })]),
+          field('Start time', [pick(rules.start, colOptions('None (or a time in the date)'), (v) => { rules.start = +v; changed(); })], 'A cell may hold both times, like 9–10:30am.'),
+          field('End time', [pick(rules.end, colOptions('None'), (v) => { rules.end = +v; changed(); })]),
+          field('Length', [pick(rules.length, colOptions('None'), (v) => { rules.length = +v; paintForm(); changed(); }),
+            rules.length >= 0 && pick(rules.lengthIn, [opt('minutes', 'Plain numbers are minutes'), opt('hours', 'Plain numbers are hours')], (v) => { rules.lengthIn = v; changed(); })],
+          'When there’s no end time. 1:30, 90 min and 1h 30m all read.'),
+          field('Notes', wordsField('notes', 'None')),
+          field('Place', wordsField('location', 'None'))),
+        section('When a cell is empty',
+          field('No time', [pick(rules.time ? 'at' : 'day', [opt('day', 'Make it an all-day block'), opt('at', 'Start it at a set time')],
+            (v) => { rules.time = v === 'at' ? (rules.time || '09:00') : ''; paintForm(); changed(); }), rules.time && time]),
+          field('No end or length', [h('div', { class: 'sr-inline' }, minutes, 'minutes long')]),
+          field('No date', [pick(rules.noDate, [opt('skip', 'Leave the row out'), opt('above', 'Use the date of the row above'), opt('today', 'Use today')],
+            (v) => { rules.noDate = v; changed(); })], 'The row above: for sheets that write each day once, over all of its rows.'),
+          field('Dates like 11/6', [pick(rules.order, [opt('mdy', 'Month first: Nov 6'), opt('dmy', 'Day first: 11 June')], (v) => { rules.order = v; changed(); })])),
+        section('Keeping track',
+          field('Row ID', [pick(rules.id, colOptions('None: by title and time'), (v) => { rules.id = +v; changed(); })],
+            'A column that names each row for good (an ID or a number) keeps its block the same when the title or time change, with its tags and notes in Onyx.')));
+      scroller.scrollTop = top;
+    }
+
+    // ---- the preview
+    const dayOf = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+    const whenOf = (b) => {
+      if (b.allDay) {
+        const s = dayOf(b.start), e = dayOf(b.end);
+        const last = new Date(e.getFullYear(), e.getMonth(), e.getDate() - 1);
+        return `${fmtDay(s)}${last > s ? ` – ${fmtDay(last)}` : ''}  ·  all day`;
+      }
+      const s = new Date(b.start), e = new Date(b.end);
+      return `${fmtDay(s)}  ·  ${fmtTime(s)} – ${fmtTime(e)}${e.toDateString() !== s.toDateString() ? ' (next day)' : ''}`;
+    };
+    const cellsOf = (cells) => cells.map((v, i) => v && `${view.columns[i]?.name || view.columns[i]?.letter || i + 1}: ${v}`).filter(Boolean).join('   ·   ');
+    function rowOf(r) {
+      const n = h('span', { class: 'sr-n', title: `Row ${r.row} of the sheet` }, r.row);
+      const raw = cellsOf(r.cells);
+      const cells = h('div', { class: 'sr-cells', title: raw }, raw || 'Empty');
+      if (r.head || r.above) {
+        return h('div', { class: `sr-row ${r.head ? 'head' : 'above'}` }, n, h('div', { class: 'sr-what' },
+          h('small', null, r.head ? 'Headings' : 'Above the headings: not read'), h('div', { class: 'sr-cells' }, r.cells.filter(Boolean).join('   ·   ') || 'Empty')));
+      }
+      if (r.block) {
+        const b = r.block;
+        const made = [b.dayFrom === 'above' && 'date from the row above', b.dayFrom === 'today' && 'date: today',
+          b.timeFrom === 'default' && 'your start time', b.lengthFrom === 'default' && `${rules.minutes} minutes, your length`].filter(Boolean);
+        return h('div', { class: 'sr-row ok' }, n, h('div', { class: 'sr-what' },
+          h('b', null, b.title),
+          h('small', null, whenOf(b), b.location && `  ·  ${b.location}`),
+          made.length > 0 && h('small', { class: 'sr-made' }, made.join('  ·  ')),
+          cells));
+      }
+      return h('div', { class: `sr-row ${r.out ? 'out' : 'skip'}` }, n, h('div', { class: 'sr-what' },
+        h('small', { class: 'sr-why' }, r.out ? `Left out: ${r.out}` : r.skip), cells));
+    }
+    function paintPreview() {
+      const t = view.totals;
+      counts.replaceChildren(h('b', null, plural(t.blocks, 'block')), ` from ${plural(t.rows, 'row')} with something in them`);
+      tabPreview.textContent = `Preview · ${t.blocks}`;
+      const kinds = [['all', 'All rows', null], ['block', 'Blocks', t.blocks], ['out', 'Left out', t.left], ['skip', 'Can’t place', t.skipped]];
+      if (!kinds.some(([k, , count]) => k === show && (k === 'all' || count))) show = 'all';
+      chips.replaceChildren(...kinds.filter(([k, , count]) => k === 'all' || count).map(([k, label, count]) => h('button', {
+        type: 'button', role: 'tab', class: `sr-chip ${k}${show === k ? ' on' : ''}`, 'aria-selected': String(show === k),
+        onclick: () => { show = k; paintPreview(); },
+      }, label, count != null && h('span', null, count))));
+      const rows = view.shown.filter((r) => show === 'all' || (show === 'block' ? r.block : show === 'out' ? r.out : r.skip));
+      list.replaceChildren(...rows.map(rowOf),
+        !rows.length && h('p', { class: 'sr-note' }, t.rows ? 'No rows here.' : 'The sheet has no rows below the headings yet. Rows you add show up as blocks.'),
+        view.shown.length >= 300 && h('p', { class: 'sr-note' }, 'The preview shows the first 300 rows. Every row is read.'));
+    }
+
+    // ---- saving
+    const save = h('button', { class: 'btn primary', onclick: () => {
+      if (typeof rules.title === 'string' && !rules.title.trim()) return toast('Give the blocks a title: a column, or words of your own.', 'error');
+      if (rules.title === -1 || rules.title == null) return toast('Choose the column with the title.', 'error');
+      save.disabled = true;
+      return act(async () => {
+        const next = await onyx.sheetRules(id, { tab, rules });
+        close();
+        toast(`Rules saved: ${plural(next.blocks ?? view.totals.blocks, 'block')} from ${info.label}`);
+        return next;
+      }).finally(() => { save.disabled = false; });
+    } }, 'Save rules');
+    const lead = fresh && !info.totals.blocks && info.totals.rows
+      ? 'Onyx couldn’t find the dates on its own. Choose the Date column below and the preview fills in.'
+      : fresh ? 'Onyx guessed these from your headings. Put right anything it got wrong; the preview shows what each row becomes.'
+        : 'Which rows become blocks, and where their details are. The preview shows what each row becomes.';
+
+    sheet.append(h('div', { class: 'pane sr-pane' },
+      h('button', { class: 'icon-btn close', 'aria-label': 'Close', onclick: close }, icon('x')),
+      h('div', { class: 'sr-top' },
+        h('h3', { class: 'magic-h' }, icon('sliders'), `Rules for ${info.label}`),
+        h('p', { class: 'sr-lead' }, lead)),
+      h('div', { class: 'sr-tabs', role: 'tablist' }, tabRules, tabPreview),
+      h('div', { class: 'sr-body' }, left,
+        h('div', { class: 'sr-right' }, h('div', { class: 'sr-prev-head' }, h('h4', null, 'Preview'), counts), chips, problem, list)),
+      h('div', { class: 'sr-foot' },
+        h('button', { type: 'button', class: 'btn ghost', onclick: () => { rules = structuredClone(suggested); paintForm(); changed(); } }, 'Start again from Onyx’s guess'),
+        h('span', { class: 'grow' }),
+        h('button', { type: 'button', class: 'btn', onclick: close }, 'Cancel'),
+        save)));
+    paintForm();
+    paintPreview();
+    $('#modal').replaceChildren(sheet);
+    $('#modal').hidden = false;
   }
   const toggle = (checked, onchange, disabled) => h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked, disabled, onchange: (e) => onchange(e.target.checked) }), h('span'));
   // Tailscale's addresses (100.64.0.0/10) reach the PC from any network, not just its wifi.
@@ -11921,8 +12193,10 @@
     if (!$('#update-dialog').hidden) { if (!$('.upd-bar') && !$('.upd-icon.spin')) closeUpdateDialog(); }
     else if (!$('#popover').hidden) closePopover();
     else if (!$('#modal').hidden) {
+      // A sheet's rules go back to Settings, where they were opened.
+      if ($('.sheet.sr', $('#modal')) && sheetRulesClose) sheetRulesClose();
       // In Settings on the phone, back goes back a step: out of a half-made shortcut, then to the list.
-      if (MOBILE && $('.sheet.settings', $('#modal')) && settingsTab !== SET_HOME) {
+      else if (MOBILE && $('.sheet.settings', $('#modal')) && settingsTab !== SET_HOME) {
         if (settingsTab === 'launcher' && lockDraft.editing) { lockDraft.editing = null; lockDraft.redraw?.(); } else openSettings(SET_HOME);
       } else closeSettings();
     } else if (['drawer-left', 'drawer-right', 'drawer-news'].some((c) => document.body.classList.contains(c))) closeDrawers();

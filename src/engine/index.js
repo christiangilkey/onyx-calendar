@@ -267,7 +267,7 @@ async function leave() {
 
 // What the window asks for, run here as the PC would. The PC's own extras (the link to it, linking
 // desktops) are not in the phone's list (api.remote) anyway.
-const STATEFUL = new Set(['state', 'refresh', 'settings', 'tag:color', 'tag:rename', 'tag:delete', 'local:add', 'local:remove', 'notion:connect', 'notion:disconnect', 'google:credentials', 'microsoft:client', 'feed:add', 'sheet:add', 'ai:key', 'magic:remember', 'calls:token']);
+const STATEFUL = new Set(['state', 'refresh', 'settings', 'tag:color', 'tag:rename', 'tag:delete', 'local:add', 'local:remove', 'notion:connect', 'notion:disconnect', 'google:credentials', 'microsoft:client', 'feed:add', 'sheet:add', 'sheet:rules', 'ai:key', 'magic:remember', 'calls:token']);
 async function call(name, args = []) {
   await boot();
   if (!isOn()) throw new Error('This device is not set up to work on its own.');

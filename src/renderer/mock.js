@@ -160,6 +160,37 @@
     ] },
   };
   const snapshot = () => structuredClone({ ...state, tags: allTags() });
+
+  // A live Excel sheet's rules, run by the PC's own code (providers/sheet-rows.js needs no Node) on a demo sheet.
+  // It is loaded as a script of the page (the page may not evaluate text), with a `module` for it to fill in.
+  let sheetLib = null;
+  const sheetRows = () => sheetLib || (sheetLib = new Promise((resolve, reject) => {
+    const had = 'module' in window, kept = window.module;
+    window.module = { exports: {} };
+    const s = document.createElement('script');
+    s.src = new URL('../main/providers/sheet-rows.js', location.href).href;
+    s.onload = () => { const lib = window.module.exports; if (had) window.module = kept; else delete window.module; resolve(lib); };
+    s.onerror = () => reject(new Error('The demo could not load the sheet rules.'));
+    document.head.append(s);
+  }));
+  const demoSheet = () => {
+    const day = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`; };
+    return [
+      ['Job board (the office keeps this up to date)'],
+      [],
+      ['Job', 'Client', 'Status', 'Day', 'Time', 'Hours', 'Site', 'Notes', 'Onyx?'],
+      ['Kitchen remodel', 'Alvarez', 'Booked', day(0), '9:00 AM', 3, '14 Pine St', 'Bring tile samples', true],
+      ['Deck repair', 'Chen', 'Insert', day(0), '1-3:30pm', null, 'Lakeview Dr', null, true],
+      ['Bathroom tiles', 'Okafor', 'Insert', null, '10:30', 1.5, 'Elm Ave', 'Same day as the deck', true],
+      ['Quote visit', 'Patel', 'Maybe', day(1), null, null, null, 'Call first', false],
+      ['Fence', 'Nguyen', 'Insert', day(2), null, null, 'Ridge Rd', null, true],
+      ['Gutters', 'Smith', 'Done', day(-2), '8:00', 2, null, null, false],
+      ['Painting', 'Garcia', 'Insert', 'next week?', null, null, null, null, false],
+      ['Inspection', 'City', 'Booked', day(3), '15:00', '45 min', 'Town hall', null, true],
+      ['Roof patch', 'Ito', 'Insert', day(4), '7:30 AM', '2h 30m', 'Hill St', 'Ladder on the truck', true],
+    ];
+  };
+  const sheetRules = {}; // account id -> its rules
   const merge = (target, patch) => {
     for (const [k, v] of Object.entries(patch)) {
       if (v && typeof v === 'object' && !Array.isArray(v) && k !== 'hidden') merge(target[k] ||= {}, v); else target[k] = v;
@@ -799,12 +830,30 @@
     addFeed: async () => snapshot(),
     addSheet: async (s) => {
       if (!/^https?:\/\//.test(s?.url || '')) throw new Error('Paste the sheet\'s link (it starts with https://).');
-      state.accounts.push({ id: `s${state.accounts.length}`, provider: 'sheet', label: s.name || 'Google Sheet', url: s.url, file: null, tab: s.tab || null, sheet: { blocks: 3, skipped: 0, at: Date.now(), error: null } });
-      return { ...snapshot(), blocks: 3 };
+      const id = `s${state.accounts.length}`;
+      state.accounts.push({ id, provider: 'sheet', label: s.name || 'Google Sheet', url: s.url, file: null, tab: s.tab || null, rules: false, sheet: { blocks: 3, skipped: 0, at: Date.now(), error: null } });
+      return { ...snapshot(), blocks: 3, id };
     },
     pickSheet: async (o) => {
-      state.accounts.push({ id: `s${state.accounts.length}`, provider: 'sheet', label: o?.name || 'Study plan', file: 'Study plan.xlsx', tab: o?.tab || null, sheet: { blocks: 12, skipped: 1, at: Date.now(), error: null } });
-      return { ...snapshot(), blocks: 12 };
+      const id = `s${state.accounts.length}`;
+      state.accounts.push({ id, provider: 'sheet', label: o?.name || 'Job board', file: 'Job board.xlsx', tab: o?.tab || null, rules: false, sheet: { blocks: 7, skipped: 1, at: Date.now(), error: null } });
+      return { ...snapshot(), blocks: 7, id };
+    },
+    sheetPeek: async (id, tab) => {
+      const lib = await sheetRows();
+      const rows = demoSheet();
+      const suggested = lib.suggest(rows);
+      const rules = (tab === undefined && sheetRules[id]) || suggested;
+      return { label: state.accounts.find((a) => a.id === id)?.label || 'Sheet', tabs: ['Jobs', 'Archive'], tab: tab || 'Jobs', saved: !!sheetRules[id], suggested, ...lib.preview(rows, rules) };
+    },
+    sheetPreview: async (id, o) => (await sheetRows()).preview(demoSheet(), o?.rules),
+    sheetRules: async (id, o) => {
+      const lib = await sheetRows();
+      if (o?.rules) sheetRules[id] = lib.clean(o.rules); else delete sheetRules[id];
+      const { totals } = lib.preview(demoSheet(), sheetRules[id]);
+      const acct = state.accounts.find((a) => a.id === id);
+      if (acct) Object.assign(acct, { rules: !!sheetRules[id], tab: o?.tab || null, sheet: { blocks: totals.blocks, skipped: totals.skipped, left: totals.left, at: Date.now(), error: null } });
+      return { ...snapshot(), blocks: totals.blocks };
     },
     removeAccount: async () => snapshot(),
     addLocalCalendar: async () => snapshot(),

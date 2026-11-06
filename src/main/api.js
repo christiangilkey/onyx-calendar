@@ -23,10 +23,10 @@ function state() {
   return {
     version,
     settings: d.settings,
-    accounts: d.accounts.map(({ id, provider, label, url, path, tab }) => ({
+    accounts: d.accounts.map(({ id, provider, label, url, path, tab, rules }) => ({
       id, provider, label, url,
       // A live Excel sheet: its file's name (or link), its tab, and how it was read last.
-      ...(provider === 'sheet' ? { file: path ? require('path').basename(path) : null, tab: tab || null, sheet: require('./providers/sheet').status(id) } : {}),
+      ...(provider === 'sheet' ? { file: path ? require('path').basename(path) : null, tab: tab || null, rules: !!rules, sheet: require('./providers/sheet').status(id) } : {}),
     })),
     calendars: hub.calendars(),
     tags: hub.allTags(),
@@ -80,6 +80,13 @@ function setGoogleClient(text) {
   store.data.google.clientId = client.client_id;
   store.data.secrets.googleClientSecret = client.client_secret;
   store.save();
+}
+
+/** A live sheet's account by its id. */
+function sheetAccount(id) {
+  const acct = store.data.accounts.find((a) => a.id === id && a.provider === 'sheet');
+  if (!acct) throw new Error('That sheet is no longer in Onyx.');
+  return acct;
 }
 
 async function afterAccountChange() {
@@ -174,7 +181,18 @@ const handlers = {
   'microsoft:client': withState((id) => { store.data.microsoft.clientId = String(id || '').trim(); store.save(); }),
   'feed:add': (feed) => { accounts.addFeed(feed.name, feed.url); return afterAccountChange(); },
   // A live Excel sheet by its link (Google Sheets, OneDrive, or an .xlsx / .csv link). A file on the PC is picked there (main.js).
-  'sheet:add': async (s) => { const { blocks } = await accounts.addSheet({ name: s?.name, url: s?.url, tab: s?.tab }); return { ...(await afterAccountChange()), blocks }; },
+  'sheet:add': async (s) => { const { blocks, acct } = await accounts.addSheet({ name: s?.name, url: s?.url, tab: s?.tab }); return { ...(await afterAccountChange()), blocks, id: acct.id }; },
+  // A live sheet's own rules (providers/sheet-rows.js): which rows become blocks, which column holds what, and what
+  // to use when a cell is empty. The editor looks at the sheet (peek), tries rules on it (preview), then keeps them.
+  'sheet:peek': (id, tab) => require('./providers/sheet').peek(sheetAccount(id), tab),
+  'sheet:preview': (id, o) => require('./providers/sheet').preview(sheetAccount(id), o || {}),
+  'sheet:rules': async (id, o) => {
+    const sheet = require('./providers/sheet');
+    const acct = sheet.setRules(sheetAccount(id), o || {});
+    store.save();
+    try { await sheet.load(acct, true); } catch { /* said in its status */ }
+    return { ...(await afterAccountChange()), blocks: sheet.status(acct.id)?.blocks ?? 0 };
+  },
   // Other PCs running Onyx, sharing everything it keeps (sync.js).
   desktops: () => sync.info(),
   'desktops:invite': () => sync.newInvite(),

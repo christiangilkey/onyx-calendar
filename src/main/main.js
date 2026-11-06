@@ -360,8 +360,8 @@ const HANDLERS = {
       properties: ['openFile'],
     });
     if (res.canceled) return null;
-    const { blocks } = await accounts.addSheet({ name: opts?.name, path: res.filePaths[0], tab: opts?.tab });
-    return { ...(await afterAccountChange()), blocks };
+    const { blocks, acct } = await accounts.addSheet({ name: opts?.name, path: res.filePaths[0], tab: opts?.tab });
+    return { ...(await afterAccountChange()), blocks, id: acct.id };
   },
   // Sync through Google Drive (cloud.js): turned on, the code typed in, and the code shown, on the PC only.
   'cloud:on': async (account) => { await cloud.enable(account); return sync.info(); },

@@ -2,7 +2,19 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.111.0 · The + sheet with all of the block editor and Magic add, and the Inbox in your task list
+## 1.112.0 · Rules of your own for a live Excel sheet
+
+_2026-11-06_
+
+- A live Excel sheet can now follow rules you set, so it works with the sheet as you already keep it. In Settings → Calendars → Excel sheet (live), press Rules (or Set rules) beside a sheet. The rules open on their own when you add one.
+- Which rows become blocks: add conditions on any column, like Status contains “Insert”, Onyx? is ticked, Day is a date from today on, or Hours is a number over 2. Rows can meet all of them or any of them. With no conditions, every row with a date is a block.
+- Where things are: choose the column for the title, date, start time, end time, length, notes and place. A title can be words of your own mixed with columns, like {Job} for {Client}, or the same word on every block. A cell can hold both times, like 9–10:30am, and the length can be minutes or hours.
+- When a cell is empty: a row with no time can be an all-day block or start at a time you set. A row with no end or length gets the minutes you choose. A row with no date can be left out, take the date of the row above (for sheets that write each day once), or go on today. Dates like 11/6 can be read month first or day first.
+- A preview beside the rules shows every row and what it becomes: the block with its day and time, or why it was left out or couldn't be placed. It updates as you change things. You can also pick the tab and the row the headings are in, and a Row ID column that keeps a block the same when its title or time change.
+- Dates and times that Excel formats as dates are now read as they show in Excel, including your own formats, lengths like [h]:mm, and Mac workbooks. "Site" counts as a heading for the place.
+- A sheet whose dates Onyx can't find on its own is still added. Its rules open so you can show Onyx where the dates are.
+
+## 1.111.0 · The + sheet carries the whole block editor and Magic add; the Inbox joins the task list
 
 _2026-11-06_
 

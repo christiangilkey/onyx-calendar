@@ -593,18 +593,27 @@ pre.code {
 
 /* ------------------------------------------------------------ toasts */
 
-#toasts { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 60; display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; }
+#toasts { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 60; display: flex; flex-direction: column; gap: 6px; align-items: center; pointer-events: none; }
+/* A small frosted note: no coloured frame, a dot says when it's a warning or an error. A tap puts it away. */
 .toast {
-  background: #141417; border: 1px solid var(--line-2); border-radius: 10px; padding: 9px 14px; color: var(--text);
-  box-shadow: 0 14px 40px rgba(0,0,0,.8); max-width: 560px; line-height: 1.45; animation: pop .15s ease-out; pointer-events: auto;
+  display: flex; align-items: flex-start; gap: 9px; max-width: min(420px, calc(100vw - 48px)); padding: 8px 14px;
+  background: rgba(26, 26, 30, .88); -webkit-backdrop-filter: blur(14px) saturate(1.2); backdrop-filter: blur(14px) saturate(1.2);
+  border: 1px solid rgba(255, 255, 255, .07); border-radius: 14px; color: var(--soft); font-size: 13px; line-height: 1.4;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, .45); animation: toast-in .18s ease-out; pointer-events: auto; cursor: default;
+  transition: opacity .16s ease, transform .16s ease;
 }
-.toast.error { border-color: color-mix(in srgb, var(--danger) 45%, var(--line-2)); }
-.toast.warn { border-color: color-mix(in srgb, var(--warn) 45%, var(--line-2)); }
-.toast.has-action { display: flex; align-items: center; gap: 14px; }
+.toast .toast-text { min-width: 0; overflow-wrap: anywhere; }
+.toast.warn, .toast.error { padding-left: 12px; }
+.toast.warn::before, .toast.error::before { content: ""; flex: none; width: 6px; height: 6px; margin-top: .48em; border-radius: 50%; background: var(--warn); }
+.toast.error::before { background: var(--danger); }
+.toast.going { opacity: 0; transform: translateY(4px); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(6px); } }
+.toast.has-action { align-items: center; gap: 12px; padding-right: 8px; }
 .toast .toast-action {
-  border: 0; background: transparent; color: var(--accent); font-weight: 600; cursor: pointer; padding: 2px 4px; border-radius: 6px;
+  flex: none; border: 0; background: transparent; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; padding: 3px 7px; border-radius: 8px;
 }
-.toast .toast-action:hover { background: var(--raise-2); }
+.toast .toast-action:hover { background: rgba(255, 255, 255, .06); }
+body.mobile .toast { font-size: 13.5px; }
 
 /* ------------------------------------------------------------ goals and repeating tasks */
 
@@ -2558,6 +2567,8 @@ body.mobile .bcolors { gap: 9px; }
 /* Only while offline (or syncing): left on at other times, the label took room in the top bar unseen, and cut the date short. */
 html.offline:not([data-offline-label]) #titlebar::after, html.syncing:not([data-offline-label]) #titlebar::after { content: "Offline: showing last sync"; }
 html.syncing:not(.offline) #titlebar::after { background: var(--accent); color: #fff; }
+/* Waiting for the PC to be updated: a quiet grey note, not the busy "Syncing" one. */
+html.sync-held.syncing:not(.offline) #titlebar::after { background: var(--raise-2); color: var(--soft); box-shadow: 0 0 0 1px var(--line-2); }
 /* Made here while the PC was out of reach, not on it yet: a dashed edge until it is. */
 .fc .fc-event.is-offline { outline: 1.5px dashed rgba(255, 255, 255, .55); outline-offset: -1.5px; }
 .task.offline { outline: 1.5px dashed rgba(255, 255, 255, .35); outline-offset: -2px; }
@@ -3211,7 +3222,8 @@ body.board-on #prev, body.board-on #next, body.board-on #today { visibility: hid
 .wb-card.k-decision { --k: #f5b83d; background: #1b1810; }
 .wb-card.k-goal { --k: #6fdc8c; background: #121a14; }
 .wb-card.k-note { --k: transparent; border: 0; background: var(--note, #f7d774); color: #1d1a10; transform: rotate(-1.2deg); box-shadow: 0 8px 18px rgba(0, 0, 0, .45); }
-.wb-card.sel, .wb-card:focus-visible { box-shadow: 0 0 0 2px #fff, 0 10px 26px rgba(0, 0, 0, .5); }
+/* The card picked: a white ring with a soft glow around it, so it is plain which one the options are for. */
+.wb-card.sel, .wb-card:focus-visible { box-shadow: 0 0 0 2px #fff, 0 0 0 6px color-mix(in srgb, #8b7cff 35%, transparent), 0 10px 26px rgba(0, 0, 0, .5); }
 .wb-card.target { box-shadow: 0 0 0 3px #b4a6ff, 0 10px 26px rgba(0, 0, 0, .5); }
 .wb-card.dragging { box-shadow: 0 18px 40px rgba(0, 0, 0, .6); z-index: 2; cursor: grabbing; }
 .wb-card.off { opacity: .35; }
@@ -3276,8 +3288,9 @@ body.mobile .wb-plan-sheet { width: auto; }
 .wb-plan-when { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
 .wb-plan-when input, .wb-plan-when select { height: 36px; }
 .wb-plan-foot { font-size: 13px; color: var(--muted); }
-.wb-plan-ways { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.wb-plan-ways .mg-way { width: 100%; height: 58px; padding: 0 14px; border-radius: 14px; justify-content: flex-start; gap: 10px; text-align: left; }
+/* minmax(0, …): a narrow phone shortens the small line under each button rather than pushing one off the sheet. */
+.wb-plan-ways { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.wb-plan-ways .mg-way { width: 100%; min-width: 0; height: 58px; padding: 0 14px; border-radius: 14px; justify-content: flex-start; gap: 10px; text-align: left; flex-wrap: nowrap; }
 /* The phone: one Add button (a menu) in place of four, and the bar in two rows. */
 body.mobile #board-bar { padding: 8px 10px; gap: 6px; }
 body.mobile .wb-adds, body.mobile .wb-zoom .icon-btn:not(:nth-child(2)) { display: none; }
@@ -3303,6 +3316,16 @@ body.board-on #fab .magic-count { display: none; }
 .wb-q .ico { width: 17px; height: 17px; }
 .wb-q.on { color: #6fdc8c; }
 .wb-q.danger { color: #ff8a8a; }
+/* A step's Add to calendar: the main thing to do with a step picked, so it stands out. */
+.wb-q.cal { color: #c9bfff; background: color-mix(in srgb, #8b7cff 20%, transparent); }
+.wb-q.cal:hover { background: color-mix(in srgb, #8b7cff 30%, transparent); }
+.wb-q.cal.booked { color: #b4a6ff; background: color-mix(in srgb, #8b7cff 10%, transparent); }
+/* The one-step sheet (app.js planStep). */
+.wb-one { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: #17171d; border: 1px solid #2c2c36; border-left: 3px solid #9fb6ff; }
+.wb-one b { flex: 1; min-width: 0; font-size: 15px; font-weight: 650; overflow-wrap: anywhere; }
+.wb-until { color: var(--muted); }
+.wb-placed-row { display: flex; align-items: center; gap: 10px; }
+.wb-placed-row span { flex: 1; line-height: 1.45; }
 .wb-q-dot { width: 16px; height: 16px; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 2px rgba(255, 255, 255, .25); }
 .wb-card.lifted { transform: scale(1.04); box-shadow: 0 0 0 2px #fff, 0 22px 44px rgba(0, 0, 0, .65); z-index: 3; transition: transform .12s, box-shadow .12s; }
 .wb-card.k-note.lifted { transform: rotate(-1.2deg) scale(1.04); }

@@ -105,11 +105,13 @@ test('boards sync between devices, reach the phone, and work offline there', () 
 test('the app: Plan it makes a block per step, a pinch on a board stays on it', () => {
   const app = read('src/renderer/app.js');
   const plan = app.slice(app.indexOf('function planBoard('), app.indexOf('function pickView('));
-  assert.match(plan, /const slots = OnyxBoards\.backToBack\(list, \+start, \+gap\.value\);/);
-  assert.match(plan, /notes: \[`From the board "\$\{b\.title\}"`, n\.notes\]/);
-  assert.match(plan, /n\.placed = \{ start: fields\.start, id: ev\.id \};/);
-  assert.match(plan, /recordAction\(`Planned \$\{made\.length\} step/, 'with undo');
+  assert.match(plan, /if \(await bookSteps\(b, chosen\(\), start, \+gap\.value\) === null\) \{ paint\(\); return; \}/);
   assert.match(plan, /openMagic\(\{ text: lines\.join\('\\n'\), date: date\.value \}\);/, 'or Magic add fits them in');
+  const book = app.slice(app.indexOf('async function bookSteps('), app.indexOf('function planStep('));
+  assert.match(book, /const slots = OnyxBoards\.backToBack\(list, \+start, gap\);/);
+  assert.match(book, /notes: \[`From the board "\$\{b\.title\}"`, n\.notes\]/);
+  assert.match(book, /n\.placed = \{ start: fields\.start, id: ev\.id \};/);
+  assert.match(book, /recordAction\(one \? `Added \$\{one\} to the calendar` : `Planned \$\{made\.length\} steps/, 'with undo');
   assert.match(app, /if \(graph\.on \|\| board\.on \|\| !calendar\) return null;/);
   assert.match(app, /if \(e\.touches\.length !== 2 \|\| graph\.on \|\| board\.on\)/);
   assert.match(app, /if \(board\.on\) \{ const n = board\.view\?\.add\('step'\); if \(n\) openBoardCard\(n\); return; \}/, 'the + adds a step');
@@ -127,7 +129,23 @@ test('a card picked shows its quick options; holding a card lifts it, holding em
   assert.match(js, /if \(a\.lifted\) \{ placeQuick\(\); return; \}/, 'held and let go: picked, not opened');
   const app = read('src/renderer/app.js');
   const q = app.slice(app.indexOf('function boardQuick('), app.indexOf('function openBoardAdd('));
-  for (const label of ["'Edit'", "'Add a way' : 'Next'", "'Calendar'", "'Copy'", "'Delete'", "'Colour'"]) assert.ok(q.includes(label), label);
+  for (const label of ["'Edit'", "'Add a way' : 'Next'", "'Add to calendar'", "'Copy'", "'Delete'", "'Colour'"]) assert.ok(q.includes(label), label);
   assert.match(q, /n\.done = !n\.done;/);
   assert.match(app, /const n = board\.view\.add\(k, at && \{ x: at\.x - OnyxBoards\.KINDS\[k\]\.w \/ 2, y: at\.y - 30 \}\);/, 'placed where it was asked for');
+});
+
+test('a step picked goes into the calendar on its own: Add to calendar, first among its options', () => {
+  const app = read('src/renderer/app.js');
+  const q = app.slice(app.indexOf('function boardQuick('), app.indexOf('function openBoardAdd('));
+  assert.ok(q.indexOf("'Add to calendar'") < q.indexOf("'Edit'"), 'first, before Edit');
+  assert.match(q, /btn\('calendar', n\.placed \? 'In calendar' : 'Add to calendar', \(\) => planStep\(n, cardOf\(n\)\), n\.placed \? 'cal booked' : 'cal'\)/);
+  const card = app.slice(app.indexOf('function openBoardCard('), app.indexOf('function deleteBoardCard('));
+  assert.match(card, /planStep\(n, cardOf\(n\)\);/, 'the card\'s own Add to calendar does the same');
+  assert.doesNotMatch(q + card, /openEditor\(/, 'not an empty new entry any more');
+  const one = app.slice(app.indexOf('function planStep('), app.indexOf('function planBoard('));
+  assert.match(one, /if \(await bookSteps\(b, \[n\], start\) === null\)/, 'booked like Plan it: kept on the step, with undo');
+  assert.match(one, /openMagic\(\{ text: `\$\{\(n\.title \|\| 'Untitled step'\)/, 'or Magic add fits it in');
+  assert.match(one, /Already in your calendar: \$\{placedText\(n\.placed\)\}/);
+  const css = read('src/renderer/styles.css');
+  assert.match(css, /\.wb-plan-ways \{ display: grid; grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\);/, 'both buttons stay on a narrow phone');
 });

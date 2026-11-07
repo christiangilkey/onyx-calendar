@@ -1483,18 +1483,21 @@
       toldOffline = Date.now();
       kind = '';
     }
-    const ms = action ? 8000 : kind ? 7000 : 3200;
+    const ms = action ? 8000 : kind ? 6000 : 3200;
+    // Fades out rather than vanishing; a tap anywhere on it (but its button) puts it away at once.
+    const away = (t) => { clearTimeout(t._timer); t.classList.add('going'); setTimeout(() => t.remove(), 160); };
     // The same message again (a button tapped twice) keeps the one already showing up for longer.
-    const same = !action && [...$('#toasts').children].find((t) => !t.classList.contains('has-action') && t.textContent === String(message));
+    const same = !action && [...$('#toasts').children].find((t) => !t.classList.contains('has-action') && !t.classList.contains('going') && t.textContent === String(message));
     if (same) {
       clearTimeout(same._timer);
-      same._timer = setTimeout(() => same.remove(), ms);
+      same._timer = setTimeout(() => away(same), ms);
       return;
     }
-    const el = h('div', { class: `toast ${kind}${action ? ' has-action' : ''}` }, h('span', null, message),
-      action && h('button', { class: 'toast-action', onclick: () => { el.remove(); action.run(); } }, action.label));
+    const el = h('div', { class: `toast ${kind}${action ? ' has-action' : ''}`, role: 'status', onclick: (e) => { if (!e.target.closest('.toast-action')) away(el); } },
+      h('span', { class: 'toast-text' }, message),
+      action && h('button', { class: 'toast-action', onclick: () => { away(el); action.run(); } }, action.label));
     $('#toasts').append(el);
-    el._timer = setTimeout(() => el.remove(), ms);
+    el._timer = setTimeout(() => away(el), ms);
   }
 
   // ---- bugs: a slip in Onyx's own code (not a refusal from Google, the PC or the network) shows as a
@@ -1504,6 +1507,7 @@
   /** Says why something didn't work: the message as it is, or, for a bug, a short word (and the bug is kept). */
   function fail(err, kind = 'error') {
     const message = err?.message || String(err || '');
+    if (err?.outdated) return toast(message, 'warn'); // an older PC: a note, not an error
     if (!BUG_RE.test(message)) return toast(message || 'Something went wrong.', kind);
     noteBug(err);
     toast('Something went wrong there. Onyx noted it so it can be fixed.', kind);
@@ -11474,20 +11478,17 @@
     const redraw = () => { boardChanged(); board.view.draw(); };
     const btn = (ico, label, run, cls = '') => h('button', { type: 'button', class: `wb-q${cls ? ` ${cls}` : ''}`, title: label, 'aria-label': label, onclick: (e) => { e.stopPropagation(); run(); } },
       typeof ico === 'string' ? icon(ico) : ico, h('span', null, label));
-    const kids = [btn('pencil', 'Edit', () => openBoardCard(n))];
+    const kids = [];
+    // A step's first option: just this one block into the calendar (in it already: when, and again if wanted).
+    if (n.kind === 'step') {
+      kids.push(btn('calendar', n.placed ? 'In calendar' : 'Add to calendar', () => planStep(n, cardOf(n)), n.placed ? 'cal booked' : 'cal'));
+    }
+    kids.push(btn('pencil', 'Edit', () => openBoardCard(n)));
     if (n.kind !== 'note') {
       kids.push(btn('plus', n.kind === 'decision' ? 'Add a way' : 'Next', () => { const next = board.view.after(n.id); openBoardCard(next); }));
     }
     if (n.kind === 'step' || n.kind === 'goal') {
       kids.push(btn('check', n.done ? 'Not done' : n.kind === 'goal' ? 'Reached' : 'Done', () => { n.done = !n.done; redraw(); }, n.done ? 'on' : ''));
-    }
-    if (n.kind === 'step') {
-      kids.push(btn('calendar', 'Calendar', () => {
-        const now = new Date();
-        const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), Math.min(23, now.getHours() + 1), 0);
-        openEditor({ start, end: new Date(start.getTime() + (n.minutes || 30) * 60000), allDay: false, title: n.title },
-          ($(`#board .wb-card[data-id="${CSS.escape(n.id)}"]`) || $('#board-space')).getBoundingClientRect());
-      }));
     }
     if (n.kind === 'note') {
       const i = OnyxBoards.NOTE_COLORS.indexOf(n.color);
@@ -11608,11 +11609,9 @@
       parts.push(h('div', { class: 'pop-actions' },
         h('button', { type: 'button', class: 'btn ghost danger', onclick: () => { closePopover(); deleteBoardCard(n); } }, icon('trash'), 'Delete'),
         h('div', { class: 'grow' }),
-        n.kind === 'step' && h('button', { type: 'button', class: 'btn', title: 'Put this step in your calendar at a time you choose', onclick: () => {
+        n.kind === 'step' && h('button', { type: 'button', class: 'btn', title: 'Put just this step in your calendar', onclick: () => {
           closePopover();
-          const now = new Date();
-          const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), Math.min(23, now.getHours() + 1), 0);
-          openEditor({ start, end: new Date(start.getTime() + (n.minutes || 30) * 60000), allDay: false, title: n.title }, anchor());
+          planStep(n, cardOf(n));
         } }, icon('calendar'), 'Add to calendar'),
         h('button', { type: 'button', class: 'btn primary', onclick: closePopover }, 'Done')));
       showPopover(anchor(), [h('div', { class: `wb-edit k-${n.kind}` }, ...parts)]);
@@ -11661,15 +11660,93 @@
    * Plan it: the steps on the route (not done), each to be a block of its own. One after another from a day and
    * time, made here at once (with undo), or handed to Magic add to fit into the free time.
    */
+  /** Where a block from a board starts unless changed: the next whole hour, or 9 the next morning late at night. */
+  function boardStartAt() {
+    const now = new Date();
+    const next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours() + 1, 0);
+    return next.getHours() >= 21 || next.getHours() < 8 ? new Date(now.getFullYear(), now.getMonth(), now.getDate() + (now.getHours() >= 8 ? 1 : 0), 9, 0) : next;
+  }
+  /** A card on the board, to put a sheet beside (the board itself if it is out of sight). */
+  const cardOf = (n) => $(`#board .wb-card[data-id="${CSS.escape(n.id)}"]`) || $('#board-space');
+
+  /**
+   * Puts steps of board `b` in the calendar, one after another from `start` (with `gap` minutes between).
+   * Each step keeps when it is booked (the 📅 on its card); Undo takes the blocks out again.
+   * Returns how many were made, or null when there is no calendar to put them in (nothing tried).
+   */
+  async function bookSteps(b, list, start, gap = 0) {
+    const cal = newBlockCalendar();
+    if (!cal) { toast('Add a calendar Onyx can write to first (Settings → Calendars).', 'error'); return null; }
+    const slots = OnyxBoards.backToBack(list, +start, gap);
+    const made = [];
+    try {
+      for (const [i, n] of list.entries()) {
+        const fields = { title: n.title || 'Untitled step', notes: [`From the board "${b.title}"`, n.notes].filter(Boolean).join('\n\n'), start: new Date(slots[i].start).toISOString(), end: new Date(slots[i].end).toISOString(), allDay: false, calendarId: cal.id };
+        const ev = await onyx.createEvent(fields);
+        made.push({ n, ev, fields });
+        n.placed = { start: fields.start, id: ev.id };
+      }
+    } catch (err) { fail(err); }
+    boardChanged();
+    board.view?.draw();
+    if (!made.length) return 0;
+    refetch(true);
+    const one = made.length === 1 ? `"${made[0].fields.title}"` : null;
+    recordAction(one ? `Added ${one} to the calendar` : `Planned ${made.length} steps from "${b.title}"`,
+      async () => { for (const m of made) { await onyx.deleteEvent(m.ev.id); delete m.n.placed; } boardChanged(); board.view?.draw(); },
+      async () => { for (const m of made) { m.ev = await onyx.createEvent(m.fields); m.n.placed = { start: m.fields.start, id: m.ev.id }; } boardChanged(); board.view?.draw(); });
+    toast(one ? `Added ${one} to your calendar, ${fmtDay(start)} ${fmtTime(start)}` : `Added ${made.length} blocks to your calendar, from ${fmtDay(start)} ${fmtTime(start)}`,
+      '', { label: 'Show', run: () => { closeBoards(); calendar.gotoDate(start); } });
+    return made.length;
+  }
+
+  /** Just one step into the calendar: at a day and time of your own, or fitted into free time by Magic add. */
+  function planStep(n, anchor) {
+    flushBoard();
+    const b = board.cur;
+    if (!b || !n) return;
+    const mins = Number(n.minutes) || 30;
+    const startAt = boardStartAt();
+    const date = h('input', { type: 'date', value: ymd(startAt), 'aria-label': 'Day' });
+    const time = h('input', { type: 'time', value: hm(startAt), step: 300, 'aria-label': 'Start time' });
+    const until = h('span', { class: 'wb-until' });
+    const startOf = () => new Date(`${date.value}T${time.value || '09:00'}`);
+    const paint = () => { const s = startOf(); until.textContent = Number.isNaN(+s) ? '' : `to ${fmtTime(new Date(+s + mins * 60000))}`; };
+    date.oninput = time.oninput = paint;
+    const add = h('button', { type: 'button', class: 'btn primary mg-way' }, icon('clock'), h('span', { class: 'mg-way-t' }, h('b', null, 'Add it'), h('small', null, 'At the day and time above')));
+    const find = h('button', { type: 'button', class: 'btn mg-way mg-choose' }, icon('sparkles'), h('span', { class: 'mg-way-t' }, h('b', null, 'Find time'), h('small', null, 'Magic add fits it in')));
+    add.onclick = async () => {
+      const start = startOf();
+      if (Number.isNaN(+start)) { toast('Pick a day and a time.', 'error'); return; }
+      add.disabled = find.disabled = true;
+      if (await bookSteps(b, [n], start) === null) { add.disabled = find.disabled = false; return; }
+      closePopover();
+    };
+    find.onclick = () => {
+      closePopover();
+      closeBoards();
+      openMagic({ text: `${(n.title || 'Untitled step').replace(/\n/g, ' ')} (${OnyxBoards.lengthText(mins)})`, date: date.value });
+    };
+    const shown = n.placed && h('p', { class: 'wb-placed wb-placed-row' },
+      h('span', null, `Already in your calendar: ${placedText(n.placed)}. Adding it again makes a second block.`),
+      h('button', { type: 'button', class: 'btn ghost', onclick: () => { closePopover(); closeBoards(); calendar.gotoDate(new Date(n.placed.start)); } }, 'Show'));
+    const box = h('div', { class: 'wb-plan-sheet wb-step-sheet' },
+      h('div', { class: 'linbox-head' }, h('h3', null, icon('calendar'), 'Add to calendar'), h('span', { class: 'linbox-n' }, b.title)),
+      h('div', { class: 'wb-one' }, h('b', null, n.title || 'Untitled step'), h('span', { class: 'wb-chip' }, OnyxBoards.lengthText(mins))),
+      shown || null,
+      h('div', { class: 'wb-plan-when' }, h('span', null, 'Start'), date, time, until),
+      h('div', { class: 'mg-ways wb-plan-ways' }, add, find));
+    paint();
+    showPopover(anchor.getBoundingClientRect(), [box], null, { wide: true });
+  }
+
   function planBoard(anchor) {
     flushBoard();
     const b = board.cur;
     const r = OnyxBoards.route(b);
     const steps = OnyxBoards.planSteps(b);
     const pick = new Set(steps.filter((n) => !n.done && !n.placed).map((n) => n.id));
-    const now = new Date();
-    const next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours() + 1, 0);
-    const startAt = next.getHours() >= 21 || next.getHours() < 8 ? new Date(now.getFullYear(), now.getMonth(), now.getDate() + (now.getHours() >= 8 ? 1 : 0), 9, 0) : next;
+    const startAt = boardStartAt();
     const date = h('input', { type: 'date', value: ymd(startAt) });
     const time = h('input', { type: 'time', value: hm(startAt), step: 300 });
     const gap = h('select', { 'aria-label': 'Break between blocks' }, [[0, 'No break'], [5, '5 min break'], [10, '10 min break'], [15, '15 min break']].map(([v, t]) => h('option', { value: v }, t)));
@@ -11698,31 +11775,11 @@
       steps.length ? h('div', { class: 'wb-plan-foot' }, total) : null,
       steps.length ? h('div', { class: 'mg-ways wb-plan-ways' }, goBack, goMagic) : null);
     goBack.onclick = async () => {
-      const list = chosen();
-      const cal = newBlockCalendar();
-      if (!cal) { toast('Add a calendar Onyx can write to first (Settings → Calendars).', 'error'); return; }
       const start = new Date(`${date.value}T${time.value || '09:00'}`);
       if (Number.isNaN(+start)) { toast('Pick a day and a time to start.', 'error'); return; }
       goBack.disabled = goMagic.disabled = true;
-      const slots = OnyxBoards.backToBack(list, +start, +gap.value);
-      const made = [];
-      try {
-        for (const [i, n] of list.entries()) {
-          const fields = { title: n.title || 'Untitled step', notes: [`From the board "${b.title}"`, n.notes].filter(Boolean).join('\n\n'), start: new Date(slots[i].start).toISOString(), end: new Date(slots[i].end).toISOString(), allDay: false, calendarId: cal.id };
-          const ev = await onyx.createEvent(fields);
-          made.push({ n, ev, fields });
-          n.placed = { start: fields.start, id: ev.id };
-        }
-      } catch (err) { fail(err); }
-      boardChanged();
-      board.view.draw();
+      if (await bookSteps(b, chosen(), start, +gap.value) === null) { paint(); return; }
       closePopover();
-      if (!made.length) return;
-      refetch(true);
-      recordAction(`Planned ${made.length} step${made.length > 1 ? 's' : ''} from "${b.title}"`,
-        async () => { for (const m of made) { await onyx.deleteEvent(m.ev.id); delete m.n.placed; } boardChanged(); board.view?.draw(); },
-        async () => { for (const m of made) { m.ev = await onyx.createEvent(m.fields); m.n.placed = { start: m.fields.start, id: m.ev.id }; } boardChanged(); board.view?.draw(); });
-      toast(`Added ${made.length} block${made.length > 1 ? 's' : ''} to your calendar, from ${fmtDay(start)} ${fmtTime(start)}`, '', { label: 'Show', run: () => { closeBoards(); calendar.gotoDate(start); } });
     };
     goMagic.onclick = () => {
       const lines = chosen().map((n) => `${(n.title || 'Untitled step').replace(/\n/g, ' ')} (${OnyxBoards.lengthText(n.minutes || 30)})`);
@@ -12510,20 +12567,37 @@
     setTimeout(sendBugs, 5000); // any kept from last time
     // The phone's outbox: changes made while the PC was out of reach, waiting, then sent.
     if (onyx.onOutbox) {
-      const label = (n, online, syncing, own) => (!n ? (online ? '' : own ? 'PC off · working on its own' : 'Offline: showing last sync')
+      const label = (n, online, syncing, own, held) => (!n ? (online ? '' : own ? 'PC off · working on its own' : 'Offline: showing last sync')
+        : held ? `${n} ${n === 1 ? 'change waits' : 'changes wait'} for a PC update`
         : syncing || online ? `Syncing ${n} ${n === 1 ? 'change' : 'changes'}…`
         : `Offline · ${n} ${n === 1 ? 'change' : 'changes'} will sync`);
+      // A PC too old for a change made here: said once (per PC version, even across restarts), then
+      // only the title bar says it, not a pop-up every time the phone tries again.
+      const TOLD = 'onyx.toldBlocked';
+      let told = '';
+      try { told = localStorage.getItem(TOLD) || ''; } catch { /* not kept */ }
+      let held = false;
       onyx.onOutbox((o) => {
         const root = document.documentElement;
-        root.dataset.offlineLabel = label(o.pending, o.online, o.syncing, o.standalone) || 'Offline: showing last sync';
+        if (o.blockedKey) held = true;
+        if (o.sent || !o.pending) held = false;
+        root.dataset.offlineLabel = label(o.pending, o.online, o.syncing, o.standalone, held) || 'Offline: showing last sync';
         root.classList.toggle('syncing', o.pending > 0 && (o.online || o.syncing));
+        root.classList.toggle('sync-held', held && o.pending > 0);
+        if (o.blocked) {
+          const key = o.blockedKey || o.blocked;
+          if (key !== told) toast(o.blocked, o.blockedKey ? 'warn' : 'error');
+          told = key;
+          try { localStorage.setItem(TOLD, key); } catch { /* not kept */ }
+        }
         if (o.sent) {
+          told = '';
+          try { localStorage.removeItem(TOLD); } catch { /* not kept */ }
           toast(`Synced ${o.sent} ${o.sent === 1 ? 'change' : 'changes'} made while your PC was out of reach.`);
           refetch(true);
           loadTasks(true);
         }
         if (o.failed?.length) toast(`${o.failed.length === 1 ? 'A change' : `${o.failed.length} changes`} made offline couldn't be saved: ${o.failed[0].error}`, 'error');
-        if (o.blocked) toast(o.blocked, 'error');
         if (o.waiting) toast(o.waiting);
         if (o.setUp) toast('This phone now syncs through Google Drive: it keeps working when your PC is off or out of reach.');
       });

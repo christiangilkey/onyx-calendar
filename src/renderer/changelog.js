@@ -2,9 +2,22 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.113.0",
+  "date": "2026-11-07",
+  "title": "Add one step from a board to the calendar, and calmer pop-ups",
+  "items": [
+   "Boards: tap a step and its first option is now Add to calendar. It puts just that one step in your calendar: pick the day and time (the next whole hour to start with), or tap Find time and Magic add fits it into your free time.",
+   "A step added this way shows its day and time on its card, like the steps from Plan it, and Undo takes the block out again. Its button then says In calendar. Tapping it says when it's booked, with Show to go to it.",
+   "The step you picked now has a soft glow around it, so it's clear which one the options are for. The card's own Add to calendar (in its editor) does the same as the button.",
+   "The pop-ups along the bottom are smaller and quieter: a frosted note that fits its words, a coloured dot for a warning or an error instead of a coloured frame, and a tap puts one away.",
+   "On the phone, when Onyx on your PC is older than the app, a change you made waited and the phone showed a red error about it every 15 seconds. Now it says once that the change will sync after your PC is updated (once per PC version, even after a restart). After that only the top bar says so, in grey: \"1 change waits for a PC update\".",
+   "Plan it's two buttons no longer push past the edge of a narrow phone."
+  ]
+ },
+ {
   "version": "1.112.0",
   "date": "2026-11-06",
-  "title": "Rules of your own for a live Excel sheet",
+  "title": "Rules of your own for a live Excel sheet, with a preview of every row",
   "items": [
    "A live Excel sheet can now follow rules you set, so it works with the sheet as you already keep it. In Settings → Calendars → Excel sheet (live), press Rules (or Set rules) beside a sheet. The rules open on their own when you add one.",
    "Which rows become blocks: add conditions on any column, like Status contains “Insert”, Onyx? is ticked, Day is a date from today on, or Hours is a number over 2. Rows can meet all of them or any of them. With no conditions, every row with a date is a block.",

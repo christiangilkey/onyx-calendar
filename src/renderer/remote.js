@@ -259,9 +259,10 @@
   addEventListener('offline', () => setOnline(false));
   addEventListener('online', () => probe());
 
+  // A short, calm word: the version is kept on the error (for "say it once per PC version"), not in the text.
   const outdated = () => {
-    const pc = read(`${CACHE}state`, null)?.version;
-    return Object.assign(new Error(`Onyx on your PC${pc ? ` (${pc})` : ''} is older than this app and can't do that yet. Update Onyx on the PC (Settings → Updates).`), { outdated: true });
+    const pc = read(`${CACHE}state`, null)?.version || '';
+    return Object.assign(new Error('Update Onyx on your PC to do this from your phone.'), { outdated: true, pc });
   };
 
   /**
@@ -506,6 +507,7 @@
     let sent = 0;
     const failed = [];
     let blocked = null;
+    let blockedKey = null; // set when the PC is just too old: a note, said once per PC version
     let waiting = null;
     tellOutbox({ syncing: true });
     try {
@@ -518,7 +520,12 @@
           if (err.final) blocked = err.message;
           break; // no PC in reach (or this phone is no longer let in): the rest wait
         }
-        if (!body.ok && /^Unknown command/.test(body.error || '')) { blocked = outdated().message; break; } // kept until the PC is updated
+        if (!body.ok && /^Unknown command/.test(body.error || '')) { // kept until the PC is updated
+          const n = outbox.length;
+          blocked = `${n === 1 ? 'A change' : `${n} changes`} made here will sync once Onyx on your PC is updated.`;
+          blockedKey = `outdated:${outdated().pc}`;
+          break;
+        }
         if (!body.ok && body.retry) { // nothing was made: kept, and tried again with the next round
           if (!held) waiting = `Your PC couldn't reach the internet just now. ${outbox.length === 1 ? 'A change waits' : `${outbox.length} changes wait`} on this phone and will sync on their own.`;
           held = true;
@@ -543,7 +550,7 @@
     }
     if (sent) held = false;
     if (failed.length) write(FAILED, [...read(FAILED, []), ...failed].slice(-50));
-    tellOutbox({ sent, failed, blocked, waiting });
+    tellOutbox({ sent, failed, blocked, blockedKey, waiting });
     if (sent) nudgeWidget('outbox:sent');
   }
   // Tried again every 15 seconds while anything waits, and whenever the app comes back to the front.

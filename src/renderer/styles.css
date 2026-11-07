@@ -3462,3 +3462,34 @@ body.mobile .sr-foot { padding: 10px 12px calc(10px + var(--safe-bottom, env(saf
 body.mobile .sr-foot .btn.ghost { order: 3; flex: 1 1 100%; justify-content: center; }
 body.mobile .sr-foot .grow { display: none; }
 body.mobile .sr-foot .btn:not(.ghost) { flex: 1; justify-content: center; height: 44px; }
+
+/* ------------------------------------------------------------ Hey Claude (Settings, the Android app: app.js PANES.voice) */
+.vc .card { margin-bottom: 12px; }
+.vc-step { display: flex; gap: 12px; align-items: flex-start; }
+.vc-step b { display: block; font-size: 14px; margin-bottom: 3px; }
+.vc-step small { display: block; color: var(--muted); line-height: 1.5; }
+.vc-n { flex: none; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: color-mix(in srgb, #e08a5f 22%, transparent); color: #f2b08e; font-size: 12px; font-weight: 800; }
+.vc-model .row { margin-top: 12px; align-items: center; }
+.vc-progress { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+.vc-bar { flex: 1 1 160px; height: 6px; border-radius: 99px; background: var(--raise-2); overflow: hidden; }
+.vc-bar i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #e08a5f, #f2b08e); transition: width .4s ease; }
+.vc-progress small { color: var(--muted); font-variant-numeric: tabular-nums; }
+.vc-err { flex-basis: 100%; color: #ff8a80; }
+.vc-status { display: inline-flex; align-items: center; gap: 7px; }
+.vc-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
+.vc-status.on { color: #8fe0a8; }
+.vc-status.on i { background: #5fd38d; box-shadow: 0 0 0 0 rgba(95, 211, 141, .5); animation: vc-live 1.8s ease-out infinite; }
+@keyframes vc-live { 70% { box-shadow: 0 0 0 7px rgba(95, 211, 141, 0); } 100% { box-shadow: 0 0 0 0 rgba(95, 211, 141, 0); } }
+input.vc-phrase { width: 170px; }
+.vc-last h4 { margin-bottom: 6px; }
+.vc-said { margin: 0 0 4px; color: var(--soft); font-style: italic; }
+.vc-made { margin: 0; font-weight: 600; color: var(--text); }
+.vc-made.added { color: #8fe0a8; }
+.vc-made.waiting { color: #f5c76a; }
+.vc-made.failed { color: #ff8a80; }
+.vc-last small { display: block; margin-top: 6px; color: var(--muted); }
+.vc-tips ul { list-style: none; margin: 6px 0 10px; padding: 0; display: grid; gap: 10px; }
+.vc-tips li b { display: block; font-size: 13.5px; font-weight: 600; color: var(--text); }
+.vc-tips li small, .vc-tips > small { display: block; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.vc .privacy-card { margin-bottom: 12px; }
+.vc-remove { margin-top: 2px; }

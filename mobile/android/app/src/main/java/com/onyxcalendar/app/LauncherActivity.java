@@ -197,6 +197,7 @@ public class LauncherActivity extends Activity implements OnyxPanel.Host {
     protected void onResume() {
         super.onResume();
         resumed = true;
+        VoiceService.ensure(this); // "Hey Claude" listening again after a restart (the microphone starts only from the front)
         applyLayout(); // changed in the app meanwhile?
         showPanel();
         scene.resume();

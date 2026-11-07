@@ -704,6 +704,34 @@
         volume: async (volume) => { n.volume = volume; return out(); },
       };
     })() : undefined,
+    // "Hey Claude" on the phone (?launcher), as the app keeps it (VoiceService, VoiceModel): the download runs
+    // in a few seconds here, and listening is only a state.
+    voice: new URLSearchParams(location.search).has('launcher') ? (() => {
+      const SIZE = 41205931;
+      const v = { available: true, model: 'none', done: 0, total: SIZE, size: SIZE, on: false, listening: false, status: 'off', phrase: 'hey claude', claude: true, chime: true, mic: true, waiting: 0, micAsk: 'ok' };
+      let t = 0;
+      const out = () => ({ ...v });
+      return {
+        state: async () => out(),
+        set: async (o = {}) => {
+          if ('phrase' in o) v.phrase = String(o.phrase).toLowerCase();
+          if ('claude' in o) v.claude = !!o.claude;
+          if ('chime' in o) v.chime = !!o.chime;
+          if (o.download && v.model !== 'downloading') {
+            Object.assign(v, { model: 'downloading', done: 0 });
+            clearInterval(t);
+            t = setInterval(() => { v.done = Math.min(SIZE, v.done + SIZE / 8); if (v.done >= SIZE) { clearInterval(t); v.model = 'ready'; } }, 400);
+          }
+          if (o.cancel) { clearInterval(t); Object.assign(v, { model: 'none', done: 0 }); }
+          if (o.remove) Object.assign(v, { model: 'none', on: false, listening: false, status: 'off' });
+          if ('on' in o) {
+            Object.assign(v, { on: !!o.on, listening: !!o.on, status: o.on ? 'listening' : 'off' });
+            if (o.on && !v.last) v.last = { state: 'added', said: 'call the dentist tomorrow at three', title: 'Call the dentist', date: new Date(Date.now() + 86400000).toISOString().slice(0, 10), time: '15:00', at: Date.now() };
+          }
+          return out();
+        },
+      };
+    })() : undefined,
     // A paired phone asking to sync through Drive too (?phoneask): answered here.
     phoneAsks: async () => (new URLSearchParams(location.search).has('phoneask') && !window.phoneAnswered ? [{ id: 'ph-preview-01', name: 'Pixel 8', at: Date.now() - 5000 }] : []),
     answerPhone: async (id, yes) => { window.phoneAnswered = { id, yes }; return []; },

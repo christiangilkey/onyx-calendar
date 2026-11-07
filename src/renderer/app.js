@@ -59,6 +59,7 @@
     send: '<path d="M20.5 3.5L3.5 10.6l6.8 2.6 2.6 6.8z"/><path d="M10.3 13.2l4.4-4.4"/>',
     search: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>',
     qr: '<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><rect x="8" y="8" width="3" height="3"/><rect x="13" y="8" width="3" height="3"/><rect x="8" y="13" width="3" height="3"/><path d="M13 13h3v3"/>',
+    mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/>',
   };
   const COLORS = ['#8b7cff', '#4aa8ff', '#3fd0c9', '#5fd38d', '#f5b83d', '#ff9f4a', '#ff6b6b', '#ff7eb6', '#b9b9c2'];
   const PROVIDER = { google: 'Google', microsoft: 'Outlook', ics: 'Link', sheet: 'Sheet', local: 'Local' };
@@ -4311,7 +4312,7 @@
   let inboxIds = [];
   let inboxKnown = null; // the ones seen so far, to say when a new one arrives
   const inboxTasks = () => inboxIds.map((id) => tasks.find((t) => t.id === id)).filter(Boolean);
-  const FROM_NAME = { mcp: 'another app', tamkeen: 'Tamkeen', lock: 'your lock screen' };
+  const FROM_NAME = { mcp: 'another app', tamkeen: 'Tamkeen', lock: 'your lock screen', voice: 'Hey Claude' };
   const appName = (from) => FROM_NAME[from] || String(from || 'another app').replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase());
   const sourceName = (t) => (t?.from ? appName(t.from)
     : t?.provider === 'microsoft' ? 'Microsoft To Do' : t?.provider === 'google' ? 'Google Tasks' : t?.listName || 'another app');
@@ -9259,6 +9260,96 @@
       ];
     },
 
+    // "Hey Claude" (the Android app only: VoiceService, VoiceModel): the phone listens for the phrase, offline, and
+    // what is said after it goes to the inbox as a task (voice-task.js reads the day and time out of it).
+    voice() {
+      const box = h('div', { class: 'vc' }, h('div', { class: 'card' }, h('p', null, 'Checking…')));
+      let timer = 0;
+      const mb = (b) => `${Math.max(1, Math.round((b || 0) / 1e6))} MB`;
+      const words = (p) => String(p || 'hey claude').replace(/\b\w/g, (c) => c.toUpperCase());
+      const set = (o) => onyx.voice.set(o).then(draw).catch((err) => fail(err));
+      const look = () => { if (box.isConnected) onyx.voice.state().then(draw).catch(() => {}); };
+      const STATUS = { listening: 'Listening now', heard: 'Heard you: say the task', sending: 'Adding a task…', starting: 'Starting…' };
+      const draw = (v) => {
+        clearTimeout(timer);
+        if (!v?.available) { box.replaceChildren(h('div', { class: 'card' }, h('p', null, 'Update the Onyx app to use this.'))); return; }
+        // Kept up to date while the page is open: quickly while the model comes down, now and then otherwise.
+        timer = setTimeout(look, v.model === 'downloading' || v.status === 'starting' ? 600 : 4000);
+        const phrase = words(v.phrase);
+        const ready = v.model === 'ready';
+        const model = !ready && h('div', { class: 'card vc-model' },
+          h('div', { class: 'vc-step' }, h('span', { class: 'vc-n' }, '1'), h('div', null,
+            h('b', null, 'Get the speech model'),
+            h('small', null, `Onyx hears you with a speech model kept on this phone (${mb(v.size)}, once; Wi-Fi is best). It turns what you say into words right here: nothing is sent to hear you.`))),
+          v.model === 'downloading'
+            ? h('div', { class: 'vc-progress' },
+              h('div', { class: 'vc-bar' }, h('i', { css: { width: `${Math.min(100, Math.round((v.done / (v.total || v.size || 1)) * 100))}%` } })),
+              h('small', null, `${mb(v.done)} of ${mb(v.total || v.size)}`),
+              h('button', { type: 'button', class: 'btn ghost', onclick: () => set({ cancel: true }) }, 'Cancel'))
+            : h('div', { class: 'row' },
+              v.model === 'error' && h('small', { class: 'vc-err' }, v.error || 'The download stopped.'),
+              h('button', { type: 'button', class: 'btn primary', onclick: () => set({ download: true }) }, icon('down'), v.model === 'error' ? 'Try again' : `Download (${mb(v.size)})`)));
+        const status = !v.on ? (ready ? 'Off' : 'Get the speech model first')
+          : v.status === 'error' ? (v.problem || 'Listening stopped. Turn it off and on again.')
+          : v.listening || STATUS[v.status] ? STATUS[v.status] || 'Listening now'
+          : !v.mic ? 'Allow the microphone to start'
+          : v.problem || 'Starts again when you open Onyx';
+        const micBlocked = v.on && !v.mic;
+        const main = h('div', { class: 'card' },
+          field(`Listen for “${phrase}”`, h('span', { class: `vc-status${v.on && (v.listening || v.status === 'heard') ? ' on' : ''}` }, h('i'), status),
+            toggle(!!v.on && v.mic !== false, (on) => set({ on }), !ready)),
+          micBlocked && h('div', { class: 'restricted-guide' },
+            h('b', null, 'The microphone is off for Onyx'),
+            h('p', null, v.micAsk === 'denied'
+              ? 'Android was told no before, so it won\'t ask again. In App info, open Permissions → Microphone and pick "Allow only while using the app".'
+              : 'Turn the switch on again and allow the microphone when Android asks.'),
+            h('button', { class: 'btn', onclick: () => onyx.launcher?.open('appinfo') }, 'App info')),
+          field('Wake phrase', 'What you say first. Two or three words that don\'t come up in talk work best.',
+            h('input', { type: 'text', value: phrase, maxLength: 40, spellcheck: false, 'aria-label': 'Wake phrase', class: 'vc-phrase',
+              onchange: (e) => set({ phrase: e.target.value.trim() || 'hey claude' }) })),
+          field('Claude reads it', S.ai?.ready
+            ? 'Claude, with your key, understands the day, the time and a misheard word. Off: Onyx reads them itself. Only the task is sent, never sound.'
+            : 'With a Claude key (Keys & accounts), Claude understands the day, the time and a misheard word. Without one, Onyx reads them itself.',
+          toggle(v.claude !== false, (claude) => set({ claude }))),
+          field('Chimes', 'One when it hears the phrase, one when the task is added (a low one if it couldn\'t be).', toggle(v.chime !== false, (chime) => set({ chime }))));
+        const last = v.last && h('div', { class: 'card vc-last' },
+          h('h4', null, 'Last heard'),
+          h('p', { class: 'vc-said' }, `“${v.last.said || ''}”`),
+          h('p', { class: `vc-made ${v.last.state || ''}` },
+            v.last.state === 'added' ? `Added: ${v.last.title}${v.last.date ? ` · ${v.last.date === ymd(new Date()) ? 'today' : v.last.date === ymd(addDays(new Date(), 1)) ? 'tomorrow' : fmtDay(fromYmd(v.last.date))}` : ''}${v.last.time ? ` ${fmtTime(at(v.last.date || ymd(new Date()), v.last.time))}` : ''}`
+              : v.last.state === 'waiting' ? 'Saved on the phone: it goes to your PC when it\'s in reach'
+              : `Not added: ${v.last.error || 'something went wrong'}`),
+          v.waiting > 0 && h('small', null, `${v.waiting} said aloud ${v.waiting === 1 ? 'waits' : 'wait'} for your PC.`));
+        const tips = h('div', { class: 'card vc-tips' },
+          h('h4', null, 'How to say it'),
+          h('ul', null,
+            h('li', null, h('b', null, `“${phrase}, buy milk.”`), h('small', null, 'In one go. A chime, then another once it\'s in your inbox.')),
+            h('li', null, h('b', null, `“${phrase}, call the dentist tomorrow at three.”`), h('small', null, 'The day and time are read out of it, for Magic add to plan.')),
+            h('li', null, h('b', null, `“${phrase}” … chime … “finish the report Friday, for two hours.”`), h('small', null, 'Or wait for the chime. Say "cancel" to stop.'))),
+          h('small', null, 'Each lands in your inbox, from Hey Claude. Undo is on the notification.'));
+        const privacy = h('div', { class: 'privacy-card' },
+          h('div', { class: 'pc-main' }, h('div', { class: 'pc-text' },
+            h('div', { class: 'pc-badge' }, icon('shield'), 'Heard on this phone'),
+            h('b', { class: 'pc-title' }, 'Only the task leaves the phone'),
+            h('ul', { class: 'pc-points' }, [
+              ['Listening is offline', 'The phone listens for the phrase with its own speech model. No sound is sent, kept or recorded.'],
+              ['Only the words after it are sent', `To your PC, which makes the task${v.claude !== false ? ', and to Claude with your key to read it' : ''}.`],
+              ['You can always see it', 'While it listens, Android shows the microphone dot and Onyx\'s notification, with Turn off. It uses some battery.'],
+            ].map(([t, d]) => h('li', null, icon('check'), h('span', null, h('b', null, t), h('small', null, d))))))));
+        box.replaceChildren(...[model, main, last, tips, privacy,
+          ready && h('button', { type: 'button', class: 'btn ghost danger vc-remove', onclick: () => set({ remove: true }) }, `Take the speech model off this phone (${mb(v.size)})`)].filter(Boolean));
+      };
+      onyx.voice.state().then(draw).catch(() => draw(null)); // the page isn't on screen yet: no look() check here
+      // Back from Android's App info (the microphone allowed there): show what changed.
+      const back = () => { if (!box.isConnected) document.removeEventListener('visibilitychange', back); else if (!document.hidden) look(); };
+      document.addEventListener('visibilitychange', back);
+      return [
+        h('h3', null, 'Hey Claude'),
+        h('p', { class: 'lead' }, 'Say “Hey Claude” and a task, and it goes into your Onyx inbox, hands-free: “Hey Claude, call the dentist tomorrow at three.”'),
+        box,
+      ];
+    },
+
     // Onyx on the phone's own screens (the Android app only): the lock screen and the home screen (Onyx Home),
     // picked at the top. Each has its own switch, its own numbered steps (each showing whether it is done), and
     // its own editor (screenEditor): what shows and in what order, the clock, the date, the background, and its
@@ -9712,6 +9803,7 @@
     launcher: { name: 'Home & lock screen', icon: 'lock', c: '#3fd0c9', items: ['Onyx on your lock screen', 'Onyx on your home screen', 'Make Onyx Home your home app', 'What shows, and in what order', 'Clock size', 'Clock and shortcuts on', 'Date under the clock', 'Background', 'Shortcuts', 'Full-screen pop-ups', 'Alarm for everything as it starts', 'Full-screen alarms'],
       words: 'onyx home launcher overlay notifications music spotify alarms lock screen editor home screen editor where should onyx show set up layout look wallpaper dark link app file audio macro widgets' },
     doomscroll: { name: 'Doomscroll saver', icon: 'target', c: '#ff9f4a', items: ['Doomscroll saver', 'Show it after', 'Accessibility access', 'See the card', 'Apps it watches', 'Daily limits'], words: 'social media instagram tiktok youtube minutes apps choose pick add games which apps daily limit limits time limit block blocked maximum max screen time' },
+    voice: { name: 'Hey Claude', icon: 'mic', c: '#e08a5f', items: ['Listen for “Hey Claude”', 'Speech model', 'Wake phrase', 'Claude reads it', 'Chimes', 'How to say it'], words: 'voice speak talk say dictate microphone mic wake word phrase assistant hands free add a task by voice claude listening' },
     general: { name: 'General', icon: 'sliders', c: '#b9b9c2', items: ['New blocks go to', 'Updates', 'Now / Next bar', 'Popups', 'Tick-off sound', '24-hour time', 'Week starts on', 'Keep running when closed', 'Start with Windows'], words: 'default calendar chime clock tray' },
     changelog: { name: 'Changelog', icon: 'note', c: '#5fd38d', items: [], words: 'versions changes new what\'s new' },
     calendars: { name: 'Calendars', icon: 'calendar', c: '#4aa8ff', items: ['Connected', 'Google Calendar and Tasks', 'Outlook (Microsoft account)', 'Calendar link (read-only)', 'Excel sheet (live)', 'On this PC'], words: 'sign in accounts ics feed local excel spreadsheet google sheets onedrive xlsx csv rows' },
@@ -9723,7 +9815,7 @@
   const SET_HOME = 'home'; // the phone's list of sections
   /** The groups of sections, in order, for this device. */
   const settingsGroups = () => (onyx.isPhone
-    ? [['This phone', onyx.launcher ? ['launcher', 'doomscroll'] : []], ['Alerts', ['pi']], ['Sync & accounts', ['connection', 'keys']], ['App', ['general', 'changelog']]]
+    ? [['This phone', [...(onyx.launcher ? ['launcher', 'doomscroll'] : []), ...(onyx.voice ? ['voice'] : [])]], ['Alerts', ['pi']], ['Sync & accounts', ['connection', 'keys']], ['App', ['general', 'changelog']]]
     : [['Calendar', ['calendars', 'general']], ['Connected', ['connections', 'phone', 'desktops']], ['Alerts', ['pi']], ['Advanced', ['mcp']], ['About', ['changelog']]])
     .filter(([, ids]) => ids.length);
 
@@ -9745,7 +9837,7 @@
       case 'pi': return { alarm: 'Alarm on this phone', ntfy: 'Push notifications', twilio: 'Phone calls', pi: 'Raspberry Pi calls' }[method] || 'How Onyx reaches you';
       case 'general': return `${S.settings.hour12 ? '12' : '24'}-hour time · week starts ${['Sunday', 'Monday', '', '', '', '', 'Saturday'][S.settings.weekStart] || 'Sunday'}`;
       case 'changelog': return window.OnyxChangelog?.[0] ? `Newest: ${window.OnyxChangelog[0].version}` : 'What came with each version';
-      default: return settingsSums[id] || { launcher: 'Onyx on your lock and home screens', doomscroll: 'A nudge back from social media' }[id] || '';
+      default: return settingsSums[id] || { launcher: 'Onyx on your lock and home screens', doomscroll: 'A nudge back from social media', voice: 'Add tasks by saying them' }[id] || '';
     }
   }
   /** Asks the phone how its own sections are set, and writes it into the list. */
@@ -9764,6 +9856,11 @@
         put('doomscroll', i.doomscroll ? [`On · after ${i.doomMinutes} ${i.doomMinutes === 1 ? 'minute' : 'minutes'}`, limText].filter(Boolean).join(' · ')
           : limText ? `Card off · ${limText}` : 'Off');
       }
+    }).catch(() => {});
+    onyx.voice?.state().then((v) => {
+      if (!v?.available) return;
+      const phrase = String(v.phrase || 'hey claude').replace(/\b\w/g, (c) => c.toUpperCase());
+      put('voice', !v.on ? (v.model === 'ready' ? 'Off' : 'Add tasks by saying them') : v.listening ? `Listening for “${phrase}”` : 'On · starts when you open Onyx');
     }).catch(() => {});
   }
 

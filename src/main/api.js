@@ -119,6 +119,8 @@ const handlers = {
   'inbox:dismiss': (id) => hub.dismissInbox(id),
   // Another app hands over a task: onyx://task?title=…&minutes=…&due=…&id=…&from=… (deeplink.js)
   'link:task': (link) => hub.receiveTask(link),
+  // "Hey Claude" on the phone (VoiceService): what was said after it, made into a task in the inbox (voice-task.js).
+  'voice:task': (text, o) => require('./voice-task').add(text, o),
   'tasks:archived': (from, to) => hub.archivedTasks(from, to),
   'task:delete': (id) => hub.deleteTask(id),
   'task:repeat': (id, rule) => hub.setRepeat(id, rule),

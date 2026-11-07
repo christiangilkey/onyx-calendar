@@ -2,9 +2,21 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.113.0 · Add one step from a board to the calendar, and calmer pop-ups
+## 1.114.0 · Hey Claude: add a task by saying it
 
 _2026-11-07_
+
+- New on the phone: Hey Claude. Say "Hey Claude, call the dentist tomorrow at three" and the task goes into your Onyx inbox, from Hey Claude, without touching the phone. Turn it on in Settings → Hey Claude (under This phone).
+- Say it in one go, or say "Hey Claude", wait for the chime, then say the task. A second chime means it's added, and a notification shows what was added, with Undo. Say "cancel" after the chime to stop.
+- The day, the time and how long are read out of what you say: "tomorrow", "Friday", "in three days", "on the twelfth", "at half past four", "for two hours". The time becomes the time Magic add aims for when it plans the task. With your Claude key, Claude reads it, so a misheard word or an odd way of saying the day is still understood. Without a key, Onyx reads it itself.
+- The phone listens offline, with a speech model it downloads once (41 MB, Wi-Fi is best). No sound is sent, kept or recorded. Only the words you say after "Hey Claude" go to your PC (and to Claude, if that's on). While it listens, Android shows the microphone dot and Onyx's notification, with Turn off. It uses some battery.
+- You can change the wake phrase (to "Hey Onyx", say) and turn the chimes off. It catches "Hey Claude" even when the phone hears "Hey Cloud", but only at the start of what you say, so a conversation about Claude won't add tasks.
+- With your PC out of reach, what you said waits on the phone and goes to the PC when it's back. A PC still on an older Onyx gets it as a plain task, from Hey Claude.
+- After the phone restarts, listening starts again the next time you open Onyx or its lock screen. Android only lets the microphone start while Onyx is in front.
+
+## 1.113.0 · Add to calendar for one step on a board; quieter toasts; an older PC told once
+
+_2026-11-06_
 
 - Boards: tap a step and its first option is now Add to calendar. It puts just that one step in your calendar: pick the day and time (the next whole hour to start with), or tap Find time and Magic add fits it into your free time.
 - A step added this way shows its day and time on its card, like the steps from Plan it, and Undo takes the block out again. Its button then says In calendar. Tapping it says when it's booked, with Show to go to it.

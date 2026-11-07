@@ -12,11 +12,14 @@ import androidx.core.view.WindowInsetsCompat;
 
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
+import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 
 import androidx.activity.result.ActivityResult;
 
@@ -28,7 +31,10 @@ import java.util.List;
  * from the PC themselves), and asks them to refresh after a change in the app. Also opens
  * news videos in Tamkeen, the Arabic study app, when it is installed.
  */
-@CapacitorPlugin(name = "OnyxWidget")
+@CapacitorPlugin(name = "OnyxWidget", permissions = {
+    // "Hey Claude" listens through the microphone (asked for when it is turned on).
+    @Permission(strings = { android.Manifest.permission.RECORD_AUDIO }, alias = "microphone")
+})
 public class OnyxWidgetPlugin extends Plugin {
 
     @PluginMethod
@@ -330,6 +336,84 @@ public class OnyxWidgetPlugin extends Plugin {
         } catch (ActivityNotFoundException e) {
             // Installed, but a version from before Tamkeen took these links.
             call.reject("Update Tamkeen to its newest version, so it can open videos from Onyx.", "OUTDATED");
+        }
+    }
+
+    // ---- "Hey Claude" (VoiceService): listening for the phrase on this phone, with its speech model (VoiceModel)
+
+    /**
+     * { on } turns listening on or off (asking for the microphone first), { download } fetches the speech model,
+     * { cancel } stops that, { remove } takes it off the phone; { phrase, claude, chime } change its settings;
+     * { take } lists the tasks said aloud that wait, on a phone with no PC ({ items }), and { done: [op] } drops
+     * the ones the app made. Each answers with how it is now (VoiceService.state).
+     */
+    @PluginMethod
+    public void voice(PluginCall call) {
+        android.content.Context c = getContext();
+        if (call.getBoolean("take", false)) {
+            JSObject out = new JSObject();
+            try {
+                out.put("items", new JSArray(WidgetData.waitingVoice(c).toString()));
+            } catch (Exception e) {
+                out.put("items", new JSArray());
+            }
+            call.resolve(out);
+            return;
+        }
+        if (call.hasOption("done")) {
+            java.util.Set<String> ops = new java.util.HashSet<>();
+            JSArray list = call.getArray("done", new JSArray());
+            for (int i = 0; i < list.length(); i++) ops.add(list.optString(i, ""));
+            WidgetData.dropVoice(c, ops);
+        }
+        if (call.hasOption("phrase")) VoiceService.setPhrase(c, call.getString("phrase", VoiceWake.DEFAULT));
+        if (call.hasOption("claude")) VoiceService.setClaude(c, call.getBoolean("claude", true));
+        if (call.hasOption("chime")) VoiceService.setChime(c, call.getBoolean("chime", true));
+        if (call.getBoolean("download", false)) VoiceModel.download(c);
+        if (call.getBoolean("cancel", false)) VoiceModel.cancel();
+        if (call.getBoolean("remove", false)) {
+            VoiceService.stop(c);
+            VoiceModel.remove(c);
+            VoiceService.forgetModel();
+        }
+        if (call.hasOption("on")) {
+            if (!call.getBoolean("on", false)) VoiceService.stop(c);
+            else if (getPermissionState("microphone") != PermissionState.GRANTED) {
+                requestPermissionForAlias("microphone", call, "voiceMicAnswered");
+                return;
+            } else {
+                VoiceService.start(c);
+                askNotifications();
+            }
+        }
+        call.resolve(voiceState());
+    }
+
+    @PermissionCallback
+    private void voiceMicAnswered(PluginCall call) {
+        if (getPermissionState("microphone") == PermissionState.GRANTED) {
+            VoiceService.start(getContext());
+            askNotifications();
+        }
+        call.resolve(voiceState());
+    }
+
+    /** "Added to Onyx" and Undo come as a notification: Android 13 and later ask for those once. */
+    private void askNotifications() {
+        if (android.os.Build.VERSION.SDK_INT < 33 || getActivity() == null) return;
+        if (getContext().checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return;
+        getActivity().requestPermissions(new String[] { android.Manifest.permission.POST_NOTIFICATIONS }, 4103);
+    }
+
+    private JSObject voiceState() {
+        try {
+            JSObject o = JSObject.fromJSONObject(VoiceService.state(getContext()));
+            o.put("micAsk", getPermissionState("microphone") == PermissionState.DENIED ? "denied" : "ok");
+            return o;
+        } catch (Exception e) {
+            JSObject o = new JSObject();
+            o.put("available", true);
+            return o;
         }
     }
 }

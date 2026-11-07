@@ -21,6 +21,14 @@ public class MainActivity extends BridgeActivity {
         watchStart();
     }
 
+    @Override
+    public void onResume() {
+        super.onResume();
+        // "Hey Claude", turned on but not listening (after a restart, or Android stopped it): it may start
+        // the microphone again now that Onyx is in front.
+        VoiceService.ensure(this);
+    }
+
     /** Asks the page, a while after the start, whether it came up (app.js sets window.onyxReady). */
     private void watchStart() {
         WebView wv = getBridge() != null ? getBridge().getWebView() : null;

@@ -33,6 +33,11 @@ final class WidgetData {
 
     private WidgetData() {}
 
+    /** The PC answered that it doesn't know the command: it runs an older Onyx. */
+    static final class Unknown extends RuntimeException {
+        Unknown() { super("Unknown command"); }
+    }
+
     static SharedPreferences prefs(Context ctx) {
         return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
@@ -89,6 +94,7 @@ final class WidgetData {
             }
             String text = buf.toString("UTF-8");
             if (code == 401) throw new IllegalStateException("The PC no longer accepts this phone. Pair it again in the app.");
+            if (code == 404 && text.contains("Unknown command")) throw new Unknown(); // an older Onyx on the PC
             if (code >= 400) throw new Exception("The PC answered " + code);
             return text;
         } finally {
@@ -105,8 +111,8 @@ final class WidgetData {
                 String text = request(address, token, method, path, body);
                 prefs(ctx).edit().putString("last", address).apply();
                 return text;
-            } catch (IllegalStateException e) {
-                throw e; // a refused token is the same on every address
+            } catch (IllegalStateException | Unknown e) {
+                throw e; // a refused token, or a command the PC doesn't know, is the same on every address
             } catch (Exception e) {
                 last = new Exception("Can't reach the PC");
             }
@@ -175,8 +181,9 @@ final class WidgetData {
             if (o == null) continue;
             if (!reach) { left.put(o); continue; }
             try {
+                if (o.optBoolean("voice", false)) sendVoice(ctx, o.optString("title"), o.optBoolean("claude", true), o.optString("op"));
                 // Marked as from the lock screen: it waits in the app's inbox (the tray by the date) until it is dealt with.
-                rpc(ctx, "task:create", new JSONArray().put(new JSONObject().put("title", o.optString("title")).put("inbox", "lock")), o.optString("op"));
+                else rpc(ctx, "task:create", new JSONArray().put(new JSONObject().put("title", o.optString("title")).put("inbox", "lock")), o.optString("op"));
             } catch (IllegalStateException refused) {
                 reach = false; // this phone is no longer paired: kept for when it is again
                 left.put(o);
@@ -190,6 +197,110 @@ final class WidgetData {
         }
         prefs(ctx).edit().putString(QUICK, left.toString()).apply();
         return left.length() == 0;
+    }
+
+    // ---- "Hey Claude" (VoiceService): what was said after it goes to the PC, which reads the day and time out
+    // of it and puts the task in the inbox ('voice:task'). An older Onyx on the PC gets it as a plain task.
+    // With the PC out of reach it waits in the same queue as the lock screen's quick tasks.
+
+    /** Sends one; throws like rpc() when the PC can't be reached. Its answer: { taskId, title, date, time }. */
+    static JSONObject sendVoice(Context ctx, String text, boolean claude, String op) throws Exception {
+        try {
+            Object v = rpc(ctx, "voice:task", new JSONArray().put(text).put(new JSONObject().put("claude", claude)), op);
+            return v instanceof JSONObject ? (JSONObject) v : new JSONObject().put("title", text);
+        } catch (Unknown older) {
+            String title = text.isEmpty() ? text : Character.toUpperCase(text.charAt(0)) + text.substring(1);
+            Object v = rpc(ctx, "task:create", new JSONArray().put(new JSONObject().put("title", title).put("inbox", "voice")), op);
+            JSONObject o = new JSONObject().put("title", title);
+            if (v instanceof JSONObject) o.put("taskId", ((JSONObject) v).optString("id", ""));
+            return o;
+        }
+    }
+
+    /** A task said aloud: { state: added | waiting | failed, title, date, time, taskId, error }. */
+    static JSONObject voiceTask(Context ctx, String text, boolean claude) {
+        String op = "voice-" + java.util.UUID.randomUUID();
+        JSONObject out = new JSONObject();
+        try {
+            if (quickWaiting(ctx) > 0) flushQuick(ctx); // any said earlier, first
+            JSONObject r = sendVoice(ctx, text, claude, op);
+            out.put("state", "added");
+            for (String k : new String[] { "taskId", "title", "date", "time", "by" }) if (r.has(k) && !r.isNull(k)) out.put(k, r.opt(k));
+            return out;
+        } catch (Exception e) {
+            String m = e.getMessage() == null ? "" : e.getMessage();
+            boolean later = e instanceof IllegalStateException || m.startsWith("Can't reach") || m.startsWith("Not paired") || m.startsWith("The PC answered");
+            try {
+                if (later) {
+                    synchronized (WidgetData.class) {
+                        JSONArray q = new JSONArray(prefs(ctx).getString(QUICK, "[]"));
+                        q.put(new JSONObject().put("op", op).put("title", text).put("voice", true).put("claude", claude));
+                        prefs(ctx).edit().putString(QUICK, q.toString()).apply();
+                    }
+                    out.put("state", "waiting").put("title", text);
+                } else {
+                    out.put("state", "failed").put("title", text).put("error", m.isEmpty() ? "The PC couldn't add it." : m);
+                }
+            } catch (Exception ignored) {
+                // plain answer
+            }
+            return out;
+        }
+    }
+
+    /** How many said aloud wait for the PC. */
+    static int voiceWaiting(Context ctx) {
+        try {
+            JSONArray q = new JSONArray(prefs(ctx).getString(QUICK, "[]"));
+            int n = 0;
+            for (int i = 0; i < q.length(); i++) if (q.optJSONObject(i) != null && q.optJSONObject(i).optBoolean("voice", false)) n++;
+            return n;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    /**
+     * A phone that works with no PC: the tasks said aloud that wait, for the app to make with its own engine
+     * (then dropVoice). With a PC paired, none: they go to the PC.
+     */
+    static synchronized JSONArray waitingVoice(Context ctx) {
+        JSONArray mine = new JSONArray();
+        if (paired(ctx)) return mine;
+        try {
+            JSONArray q = new JSONArray(prefs(ctx).getString(QUICK, "[]"));
+            for (int i = 0; i < q.length(); i++) {
+                JSONObject o = q.optJSONObject(i);
+                if (o != null && o.optBoolean("voice", false)) mine.put(o);
+            }
+        } catch (Exception ignored) {
+            // none
+        }
+        return mine;
+    }
+
+    /** The ones the app made (by their op ids), out of the queue. */
+    static synchronized void dropVoice(Context ctx, java.util.Set<String> ops) {
+        try {
+            JSONArray q = new JSONArray(prefs(ctx).getString(QUICK, "[]")), left = new JSONArray();
+            for (int i = 0; i < q.length(); i++) {
+                JSONObject o = q.optJSONObject(i);
+                if (o != null && !(o.optBoolean("voice", false) && ops.contains(o.optString("op")))) left.put(o);
+            }
+            prefs(ctx).edit().putString(QUICK, left.toString()).apply();
+        } catch (Exception ignored) {
+            // kept
+        }
+    }
+
+    /** Undo on "Added to Onyx": the task is deleted again. */
+    static boolean undoVoiceTask(Context ctx, String id) {
+        try {
+            rpc(ctx, "task:delete", new JSONArray().put(id));
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /** Marks a task done on the PC (in Google Tasks / To Do), like ticking it in the app. */

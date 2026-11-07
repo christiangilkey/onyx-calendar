@@ -857,6 +857,12 @@
       stop: () => Widget.noise({ stop: true }),
       volume: (volume) => Widget.noise({ volume: Math.round(volume) }),
     } : null,
+    // "Hey Claude" (VoiceService): listening on this phone for the phrase, and its speech model (VoiceModel).
+    // set({ on, download, cancel, remove, phrase, claude, chime }); each answers with how it is now.
+    voice: Widget?.voice ? {
+      state: () => Widget.voice({}),
+      set: (o) => Widget.voice(o),
+    } : null,
     // Tamkeen on this phone (not on the PC): checked and opened through the app's own plugin.
     tamkeen: {
       info: async () => {
@@ -1073,6 +1079,28 @@
         window.dispatchEvent(new CustomEvent('onyx:pair-failed', { detail: window.onyxPairError }));
       }
     };
+    // "Hey Claude" on a phone with no PC: what was said waits in the app (no PC to send it to); this phone's
+    // own engine makes the tasks, and each one made leaves the queue. With a PC, the phone sends them to it by itself (WidgetData).
+    let takingVoice = false;
+    const takeVoice = async () => {
+      if (!Widget?.voice || takingVoice || conn) return;
+      takingVoice = true;
+      try {
+        const items = (await Widget.voice({ take: true }))?.items || [];
+        const made = [];
+        for (const it of items) {
+          try {
+            await call('voice:task', String(it.title || ''), { claude: it.claude !== false });
+            made.push(it.op);
+          } catch { break; } // not set up to work on its own, or offline: kept for next time
+        }
+        if (made.length) await Widget.voice({ done: made });
+      } catch { /* an app from before Hey Claude */ } finally {
+        takingVoice = false;
+      }
+    };
+    setTimeout(takeVoice, 4000);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(takeVoice, 1500); });
     App.addListener('appUrlOpen', (e) => handle(e.url));
     App.getLaunchUrl?.().then((r) => handle(r?.url)).catch(() => {});
     App.addListener('backButton', () => {

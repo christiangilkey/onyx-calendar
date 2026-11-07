@@ -1540,6 +1540,29 @@
     }
   }
 
+  // Starts that were slow, or never finished (boot.js keeps the last few, each step timed): handed to the PC
+  // once, so the step that held them up can be found.
+  const STARTS = 'onyx.starts';
+  let sendingStarts = false;
+  async function sendStarts() {
+    if (sendingStarts || !onyx.reportStarts) return;
+    let list;
+    try { list = JSON.parse(localStorage.getItem(STARTS) || '[]'); } catch { return; }
+    if (!Array.isArray(list) || !list.length) return;
+    const now = list[list.length - 1]; // this start
+    const worth = list.filter((s) => s && !s.sent && (s.done ? s.ms > 8000 : s !== now));
+    if (!worth.length) return;
+    sendingStarts = true;
+    try {
+      await onyx.reportStarts(worth);
+      const sent = new Set(worth.map((s) => s.at));
+      const kept = JSON.parse(localStorage.getItem(STARTS) || '[]');
+      localStorage.setItem(STARTS, JSON.stringify(kept.map((s) => (sent.has(s?.at) ? { ...s, sent: true } : s))));
+    } catch { /* kept for the next time (an older PC doesn't take them) */ } finally {
+      sendingStarts = false;
+    }
+  }
+
   // The phone talking to an older Onyx on the PC: say so once, not on every reload.
   let toldOutdated = false;
   function outdated(err) {
@@ -3614,9 +3637,15 @@
   // the arrows. The calendar follows the finger, then slides over. A finger that rests
   // first is left to the calendar (a long press moves an entry or blocks out time), and
   // the screen's edges are left to Android's back gesture.
+  //
+  // A thumb swipes in an arc, not a straight line, so a move counts as a swipe as soon as it
+  // goes more sideways than up and down (Android won't scroll such a move here anyway: the
+  // calendar only pans up and down). A swipe that began as a scroll and then swept clearly
+  // sideways still turns the days when the finger lifts.
   function swipeToChangeDates(el) {
-    const EDGE = 24, HOLD_MS = 250;
-    let t = null; // { x, y, at, dx, horizontal }
+    const EDGE = 24;
+    const HOLD_MS = 330; // under the calendar's long press (longPressDelay), so a resting finger stays the calendar's
+    let t = null; // { x, y, at, dx, dy, mode: null | 'h' (swiping) | 'v' (scrolling, watched) }
     const harness = () => el.querySelector('.fc-view-harness');
     const slide = (x, ms) => {
       const v = harness();
@@ -3625,51 +3654,61 @@
       v.style.transform = x ? `translateX(${x}px)` : '';
       v.style.opacity = x ? String(Math.max(0.35, 1 - Math.abs(x) / el.clientWidth)) : '';
     };
-    const busy = () => holdNew.on || el.querySelector('.fc-event-mirror, .fc-event-dragging, .fc-event-resizing');
+    // Something of the calendar's own under the finger: making a block, or carrying or stretching an entry.
+    // (A copy of an entry left in the grid by a drag that ended oddly no longer counts: it blocked every swipe.)
+    const busy = () => holdNew.on || midDrag();
+    const turn = (dir, slid) => {
+      if (slid) slide(-dir * el.clientWidth * 0.5, 120);
+      setTimeout(() => {
+        nav(dir);
+        slide(dir * el.clientWidth * 0.3, 0);
+        requestAnimationFrame(() => requestAnimationFrame(() => slide(0, 180)));
+      }, slid ? 120 : 0);
+    };
+    const track = (p) => { t.dx = p.clientX - t.x; t.dy = p.clientY - t.y; };
 
     el.addEventListener('touchstart', (e) => {
       const p = e.touches[0];
-      if (e.touches.length > 1 && t?.horizontal) slide(0, 150); // a second finger (a pinch): the slide goes back
+      if (e.touches.length > 1 && t?.mode === 'h') slide(0, 150); // a second finger (a pinch): the slide goes back
       t = e.touches.length === 1 && p.clientX > EDGE && p.clientX < innerWidth - EDGE && !busy()
-        ? { x: p.clientX, y: p.clientY, at: Date.now(), dx: 0, horizontal: null }
+        ? { x: p.clientX, y: p.clientY, at: Date.now(), dx: 0, dy: 0, mode: null }
         : null;
     }, { passive: true });
 
     el.addEventListener('touchmove', (e) => {
       if (!t) return;
-      if (e.touches.length > 1 || busy()) { t = null; slide(0, 150); return; }
-      const p = e.touches[0];
-      const dx = p.clientX - t.x, dy = p.clientY - t.y;
-      if (t.horizontal === null) {
-        if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
-        // Up and down is scrolling; a move after resting is the calendar's own drag.
-        t.horizontal = Math.abs(dx) > Math.abs(dy) * 1.3 && Date.now() - t.at < HOLD_MS;
-        if (!t.horizontal) { t = null; return; }
+      if (e.touches.length > 1 || busy()) { if (t.mode === 'h') slide(0, 150); t = null; return; }
+      track(e.touches[0]);
+      if (t.mode === 'v') return; // scrolling: only watched
+      if (t.mode === null) {
+        if (Math.abs(t.dx) < 10 && Math.abs(t.dy) < 10) return;
+        if (Date.now() - t.at >= HOLD_MS) { t = null; return; } // it rested first: the calendar's own drag
+        t.mode = Math.abs(t.dx) > Math.abs(t.dy) ? 'h' : 'v';
+        if (t.mode === 'v') return;
         // FullCalendar would still start a time selection once the long press is up: telling it
         // the touch scrolled makes it stand down, as it does when the grid scrolls.
         window.dispatchEvent(new Event('scroll'));
       }
       e.preventDefault();
-      t.dx = dx;
-      slide(dx * 0.6, 0);
+      slide(t.dx * 0.6, 0);
     }, { passive: false });
 
-    const end = () => {
-      if (!t?.horizontal) { t = null; return; }
-      const { dx, at } = t;
+    el.addEventListener('touchend', (e) => {
+      if (!t) return;
+      if (e.changedTouches[0]) track(e.changedTouches[0]); // where it lifted (moves can lag while the grid scrolls)
+      const { dx, dy, at, mode } = t;
       t = null;
-      const far = Math.abs(dx) > el.clientWidth * 0.25 || (Math.abs(dx) > 50 && Date.now() - at < 300);
+      if (mode === 'v') {
+        // A scroll that swept clearly sideways (a thumb's arc): the days turn too.
+        if (Math.abs(dx) > 80 && Math.abs(dx) > Math.abs(dy) * 1.5 && !busy()) turn(dx < 0 ? 1 : -1, false);
+        return;
+      }
+      if (mode !== 'h') return;
+      const far = Math.abs(dx) > el.clientWidth * 0.22 || (Math.abs(dx) > 45 && Date.now() - at < 350);
       if (!far || busy()) return slide(0, 150);
-      const dir = dx < 0 ? 1 : -1;
-      slide(-dir * el.clientWidth * 0.5, 120);
-      setTimeout(() => {
-        nav(dir);
-        slide(dir * el.clientWidth * 0.3, 0);
-        requestAnimationFrame(() => requestAnimationFrame(() => slide(0, 180)));
-      }, 120);
-    };
-    el.addEventListener('touchend', end);
-    el.addEventListener('touchcancel', () => { t = null; slide(0, 150); });
+      turn(dx < 0 ? 1 : -1, true);
+    });
+    el.addEventListener('touchcancel', () => { if (t?.mode === 'h') slide(0, 150); t = null; });
   }
 
   const pointRect = (ev) => {
@@ -12381,6 +12420,7 @@
    * so it never reaches the website itself; only the code opens it.
    */
   function showWebSetup(problem) {
+    pageUp();
     const fromLink = new URLSearchParams(location.hash.slice(1)).get('setup') || '';
     const said = h('p', { class: 'problem', hidden: !problem }, problem || '');
     const say = (err) => { said.textContent = err?.message || String(err); said.hidden = false; };
@@ -12503,7 +12543,7 @@
 
   /** In the phone's browser, back from Google's sign-in: the answer goes on to the Onyx app. */
   function showRelay() {
-    window.onyxReady = true;
+    pageUp();
     const link = window.onyxRelay;
     $('#connect').replaceChildren(h('div', { class: 'connect-card' },
       h('div', { class: 'brand big' }, h('span', { class: 'mark' }), 'Onyx'),
@@ -12516,7 +12556,7 @@
   }
 
   function showConnect(problem) {
-    window.onyxReady = true; // the page is up (the phone app's watch over its start: MainActivity)
+    pageUp();
     // Why connecting failed goes on this screen: a toast would sit underneath it.
     const said = h('p', { class: 'problem' });
     said.hidden = true;
@@ -12567,6 +12607,40 @@
     }).catch(() => {});
   }
 
+  // ---- the start. Each step is marked for the start screen (boot.js), which says what Onyx waits for when
+  // it takes more than a moment, and keeps how long each step took.
+  const stage = (name) => window.onyxStage?.(name);
+  /** The page is up: the start screen goes, and the phone app's watch over the start (MainActivity) is satisfied. */
+  function pageUp() {
+    window.onyxReady = true;
+    stage('ready');
+  }
+  // "Open with what's saved" on the start screen, or the start running late: nothing more is waited for.
+  let skipStart;
+  const startSkipped = new Promise((resolve) => { skipStart = resolve; });
+  window.onyxBootSkip = () => skipStart();
+  const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  /**
+   * What the calendar starts with. On the phone, a PC that is slow to answer (or a start that is told to go
+   * on) doesn't hold the start up: what was saved from the PC opens, and the PC's own answer is put in when
+   * it comes. With nothing saved yet there is nothing else to show, so then it waits for the PC.
+   */
+  async function firstState() {
+    const asked = onyx.state();
+    if (!onyx.isPhone || !onyx.savedState) return asked;
+    if (!onyx.savedState()) { window.onyxBootSkip = null; return asked; } // nothing to open instead: the start screen offers Reload only
+    const LATE = {};
+    const first = await Promise.race([asked, Promise.race([pause(9000), startSkipped]).then(() => LATE)]);
+    if (first !== LATE) return first;
+    const saved = onyx.savedState();
+    if (!saved) return asked;
+    stage('saved');
+    onyx.goOffline?.(); // the rest is read from what was kept too, while the PC is looked for in the background
+    asked.then((s) => { if (window.onyxReady) { applyState(s); refetch(true); loadTasks(true); } }).catch(() => {});
+    return saved;
+  }
+
   async function init() {
     document.body.classList.toggle('mobile', MOBILE);
     document.body.classList.toggle('phone', !!onyx.isPhone);
@@ -12574,20 +12648,25 @@
     // A pairing link that failed: the Connect screen says why (or a toast, once connected).
     window.addEventListener('onyx:pair-failed', (e) => (window.onyxPairFailed && !$('#connect').hidden ? window.onyxPairFailed(e) : toast(e.detail, 'error')));
     if (window.onyxRelay) return showRelay();
-    await onyx.whenReady?.(); // the phone's own engine, when it has one, has loaded what it keeps
+    // The phone's own engine, when it has one, loads what it keeps. Never more than a few seconds: a start
+    // that waits on it for longer opens without it, and it joins in once it is loaded.
+    stage('engine');
+    await Promise.race([onyx.whenReady?.(), pause(6000), startSkipped]);
     if (onyx.isPhone && !onyx.paired()) return onyx.isWeb ? showWebSetup() : showConnect();
+    stage('pc');
     try {
-      S = await onyx.state();
+      S = await firstState();
     } catch (err) {
       if (onyx.isPhone) return onyx.isWeb ? showWebSetup(err.message) : showConnect(err.message);
       throw err;
     }
+    stage('calendar');
     buildChrome();
     $('#layout').classList.remove('no-tasks');
     applyPanelWidths();
     buildCalendar();
     buildNews();
-    window.onyxReady = true; // the page is up (the phone app's watch over its start: MainActivity)
+    pageUp();
     refreshPomodoros();
     setInterval(() => { tickPomodoro(); tickNext(); tickPopups(); tickDue(); readRinging(); }, 1000);
     readRinging(true); // anything going off as the app opens: the Turn off bar, straight away
@@ -12658,10 +12737,10 @@
           : own ? 'Your PC is out of reach. This phone carries on by itself: changes reach your PC through Google Drive.'
           : 'Your PC is out of reach. Keep going: what you change here syncs when it is back.', ok || own ? '' : 'warn');
         if (ok || own) { refetch(true); loadTasks(true); }
-        if (ok) sendBugs();
+        if (ok) { sendBugs(); sendStarts(); }
       });
     }
-    setTimeout(sendBugs, 5000); // any kept from last time
+    setTimeout(() => { sendBugs(); sendStarts(); }, 5000); // any kept from last time
     // The phone's outbox: changes made while the PC was out of reach, waiting, then sent.
     if (onyx.onOutbox) {
       const label = (n, online, syncing, own, held) => (!n ? (online ? '' : own ? 'PC off · working on its own' : 'Offline: showing last sync')

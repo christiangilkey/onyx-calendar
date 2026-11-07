@@ -37,4 +37,23 @@ function fromApp(list) {
   return true;
 }
 
-module.exports = { isBug, noteError, fromApp, BUG_RE };
+/**
+ * Phone starts that were slow, or never finished (boot.js keeps each step's time): kept with the bugs, so a
+ * start that hangs on the phone (a black screen) shows which step held it up. [{ at, ms, done, stages, errors }]
+ */
+function startsFromPhone(list, appVersion) {
+  for (const s of (Array.isArray(list) ? list : []).slice(0, 10)) {
+    if (!s || typeof s !== 'object' || !Array.isArray(s.stages)) continue;
+    const steps = s.stages.filter((x) => Array.isArray(x)).slice(0, 20).map(([name, ms]) => [clip(name, 20), Number(ms) || 0]);
+    const last = steps.length ? steps[steps.length - 1][0] : 'page';
+    const errors = (Array.isArray(s.errors) ? s.errors : []).slice(0, 5).map((e) => clip(e, 200));
+    add({
+      at: s.at, where: 'phone-start', command: '', version: clip(appVersion, 20) || undefined,
+      message: s.done ? `A slow start: ${((Number(s.ms) || 0) / 1000).toFixed(1)} s` : `A start that never finished (last step: ${last})`,
+      stack: JSON.stringify({ steps, errors }),
+    });
+  }
+  return true;
+}
+
+module.exports = { isBug, noteError, fromApp, startsFromPhone, BUG_RE };

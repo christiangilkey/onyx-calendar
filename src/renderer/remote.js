@@ -39,7 +39,10 @@
       write(SIGNIN_ERR, err.message || 'Google sign-in failed.');
     }
   };
-  const ready = engine ? engine.boot().then(finishHere).then(() => engine.boot()).then((on) => { own = !!on; return own; }).catch(() => false) : Promise.resolve(false);
+  const booting = engine ? engine.boot().then(finishHere).then(() => engine.boot()).then((on) => { own = !!on; return own; }).catch(() => false) : Promise.resolve(false);
+  // What this phone keeps loads in a moment. One that takes longer never holds up every command
+  // (and the start with them): they go on without it, and it joins in once it has loaded.
+  const ready = Promise.race([booting, new Promise((resolve) => setTimeout(() => resolve(own), 8000))]);
   const isNet = (err) => !!err && (err.network || /fetch failed|couldn't reach|failed to fetch|network/i.test(err.message || ''));
 
   const CONN = 'onyx.connection';
@@ -71,12 +74,17 @@
     // requests to private addresses (wifi and Tailscale ones alike), so fetch never leaves the phone.
     const http = native && window.Capacitor?.Plugins?.CapacitorHttp;
     if (http) {
-      const res = await http.request({
-        url: `http://${address}/app/rpc`, method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${conn.token}` },
-        data: { name, args, ...(op ? { op } : {}) },
-        responseType: 'text', connectTimeout: Math.min(timeout, 7000), readTimeout: timeout,
-      });
+      // Android is told how long to wait, and the page keeps its own limit too: an answer that never
+      // comes back from the native side would otherwise hold up whatever waits for it (the start, too).
+      const res = await Promise.race([
+        http.request({
+          url: `http://${address}/app/rpc`, method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${conn.token}` },
+          data: { name, args, ...(op ? { op } : {}) },
+          responseType: 'text', connectTimeout: Math.min(timeout, 7000), readTimeout: timeout,
+        }),
+        new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error("Couldn't reach the PC."), { network: true })), Math.min(timeout, 7000) + timeout + 1500)),
+      ]);
       if (res.status === 401) {
         throw Object.assign(new Error('The PC no longer accepts this phone. Pair it again from Onyx on the PC: Settings → Phone.'), { final: true });
       }
@@ -759,6 +767,10 @@
     offlineText: OFFLINE_TEXT,
     paired: () => !!conn || own,
     whenReady: () => ready,
+    // The start (app.js: firstState): what was saved from the PC, to open with while it is slow to answer,
+    // and the PC taken as out of reach for now (looked for in the background, as usual).
+    savedState: () => { const kept = conn ? fromCache('state', []) : null; return kept ? withLocal(overlay('state', [], kept)) : null; },
+    goOffline: () => { if (!conn) return; lastOk = 0; setOnline(false); probe(); },
     connection: () => (conn ? { addresses: conn.addresses, last: conn.last, online, anywhere: conn.addresses.filter(isTailscale), standalone: own } : own ? { addresses: [], online: false, anywhere: [], standalone: true } : null),
     // Working on its own (the engine): set up with the sync code, its state, a sync now, and off.
     standalone: engine ? {
@@ -940,6 +952,7 @@
     tickBlockTask: (id, taskId, done) => call('blockTasks:tick', id, taskId, done),
     setEventColor: (key, color) => call('eventColor:set', key, color),
     reportBugs: (list) => call('bugs:report', list),
+    reportStarts: async (list) => call('phone:starts', list, await appVersion()),
     news: (force, mode) => call('news', force, mode),
     addNewsChannel: (input) => call('news:add', input),
     setNewsChannel: (id, on) => call('news:set', id, on),

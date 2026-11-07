@@ -2,9 +2,21 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
-  "version": "1.114.0",
+  "version": "1.115.0",
   "date": "2026-11-07",
-  "title": "Hey Claude: add a task by saying it",
+  "title": "Swiping between days with a thumb; no more black start",
+  "items": [
+   "Swiping left or right on the calendar now takes a thumb's natural arc. Before, a swipe only counted when it began almost perfectly sideways, so many swipes did nothing at all. A swipe that starts as a scroll and then sweeps sideways turns the days too, and scrolling up and down still just scrolls.",
+   "A copy of a block left behind by an interrupted drag could stop every swipe until the app was restarted. It no longer does.",
+   "Opening the app with your PC out of reach no longer leaves a black screen. A start that takes more than a moment says what it's waiting for, like \"Looking for your PC…\". When your PC is slow to answer, the calendar opens with what was saved after a few seconds, then catches up once the PC answers. A start that runs long offers \"Open with what's saved\" and Reload.",
+   "Neither the phone's own saved data nor an answer from Android that never comes can hold the start up for good anymore.",
+   "A start that was slow or never finished is sent to your PC the next time it's in reach, with how long each step took, so the cause can be found."
+  ]
+ },
+ {
+  "version": "1.114.0",
+  "date": "2026-11-06",
+  "title": "Hey Claude, a wake phrase on the phone that adds what you say as a task",
   "items": [
    "New on the phone: Hey Claude. Say \"Hey Claude, call the dentist tomorrow at three\" and the task goes into your Onyx inbox, from Hey Claude, without touching the phone. Turn it on in Settings → Hey Claude (under This phone).",
    "Say it in one go, or say \"Hey Claude\", wait for the chime, then say the task. A second chime means it's added, and a notification shows what was added, with Undo. Say \"cancel\" after the chime to stop.",

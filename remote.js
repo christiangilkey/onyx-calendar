@@ -1,0 +1,1123 @@
+// The Android app's link to Onyx on the PC. It provides the same window.onyx
+// commands as the desktop preload script, but runs them on the PC over the
+// network (POST /app/rpc), and keeps the last answers so the calendar can still
+// be read when the PC is off or out of reach. Changes made then are not lost:
+// they wait in the outbox, show at once, and go to the PC when it is back.
+//
+// Set up once to work on its own (Settings → Connection), the phone also has Onyx's engine
+// (engine.js, src/engine): the PC's own code, syncing through Google Drive. Then, with the PC
+// off or out of reach, everything runs here instead, live and writable, and the PC catches up
+// through Drive. Onyx on the web (ONYX_WEB) is the same with no PC at all.
+//
+// Active inside the Android app, on the web app's page, or in a browser when the page is
+// opened with "?remote" (for development). Otherwise it does nothing.
+(() => {
+  'use strict';
+  if (window.onyx) return;
+  const native = !!window.Capacitor?.isNativePlatform?.();
+  const WEB = !!window.ONYX_WEB;
+  if (!native && !WEB && !new URLSearchParams(location.search).has('remote')) return;
+
+  // The engine, when this build has it; `own`: it is set up here, so the PC is not needed.
+  const engine = window.OnyxEngine || null;
+  let own = false;
+
+  // Signing in to Google with no PC (engine.signInStart): Google comes back to the web app's page with
+  // ?code=…&state=…. A state of "web.…" is this browser's own sign-in, finished here; "app.…" was
+  // started in the phone app, so this page (in the phone's browser) hands it on to the app (onyx://signin).
+  const WEB_APP = 'https://christiangilkey.github.io/onyx-calendar/';
+  const answer = new URLSearchParams(location.search);
+  const back = answer.get('state') || '';
+  const SIGNIN_ERR = 'onyx.signin-error';
+  if (WEB && back.startsWith('app.')) window.onyxRelay = `onyx://signin?${answer}`;
+  const finishHere = async () => {
+    if (!WEB || !back.startsWith('web.')) return;
+    window.history.replaceState(null, '', location.pathname); // the code is used once: off the address bar
+    try {
+      await engine.signInFinish({ code: answer.get('code'), state: back, error: answer.get('error') });
+    } catch (err) {
+      write(SIGNIN_ERR, err.message || 'Google sign-in failed.');
+    }
+  };
+  const booting = engine ? engine.boot().then(finishHere).then(() => engine.boot()).then((on) => { own = !!on; return own; }).catch(() => false) : Promise.resolve(false);
+  // What this phone keeps loads in a moment. One that takes longer never holds up every command
+  // (and the start with them): they go on without it, and it joins in once it has loaded.
+  const ready = Promise.race([booting, new Promise((resolve) => setTimeout(() => resolve(own), 8000))]);
+  const isNet = (err) => !!err && (err.network || /fetch failed|couldn't reach|failed to fetch|network/i.test(err.message || ''));
+
+  const CONN = 'onyx.connection';
+  const LOCAL = 'onyx.phone-settings';
+  const CACHE = 'onyx.cache.';
+  const TIMEOUT_MS = 7000;
+  // Commands that think or make a lot on the PC: Claude planning a day or a goal, a goal making its many tasks.
+  const SLOW_MS = { 'magic:plan': 180000, 'source:read': 130000, 'magic:replan': 60000, 'ai:breakdown': 45000, 'ai:breakdownPlan': 120000, 'goal:plan': 330000, 'goal:create': 300000, 'goal:update': 300000 };
+  // Settings that belong to this phone rather than to the shared calendar.
+  const PHONE_ONLY = ['view', 'tasksPanel', 'newsPanel', 'nextBar', 'popups', 'doneSound'];
+
+  const read = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } };
+  const write = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage full: the cache is optional */ } };
+
+  let conn = read(CONN, null);           // { addresses: ['192.168.1.20:4747', ...], token, last }
+  let local = read(LOCAL, { view: 'timeGrid3', tasksPanel: false });
+  let online = true;
+  const listeners = new Set();
+
+  function setOnline(value) {
+    if (online === value) return;
+    online = value;
+    document.documentElement.classList.toggle('offline', !online);
+    for (const fn of listeners) fn(online);
+  }
+
+  async function post(address, name, args, op, timeout = TIMEOUT_MS) {
+    // In the app, through Android's own network stack: Android's WebView now quietly drops a page's
+    // requests to private addresses (wifi and Tailscale ones alike), so fetch never leaves the phone.
+    const http = native && window.Capacitor?.Plugins?.CapacitorHttp;
+    if (http) {
+      // Android is told how long to wait, and the page keeps its own limit too: an answer that never
+      // comes back from the native side would otherwise hold up whatever waits for it (the start, too).
+      const res = await Promise.race([
+        http.request({
+          url: `http://${address}/app/rpc`, method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${conn.token}` },
+          data: { name, args, ...(op ? { op } : {}) },
+          responseType: 'text', connectTimeout: Math.min(timeout, 7000), readTimeout: timeout,
+        }),
+        new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error("Couldn't reach the PC."), { network: true })), Math.min(timeout, 7000) + timeout + 1500)),
+      ]);
+      if (res.status === 401) {
+        throw Object.assign(new Error('The PC no longer accepts this phone. Pair it again from Onyx on the PC: Settings → Phone.'), { final: true });
+      }
+      const body = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+      if (!body || typeof body !== 'object') throw new Error(`The PC answered ${res.status}`);
+      return body;
+    }
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), timeout);
+    try {
+      const res = await fetch(`http://${address}/app/rpc`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${conn.token}` },
+        body: JSON.stringify({ name, args, ...(op ? { op } : {}) }),
+        signal: ctl.signal,
+      });
+      if (res.status === 401) {
+        throw Object.assign(new Error('The PC no longer accepts this phone. Pair it again from Onyx on the PC: Settings → Phone.'), { final: true });
+      }
+      return await res.json();
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  // Tailscale's addresses (100.64.0.0/10) reach the PC from any network, not just its wifi.
+  const isTailscale = (address) => /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(address);
+  // Addresses the PC reports itself (wifi and Tailscale), as opposed to ones typed in by hand.
+  const isLocal = (address) => isTailscale(address) || /^(192\.168|10|172\.(1[6-9]|2\d|3[01]))\.\d+\.\d+(:\d+)?$/.test(address);
+
+  // The PC sends its current addresses with its state, so a phone paired before Tailscale
+  // was set up (or before the PC's wifi address changed) picks up the new ones by itself.
+  // The address that just answered and any typed-in ones are kept; stale wifi ones are dropped.
+  // `peers` are the other desktops linked to that PC: they share its token, so whichever
+  // of them is on answers the phone.
+  function learnAddresses(value, answered) {
+    const m = value?.mcp;
+    if (!Array.isArray(m?.addresses) || !m.addresses.length || !m.port) return;
+    const peers = Array.isArray(m.peers) ? m.peers.filter((a) => typeof a === 'string' && /:\d+$/.test(a)) : [];
+    const next = [...new Set([answered, ...m.addresses.map((a) => `${a}:${m.port}`), ...peers, ...conn.addresses.filter((a) => !isLocal(a))])];
+    if (next.join() === conn.addresses.join()) return;
+    conn.addresses = next;
+    write(CONN, conn);
+    syncWidget();
+  }
+
+  const cacheKey = (name, args) => CACHE + name + (name === 'events' ? `.${args[0]}.${args[1]}` : '');
+
+  // Events seen in any range, so a slightly different range can still be shown offline.
+  function rememberEvents(list) {
+    const all = new Map(read(`${CACHE}events.all`, []).map((e) => [e.id, e]));
+    for (const e of list) all.set(e.id, e);
+    write(`${CACHE}events.all`, [...all.values()].sort((a, b) => (a.start < b.start ? 1 : -1)).slice(0, 2500));
+  }
+
+  function fromCache(name, args) {
+    const hit = read(cacheKey(name, args), null);
+    if (hit) return hit;
+    if (name === 'events') {
+      const [start, end] = args;
+      const inRange = read(`${CACHE}events.all`, []).filter((e) => new Date(e.end) > new Date(start) && new Date(e.start) < new Date(end));
+      return { events: inRange, errors: [] };
+    }
+    return null;
+  }
+
+  const CACHED = new Set(['state', 'events', 'tasks', 'globe', 'goals']);
+
+  // The home-screen widgets fetch from the PC themselves: they get its address and token
+  // from here, and a nudge to refresh after anything is changed in the app.
+  const Widget = window.Capacitor?.Plugins?.OnyxWidget;
+  // The status and navigation bars: how far they really cover the page, measured by the app
+  // (env(safe-area-inset-*) can be wrong when Android already keeps the page clear of them).
+  const fitBars = () => {
+    const ask = Widget?.insets?.();
+    ask?.then?.((r) => {
+      if (!r?.known) return;
+      const root = document.documentElement.style;
+      root.setProperty('--safe-top', `${Math.round(r.top)}px`);
+      root.setProperty('--safe-bottom', `${Math.round(r.bottom)}px`);
+    }).catch?.(() => {});
+  };
+  if (Widget) {
+    fitBars();
+    addEventListener('resize', () => setTimeout(fitBars, 150));
+  }
+  function syncWidget() {
+    if (!Widget) return;
+    const ask = conn ? Widget.configure({ addresses: conn.addresses, last: conn.last || '', token: conn.token }) : Widget.configure({ clear: true });
+    ask?.catch?.(() => {});
+  }
+  let widgetTimer = null;
+  function nudgeWidget(name) {
+    if (!Widget || CACHED.has(name) || !name.includes(':')) return; // only after a change
+    clearTimeout(widgetTimer);
+    widgetTimer = setTimeout(() => Widget.refresh()?.catch?.(() => {}), 1500);
+  }
+
+  /**
+   * No PC (nor any PC linked to it) answered at any address. The title bar already says the phone is offline,
+   * so this is only ever a short word, for something tapped that can't be done without the PC (a breakdown, say):
+   * the calendar, the tasks and the goals show what was kept, and changes wait in the outbox.
+   */
+  const OFFLINE_TEXT = 'That needs your PC, and it is out of reach right now.';
+  class Unreachable extends Error {
+    constructor() { super(OFFLINE_TEXT); this.offline = true; }
+  }
+  const unreachable = () => new Unreachable();
+
+  // Finding the PC quickly. Its addresses (wifi, Tailscale, linked PCs) are asked all at once with a
+  // short wait, not one by one with a long one: when none is in reach that costs one short wait,
+  // not seven seconds per address. The address that answered last is used straight away while it
+  // keeps answering. Once out of reach, the phone stops waiting on the network altogether (the
+  // calendar shows what it kept, changes go to the outbox) and looks for the PC in the background.
+  const PROBE_MS = 3000;     // how long the "are you there?" may take
+  const FRESH_MS = 30000;    // an address that answered this recently is used without asking first
+  let lastOk = 0;
+
+  /** An address that answers now: the one that answered last, while it is fresh; else the first of all to answer a quick ping. */
+  async function route() {
+    if (conn.last && Date.now() - lastOk < FRESH_MS) return conn.last;
+    const order = [conn.last, ...conn.addresses.filter((a) => a !== conn.last)].filter(Boolean);
+    let refused = null;
+    const tries = order.map((a) => post(a, 'ping', [], null, PROBE_MS).then(() => a, (err) => {
+      if (err.final) refused = err;
+      throw err;
+    }));
+    try {
+      return await Promise.any(tries);
+    } catch {
+      if (refused) throw refused; // in reach, but this phone is no longer let in
+      return null;
+    }
+  }
+
+  /** Sends one command to the PC (at whichever address answers); its raw answer ({ ok, value | error }). */
+  async function reach(name, args, op) {
+    if (!online) throw unreachable(); // known to be out of reach: no waiting (probe() looks in the background)
+    const address = await route();
+    if (!address) { setOnline(false); throw unreachable(); }
+    let body;
+    try {
+      body = await post(address, name, args, op, SLOW_MS[name] || TIMEOUT_MS);
+    } catch (err) {
+      if (err.final) throw err;
+      lastOk = 0;
+      setOnline(false);
+      throw unreachable();
+    }
+    lastOk = Date.now();
+    setOnline(true);
+    if (conn.last !== address) { conn.last = address; write(CONN, conn); }
+    if (body.ok) learnAddresses(body.value, address);
+    return body;
+  }
+
+  let probing = null;
+  /** Out of reach: looks for the PC in the background (a quick ping at every address); back, the outbox goes. */
+  function probe() {
+    if (probing || !conn) return probing || Promise.resolve();
+    probing = (async () => {
+      try {
+        lastOk = 0;
+        const address = await route();
+        if (!address) return;
+        lastOk = Date.now();
+        if (conn.last !== address) { conn.last = address; write(CONN, conn); }
+        setOnline(true);
+        await flush();
+        maybeSetUp();
+      } catch { /* not in reach yet */ } finally {
+        probing = null;
+      }
+    })();
+    return probing;
+  }
+  setInterval(() => { if (!online && document.visibilityState === 'visible') probe(); }, 10000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && !online) probe(); });
+  // Android says when the phone has no network at all: out of reach at once, and back to looking when it has one.
+  addEventListener('offline', () => setOnline(false));
+  addEventListener('online', () => probe());
+
+  // A short, calm word: the version is kept on the error (for "say it once per PC version"), not in the text.
+  const outdated = () => {
+    const pc = read(`${CACHE}state`, null)?.version || '';
+    return Object.assign(new Error('Update Onyx on your PC to do this from your phone.'), { outdated: true, pc });
+  };
+
+  /**
+   * Runs a command on this phone's own engine (the PC out of reach, or no PC). Kept like the PC's
+   * answers, so the calendar reads the same if even the internet goes. With no internet at all,
+   * a change waits in the outbox as it always has, and the last answers are shown.
+   */
+  async function runHere(name, args) {
+    engine.active(true);
+    try {
+      const value = await engine.call(name, args);
+      if (CACHED.has(name)) write(cacheKey(name, args), value);
+      if (name === 'events' && value?.events) rememberEvents(value.events);
+      return overlay(name, args, value);
+    } catch (err) {
+      if (!isNet(err)) throw err;
+      if (QUEUEABLE.has(name)) return enqueue(name, args);
+      const cached = CACHED.has(name) ? fromCache(name, args) : null;
+      if (cached) return overlay(name, args, cached);
+      throw err;
+    }
+  }
+
+  async function call(name, ...args) {
+    await ready;
+    if (!conn) {
+      if (own) return runHere(name, args); // no PC: Onyx on the web, or a phone that works on its own
+      throw new Error('This phone is not connected to Onyx on your PC yet.');
+    }
+    args = remap(args); // something made offline, since made on the PC: its real id
+    // A change while changes are still waiting goes after them, in order; offline, it waits too
+    // (unless this phone works on its own: then they go to the engine, and so does this one).
+    if (QUEUEABLE.has(name) && (outbox.length || !online)) {
+      if (own && !online && engine.can(name)) { await flushLocal(); if (!forEngine()) return runHere(name, args); }
+      return enqueue(name, args);
+    }
+    if (own && !online && engine.can(name)) { probe(); return runHere(name, args); }
+    let body;
+    try {
+      body = await reach(name, args);
+    } catch (err) {
+      if (!(err instanceof Unreachable)) throw err;
+      probe(); // and keep looking for it in the background
+      if (own && engine.can(name)) { await flushLocal(); if (!QUEUEABLE.has(name) || !forEngine()) return runHere(name, args); }
+      if (QUEUEABLE.has(name)) return enqueue(name, args);
+      const cached = CACHED.has(name) ? fromCache(name, args) : null;
+      if (cached) return overlay(name, args, cached);
+      // Nothing kept from the PC yet, but changes made here: those at least.
+      if (outbox.length && name === 'tasks') return overlay(name, args, { tasks: [], errors: [] });
+      throw err;
+    }
+    if (!body.ok) {
+      // An older Onyx on the PC doesn't know the commands newer app builds send.
+      if (/^Unknown command/.test(body.error || '')) throw outdated();
+      // The PC is there, but its own connection dropped: the change waits here, like one made offline.
+      if (body.retry && QUEUEABLE.has(name)) return enqueue(name, args);
+      throw new Error(body.error);
+    }
+    if (CACHED.has(name)) write(cacheKey(name, args), body.value);
+    if (name === 'events') rememberEvents(body.value.events);
+    nudgeWidget(name);
+    if (own) engine.active(false); // the PC answers: the engine rests (it catches up through Drive when needed)
+    else maybeSetUp(); // and a phone that doesn't work on its own yet asks to
+    return overlay(name, args, body.value);
+  }
+
+  // ------------------------------------------------------------ changes made offline: the outbox
+  // With the PC out of reach, a change is not lost. It waits here (kept on the phone, through a
+  // restart), in the order it was made, and shows at once on what the phone shows (overlay). Once
+  // the PC, or any PC linked to it, answers, the outbox goes to it one change at a time, in order.
+  // Each change carries an id the PCs remember, so one sent twice (an answer lost on the way) is
+  // made once. Something made offline has a stand-in id; once the PC has made it, later changes to
+  // it are sent with its real one. A change the PC turns down is set aside and reported.
+  const OUTBOX = 'onyx.outbox', IDS = 'onyx.outbox.ids', FAILED = 'onyx.outbox.failed';
+  const QUEUEABLE = new Set([
+    'event:create', 'event:update', 'event:delete', 'event:done', 'event:leaveby', 'event:call', 'event:ack',
+    'task:create', 'task:update', 'task:move', 'task:resize', 'task:delete', 'task:backburner', 'task:repeat', 'inbox:dismiss',
+    'tags:set', 'memo:set', 'pomodoro:set', 'blockTasks:set', 'blockLinks:set', 'blockTasks:tick', 'eventColor:set',
+    'note:create', 'note:update', 'note:delete', 'board:save', 'board:delete', 'goal:step', 'goal:update', 'pin:update', 'pin:remove', 'focus:log',
+  ]);
+  let outbox = read(OUTBOX, []);
+  const ids = read(IDS, {});
+  const outboxListeners = new Set();
+  const tellOutbox = (extra = {}) => { for (const fn of outboxListeners) { try { fn({ pending: outbox.length, online, standalone: own, ...extra }); } catch { /* one listener's problem */ } } };
+  const newOp = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 6)}`;
+  const realId = (v) => (typeof v === 'string' && ids[v]) || v;
+  function remap(v) {
+    if (Array.isArray(v)) return v.map(remap);
+    if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, remap(x)]));
+    return realId(v);
+  }
+  const isTemp = (v) => typeof v === 'string' && v.startsWith('offline-') && !ids[v];
+  const saveOutbox = () => { write(OUTBOX, outbox); tellOutbox(); };
+
+  const calOf = (id) => (read(`${CACHE}state`, null)?.calendars || []).find((c) => c.id === id);
+  function fakeEvent(o) {
+    const d = o.args[0] || {}, cal = calOf(d.calendarId);
+    return {
+      id: o.temp, kind: 'event', calendarId: d.calendarId, calendarName: cal?.name || '', color: cal?.color || '#8b7cff',
+      title: d.blank ? '' : d.title || '(No title)', start: d.start, end: d.end || d.start, allDay: !!d.allDay, notes: d.notes || '', location: d.location || '',
+      tags: d.tags || [], writable: true, recur: d.recur || null, offline: true,
+    };
+  }
+  function fakeTask(o) {
+    const d = o.args[0] || {}, cal = calOf(d.listId);
+    return {
+      id: o.temp, listId: d.listId, listName: cal?.name || '', color: cal?.color || '#f5b83d', provider: cal?.provider || 'google',
+      title: d.title || '', label: d.title || '', notes: d.notes || '', due: d.due || null, date: d.due || null, time: null, start: null,
+      done: false, tags: d.tags || [], offline: true,
+    };
+  }
+  const dayAfter = (ymd) => { const d = new Date(`${ymd}T00:00:00`); d.setDate(d.getDate() + 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  const taskEntry = (t) => ({ id: t.id, kind: 'task', calendarId: t.listId, calendarName: t.listName, color: t.color, title: t.label || t.title,
+    start: t.date, end: dayAfter(t.date), allDay: true, done: !!t.done, tags: t.tags || [], writable: true, movable: false, offline: true });
+
+  /** What the PC's answer would be with the waiting changes already made: events and tasks show them. */
+  function overlay(name, args, value) {
+    if (!outbox.length || !value) return value;
+    if (name === 'events' && Array.isArray(value.events)) {
+      let list = value.events.slice();
+      const touch = (id, fn) => { list = list.map((e) => (e.id === id || e.seriesId === id ? fn({ ...e }) : e)); };
+      for (const o of outbox) {
+        const [a, b, c] = remap(o.args);
+        if (o.name === 'event:create') list.push(fakeEvent(o));
+        else if (o.name === 'event:update') touch(a, (e) => ({ ...e, ...Object.fromEntries(['title', 'start', 'end', 'allDay', 'notes', 'location', 'tags', 'calendarId'].filter((k) => b && k in b).map((k) => [k, b[k]])) }));
+        else if (o.name === 'event:delete') list = list.filter((e) => e.id !== a && !(b?.scope === 'all' && b.seriesId && e.seriesId === b.seriesId));
+        else if (o.name === 'event:done') touch(a, (e) => ({ ...e, done: !!b }));
+        else if (o.name === 'tags:set') touch(a, (e) => ({ ...e, tags: b || [] }));
+        else if (o.name === 'eventColor:set') touch(a, (e) => ({ ...e, color: b || e.calColor || e.color, ownColor: !!b }));
+        else if (o.name === 'blockTasks:set') touch(a, (e) => ({ ...e, taskList: (b || []).length ? b.map((t) => ({ id: t.id, text: t.text, done: !!e.taskList?.find((x) => x.id === t.id)?.done })) : null }));
+        else if (o.name === 'blockLinks:set') touch(a, (e) => ({ ...e, links: (b || []).length ? b : null }));
+        else if (o.name === 'blockTasks:tick') list = list.map((e) => (e.id === a && e.taskList ? { ...e, taskList: e.taskList.map((t) => (t.id === b ? { ...t, done: !!c } : t)) } : e));
+        else if (o.name === 'task:create') { const t = fakeTask(o); if (t.date) list.push(taskEntry(t)); }
+        else if (o.name === 'task:update') touch(a, (e) => ({ ...e, ...(b?.title != null ? { title: b.title } : {}), ...(b && 'done' in b ? { done: !!b.done } : {}) }));
+        else if (o.name === 'task:delete') list = list.filter((e) => e.id !== a);
+        else if (o.name === 'task:move' && b) {
+          touch(a, (e) => {
+            const was = new Date(e.end) - new Date(e.start);
+            if (b.start) return { ...e, allDay: false, start: b.start, end: new Date(new Date(b.start).getTime() + (e.allDay ? 30 * 60000 : was)).toISOString() };
+            return b.date ? { ...e, allDay: true, start: b.date, end: dayAfter(b.date) } : e;
+          });
+        } else if (o.name === 'task:resize' && b) {
+          touch(a, (e) => {
+            const s = b.start || e.start;
+            return { ...e, start: s, ...(b.minutes ? { end: new Date(new Date(s).getTime() + b.minutes * 60000).toISOString() } : {}) };
+          });
+        }
+      }
+      const [start, end] = args;
+      const inRange = (e) => !start || !end || (new Date(e.end || e.start) > new Date(start) && new Date(e.start) < new Date(end));
+      return { ...value, events: list.filter(inRange) };
+    }
+    if (name === 'tasks' && Array.isArray(value.tasks)) {
+      let list = value.tasks.slice();
+      const touch = (id, fn) => { list = list.map((t) => (t.id === id ? fn({ ...t }) : t)); };
+      for (const o of outbox) {
+        const [a, b] = remap(o.args);
+        if (o.name === 'task:create') list.push(fakeTask(o));
+        else if (o.name === 'task:update') {
+          touch(a, (t) => ({ ...t, ...(b?.title != null ? { title: b.title, label: b.title } : {}), ...(b && 'notes' in b ? { notes: b.notes } : {}),
+            ...(b && 'due' in b ? { due: b.due, date: b.due } : {}), ...(b && 'done' in b ? { done: !!b.done } : {}) }));
+          if (b?.done) list = list.filter((t) => t.id !== a); // done: off to the Archived tab, as the PC does
+        } else if (o.name === 'task:delete') list = list.filter((t) => t.id !== a);
+        else if (o.name === 'task:move' && b) {
+          const local = (iso) => { const d = new Date(iso); return [`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`, `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`]; };
+          touch(a, (t) => (b.start ? { ...t, date: local(b.start)[0], time: local(b.start)[1], start: b.start } : b.date ? { ...t, date: b.date, due: b.date, time: null, start: null } : t));
+        } else if (o.name === 'task:backburner') touch(a, (t) => ({ ...t, backburner: !!b }));
+        else if (o.name === 'tags:set') touch(a, (t) => ({ ...t, tags: b || [] }));
+      }
+      return { ...value, tasks: list };
+    }
+    return value;
+  }
+
+  /** Keeps a change for the PC; what the app gets back meanwhile is what it will look like. */
+  function enqueue(name, args) {
+    const o = { op: newOp(), name, args, at: Date.now() };
+    if (/:create$/.test(name)) o.temp = `offline-${o.op}`;
+    // Taken away before it ever reached the PC: its making and every change to it go, and nothing is sent.
+    if (/:delete$/.test(name) && isTemp(args[0])) {
+      const t = args[0];
+      outbox = outbox.filter((x) => x.temp !== t && !JSON.stringify(x.args).includes(t));
+      saveOutbox();
+      return true;
+    }
+    outbox.push(o);
+    saveOutbox();
+    setTimeout(flush, 0);
+    if (name === 'event:create') return fakeEvent(o);
+    if (name === 'task:create') return fakeTask(o);
+    if (/:create$/.test(name)) return { ...(args[0] || {}), id: o.temp, offline: true };
+    if (/:update$/.test(name)) return { id: args[0], ...(args[1] || {}), offline: true };
+    return args.length > 1 ? args[1] ?? true : true;
+  }
+
+  let flushing = false;
+  let held = false; // the PC is holding changes back (its connection dropped): said once, not every try
+
+  /** Waiting changes the engine can make (the rest are for the PC alone, and wait for it). */
+  const forEngine = () => outbox.some((o) => engine.can(o.name));
+
+  /**
+   * The waiting changes, made by this phone's own engine (the PC out of reach); kept if the internet is gone too.
+   * A change only the PC can make is stepped over and keeps waiting for the PC, in its place.
+   */
+  async function flushLocal() {
+    if (flushing || !outbox.length || !(await ready) || !own) return;
+    flushing = true;
+    let sent = 0;
+    const failed = [];
+    const forPc = [];
+    tellOutbox({ syncing: true });
+    try {
+      while (outbox.length) {
+        const o = outbox[0];
+        if (!engine.can(o.name)) { forPc.push(outbox.shift()); continue; }
+        try {
+          const value = await engine.call(o.name, remap(o.args));
+          if (o.temp && value && typeof value === 'object' && value.id) { ids[o.temp] = value.id; write(IDS, ids); }
+          sent++;
+        } catch (err) {
+          if (isNet(err)) break; // no internet: the rest wait
+          if (!/no longer exists|not found|doesn't exist|does not exist|isn't there|\b404\b|\b410\b/i.test(err?.message || '')) failed.push({ name: o.name, error: err?.message || 'It could not be saved.', at: o.at });
+        }
+        outbox.shift();
+        write(OUTBOX, [...forPc, ...outbox]);
+      }
+    } finally {
+      outbox = [...forPc, ...outbox];
+      write(OUTBOX, outbox);
+      flushing = false;
+    }
+    if (failed.length) write(FAILED, [...read(FAILED, []), ...failed].slice(-50));
+    tellOutbox({ sent, failed });
+  }
+
+  /** Sends the waiting changes, oldest first; stops (and keeps the rest) as soon as no PC answers. */
+  async function flush() {
+    if (flushing || !outbox.length) return;
+    if (!conn || !online) { if (await ready) return flushLocal(); if (conn) probe(); return; } // on its own: the engine makes them; else they go once the PC is found
+    flushing = true;
+    let sent = 0;
+    const failed = [];
+    let blocked = null;
+    let blockedKey = null; // set when the PC is just too old: a note, said once per PC version
+    let waiting = null;
+    tellOutbox({ syncing: true });
+    try {
+      while (outbox.length) {
+        const o = outbox[0];
+        let body;
+        try {
+          body = await reach(o.name, remap(o.args), o.op);
+        } catch (err) {
+          if (err.final) blocked = err.message;
+          break; // no PC in reach (or this phone is no longer let in): the rest wait
+        }
+        if (!body.ok && /^Unknown command/.test(body.error || '')) { // kept until the PC is updated
+          const n = outbox.length;
+          blocked = `${n === 1 ? 'A change' : `${n} changes`} made here will sync once Onyx on your PC is updated.`;
+          blockedKey = `outdated:${outdated().pc}`;
+          break;
+        }
+        if (!body.ok && body.retry) { // nothing was made: kept, and tried again with the next round
+          if (!held) waiting = `Your PC couldn't reach the internet just now. ${outbox.length === 1 ? 'A change waits' : `${outbox.length} changes wait`} on this phone and will sync on their own.`;
+          held = true;
+          break;
+        }
+        if (body.ok) {
+          if (o.temp && body.value && typeof body.value === 'object' && body.value.id) {
+            ids[o.temp] = body.value.id;
+            const keys = Object.keys(ids);
+            for (const k of keys.slice(0, Math.max(0, keys.length - 500))) delete ids[k];
+            write(IDS, ids);
+          }
+          sent++;
+        } else if (!/no longer exists|not found|doesn't exist|does not exist|isn't there|\b404\b|\b410\b/i.test(body.error || '')) {
+          failed.push({ name: o.name, error: body.error || 'It could not be saved.', at: o.at }); // gone already on the PC: nothing to do
+        }
+        outbox.shift();
+        write(OUTBOX, outbox);
+      }
+    } finally {
+      flushing = false;
+    }
+    if (sent) held = false;
+    if (failed.length) write(FAILED, [...read(FAILED, []), ...failed].slice(-50));
+    tellOutbox({ sent, failed, blocked, blockedKey, waiting });
+    if (sent) nudgeWidget('outbox:sent');
+  }
+  // Tried again every 15 seconds while anything waits, and whenever the app comes back to the front.
+  setInterval(() => { if (outbox.length) flush(); }, 15000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && outbox.length) flush(); });
+  if (outbox.length) setTimeout(flush, 1500);
+
+  const withLocal = (state) => (state ? { ...state, settings: { ...state.settings, ...local } } : state);
+
+  /** Reads a pairing link: onyx://pair?a=192.168.1.20:4747,100.x.y.z:4747&t=TOKEN, or the
+   *  QR code's web form of it, http://192.168.1.20:4747/pair#a=...&t=TOKEN */
+  function parseLink(link) {
+    const url = new URL(String(link).trim());
+    const params = url.protocol === 'onyx:' ? url.searchParams : new URLSearchParams(url.hash.slice(1));
+    const addresses = (params.get('a') || '').split(',').map((a) => a.trim()).filter(Boolean);
+    const token = params.get('t') || '';
+    if (!addresses.length || !token) throw new Error('That is not an Onyx pairing link.');
+    return { addresses, token };
+  }
+
+  async function pair({ addresses, token }) {
+    const clean = addresses.map((a) => a.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '')).filter(Boolean)
+      .map((a) => (/:\d+$/.test(a) ? a : `${a}:4747`));
+    if (!clean.length || !token.trim()) throw new Error('Enter the PC\'s address and the token.');
+    const previous = conn;
+    conn = { addresses: clean, token: token.trim(), last: '' };
+    // A new PC to try: an earlier attempt that couldn't reach one mustn't stop this one before it starts.
+    online = true;
+    lastOk = 0;
+    try {
+      const state = await call('state');
+      if (!online) throw new Error('Could not reach the PC at that address.');
+      write(CONN, conn);
+      syncWidget();
+      auto.next = 0; // a new pairing: asked to work on its own straight away
+      return state;
+    } catch (err) {
+      conn = previous;
+      if (err instanceof Unreachable) {
+        const anywhere = clean.some(isTailscale);
+        throw new Error(`This phone couldn't reach your PC at ${clean.join(' or ')}. Check that Onyx is open on the PC and the phone is on the same Wi-Fi`
+          + (anywhere ? ', or has Tailscale on.' : '.'));
+      }
+      throw err;
+    }
+  }
+
+  // Updates: the newest APK on the GitHub releases page. Android installs it once
+  // the browser has downloaded it (installing from inside an app isn't allowed).
+  const REPO = 'christiangilkey/onyx-calendar';
+  let update = { status: 'idle', current: '' };
+  const updateListeners = new Set();
+  const setUpdate = (patch) => { update = { ...update, ...patch }; for (const fn of updateListeners) fn(update); return update; };
+  const parts = (v) => String(v).replace(/^v/, '').split(/[.-]/).map((n) => parseInt(n, 10) || 0);
+  const isNewer = (a, b) => {
+    const x = parts(a), y = parts(b);
+    for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+    return false;
+  };
+  const appVersion = async () => {
+    try { return (await window.Capacitor?.Plugins?.App?.getInfo())?.version || ''; } catch { return ''; }
+  };
+  // Capacitor hands links to other sites to the phone's browser instead of opening them inside the app.
+  const openOutside = (url) => { if (/^https:\/\//i.test(url)) location.assign(url); };
+
+  // Requests through the phone's own network stack (no CORS, follows GitHub's download
+  // redirects); plain fetch where that isn't there.
+  const nativeHttp = () => window.Capacitor?.Plugins?.CapacitorHttp;
+  async function get(url, { method = 'GET', headers = {} } = {}) {
+    const http = nativeHttp();
+    if (http) {
+      const res = await http.request({ url, method, headers, responseType: 'text', connectTimeout: 15000, readTimeout: 15000 });
+      return { status: res.status, text: typeof res.data === 'string' ? res.data : JSON.stringify(res.data ?? '') };
+    }
+    const res = await fetch(url, { method, headers });
+    return { status: res.status, text: method === 'HEAD' ? '' : await res.text() };
+  }
+
+  async function checkUpdate() {
+    const current = await appVersion();
+    setUpdate({ status: 'checking', current, error: '' });
+    // The newest version from latest.yml, the file the desktop updater reads too: a plain
+    // download, which GitHub doesn't count against its 60-checks-an-hour API limit (a home
+    // connection's PCs and phones all share that, and it runs out).
+    let version = '';
+    try {
+      const res = await get(`https://github.com/${REPO}/releases/latest/download/latest.yml`);
+      if (res.status !== 200) throw new Error(`GitHub answered ${res.status}`);
+      version = (res.text.match(/^version:\s*['"]?v?([\d.]+)/m) || [])[1] || '';
+      if (!version) throw new Error('latest.yml has no version');
+    } catch {
+      return setUpdate({ status: 'error', error: 'Could not reach GitHub to check for updates.' });
+    }
+    if (!current || !isNewer(version, current)) return setUpdate({ status: 'current', version: current || version });
+    const url = `https://github.com/${REPO}/releases/download/v${version}/Onyx-Calendar-${version}.apk`;
+    // The PC's installer can land a few minutes before the APK: offer it once the APK is up.
+    try {
+      const apk = await get(url, { method: 'HEAD' });
+      if (apk.status !== 200) return setUpdate({ status: 'current', version: current });
+    } catch { /* offer it anyway; the browser says so if it isn't there yet */ }
+    // The release notes come from the API, which may be out of checks: the update is offered without them then.
+    let notes = '';
+    try {
+      const res = await get(`https://api.github.com/repos/${REPO}/releases/tags/v${version}`, { headers: { Accept: 'application/vnd.github+json' } });
+      if (res.status === 200) notes = JSON.parse(res.text).body || '';
+    } catch { /* no notes */ }
+    return setUpdate({ status: 'available', version, notes, url });
+  }
+
+  /** Sets this device up to work on its own: the PC's hand-off (asked of the PC, or from a setup link) opened with the sync code. */
+  async function standaloneSetUp(code, blob) {
+    if (!engine) throw new Error('This version of the app can\'t work on its own yet. Update it first.');
+    const handoff = blob || (await call('phone:handoff'));
+    const info = await engine.join(handoff, code);
+    own = true;
+    engine.active(!conn || !online);
+    tellOutbox();
+    return info;
+  }
+
+  // ------------------------------------------------------------ setting itself up to work on its own
+  // A paired phone sets itself up to sync through Google Drive by itself, with no code to type, so it
+  // keeps working with the PC off or out of reach (a VPN on, another network). It asks the PC
+  // (phone:setup) with a key of its own; the PC asks you once, on its screen; then the PC's hand-off and
+  // the sync code come back locked to that key (ECDH P-256, HKDF with the pairing token as salt, AES-GCM,
+  // as phone-setup.js on the PC makes it), and the engine joins with them.
+  const SETUP = 'onyx.setup'; // { id, pub, jwk, declined }
+  const WAIT_MS = 20000;      // asked again this often while the PC waits for your OK
+  const subtle = globalThis.crypto?.subtle;
+  const ECDH = { name: 'ECDH', namedCurve: 'P-256' };
+  const utf8 = (s) => new TextEncoder().encode(String(s));
+  const toB64u = (buf) => { let s = ''; for (const b of new Uint8Array(buf)) s += String.fromCharCode(b); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+  const fromB64u = (s) => Uint8Array.from(atob(String(s).replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+  const auto = { state: '', next: 0, busy: false };
+
+  /** The phone's model, from Android's own words ("Pixel 8"); the reduced user agent says only "K". */
+  function phoneName() {
+    const model = ((globalThis.navigator?.userAgent || '').match(/Android [\d.]+; ([^;)]+?)(?: Build\/[^;)]*)?[;)]/) || [])[1]?.trim() || '';
+    return model.length > 1 ? model : 'Your phone';
+  }
+
+  /** This phone's key for asking, kept through a restart: an OK given on the PC meanwhile still fits it. */
+  async function setupKeys() {
+    const kept = read(SETUP, {});
+    if (kept.id && kept.pub && kept.jwk) {
+      try { return { kept, priv: await subtle.importKey('jwk', kept.jwk, ECDH, false, ['deriveBits']) }; } catch { /* made again */ }
+    }
+    const pair = await subtle.generateKey(ECDH, true, ['deriveBits']);
+    const next = {
+      id: kept.id || `ph-${toB64u(globalThis.crypto.getRandomValues(new Uint8Array(12)))}`,
+      pub: toB64u(await subtle.exportKey('raw', pair.publicKey)), jwk: await subtle.exportKey('jwk', pair.privateKey),
+    };
+    write(SETUP, next);
+    return { kept: next, priv: pair.privateKey };
+  }
+
+  /** What the PC sent ({ pub, box }), opened with this phone's key: { handoff, code }. */
+  async function openSetup(priv, v) {
+    const theirs = await subtle.importKey('raw', fromB64u(v.pub), ECDH, false, []);
+    const shared = await subtle.deriveBits({ name: 'ECDH', public: theirs }, priv, 256);
+    const hk = await subtle.importKey('raw', shared, 'HKDF', false, ['deriveKey']);
+    const key = await subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: utf8(conn.token), info: utf8('onyx-phone-setup-v1') }, hk, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+    const box = fromB64u(v.box);
+    const plain = await subtle.decrypt({ name: 'AES-GCM', iv: box.slice(0, 12), additionalData: utf8('onyx-phone-setup') }, key, box.slice(12));
+    return JSON.parse(new TextDecoder().decode(plain));
+  }
+
+  /**
+   * One ask of the PC, when it is in reach and this phone doesn't work on its own yet. States: 'waiting'
+   * (for your OK on the PC), 'pc-off' (the PC doesn't sync through Drive yet), 'old-pc', 'declined', 'done'.
+   */
+  async function autoSetUp() {
+    if (auto.busy || own || !conn || !online || !native || !engine || !subtle || Date.now() < auto.next) return;
+    if (read(SETUP, {}).declined) { auto.state = 'declined'; return; }
+    auto.busy = true;
+    const later = (ms, state) => { auto.next = Date.now() + ms; auto.state = state; };
+    try {
+      const { kept, priv } = await setupKeys();
+      const body = await reach('phone:setup', [{ id: kept.id, pub: kept.pub, name: phoneName() }]);
+      if (!body.ok) {
+        const old = /^Unknown command/.test(body.error || '');
+        return later(old ? 6 * 3600000 : 10 * 60000, old ? 'old-pc' : 'error');
+      }
+      const v = body.value || {};
+      if (v.declined) { write(SETUP, { ...kept, declined: true }); return later(0, 'declined'); }
+      if (v.waiting) { later(WAIT_MS, 'waiting'); setTimeout(autoSetUp, WAIT_MS + 50); return; }
+      if (!v.box) return later(5 * 60000, 'pc-off');
+      const { handoff, code } = await openSetup(priv, v);
+      await standaloneSetUp(code, handoff);
+      write(SETUP, { id: kept.id }); // the key has done its job
+      auto.state = 'done';
+      tellOutbox({ setUp: true });
+    } catch (err) {
+      later(err?.offline ? 60000 : 10 * 60000, 'error');
+    } finally {
+      auto.busy = false;
+    }
+  }
+  /** After the PC answered something: an ask, if one is due. */
+  const maybeSetUp = () => { if (!own && !auto.busy && Date.now() >= auto.next) setTimeout(autoSetUp, 0); };
+
+  window.ONYX_PHONE = true;
+  window.onyx = {
+    isPhone: true,
+    isWeb: WEB,
+    offlineText: OFFLINE_TEXT,
+    paired: () => !!conn || own,
+    whenReady: () => ready,
+    // The start (app.js: firstState): what was saved from the PC, to open with while it is slow to answer,
+    // and the PC taken as out of reach for now (looked for in the background, as usual).
+    savedState: () => { const kept = conn ? fromCache('state', []) : null; return kept ? withLocal(overlay('state', [], kept)) : null; },
+    goOffline: () => { if (!conn) return; lastOk = 0; setOnline(false); probe(); },
+    connection: () => (conn ? { addresses: conn.addresses, last: conn.last, online, anywhere: conn.addresses.filter(isTailscale), standalone: own } : own ? { addresses: [], online: false, anywhere: [], standalone: true } : null),
+    // Working on its own (the engine): set up with the sync code, its state, a sync now, and off.
+    standalone: engine ? {
+      info: () => engine.info(),
+      setUp: (code, blob) => standaloneSetUp(code, blob),
+      // Setting itself up through the PC (no code): how far it got, and asking again after a no.
+      auto: () => ({ state: native && subtle && conn ? auto.state : '' }),
+      askAgain: () => { write(SETUP, {}); Object.assign(auto, { state: '', next: 0 }); maybeSetUp(); },
+      // With no PC: Google sign-in on this device (your own Web client), then the sync code if others exist.
+      redirect: () => (WEB ? `${location.origin}${location.pathname}` : WEB_APP),
+      signIn: async (client) => {
+        write(SIGNIN_ERR, '');
+        const url = await engine.signInStart({ client, redirect: WEB ? `${location.origin}${location.pathname}` : WEB_APP, back: WEB ? 'web' : 'app' });
+        location.assign(url); // the web app goes to Google's page; the phone app opens it in the phone's browser
+      },
+      signInError: () => { const e = read(SIGNIN_ERR, ''); write(SIGNIN_ERR, ''); return e; },
+      enterCode: async (code) => { const r = await engine.enterCode(code); own = !!r.on; tellOutbox(); return r; },
+      handoff: () => engine.handoff(),
+      syncNow: () => engine.syncNow(),
+      turnOff: async () => { const r = await engine.leave(); own = false; tellOutbox(); return r; },
+    } : null,
+    pair,
+    pairLink: (link) => pair(parseLink(link)),
+    // The phone's own QR scanner, so pairing never goes through the camera app or a browser.
+    canScan: !!window.Capacitor?.Plugins?.CapacitorBarcodeScanner,
+    scan: async () => {
+      const scanner = window.Capacitor?.Plugins?.CapacitorBarcodeScanner;
+      if (!scanner) throw new Error('Scanning works in the Android app.');
+      let result;
+      try {
+        result = await scanner.scanBarcode({
+          hint: 0, // QR code
+          cameraDirection: 1, // back camera
+          scanOrientation: 1, // portrait
+          scanInstructions: 'Point at the QR code in Onyx on your PC: Settings → Phone',
+        });
+      } catch (err) {
+        if (/cancel/i.test(err?.message || '')) return null;
+        throw err;
+      }
+      const text = result?.ScanResult || '';
+      if (!text) return null;
+      if (!/^(onyx:\/\/|https?:\/\/[^/]+\/pair#)/.test(text)) throw new Error('That QR code is not an Onyx pairing code. Use the one in Settings → Phone on the PC.');
+      return pair(parseLink(text));
+    },
+    syncDesktops: () => call('desktops:sync'),
+    breakdown: (title, opts) => call('ai:breakdown', title, opts),
+    breakdownPlan: (o) => call('ai:breakdownPlan', o),
+    logFocus: (session) => call('focus:log', session),
+    focusSessions: (range) => call('focus:sessions', range),
+    focusInsights: () => call('focus:insights'),
+    // A session run on the phone tells the PC it is on (assistants hold their messages) and when it ends.
+    focusStart: (session) => call('focus:start', session),
+    focusEnd: () => call('focus:end'),
+    focusNext: (info) => call('focus:next', info),
+    setAiKey: (key) => call('ai:key', key),
+    magicPlan: (text, date, opts, inboxIds, material) => call('magic:plan', text, date, opts, inboxIds, material),
+    readSource: (src) => call('source:read', src),
+    magicReplan: (tasks, travel, date, opts) => call('magic:replan', tasks, travel, date, opts),
+    magicRemember: (opts) => call('magic:remember', opts),
+    // Onyx Home (the launcher) and Onyx on the lock screen, chosen in Settings.
+    launcher: Widget ? {
+      info: () => Widget.launcherInfo(),
+      set: (show) => Widget.setLauncher({ show }),
+      setAlarm: (alarm) => Widget.setLauncher({ alarm }),
+      setCover: (cover) => Widget.setLauncher({ cover }),
+      open: (what) => Widget.launcherOpen({ what }),
+      // The doomscroll saver (DoomscrollService): on or off, after how many minutes, and a ten-second look at its card.
+      // Which apps count: off = the built-in names left out, extra = the apps added ([{ pkg, label }]).
+      // limits = the daily limits, { name: minutes } for all of them (one left out has none).
+      setDoomscroll: ({ on, minutes, off, extra, limits } = {}) => Widget.setLauncher({
+        ...(on != null ? { doomscroll: !!on } : {}), ...(minutes ? { doomMinutes: Math.round(minutes) } : {}),
+        ...(off ? { doomOff: off } : {}), ...(extra ? { doomExtra: extra } : {}), ...(limits ? { doomLimits: limits } : {}) }),
+      previewDoomscroll: () => (Widget.doomscrollPreview ? Widget.doomscrollPreview() : Promise.resolve({ shown: false })),
+      // Each screen's editor, 'lock' or 'home': its layout and your shortcuts on it (LockLayout, LockShortcuts).
+      lockSetup: (screen = 'lock') => (Widget.lockSetup ? Widget.lockSetup({ screen }) : Promise.reject(new Error('Update the Onyx app to use this.'))),
+      setLockSetup: (o, screen = 'lock') => Widget.setLockSetup({ ...o, screen }),
+      shortcutApps: () => Widget.shortcutApps().then((r) => r.apps || []),
+      pickShortcutFile: () => Widget.pickShortcutFile(),
+      tryShortcut: (shortcut) => Widget.tryShortcut({ shortcut }),
+      // A Hyperfocus session on this phone, shown on Onyx Home and the lock screen (null: it is over).
+      focus: (s) => Widget.setFocus?.(s ? { goal: s.goal, startedAt: s.startedAt, plannedEnd: s.plannedEnd } : { clear: true })?.catch?.(() => {}),
+    } : null,
+    // Everything going off on this phone (Alerts): the alarm ringing, the Pi calling. off() turns it all off;
+    // take() also hands over what the PC still has to be told (it couldn't be reached), for the app to send.
+    alerts: Widget?.alerts ? {
+      state: () => Widget.alerts({}),
+      off: () => Widget.alerts({ off: true }),
+      take: () => Widget.alerts({ take: true }),
+    } : null,
+    // The noise machine, played by the app on this phone (NoiseService): on with the screen off, and from the lock
+    // screen. Each answers with { playing, kind, volume, minutes, endsAt }. An older app: the window plays it instead.
+    noise: Widget?.noise ? {
+      state: () => Widget.noise({}),
+      play: (kind, volume, minutes = 0) => Widget.noise({ play: kind, volume: Math.round(volume), minutes: Math.round(minutes) }),
+      stop: () => Widget.noise({ stop: true }),
+      volume: (volume) => Widget.noise({ volume: Math.round(volume) }),
+    } : null,
+    // "Hey Claude" (VoiceService): listening on this phone for the phrase, and its speech model (VoiceModel).
+    // set({ on, download, cancel, remove, phrase, claude, chime }); each answers with how it is now.
+    voice: Widget?.voice ? {
+      state: () => Widget.voice({}),
+      set: (o) => Widget.voice(o),
+    } : null,
+    // Tamkeen on this phone (not on the PC): checked and opened through the app's own plugin.
+    tamkeen: {
+      info: async () => {
+        try {
+          return { installed: !!(await Widget?.tamkeenInstalled?.())?.installed };
+        } catch {
+          return { installed: false }; // an app build from before Tamkeen support
+        }
+      },
+      watch: async (id) => {
+        if (!Widget?.openTamkeen) throw new Error('Opening Tamkeen works in the Android app.');
+        try {
+          await Widget.openTamkeen({ id });
+        } catch (err) {
+          throw new Error(err?.message || 'Could not open Tamkeen.');
+        }
+        return true;
+      },
+    },
+    unpair: () => {
+      conn = null;
+      localStorage.removeItem(CONN);
+      syncWidget();
+      for (const key of Object.keys(localStorage)) if (key.startsWith(CACHE)) localStorage.removeItem(key);
+    },
+    onOnline: (fn) => listeners.add(fn),
+    // The outbox: how many changes wait for the PC, and when they have gone (or one was turned down).
+    onOutbox: (fn) => { outboxListeners.add(fn); fn({ pending: outbox.length, online, standalone: own }); ready.then(() => fn({ pending: outbox.length, online, standalone: own })); },
+    outbox: () => ({ pending: outbox.length, online, failed: read(FAILED, []) }),
+    // A look that was already under way may have started before the PC was back: then one more.
+    syncNow: async () => { if (!online) await probe(); if (!online) await probe(); return flush(); },
+
+    state: async () => withLocal(await call('state')),
+    refresh: async () => withLocal(await call('refresh')),
+    events: (start, end, force) => call('events', start, end, force),
+    createEvent: (data) => call('event:create', data),
+    updateEvent: (id, patch) => call('event:update', id, patch),
+    deleteEvent: (id, opts) => call('event:delete', id, opts),
+    setBackburner: (id, on) => call('task:backburner', id, on),
+    setEventDone: (id, done) => call('event:done', id, done),
+    setTwilioToken: (token) => call('calls:token', token),
+    testCall: (kind) => call('calls:test', kind),
+    emails: (start, end) => call('emails', start, end),
+    // The alarms coming up, set on Android's alarm clock (it wakes the phone and rings until a button is pressed).
+    setAlarms: async (alarms) => { if (Widget?.setAlarms) await Widget.setAlarms({ alarms }); },
+    setCall: (event, on, before, mode) => call('event:call', event, on, before, mode),
+    setLeaveBy: (id, minutes) => call('event:leaveby', id, minutes),
+    ackCall: (id) => call('event:ack', id),
+    tasks: (force) => call('tasks', force),
+    createTask: (data) => call('task:create', data),
+    updateTask: (id, patch) => call('task:update', id, patch),
+    moveTask: (id, to) => call('task:move', id, to),
+    resizeTask: (id, to) => call('task:resize', id, to),
+    planTask: (id, to) => call('task:plan', id, to),
+    unplanTask: (id, prev) => call('task:unplan', id, prev),
+    dismissInbox: (id) => call('inbox:dismiss', id),
+    receiveTask: (link) => call('link:task', link),
+    archivedTasks: (from, to) => call('tasks:archived', from, to),
+    deleteTask: (id) => call('task:delete', id),
+    repeatTask: (id, rule) => call('task:repeat', id, rule),
+    updateSeries: (key, data) => call('series:update', key, data),
+    clearSeries: (key) => call('series:clear', key),
+    stopSeries: (key) => call('series:stop', key),
+    goals: (force) => call('goals', force),
+    createGoal: (data) => call('goal:create', data),
+    updateGoal: (id, data) => call('goal:update', id, data),
+    planGoal: (opts) => call('goal:plan', opts),
+    deleteGoal: (id, keepTasks) => call('goal:delete', id, keepTasks),
+    setGoalStep: (id, stepId, done) => call('goal:step', id, stepId, done),
+    setTags: (id, tags) => call('tags:set', id, tags),
+    setMemo: (id, text) => call('memo:set', id, text),
+    setPomodoro: (id, cfg) => call('pomodoro:set', id, cfg),
+    setBlockTasks: (key, items) => call('blockTasks:set', key, items),
+    setBlockLinks: (key, items) => call('blockLinks:set', key, items),
+    tickBlockTask: (id, taskId, done) => call('blockTasks:tick', id, taskId, done),
+    setEventColor: (key, color) => call('eventColor:set', key, color),
+    reportBugs: (list) => call('bugs:report', list),
+    reportStarts: async (list) => call('phone:starts', list, await appVersion()),
+    news: (force, mode) => call('news', force, mode),
+    addNewsChannel: (input) => call('news:add', input),
+    setNewsChannel: (id, on) => call('news:set', id, on),
+    removeNewsChannel: (id) => call('news:remove', id),
+    resetNewsChannels: () => call('news:reset'),
+    globe: () => call('globe'),
+    createNote: (data) => call('note:create', data),
+    boards: () => call('boards'),
+    saveBoard: (board) => call('board:save', board),
+    deleteBoard: (id) => call('board:delete', id),
+    updateNote: (id, patch) => call('note:update', id, patch),
+    deleteNote: (id) => call('note:delete', id),
+    addPin: (item) => call('pin:add', item),
+    updatePin: (id, patch) => call('pin:update', id, patch),
+    removePin: (id) => call('pin:remove', id),
+    searchNotion: (query) => call('notion:search', query),
+    shareSenders: () => call('share:senders'),
+    shareEmail: (data) => call('share:email', data),
+    sharePages: (query) => call('share:pages', query),
+    shareNotion: (data) => call('share:notion', data),
+    searchDrive: (query) => call('drive:search', query),
+    // Keys entered on the phone are saved in Onyx on the PC, so both use them.
+    connectNotion: async (key) => withLocal(await call('notion:connect', key)),
+    disconnectNotion: async () => withLocal(await call('notion:disconnect')),
+    setGoogleCredentials: async (text) => withLocal(await call('google:credentials', text)),
+    setMicrosoftClient: async (id) => withLocal(await call('microsoft:client', id)),
+    addFeed: async (feed) => withLocal(await call('feed:add', feed)),
+    addSheet: async (sheet) => withLocal(await call('sheet:add', sheet)),
+    // A sheet's rules are kept on the PC, which reads the sheet (a file there, or a link).
+    sheetPeek: (id, tab) => call('sheet:peek', id, tab),
+    sheetPreview: (id, o) => call('sheet:preview', id, o),
+    sheetRules: async (id, o) => withLocal(await call('sheet:rules', id, o)),
+    setTagColor: async (tag, color) => withLocal(await call('tag:color', tag, color)),
+    renameTag: async (from, to) => withLocal(await call('tag:rename', from, to)),
+    deleteTag: async (tag) => withLocal(await call('tag:delete', tag)),
+    addLocalCalendar: async (name, color) => withLocal(await call('local:add', name, color)),
+    removeLocalCalendar: async (id) => withLocal(await call('local:remove', id)),
+    settings: async (patch) => {
+      const mine = {}, shared = {};
+      for (const [k, v] of Object.entries(patch || {})) (PHONE_ONLY.includes(k) ? mine : shared)[k] = v;
+      if (Object.keys(mine).length) { local = { ...local, ...mine }; write(LOCAL, local); }
+      if (!Object.keys(shared).length) return withLocal(await call('state'));
+      try {
+        return withLocal(await call('settings', shared));
+      } catch (err) {
+        // The PC out of reach: kept on the phone at once, and sent with the other changes once it is back.
+        const kept = err instanceof Unreachable && read(`${CACHE}state`, null);
+        if (!kept) throw err;
+        const next = { ...kept, settings: { ...kept.settings, ...shared } };
+        write(`${CACHE}state`, next);
+        enqueue('settings', [shared]);
+        return withLocal(next);
+      }
+    },
+    open: async (url) => openOutside(url),
+    checkUpdate,
+    installUpdate: async () => {
+      if (!['available', 'error', 'permission'].includes(update.status)) await checkUpdate();
+      if (!update.url) return update;
+      const installer = window.Capacitor?.Plugins?.ApkInstaller;
+      if (!installer) { openOutside(update.url); return setUpdate({ status: 'handoff' }); } // older app builds
+      // Android asks once whether Onyx may install updates; after that it's one "Install" tap.
+      if (!(await installer.canInstall()).allowed) {
+        await installer.openInstallSettings();
+        return setUpdate({ status: 'permission' });
+      }
+      setUpdate({ status: 'downloading', percent: 0, error: '' });
+      const listener = await installer.addListener('progress', (p) => setUpdate({ status: 'downloading', percent: p.percent }));
+      try {
+        await installer.downloadAndInstall({ url: update.url });
+        return setUpdate({ status: 'installing', percent: 100 });
+      } catch (err) {
+        return setUpdate({ status: 'error', error: err?.message || 'The update could not be downloaded.' });
+      } finally {
+        listener?.remove?.();
+      }
+    },
+    updateState: async () => update,
+    onUpdate: (fn) => updateListeners.add(fn),
+    copy: async (text) => navigator.clipboard?.writeText(String(text)),
+    // There is no push from the PC: check again every minute and whenever the app comes back.
+    // Working on its own, what the PCs change arrives through Drive, and is shown as it does.
+    onChanged: (fn) => {
+      setInterval(() => { if (document.visibilityState === 'visible') fn(); }, 60000);
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') fn(); });
+      engine?.onChanged(() => { if (own && (!conn || !online)) fn(); });
+    },
+  };
+
+  // Native-only: pairing links opened from the camera, the Android back button, update checks.
+  const App = window.Capacitor?.Plugins?.App;
+  if (App) {
+    setTimeout(checkUpdate, 8000);
+    setInterval(checkUpdate, 6 * 60 * 60 * 1000);
+    syncWidget(); // a phone paired before the widgets existed hands them its connection now
+    const handle = async (url) => {
+      // The launch link is reported again after the reload below, so each link is used once.
+      if (!url || !url.startsWith('onyx://') || read('onyx.used-link', '') === url) return;
+      write('onyx.used-link', url);
+      // Google's answer to a sign-in started here (handed on by the web app's page): finish it, then start again set up.
+      if (url.startsWith('onyx://signin')) {
+        const q = new URL(url.replace('onyx://signin', 'https://onyx.local/signin')).searchParams;
+        await ready;
+        try {
+          await engine.signInFinish({ code: q.get('code'), state: q.get('state'), error: q.get('error') });
+        } catch (err) {
+          write(SIGNIN_ERR, err.message || 'Google sign-in failed.');
+        }
+        location.reload();
+        return;
+      }
+      // Another app hands over a task: onyx://task?title=…&minutes=…&due=…&id=…&from=… The PC makes it; Magic add opens to plan it.
+      if (url.startsWith('onyx://task')) {
+        let detail;
+        try { detail = await window.onyx.receiveTask(url); } catch (err) { detail = { error: err.message }; }
+        window.onyxPendingMagic = detail;
+        window.dispatchEvent(new CustomEvent('onyx:magic', { detail }));
+        return;
+      }
+      // A tap on a home-screen widget: onyx://open?view=calendar|globe&date=YYYY-MM-DD
+      if (url.startsWith('onyx://open')) {
+        const q = new URL(url.replace('onyx://open', 'https://onyx.local/open')).searchParams;
+        const detail = { view: q.get('view') || 'calendar', date: q.get('date') || '' };
+        // The window may still be starting: it picks this up when it is ready.
+        window.onyxPendingOpen = detail;
+        window.dispatchEvent(new CustomEvent('onyx:open', { detail }));
+        return;
+      }
+      try {
+        await window.onyx.pairLink(url);
+        location.reload();
+      } catch (err) {
+        // Scanning the same code again tries again, and the Connect screen says what went wrong
+        // (it may not be up yet: it picks this up when it is).
+        write('onyx.used-link', '');
+        window.onyxPairError = err.message || 'Could not connect to the PC.';
+        window.dispatchEvent(new CustomEvent('onyx:pair-failed', { detail: window.onyxPairError }));
+      }
+    };
+    // "Hey Claude" on a phone with no PC: what was said waits in the app (no PC to send it to); this phone's
+    // own engine makes the tasks, and each one made leaves the queue. With a PC, the phone sends them to it by itself (WidgetData).
+    let takingVoice = false;
+    const takeVoice = async () => {
+      if (!Widget?.voice || takingVoice || conn) return;
+      takingVoice = true;
+      try {
+        const items = (await Widget.voice({ take: true }))?.items || [];
+        const made = [];
+        for (const it of items) {
+          try {
+            await call('voice:task', String(it.title || ''), { claude: it.claude !== false });
+            made.push(it.op);
+          } catch { break; } // not set up to work on its own, or offline: kept for next time
+        }
+        if (made.length) await Widget.voice({ done: made });
+      } catch { /* an app from before Hey Claude */ } finally {
+        takingVoice = false;
+      }
+    };
+    setTimeout(takeVoice, 4000);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(takeVoice, 1500); });
+    App.addListener('appUrlOpen', (e) => handle(e.url));
+    App.getLaunchUrl?.().then((r) => handle(r?.url)).catch(() => {});
+    App.addListener('backButton', () => {
+      if (!(window.onyxBack && window.onyxBack())) App.minimizeApp?.();
+    });
+  }
+})();

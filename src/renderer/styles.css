@@ -3516,3 +3516,16 @@ input.vc-phrase { width: 170px; }
 .boot-err { margin: 0; font-size: 12px; color: var(--faint); overflow-wrap: anywhere; }
 .boot-err[hidden], .boot-skip[hidden] { display: none; }
 .boot-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 6px; }
+
+/* Add steps from a list (app.js openListImport): paste rows from a spreadsheet, or a list, onto a board. */
+.wb-import { width: min(440px, calc(100vw - 48px)); }
+.wb-import .hint { margin: 0 0 8px; font-size: 12px; line-height: 1.4; color: var(--muted); }
+.wb-list-in {
+  width: 100%; box-sizing: border-box; min-height: 170px; resize: vertical; margin: 0 0 8px; padding: 8px 10px;
+  font: 12px/1.45 ui-monospace, Consolas, monospace; color: var(--text); background: var(--raise);
+  border: 1px solid var(--line-2); border-radius: 8px;
+}
+.wb-list-in:focus { outline: none; border-color: color-mix(in srgb, var(--accent) 60%, transparent); }
+.wb-import > .btn.primary { width: 100%; justify-content: center; margin-bottom: 8px; }
+.wb-import .row { display: flex; gap: 8px; align-items: center; }
+.wb-import .row input { flex: 1; min-width: 0; }

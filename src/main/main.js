@@ -37,12 +37,19 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(boot);
 }
 
-// ---- onyx:// links: another app hands over a task (see deeplink.js). Only task links are taken on the
-// PC; pairing links are for the phone.
-const linkIn = (argv) => (argv || []).find((a) => /^onyx:\/\/task/i.test(a));
+// ---- onyx:// links: another app hands over a task or a board (see deeplink.js). Only task and board links
+// are taken on the PC; pairing links are for the phone.
+const linkIn = (argv) => (argv || []).find((a) => /^onyx:\/\/(task|board)/i.test(a));
 let pendingLink = null; // what the window is to plan: it asks for it when it is ready
+let pendingBoard = null; // a board to make: the window asks for it when it is ready
 
 async function receiveLink(url) {
+  if (/^onyx:\/\/board/i.test(url)) {
+    pendingBoard = require('./deeplink').parseBoardLink(url) || { error: 'That board link had nothing in it.' };
+    showWindow();
+    win?.webContents.send('board-link');
+    return;
+  }
   try {
     pendingLink = await api.handlers['link:task'](url);
   } catch (err) {
@@ -230,6 +237,7 @@ async function boot() {
   // Onyx opens onyx:// links (a task from Tamkeen, say); an installed copy tells Windows each start.
   if (app.isPackaged) app.setAsDefaultProtocolClient('onyx');
   ipcMain.handle('magic-link:take', () => { const d = pendingLink; pendingLink = null; return d; });
+  ipcMain.handle('board-link:take', () => { const d = pendingBoard; pendingBoard = null; return d; });
   // Another app (Hermes, through the MCP server) asks for a Hyperfocus session: the setup opens here.
   const focus = require('./focus');
   focus.setRequestHandler(() => { showWindow(); win?.webContents.send('focus-request'); });

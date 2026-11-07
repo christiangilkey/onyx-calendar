@@ -1,4 +1,4 @@
-// Links other apps can open to hand Onyx a task:
+// Links other apps can open to hand Onyx a task, or a board:
 //
 //   onyx://task?title=<text>&minutes=<1-600>&due=<YYYY-MM-DD>&notes=<text>&id=<stable id>&from=<app>&n=<anything>
 //
@@ -38,4 +38,22 @@ function parseTaskLink(raw) {
   };
 }
 
-module.exports = { parseTaskLink, validDay };
+/**
+ * A board another app hands over (the PC):
+ *
+ *   onyx://board?title=<name>&text=<the list>
+ *
+ * text is what would be pasted on a board: rows from a spreadsheet (tabs between cells) or one step a line.
+ * The window makes the cards from it (boards.js fromList) on a new board with that name. Null when it is not
+ * a board link or has nothing in it. Like a task link, it is untrusted input: kept to a size, never run.
+ */
+function parseBoardLink(raw) {
+  let url;
+  try { url = new URL(String(raw).trim()); } catch { return null; }
+  if (url.protocol !== 'onyx:' || url.hostname.toLowerCase() !== 'board') return null;
+  const text = String(url.searchParams.get('text') || '').slice(0, 60000);
+  if (!text.trim()) return null;
+  return { title: clean(url.searchParams.get('title'), 120) || 'From a link', text };
+}
+
+module.exports = { parseTaskLink, parseBoardLink, validDay };

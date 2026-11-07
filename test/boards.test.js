@@ -149,3 +149,72 @@ test('a step picked goes into the calendar on its own: Add to calendar, first am
   const css = read('src/renderer/styles.css');
   assert.match(css, /\.wb-plan-ways \{ display: grid; grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\);/, 'both buttons stay on a narrow phone');
 });
+
+test('a list pasted from a spreadsheet becomes steps: numbered, with details under their column names, a line per heading', () => {
+  const rows = [
+    'Step\tName\tWho\tWhat to do\tOutput / stop',
+    '1 PRODUCT RESEARCH',
+    '1\tNiche, sub-niche, product\tClaude. You pick.\t"Trendtrack gap search:\nscore 5 to 10"\tShortlist.',
+    '2\tValidation gate\tClaude.\t1 to 5 competitors.\tSTOP for your yes.',
+    '6b\tBrand foundation\tClaude drafts.\tBrand brief.\t',
+    '2 STORE BUILDING',
+    '7\tOffer\t\t"Price tiers, ""Buy 2 Get 1""."\tOffer sheet.', // Excel quotes a cell with quotes in it
+  ].join('\r\n');
+  const { nodes, links } = B.fromList(rows);
+  assert.deepEqual(nodes.map((n) => [n.kind, n.title]), [
+    ['goal', '1 PRODUCT RESEARCH'], ['step', '1. Niche, sub-niche, product'], ['step', '2. Validation gate'], ['step', '6b. Brand foundation'],
+    ['goal', '2 STORE BUILDING'], ['step', '7. Offer'],
+  ]);
+  assert.equal(nodes[1].notes, 'Who: Claude. You pick.\n\nWhat to do: Trendtrack gap search:\nscore 5 to 10\n\nOutput / stop: Shortlist.', 'a cell with a line break stays one cell');
+  assert.equal(nodes[5].notes, 'What to do: Price tiers, "Buy 2 Get 1".\n\nOutput / stop: Offer sheet.', 'empty cells are left out');
+  assert.ok(nodes.filter((n) => n.kind === 'step').every((n) => n.minutes === 30));
+  // Every card leads to the next, the end of one heading's line to the next heading.
+  assert.deepEqual(links.map((l) => [nodes.findIndex((n) => n.id === l.from), nodes.findIndex((n) => n.id === l.to)]), [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5]]);
+  // A line per heading, its goal at the left; the next heading's line below it.
+  assert.deepEqual(nodes.map((n) => [n.x, n.y]), [[40, 40], [300, 40], [560, 40], [820, 40], [40, 260], [300, 260]]);
+  // What it makes is a board as kept (src/main/boards.js clean), nothing lost on the way.
+  const kept = boards.clean({ id: 'board/test-list', title: 'From a list', nodes, links });
+  assert.equal(kept.nodes.length, 6);
+  assert.equal(kept.links.length, 5);
+});
+
+test('a plain list: bullets and numbers go, a heading line starts a new line of cards, long lines are cut with all of it in the details', () => {
+  const long = 'Vacuum the whole flat, including under the sofa and behind the TV unit, then mop the kitchen floor. Then do the bathroom.';
+  const { nodes } = B.fromList(`Groceries:\n- milk\n• eggs\n\n# Cleaning\n1. ${long}\n[ ] Bins out`);
+  assert.deepEqual(nodes.map((n) => [n.kind, n.title]), [
+    ['goal', 'Groceries'], ['step', 'milk'], ['step', 'eggs'],
+    ['goal', 'Cleaning'], ['step', 'Vacuum the whole flat, including under the sofa and behind the TV unit, then mop the kitchen floor'], ['step', 'Bins out'],
+  ]);
+  assert.equal(nodes[4].notes, long);
+  const plain = B.fromList('one\ntwo\nthree');
+  assert.deepEqual(plain.nodes.map((n) => n.kind), ['step', 'step', 'step'], 'no heading: just steps, joined in order');
+  assert.equal(plain.links.length, 2);
+  assert.deepEqual(B.fromList('  \n\n').nodes, [], 'nothing in it: nothing made');
+});
+
+test('a long line of cards wraps under its first step, and new cards start where they are told', () => {
+  const list = ['PHASE', ...Array.from({ length: 10 }, (_, i) => `step ${i + 1}`)].join('\n');
+  const { nodes } = B.fromList(list, { x0: 100, y0: 500 });
+  assert.deepEqual(nodes.slice(0, 2).map((n) => [n.x, n.y]), [[100, 500], [360, 500]]);
+  assert.deepEqual(nodes.slice(7, 9).map((n) => [n.title, n.x, n.y]), [['step 7', 1920, 500], ['step 8', 360, 720]], 'eight a line; the rest under step 1');
+});
+
+test('the app: paste a list on a board, or in its box, from the boards menu or an empty board; a board link (PC) makes one', () => {
+  const app = read('src/renderer/app.js');
+  assert.match(app, /h\('button', \{ type: 'button', class: 'btn', onclick: \(\) => \{ closePopover\(\); openListImport\(anchor\); \} \}, 'From a list'\)/);
+  assert.match(app, /onclick: \(e\) => openListImport\(e\.currentTarget\) \}, 'From a list'\)/, 'on the empty boards screen too');
+  assert.match(app, /document\.addEventListener\('paste', \(e\) => \{\n\s+if \(!board\.on \|\| !board\.cur \|\| e\.target\.closest\?\.\('input, textarea, \[contenteditable="true"\]'\)/, 'pasting into a box is left alone');
+  assert.match(app, /const made = OnyxBoards\.fromList\(text, \{ x0: left, y0: below \}\);/, 'below what the board has');
+  assert.match(app, /if \(fresh\) \{\n\s+try \{ await onyx\.deleteBoard\(b\.id\); \}/, 'Undo takes a board made for them away');
+  assert.match(app, /onyx\.onBoardLink\?\.\(\(\) => onyx\.takeBoardLink\(\)\.then\(openBoardFromLink\)\.catch\(fail\)\);/);
+  const main = read('src/main/main.js');
+  assert.ok(main.includes('(argv || []).find((a) => /^onyx:\\/\\/(task|board)/i.test(a))'), 'the PC takes board links as well as task links');
+  assert.match(main, /ipcMain\.handle\('board-link:take'/);
+  assert.match(read('src/preload.js'), /takeBoardLink: \(\) => ipcRenderer\.invoke\('board-link:take'\)/);
+  const { parseBoardLink } = require('../src/main/deeplink');
+  assert.deepEqual(parseBoardLink(`onyx://board?title=${encodeURIComponent('  My  plan ')}&text=${encodeURIComponent('PHASE\nstep one\tdetail')}`), { title: 'My plan', text: 'PHASE\nstep one\tdetail' });
+  assert.equal(parseBoardLink('onyx://board?title=x'), null, 'no text: not a board');
+  assert.equal(parseBoardLink('onyx://task?title=x&text=y'), null);
+  assert.equal(parseBoardLink(`onyx://board?text=${'a'.repeat(70000)}`).text.length, 60000, 'kept to a size');
+  assert.equal(parseBoardLink('onyx://board?text=a').title, 'From a link');
+});

@@ -2,9 +2,21 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.116.0",
+  "date": "2026-11-07",
+  "title": "Boards from a list or a spreadsheet",
+  "items": [
+   "Paste a list onto a board, and each line becomes a step, joined to the next in order.",
+   "Rows copied from a spreadsheet work too. A step number in the first cell goes in front of the name, and the other cells become the step's details, under their column names.",
+   "A line on its own in capitals, or ending with \":\", starts a new row of cards with a goal at its left. Each phase of a plan gets its own row.",
+   "Find it under \"From a list\" in the boards menu or on an empty Boards page, or press Ctrl+V on a board. One Undo takes it all back off.",
+   "On the PC, another app can hand Onyx a whole board with an onyx://board link."
+  ]
+ },
+ {
   "version": "1.115.0",
   "date": "2026-11-07",
-  "title": "Swiping between days with a thumb; no more black start",
+  "title": "A swipe that takes a thumb's arc; a phone start that never stays black",
   "items": [
    "Swiping left or right on the calendar now takes a thumb's natural arc. Before, a swipe only counted when it began almost perfectly sideways, so many swipes did nothing at all. A swipe that starts as a scroll and then sweeps sideways turns the days too, and scrolling up and down still just scrolls.",
    "A copy of a block left behind by an interrupted drag could stop every swipe until the app was restarted. It no longer does.",

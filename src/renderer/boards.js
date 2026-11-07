@@ -169,6 +169,98 @@
     return b;
   }
 
+  // ------------------------------------------------------------ cards from a list
+
+  /** Text as rows of cells: copied from a spreadsheet (tabs between cells, quoted when a cell has line breaks), or one line a row. */
+  function rowsOf(text) {
+    const s = String(text || '').replace(/\r\n?/g, '\n');
+    if (!s.includes('\t')) return s.split('\n').map((line) => [line]);
+    const rows = [];
+    let row = [], cell = '', quoted = false;
+    for (let i = 0; i < s.length; i++) {
+      const c = s[i];
+      if (quoted) {
+        if (c !== '"') cell += c;
+        else if (s[i + 1] === '"') { cell += '"'; i++; } else quoted = false;
+      } else if (c === '"' && cell === '') quoted = true;
+      else if (c === '\t') { row.push(cell); cell = ''; } else if (c === '\n') { row.push(cell); rows.push(row); row = []; cell = ''; } else cell += c;
+    }
+    row.push(cell);
+    rows.push(row);
+    return rows;
+  }
+
+  const BULLET = /^(?:[-*•▪◦–]|\d{1,3}[.)]|\[[ xX]?\])\s+/;
+  const STEP_NO = /^(?:step\s*)?(\d{1,3}[a-z]?)[.):]?$/i;
+  /** A heading: "# Phase", "Phase one:", or a short line in capitals ("1 PRODUCT RESEARCH"). */
+  const isHeading = (t) => /^#{1,6}\s*\S/.test(t) || (/:$/.test(t) && t.length <= 80)
+    || (t.length <= 60 && /[A-Z].*[A-Z].*[A-Z]/.test(t) && !/[a-z]/.test(t));
+  const headingText = (t) => t.replace(/^#{1,6}\s*/, '').replace(/:$/, '').trim();
+  /** A name short enough for a card; the whole text goes in its details when it had to be cut. */
+  function shorten(t) {
+    if (t.length <= 100) return { title: t, cut: false };
+    const end = t.slice(0, 100).search(/(?<=[a-z0-9)])[.:;!?](\s|$)|\s[—–-]\s/i);
+    if (end >= 20) return { title: t.slice(0, end).trim(), cut: true };
+    const sp = t.lastIndexOf(' ', 90);
+    return { title: `${t.slice(0, sp > 40 ? sp : 90).trim()}…`, cut: true };
+  }
+
+  /**
+   * Cards made from a pasted list: rows from a spreadsheet, or a plain list with one step a line. A row that is
+   * only a heading ("1 PRODUCT RESEARCH", "Launch:", "# Week 2") starts a new line of cards with a goal at its
+   * left. Every card is joined to the next by an arrow, in order: along a line, and from the end of one line to
+   * the start of the next (through the gap between them, so no arrow crosses a card). A long line wraps, under
+   * its first step. In spreadsheet rows, a step number in the first cell ("1", "6b") goes before the name in the
+   * next cell, and the cells after it become the details, under their column names when the rows start with a
+   * header row. The cards start at (x0, y0): below what the board already has. Returns { nodes, links }.
+   */
+  function fromList(text, { x0 = 40, y0 = 40 } = {}) {
+    const STEP_X = 260, LINE_Y = 220, PER_LINE = 8;
+    const nodes = [], links = [];
+    let header = null, line = -1, slot = 0, indent = 0, prev = null;
+    const newLine = (goal) => { line += 1; slot = 0; indent = goal ? 1 : indent; };
+    const place = (kind, title, notes) => {
+      if (line < 0) newLine(false);
+      if (slot >= PER_LINE) { line += 1; slot = indent; } // wraps, under the first step (a goal keeps its own column)
+      const n = { id: newId('n'), kind, x: x0 + slot * STEP_X, y: y0 + line * LINE_Y, title: title.slice(0, 300), notes: notes.slice(0, 4000) };
+      if (kind === 'step') n.minutes = 30;
+      nodes.push(n);
+      if (prev) links.push({ id: newId('l'), from: prev.id, to: n.id, label: '' });
+      prev = n;
+      slot += 1;
+      return n;
+    };
+    const rows = rowsOf(text);
+    const sheet = rows.some((r) => r.length > 1);
+    for (const raw of rows) {
+      if (nodes.length >= 400) break;
+      const cells = raw.map((c) => String(c).replace(/[ \t]+\n/g, '\n').trim());
+      const filled = cells.filter(Boolean);
+      if (!filled.length) continue;
+      const first = cells.findIndex(Boolean);
+      // A heading: a new line, with its goal at the left (the last card before it leads to it).
+      if (filled.length === 1 && first === 0 && isHeading(filled[0].replace(BULLET, ''))) {
+        newLine(true);
+        place('goal', headingText(filled[0].replace(BULLET, '')), '');
+        continue;
+      }
+      // The spreadsheet's own column names, before its first step: they label the details.
+      if (sheet && !header && !nodes.length && filled.length > 1 && filled.every((c) => c.length <= 30 && !/^\d/.test(c))) {
+        header = cells;
+        continue;
+      }
+      let num = '', at = first;
+      const no = STEP_NO.exec(cells[first]);
+      if (no && filled.length > 1) { num = no[1]; at = cells.findIndex((c, i) => i > first && c); }
+      const name = cells[at].replace(BULLET, '').replace(/\s*\n\s*/g, ' ');
+      const { title, cut } = shorten(name);
+      const details = cells.map((c, i) => (i > at && c ? (header?.[i] ? `${header[i]}: ${c}` : c) : null)).filter(Boolean);
+      if (cut) details.unshift(name);
+      place('step', num ? `${num}. ${title}` : title, details.join('\n\n'));
+    }
+    return { nodes, links };
+  }
+
   // ------------------------------------------------------------ the canvas (browser only)
 
   const NS = 'http://www.w3.org/2000/svg';
@@ -602,7 +694,7 @@
     return api;
   }
 
-  const api = { KINDS, NOTE_COLORS, route, planSteps, backToBack, branchName, linkPath, lengthText, newBoard, newId, mount };
+  const api = { KINDS, NOTE_COLORS, route, planSteps, backToBack, branchName, linkPath, lengthText, newBoard, newId, fromList, rowsOf, mount };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else globalThis.OnyxBoards = api;
 })();

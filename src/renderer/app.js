@@ -11526,6 +11526,7 @@
         h('p', null, 'A board is a whiteboard for something long and hard: the steps, the goals, and the decisions where it could go more than one way. Pick a way at each decision, and Onyx shows the route through it. Then Plan it puts each step on the route in your calendar as a block of its own.'),
         h('div', { class: 'row' },
           h('button', { type: 'button', class: 'btn primary', onclick: () => makeBoard(false) }, icon('plus'), 'New board'),
+          h('button', { type: 'button', class: 'btn', onclick: (e) => openListImport(e.currentTarget) }, 'From a list'),
           h('button', { type: 'button', class: 'btn', onclick: () => makeBoard(true) }, 'See an example'))));
       return;
     }
@@ -11573,6 +11574,73 @@
     flushBoard();
     showBoard(b);
     if (!example) { const n = board.view.add('goal'); openBoardCard(n); }
+  }
+
+  /**
+   * Cards from a list (OnyxBoards.fromList): rows pasted from a spreadsheet, or one step a line. They go on this
+   * board, below what it has, or on a new board with that name. One Undo takes them all back off
+   * (a board made for them goes too). Returns how many cards were made.
+   */
+  function addFromList(text, { newTitle = null } = {}) {
+    flushBoard(); // what is waiting on the board shown is kept before another is made
+    let b = board.cur;
+    const fresh = !!newTitle || !b;
+    const left = !fresh && b.nodes.length ? Math.min(...b.nodes.map((n) => n.x)) : 40;
+    const below = !fresh && b.nodes.length ? Math.max(...b.nodes.map((n) => n.y)) + 240 : 40;
+    const made = OnyxBoards.fromList(text, { x0: left, y0: below });
+    if (!made.nodes.length) { toast('Nothing to add there: paste rows from a spreadsheet, or one step a line.', 'warn'); return 0; }
+    if (!fresh && b.nodes.length + made.nodes.length > 500) { toast('That is more cards than a board holds (500). Try a new board for it.', 'warn'); return 0; }
+    if (fresh) {
+      b = OnyxBoards.newBoard(newTitle || `Board ${board.all.length + 1}`);
+      board.all.unshift(b);
+    }
+    b.nodes.push(...made.nodes);
+    b.links.push(...made.links);
+    board.cur = b;
+    board.dirty = true;
+    flushBoard();
+    if (fresh) showBoard(b); else { board.view.draw(); }
+    requestAnimationFrame(() => board.view?.fit());
+    const ids = new Set(made.nodes.map((n) => n.id));
+    const steps = made.nodes.filter((n) => n.kind === 'step').length;
+    toast(`Added ${steps} step${steps === 1 ? '' : 's'}${made.nodes.length > steps ? ` under ${made.nodes.length - steps} heading${made.nodes.length - steps === 1 ? '' : 's'}` : ''} to "${b.title}"`, '', { label: 'Undo', run: async () => {
+      if (fresh) {
+        try { await onyx.deleteBoard(b.id); } catch (err) { fail(err); return; }
+        board.all = board.all.filter((x) => x.id !== b.id);
+        if (board.cur === b) { board.dirty = false; showBoard(board.all[0] || null); }
+        return;
+      }
+      b.nodes = b.nodes.filter((n) => !ids.has(n.id));
+      b.links = b.links.filter((l) => !ids.has(l.from) && !ids.has(l.to));
+      if (board.cur === b) { boardChanged(); board.view.draw(); } else { board.dirty = false; onyx.saveBoard(b).catch(fail); }
+    } });
+    return made.nodes.length;
+  }
+
+  /** Paste a list: the box for it (from the boards menu, or an empty board), onto this board or as a new one. */
+  function openListImport(anchor) {
+    const area = h('textarea', { class: 'wb-list-in', rows: 9, spellcheck: false,
+      placeholder: 'Paste rows from a spreadsheet, or one step a line.\n\nA line on its own in capitals, or ending with ":", starts a new column.' });
+    const name = h('input', { type: 'text', maxLength: 120, placeholder: 'New board name', 'aria-label': 'New board name' });
+    const go = (asNew) => {
+      if (!area.value.trim()) { area.focus(); return; }
+      if (addFromList(area.value, { newTitle: asNew ? (name.value.trim() || 'From a list') : null })) closePopover();
+    };
+    showPopover(anchor.getBoundingClientRect(), [h('div', { class: 'wb-menu wb-import' },
+      h('h4', null, 'Add steps from a list'),
+      h('p', { class: 'hint' }, 'Each row or line becomes a step, joined in order. In spreadsheet rows, a step number goes before the name, and the other cells become its details.'),
+      area,
+      board.cur && h('button', { type: 'button', class: 'btn primary', onclick: () => go(false) }, icon('plus'), `Add to "${board.cur.title}"`),
+      h('div', { class: 'row' }, name, h('button', { type: 'button', class: board.cur ? 'btn' : 'btn primary', onclick: () => go(true) }, 'As a new board')))]);
+    setTimeout(() => area.focus(), 30);
+  }
+
+  /** A board handed over in a link (onyx://board?title=…&text=…, the PC): made, shown, and one Undo away. */
+  async function openBoardFromLink(d) {
+    if (!d) return;
+    if (d.error) { toast(d.error, 'error'); return; }
+    if (!board.on) await openBoards();
+    addFromList(d.text, { newTitle: d.title || 'From a link' });
   }
 
   /** The bar over the board: which board, adding cards, the route, and Plan it. */
@@ -11685,6 +11753,7 @@
         h('b', null, x.title), h('small', null, `${x.nodes?.length || 0} cards`)))),
       h('div', { class: 'row' },
         h('button', { type: 'button', class: 'btn', onclick: () => { closePopover(); makeBoard(false); } }, icon('plus'), 'New board'),
+        h('button', { type: 'button', class: 'btn', onclick: () => { closePopover(); openListImport(anchor); } }, 'From a list'),
         h('button', { type: 'button', class: 'btn ghost', onclick: () => { closePopover(); makeBoard(true); } }, 'Example')),
       del)]);
     setTimeout(() => name.select(), 30);
@@ -12700,6 +12769,17 @@
     window.addEventListener('onyx:magic', (e) => openMagicFromLink(e.detail));
     openMagicFromLink(window.onyxPendingMagic);
     onyx.onMagicLink?.(() => onyx.takeMagicLink().then(openMagicFromLink));
+    // A board handed over in a link (onyx://board…, the PC): made and shown.
+    onyx.onBoardLink?.(() => onyx.takeBoardLink().then(openBoardFromLink).catch(fail));
+    onyx.takeBoardLink?.().then(openBoardFromLink).catch(() => {});
+    // Pasting on a board (not into a box): rows from a spreadsheet, or a list, become steps on it.
+    document.addEventListener('paste', (e) => {
+      if (!board.on || !board.cur || e.target.closest?.('input, textarea, [contenteditable="true"]') || !$('#popover').hidden) return;
+      const text = e.clipboardData?.getData('text/plain') || '';
+      if (!text.trim()) return;
+      e.preventDefault();
+      addFromList(text);
+    });
     onyx.onFocusRequest?.(() => onyx.takeFocusRequest().then(openFocusRequest));
     onyx.takeFocusRequest?.().then(openFocusRequest).catch(() => {});
     onyx.takeMagicLink?.().then(openMagicFromLink).catch(() => {});

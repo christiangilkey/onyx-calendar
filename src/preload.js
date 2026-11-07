@@ -33,6 +33,9 @@ contextBridge.exposeInMainWorld('onyx', {
   // A task another app handed over (onyx://task…): the window is told, then asks for what to plan.
   onMagicLink: (fn) => ipcRenderer.on('magic-link', () => fn()),
   takeMagicLink: () => ipcRenderer.invoke('magic-link:take'),
+  // A board another app handed over (onyx://board?title=…&text=…): the window makes it from the list.
+  onBoardLink: (fn) => ipcRenderer.on('board-link', () => fn()),
+  takeBoardLink: () => ipcRenderer.invoke('board-link:take'),
   // Tasks another app sent (MCP magic_add) were placed at once: { date, source, events: [{ id, fields }] }.
   onMagicPlaced: (fn) => ipcRenderer.on('magic-placed', (_e, d) => fn(d)),
   archivedTasks: (from, to) => call('tasks:archived', from, to),

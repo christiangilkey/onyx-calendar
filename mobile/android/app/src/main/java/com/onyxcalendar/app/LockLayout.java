@@ -44,7 +44,7 @@ final class LockLayout {
         return get(ctx, LOCK);
     }
 
-    /** That screen's layout with every setting filled in: { order, hidden, clockSize, align, date, dim }. */
+    /** That screen's layout with every setting filled in: { order, hidden, clockSize, align, date, dim, shortcutLook }. */
     static JSONObject get(Context ctx, String screen) {
         screen = screen(screen);
         JSONObject saved;
@@ -95,6 +95,10 @@ final class LockLayout {
         String align = in.optString("align", home ? "left" : "center");
         if (!"left".equals(align)) align = "center";
         int dim = Math.max(0, Math.min(100, in.optInt("dim", home ? 0 : 80)));
+        // The shortcuts as tiles of a bento box (LockShortcuts.bento), or as the row of pills they were. The lock
+        // screen starts with tiles; Onyx Home keeps its pills until changed.
+        String look = in.optString("shortcutLook", home ? "pills" : "tiles");
+        if (!"pills".equals(look) && !"tiles".equals(look)) look = home ? "pills" : "tiles";
         JSONObject out = new JSONObject();
         try {
             out.put("order", new JSONArray(order));
@@ -103,6 +107,7 @@ final class LockLayout {
             out.put("align", align);
             out.put("date", in.optBoolean("date", true));
             out.put("dim", dim);
+            out.put("shortcutLook", look);
         } catch (Exception ignored) {
             // plain values: can't fail
         }

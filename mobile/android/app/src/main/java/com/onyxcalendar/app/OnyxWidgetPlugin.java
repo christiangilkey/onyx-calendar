@@ -232,13 +232,36 @@ public class OnyxWidgetPlugin extends Plugin {
             o.put("layout", LockLayout.get(getContext(), screen));
             o.put("shortcuts", LockShortcuts.list(getContext(), screen));
             o.put("max", LockShortcuts.MAX);
+            // For the editor's preview, drawn to scale: what the cards show now, and the screen they show on.
+            o.put("panel", OnyxPanel.preview(getContext()));
+            o.put("phone", phoneScreen());
         } catch (Exception ignored) {
             // plain values
         }
         return o;
     }
 
-    /** { screen, layout, shortcuts, max } for { screen: "lock" (the default) | "home" }. */
+    /** The screen in dp, with its bars (status bar, cutout, navigation) at the top and bottom: { w, h, top, bottom }. */
+    @SuppressWarnings("deprecation")
+    private org.json.JSONObject phoneScreen() {
+        org.json.JSONObject o = new org.json.JSONObject();
+        try {
+            android.util.DisplayMetrics m = new android.util.DisplayMetrics();
+            getActivity().getWindowManager().getDefaultDisplay().getRealMetrics(m);
+            float d = m.density;
+            o.put("w", m.widthPixels / d).put("h", m.heightPixels / d);
+            WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(getActivity().getWindow().getDecorView());
+            if (insets != null) {
+                Insets bars = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+                o.put("top", bars.top / d).put("bottom", bars.bottom / d);
+            }
+        } catch (Exception ignored) {
+            // the preview's own guess instead
+        }
+        return o;
+    }
+
+    /** { screen, layout, shortcuts, max, panel, phone } for { screen: "lock" (the default) | "home" }. */
     @PluginMethod
     public void lockSetup(PluginCall call) {
         call.resolve(lockSetup(LockLayout.screen(call.getString("screen", LockLayout.LOCK))));

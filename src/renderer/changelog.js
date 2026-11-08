@@ -2,9 +2,21 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.117.0",
+  "date": "2026-11-08",
+  "title": "Lock screen shortcuts as tiles, and an editor picture that matches your lock screen",
+  "items": [
+   "Shortcuts on the lock screen are tiles now, fitted together like a bento box. The first is a big square showing what it opens (the app, the site, or audio). The rest fill in beside it: wide tiles when there are only a few, small squares when there are more. Every row is filled, with no gaps.",
+   "To choose which one is big, drag it to the front in the lock screen editor. Each tile takes the size of the spot it lands in, as it will on the phone.",
+   "Settings → Home & lock screen → Look has a new \"Shortcuts as\" setting: Tiles or Pills. The lock screen starts with Tiles. Onyx Home keeps its pills unless you change it.",
+   "The editor's picture is drawn from what your lock screen shows right now: Now and Next with their times, your goals, the Add a task box with the notes still waiting, and the rest of today and tomorrow. It uses your phone's own screen size and text sizes, so things sit where they will on the phone.",
+   "The picture scrolls like the lock screen does, and says which parts start below the first screen. Music and notifications, which only show at times, are drawn as outlines."
+  ]
+ },
+ {
   "version": "1.116.0",
   "date": "2026-11-07",
-  "title": "Boards from a list or a spreadsheet",
+  "title": "Boards from a pasted list or spreadsheet rows; onyx://board links on the PC",
   "items": [
    "Paste a list onto a board, and each line becomes a step, joined to the next in order.",
    "Rows copied from a spreadsheet work too. A step number in the first cell goes in front of the name, and the other cells become the step's details, under their column names.",

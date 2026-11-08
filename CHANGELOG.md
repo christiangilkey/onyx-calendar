@@ -2,7 +2,17 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.116.0 · Boards from a list or a spreadsheet
+## 1.117.0 · Lock screen shortcuts as tiles, and an editor picture that matches your lock screen
+
+_2026-11-08_
+
+- Shortcuts on the lock screen are tiles now, fitted together like a bento box. The first is a big square showing what it opens (the app, the site, or audio). The rest fill in beside it: wide tiles when there are only a few, small squares when there are more. Every row is filled, with no gaps.
+- To choose which one is big, drag it to the front in the lock screen editor. Each tile takes the size of the spot it lands in, as it will on the phone.
+- Settings → Home & lock screen → Look has a new "Shortcuts as" setting: Tiles or Pills. The lock screen starts with Tiles. Onyx Home keeps its pills unless you change it.
+- The editor's picture is drawn from what your lock screen shows right now: Now and Next with their times, your goals, the Add a task box with the notes still waiting, and the rest of today and tomorrow. It uses your phone's own screen size and text sizes, so things sit where they will on the phone.
+- The picture scrolls like the lock screen does, and says which parts start below the first screen. Music and notifications, which only show at times, are drawn as outlines.
+
+## 1.116.0 · Boards from a pasted list or spreadsheet rows; onyx://board links on the PC
 
 _2026-11-07_
 

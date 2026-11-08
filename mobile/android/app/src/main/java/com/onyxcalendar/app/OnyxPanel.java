@@ -468,6 +468,68 @@ final class OnyxPanel {
         return row;
     }
 
+    // ------------------------------------------------------------ for the editor's preview
+
+    /**
+     * What the cards show now, as data, for the screen editor's preview in the app (Settings, Home and lock
+     * screen), so it draws these same cards: what is on now and next, the goals, the notes waiting, and the
+     * rest of today and tomorrow, picked as render() and dayCard() pick them. Keep the two in step.
+     */
+    static org.json.JSONObject preview(Context ctx) {
+        org.json.JSONObject o = new org.json.JSONObject();
+        try {
+            long t = System.currentTimeMillis();
+            List<LauncherData.Item> items = LauncherData.items(ctx);
+            LauncherData.Item now = LauncherData.now(items, t), next = LauncherData.next(items, t);
+            o.put("now", now == null ? org.json.JSONObject.NULL : item(now, now));
+            if (next != null) {
+                org.json.JSONObject n = item(next, now);
+                n.put("today", LauncherData.dayOf(next.start).equals(LocalDate.now()));
+                n.put("leaveAt", next.leaveAt());
+                o.put("next", n);
+            } else {
+                o.put("next", org.json.JSONObject.NULL);
+            }
+            org.json.JSONArray goals = new org.json.JSONArray();
+            for (LauncherData.Goal g : LauncherData.goals(ctx)) {
+                if (goals.length() == 4) break;
+                goals.put(new org.json.JSONObject().put("title", g.title).put("percent", g.percent).put("color", hex(g.colorInt(ACCENT))));
+            }
+            o.put("goals", goals);
+            LocalDate today = LocalDate.now();
+            org.json.JSONArray rest = new org.json.JSONArray(), tomorrow = new org.json.JSONArray();
+            for (LauncherData.Item it : items) {
+                if (!LauncherData.dayOf(it.start).equals(today) || (!it.allDay && it.end <= t)) continue;
+                if (rest.length() == 7) break;
+                rest.put(item(it, now));
+            }
+            for (LauncherData.Item it : items) {
+                if (!LauncherData.dayOf(it.start).equals(today.plusDays(1))) continue;
+                if (tomorrow.length() == 3) break;
+                tomorrow.put(item(it, now));
+            }
+            o.put("today", rest);
+            o.put("tomorrow", tomorrow);
+            o.put("waiting", WidgetData.quickWaiting(ctx));
+            o.put("updated", LauncherData.updated(ctx));
+            o.put("error", LauncherData.error(ctx));
+            o.put("h24", DateFormat.is24HourFormat(ctx));
+        } catch (Exception ignored) {
+            // what could be read is kept; the preview fills in the rest
+        }
+        return o;
+    }
+
+    private static org.json.JSONObject item(LauncherData.Item it, LauncherData.Item now) throws org.json.JSONException {
+        return new org.json.JSONObject().put("title", it.title).put("start", it.start).put("end", it.end).put("allDay", it.allDay)
+            .put("done", it.done).put("color", hex(it.colorInt(ACCENT))).put("now", it == now)
+            .put("call", !it.alerts.isEmpty() && !it.ack && !it.done);
+    }
+
+    private static String hex(int c) {
+        return String.format(Locale.US, "#%06X", c & 0xFFFFFF);
+    }
+
     // ------------------------------------------------------------ every second
 
     /** Moves the countdowns and the bar along. Returns true when the cards need building again. */

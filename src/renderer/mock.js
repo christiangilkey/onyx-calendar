@@ -661,10 +661,24 @@
         doomOff: ['LinkedIn', 'BeReal', 'CapCut', 'VK', '9GAG', 'Tumblr', 'Twitch', 'Bluesky', 'Pinterest'], doomExtra: [{ pkg: 'com.supercell.clashroyale', label: 'Clash Royale' }],
         doomLimits: { Instagram: 30, YouTube: 60 }, doomUsed: { Instagram: 31 * 60000, YouTube: 22 * 60000, TikTok: 9 * 60000, 'Clash Royale': 40000 } };
       const screens = {
-        lock: { layout: { order: ['clock', 'onyx', 'shortcuts', 'music', 'notifications', 'noise'], hidden: ['noise'], clockSize: 'large', align: 'center', date: true, dim: 80 }, shortcuts: [{ id: 's1', kind: 'link', target: 'spotify:', label: 'Spotify', icon: '🎵' }, { id: 's2', kind: 'link', target: 'tel:', label: 'Call', icon: '📞' }, { id: 's3', kind: 'link', target: 'https://maps.google.com', label: 'Maps', icon: '🗺️' }] },
-        home: { layout: { order: ['clock', 'onyx', 'shortcuts', 'widgets', 'apps', 'noise'], hidden: ['noise'], clockSize: 'medium', align: 'left', date: true, dim: 0 }, shortcuts: [] },
+        lock: { layout: { order: ['clock', 'onyx', 'shortcuts', 'music', 'notifications', 'noise'], hidden: ['noise'], clockSize: 'small', align: 'center', date: true, dim: 80, shortcutLook: 'tiles' },
+          shortcuts: [{ id: 's1', kind: 'link', target: 'https://docs.google.com/forms/migraine', label: 'Log migraine', icon: '🤕' }, { id: 's2', kind: 'link', target: 'spotify:', label: 'Pick', icon: '🗣️' }, { id: 's3', kind: 'app', target: 'com.unstick', label: 'Unstick', icon: '😵' }, { id: 's4', kind: 'link', target: 'https://lichess.org', label: 'Game', icon: '❤️' }] },
+        home: { layout: { order: ['clock', 'onyx', 'shortcuts', 'widgets', 'apps', 'noise'], hidden: ['noise'], clockSize: 'medium', align: 'left', date: true, dim: 0, shortcutLook: 'pills' }, shortcuts: [] },
       };
-      const setup = (screen) => ({ screen, ...structuredClone(screens[screen]), max: 12 });
+      // What the phone's cards show now (OnyxPanel.preview) and its screen in dp, as the app reports them.
+      const panel = () => {
+        const at = (days, hours, minutes = 0) => { const d = new Date(); d.setDate(d.getDate() + days); d.setHours(hours, minutes, 0, 0); return d.getTime(); };
+        const day = (days) => at(days, 0);
+        return {
+          now: null, next: { title: 'Set blocks', start: at(1, 7), end: at(1, 8), allDay: false, done: false, color: '#FF6B6B', now: false, call: false, today: false, leaveAt: 0 },
+          goals: [{ title: 'Tamkeen', percent: 2, color: '#5FD38D' }],
+          today: [{ title: 'Anki 20 new words', start: day(0), end: day(1), allDay: true, done: false, color: '#F5B83D', now: false, call: false },
+            { title: 'Morning, vegas nerve, make space', start: day(0), end: day(1), allDay: true, done: false, color: '#F5B83D', now: false, call: false }],
+          tomorrow: [{ title: 'Set blocks', start: at(1, 7), end: at(1, 8), allDay: false, done: false, color: '#FF6B6B', now: false, call: false }],
+          waiting: 3, updated: Date.now() - 4 * 60000, error: '', h24: false,
+        };
+      };
+      const setup = (screen) => ({ screen, ...structuredClone(screens[screen]), max: 12, panel: panel(), phone: { w: 363.6, h: 800, top: 36, bottom: 20 } });
       return {
         info: async () => ({ ...info }),
         set: async (show) => { info.show = show; return { ...info }; },

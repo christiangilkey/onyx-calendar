@@ -73,7 +73,7 @@ test('the preview is put in order by hand: a part up or down, a shortcut along i
   assert.match(drag, /if \(Math\.hypot\(d\.x - d\.sx, d\.y - d\.sy\) > 8\) end\(false\);/, 'a swipe still scrolls');
   assert.match(drag, /box\.addEventListener\('touchmove', \(e\) => \{ if \(d\?\.on\) e\.preventDefault\(\); \}, \{ passive: false \}\);/);
   const editor = app.slice(app.indexOf('function screenEditor('), app.indexOf('function standaloneCard('));
-  assert.match(editor, /const next = l\.order\.map\(\(p\) => \(shown\.includes\(p\) \? moved\.shift\(\) : p\)\);/, 'hidden parts keep their places');
+  assert.match(editor, /const next = l\.order\.map\(\(part\) => \(shown\.includes\(part\) \? moved\.shift\(\) : part\)\);/, 'hidden parts keep their places');
   assert.match(editor, /setLayout\(\{ order: next \}\);/);
   assert.match(editor, /save\(\{ shortcuts: order\.map\(\(i\) => setup\.shortcuts\[i\]\) \}\);/);
   assert.match(editor, /'Press and hold a part or a shortcut on it, then drag it where you want it\.'/);

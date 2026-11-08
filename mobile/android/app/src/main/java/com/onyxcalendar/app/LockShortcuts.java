@@ -5,9 +5,12 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.LauncherActivityInfo;
 import android.content.pm.LauncherApps;
+import android.content.res.ColorStateList;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
 import android.net.Uri;
 import android.os.Process;
 import android.text.TextUtils;
@@ -25,6 +28,7 @@ import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.function.Consumer;
 
 /**
@@ -185,16 +189,18 @@ final class LockShortcuts {
     }
 
     /**
-     * The row for the lock panel: one chip per shortcut, sideways when there are more than fit. `open` is
-     * given what to open once the phone is unlocked. Empty (and gone) with none set.
+     * The part for the lock panel: your shortcuts as tiles of a bento box, or a row of pills that scrolls
+     * sideways, as the screen's editor says (LockLayout shortcutLook). `open` is given what to open once the
+     * phone is unlocked. Gone with none set.
      */
     static View row(Activity a, Consumer<JSONObject> open) {
         return row(a, LockLayout.LOCK, open);
     }
 
-    /** The same for that screen (Onyx Home has its own list). */
+    /** The same for that screen (Onyx Home has its own list, and its own look). */
     static View row(Activity a, String screen, Consumer<JSONObject> open) {
         JSONArray list = list(a, screen);
+        if ("tiles".equals(LockLayout.get(a, screen).optString("shortcutLook"))) return tiles(a, list, open);
         HorizontalScrollView scroll = new HorizontalScrollView(a);
         scroll.setHorizontalScrollBarEnabled(false);
         scroll.setVisibility(list.length() == 0 ? View.GONE : View.VISIBLE);
@@ -225,29 +231,9 @@ final class LockShortcuts {
         lp.rightMargin = dp(a, 8);
         chip.setLayoutParams(lp);
 
-        String icon = s.optString("icon");
-        Drawable appIcon = null;
-        if (icon.isEmpty() && "app".equals(s.optString("kind"))) {
-            try {
-                appIcon = a.getPackageManager().getApplicationIcon(s.optString("target"));
-            } catch (Exception ignored) {
-                // gone from the phone: the default mark instead
-            }
-        }
-        if (appIcon != null) {
-            ImageView img = new ImageView(a);
-            img.setImageDrawable(appIcon);
-            LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(dp(a, 20), dp(a, 20));
-            ip.rightMargin = dp(a, 7);
-            chip.addView(img, ip);
-        } else {
-            TextView mark = new TextView(a);
-            mark.setText(icon.isEmpty() ? ("file".equals(s.optString("kind")) ? "📄" : "app".equals(s.optString("kind")) ? "▦" : "🔗") : icon);
-            mark.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
-            mark.setTextColor(Color.WHITE);
-            mark.setPadding(0, 0, dp(a, 7), 0);
-            chip.addView(mark);
-        }
+        View mark = mark(a, s, 20);
+        ((LinearLayout.LayoutParams) mark.getLayoutParams()).rightMargin = dp(a, 7);
+        chip.addView(mark);
         TextView label = new TextView(a);
         label.setText(labelOf(s));
         label.setTextColor(Color.WHITE);
@@ -259,6 +245,212 @@ final class LockShortcuts {
         chip.setContentDescription("Open " + labelOf(s));
         chip.setOnClickListener(v -> open.accept(s));
         return chip;
+    }
+
+    /** A shortcut's icon, `size` dp across: the app's own, or its emoji (a mark for its kind when it has none). */
+    private static View mark(Activity a, JSONObject s, int size) {
+        String icon = s.optString("icon"), kind = s.optString("kind");
+        if (icon.isEmpty() && "app".equals(kind)) {
+            try {
+                Drawable d = a.getPackageManager().getApplicationIcon(s.optString("target"));
+                ImageView img = new ImageView(a);
+                img.setImageDrawable(d);
+                img.setLayoutParams(new LinearLayout.LayoutParams(dp(a, size), dp(a, size)));
+                return img;
+            } catch (Exception ignored) {
+                // gone from the phone: the default mark instead
+            }
+        }
+        TextView m = new TextView(a);
+        m.setText(icon.isEmpty() ? ("file".equals(kind) ? "📄" : "app".equals(kind) ? "▦" : "🔗") : icon);
+        m.setTextSize(TypedValue.COMPLEX_UNIT_SP, size * 0.8f);
+        m.setTextColor(Color.WHITE);
+        m.setIncludeFontPadding(false);
+        m.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return m;
+    }
+
+    // ------------------------------------------------------------ the bento box
+
+    static final int COLS = 4;
+
+    /**
+     * Where each of n tiles goes in the bento box, four cells across: { column, row, width, height }. One
+     * fills the row and two share it; from three on, the first is big (two by two) and the rest fill in
+     * beside it, then rows of four small ones, and a last row that never ends in a gap. The editor's preview
+     * lays them out the same way (app.js, bentoTiles).
+     */
+    static int[][] bento(int n) {
+        final int[] S = { 1, 1 }, W = { 2, 1 }, B = { 2, 2 }, F = { 4, 1 };
+        List<int[]> sizes = new ArrayList<>();
+        if (n == 1) sizes.add(F);
+        else if (n == 2) { sizes.add(W); sizes.add(W); }
+        else if (n == 3) { sizes.add(B); sizes.add(W); sizes.add(W); }
+        else if (n == 4) { sizes.add(B); sizes.add(W); sizes.add(S); sizes.add(S); }
+        else if (n >= 5) {
+            sizes.add(B);
+            int rest = n - 1;
+            for (; rest >= 4; rest -= 4) for (int i = 0; i < 4; i++) sizes.add(S);
+            if (rest == 1) sizes.add(F);
+            else if (rest == 2) { sizes.add(W); sizes.add(W); }
+            else if (rest == 3) { sizes.add(W); sizes.add(S); sizes.add(S); }
+        }
+        // Each in the first place it fits, row by row.
+        int[][] out = new int[sizes.size()][];
+        List<boolean[]> taken = new ArrayList<>();
+        for (int i = 0; i < sizes.size(); i++) {
+            int w = sizes.get(i)[0], h = sizes.get(i)[1];
+            place:
+            for (int r = 0; ; r++) {
+                for (int c = 0; c + w <= COLS; c++) {
+                    if (!free(taken, c, r, w, h)) continue;
+                    for (int y = r; y < r + h; y++) for (int x = c; x < c + w; x++) line(taken, y)[x] = true;
+                    out[i] = new int[] { c, r, w, h };
+                    break place;
+                }
+            }
+        }
+        return out;
+    }
+
+    private static boolean free(List<boolean[]> taken, int c, int r, int w, int h) {
+        for (int y = r; y < r + h; y++) for (int x = c; x < c + w; x++) if (y < taken.size() && taken.get(y)[x]) return false;
+        return true;
+    }
+
+    private static boolean[] line(List<boolean[]> taken, int y) {
+        while (taken.size() <= y) taken.add(new boolean[COLS]);
+        return taken.get(y);
+    }
+
+    /** The shortcuts as tiles: the first big, the rest round it (bento()). */
+    private static View tiles(Activity a, JSONArray list, Consumer<JSONObject> open) {
+        List<JSONObject> items = new ArrayList<>();
+        for (int i = 0; i < list.length(); i++) if (list.optJSONObject(i) != null) items.add(list.optJSONObject(i));
+        int[][] spots = bento(items.size());
+        Bento box = new Bento(a, spots);
+        box.setVisibility(items.isEmpty() ? View.GONE : View.VISIBLE);
+        for (int i = 0; i < items.size(); i++) box.addView(tile(a, items.get(i), spots[i], open));
+        return box;
+    }
+
+    /**
+     * One tile, on the panel's own dark: a small one has its icon over the name, a wide one beside it, and
+     * the big one a large icon at the top, with what it opens and its name at the foot.
+     */
+    private static View tile(Activity a, JSONObject s, int[] spot, Consumer<JSONObject> open) {
+        boolean small = spot[2] == 1, big = spot[3] == 2;
+        LinearLayout t = new LinearLayout(a);
+        t.setOrientation(small || big ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
+        t.setGravity(small ? Gravity.CENTER : big ? Gravity.START : Gravity.CENTER_VERTICAL);
+        int pad = dp(a, small ? 8 : big ? 16 : 14);
+        t.setPadding(pad, pad, pad, pad);
+        float radius = dp(a, big ? 26 : 20);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(OnyxPanel.CARD);
+        bg.setStroke(Math.max(1, dp(a, 0.7f)), 0x1FFFFFFF);
+        bg.setCornerRadius(radius);
+        t.setBackground(bg);
+        GradientDrawable mask = new GradientDrawable();
+        mask.setColor(Color.WHITE);
+        mask.setCornerRadius(radius);
+        t.setForeground(new RippleDrawable(ColorStateList.valueOf(0x40FFFFFF), null, mask));
+
+        t.addView(mark(a, s, small ? 28 : big ? 44 : 30));
+        TextView label = new TextView(a);
+        label.setText(labelOf(s));
+        label.setTextColor(OnyxPanel.TEXT);
+        label.setEllipsize(TextUtils.TruncateAt.END);
+        Typeface medium = Typeface.create("sans-serif-medium", Typeface.NORMAL);
+        if (small) {
+            label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f);
+            label.setSingleLine(true);
+            label.setGravity(Gravity.CENTER);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.topMargin = dp(a, 6);
+            t.addView(label, lp);
+        } else if (big) {
+            t.addView(new View(a), new LinearLayout.LayoutParams(1, 0, 1)); // the words sit at the foot
+            TextView kind = new TextView(a);
+            kind.setText(kindOf(s));
+            kind.setTextColor(OnyxPanel.MUTED);
+            kind.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            kind.setTypeface(medium);
+            kind.setLetterSpacing(0.12f);
+            kind.setSingleLine(true);
+            kind.setEllipsize(TextUtils.TruncateAt.END);
+            t.addView(kind);
+            label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+            label.setTypeface(medium);
+            label.setMaxLines(2);
+            t.addView(label);
+        } else {
+            label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+            label.setTypeface(medium);
+            label.setMaxLines(2);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+            lp.leftMargin = dp(a, 12);
+            t.addView(label, lp);
+        }
+        t.setContentDescription("Open " + labelOf(s));
+        t.setOnClickListener(v -> open.accept(s));
+        return t;
+    }
+
+    /** The big tile's line over the name: what it opens (APP, AUDIO, FILE, or the link's site or app). */
+    static String kindOf(JSONObject s) {
+        switch (s.optString("kind")) {
+            case "app": return "APP";
+            case "file": return LockAudio.isAudio(s) ? "AUDIO" : "FILE";
+            default: {
+                String t = s.optString("target");
+                Uri u = Uri.parse(t.matches("^[a-zA-Z][a-zA-Z0-9+.-]*:.*") ? t : "https://" + t);
+                String host = u.getHost();
+                if (host != null && !host.isEmpty()) return host.replaceFirst("^www\\.", "").toUpperCase(Locale.ROOT);
+                String scheme = u.getScheme();
+                return scheme == null || scheme.isEmpty() ? "LINK" : scheme.toUpperCase(Locale.ROOT);
+            }
+        }
+    }
+
+    /** Lays its tiles on the grid bento() gives: square cells as wide as fit (at most 96dp), 10dp apart. */
+    private static final class Bento extends ViewGroup {
+        private final int[][] spots;
+        private final int gap, most;
+        private int cell;
+
+        Bento(Context c, int[][] spots) {
+            super(c);
+            this.spots = spots;
+            gap = dp(c, 10);
+            most = dp(c, 96);
+        }
+
+        private int span(int n) {
+            return n * cell + (n - 1) * gap;
+        }
+
+        @Override
+        protected void onMeasure(int widthSpec, int heightSpec) {
+            int room = MeasureSpec.getMode(widthSpec) == MeasureSpec.UNSPECIFIED ? COLS * most + (COLS - 1) * gap : MeasureSpec.getSize(widthSpec);
+            cell = Math.max(0, Math.min(most, (room - (COLS - 1) * gap) / COLS));
+            int rows = 0;
+            for (int i = 0; i < getChildCount() && i < spots.length; i++) {
+                int[] p = spots[i];
+                rows = Math.max(rows, p[1] + p[3]);
+                getChildAt(i).measure(MeasureSpec.makeMeasureSpec(span(p[2]), MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(span(p[3]), MeasureSpec.EXACTLY));
+            }
+            setMeasuredDimension(span(COLS), rows == 0 ? 0 : span(rows));
+        }
+
+        @Override
+        protected void onLayout(boolean changed, int l, int t, int r, int b) {
+            for (int i = 0; i < getChildCount() && i < spots.length; i++) {
+                View v = getChildAt(i);
+                int x = spots[i][0] * (cell + gap), y = spots[i][1] * (cell + gap);
+                v.layout(x, y, x + v.getMeasuredWidth(), y + v.getMeasuredHeight());
+            }
+        }
     }
 
     static String labelOf(JSONObject s) {

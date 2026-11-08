@@ -8302,14 +8302,19 @@
    * Things in a box put in order by hand: press and hold one (a mouse needs no wait), then move it; the others
    * slide out of its way as it passes their middle, and letting go gives done() the new order of their keys
    * (null when the browser took the touch back). A swipe that moves before the hold is up still scrolls.
-   * axis 'y' is a column; 'x' is a row, which may wrap. skip(target) leaves a press to something inside.
+   * axis 'y' is a column; 'x' is a row, which may wrap; 'grid' is tiles of any size, each taking the place
+   * of the one it is dropped over. skip(target) leaves a press to something inside. moved() runs after each
+   * step (to lay the tiles out again by their new order), and scale() is how much the box is shrunk on screen.
    */
-  function dragToOrder(box, { axis = 'y', items, key, done, skip, hold = 230 }) {
+  function dragToOrder(box, { axis = 'y', items, key, done, skip, moved, scale, hold = 230 }) {
     let d = null; // { el, x, y, sx, sy, gx, gy, on, timer }
+    const k = () => scale?.() || 1;
     const place = () => {
       d.el.style.transform = '';
       const r = d.el.getBoundingClientRect();
-      d.el.style.transform = `translate(${axis === 'y' ? 0 : d.x - d.gx - r.left}px, ${d.y - d.gy - r.top}px)`;
+      // Where it was taken hold of, kept inside it when it changes size (a tile becoming small).
+      const gx = Math.min(d.gx, r.width), gy = Math.min(d.gy, r.height);
+      d.el.style.transform = `translate(${axis === 'y' ? 0 : (d.x - gx - r.left) / k()}px, ${(d.y - gy - r.top) / k()}px)`;
     };
     // The others slide to their new places rather than jump.
     const slide = (change) => {
@@ -8320,7 +8325,7 @@
         const a = was.get(e), b = e.getBoundingClientRect();
         if (a.left === b.left && a.top === b.top) continue;
         e.style.transition = 'none';
-        e.style.transform = `translate(${a.left - b.left}px, ${a.top - b.top}px)`;
+        e.style.transform = `translate(${(a.left - b.left) / k()}px, ${(a.top - b.top) / k()}px)`;
         requestAnimationFrame(() => { e.style.transition = ''; e.style.transform = ''; });
       }
     };
@@ -8331,6 +8336,13 @@
       if (axis === 'y') {
         for (let j = i + 1; j < list.length; j++) if (d.y > mid(list[j]).y) to = j;
         for (let j = i - 1; j >= 0; j--) if (d.y < mid(list[j]).y) to = j;
+      } else if (axis === 'grid') {
+        // Over another tile, well inside it (so tiles that change size as they move don't swap back and forth).
+        list.forEach((e, j) => {
+          if (e === d.el) return;
+          const r = e.getBoundingClientRect(), ix = r.width * 0.2, iy = r.height * 0.2;
+          if (d.x > r.left + ix && d.x < r.right - ix && d.y > r.top + iy && d.y < r.bottom - iy) to = j;
+        });
       } else {
         list.forEach((e, j) => {
           if (e === d.el) return;
@@ -8339,7 +8351,7 @@
           if ((j > i && d.x > x) || (j < i && d.x < x)) to = j;
         });
       }
-      if (to !== i) slide(() => (to > i ? list[to].after(d.el) : list[to].before(d.el)));
+      if (to !== i) slide(() => { if (to > i) list[to].after(d.el); else list[to].before(d.el); moved?.(); });
     };
     const end = (keep) => {
       if (!d) return;
@@ -8396,6 +8408,65 @@
   }
 
   /**
+   * Where each of n shortcut tiles goes in the bento box, four cells across: [column, row, width, height].
+   * One fills the row and two share it; from three on, the first is big (two by two) and the rest fill in
+   * beside it, then rows of four small ones, and a last row that never ends in a gap. The phone lays them
+   * out the same way (LockShortcuts.bento).
+   */
+  function bentoTiles(n) {
+    const S = [1, 1], W = [2, 1], B = [2, 2], F = [4, 1];
+    const sizes = n === 1 ? [F] : n === 2 ? [W, W] : n === 3 ? [B, W, W] : n === 4 ? [B, W, S, S] : [];
+    if (n >= 5) {
+      sizes.push(B);
+      let rest = n - 1;
+      for (; rest >= 4; rest -= 4) sizes.push(S, S, S, S);
+      sizes.push(...[[], [F], [W, W], [W, S, S]][rest]);
+    }
+    const taken = [];
+    const free = (c, r, w, tall) => {
+      for (let y = r; y < r + tall; y++) for (let x = c; x < c + w; x++) if (taken[y]?.[x]) return false;
+      return true;
+    };
+    return sizes.map(([w, tall]) => {
+      for (let r = 0; ; r++) {
+        for (let c = 0; c + w <= 4; c++) {
+          if (!free(c, r, w, tall)) continue;
+          for (let y = r; y < r + tall; y++) for (let x = c; x < c + w; x++) (taken[y] ||= [])[x] = true;
+          return [c, r, w, tall];
+        }
+      }
+    });
+  }
+
+  /** The big tile's line over the name: what it opens (APP, AUDIO, FILE, or the link's site or app), as LockShortcuts.kindOf. */
+  function shortcutKind(s) {
+    if (s.kind === 'app') return 'APP';
+    if (s.kind === 'file') {
+      const audio = s.type && s.type !== 'application/octet-stream' ? s.type.startsWith('audio/') : /\.(mp3|m4a|aac|wav|ogg|oga|opus|flac|amr|mid|midi)$/i.test(s.name || '');
+      return audio ? 'AUDIO' : 'FILE';
+    }
+    const t = s.target || '';
+    try {
+      const u = new URL(/^[a-z][a-z0-9+.-]*:/i.test(t) ? t : `https://${t}`);
+      return u.hostname ? u.hostname.replace(/^www\./, '').toUpperCase() : u.protocol.replace(/:$/, '').toUpperCase() || 'LINK';
+    } catch {
+      return 'LINK';
+    }
+  }
+
+  /** "2h 05m", "48m 12s", "12s": a countdown as the phone's cards write it (OnyxPanel.span). */
+  function panelSpan(ms) {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    const hh = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    if (hh > 0) return `${hh}h ${String(m).padStart(2, '0')}m`;
+    if (m > 0) return `${m}m ${String(sec).padStart(2, '0')}s`;
+    return `${sec}s`;
+  }
+
+  const PREVIEW_W = 220; // the screen editor's picture, this wide
+  const CLOCK_SP = { small: 44, medium: 60, large: 76, huge: 104 }; // LockLayout.clockSp
+
+  /**
    * A screen's editor (the Android app), 'lock' or 'home', in Settings → Home & lock screen: how Onyx looks
    * on it, with a live picture. Its parts in any order, each shown or not; the clock's size and side, the
    * date, how dark the screen behind is; and its own shortcuts, each opening a link, an app or a file. Each
@@ -8423,49 +8494,142 @@
     const labelOf = (s) => s.label || s.name || (s.kind === 'app' ? apps?.find((a) => a.pkg === s.target)?.label : '') || s.target;
     const what = (s) => (s.kind === 'app' ? `App · ${apps?.find((a) => a.pkg === s.target)?.label || s.target}` : s.kind === 'file' ? `File · ${s.name || 'picked file'}` : s.target);
 
-    /** The picture of the screen, drawn from the settings as they are. */
+    /** What the phone's cards would show, from the calendar here: for a phone app too old to say (OnyxPanel.preview). */
+    const panelGuess = () => {
+      const t = Date.now();
+      const day = (ms) => new Date(ms).toDateString();
+      const tom = new Date(t);
+      tom.setDate(tom.getDate() + 1);
+      const list = nextRun.items.map((e) => ({ title: e.title, start: +new Date(e.start), end: +new Date(e.end), allDay: !!e.allDay, color: e.color, done: !!e.done }))
+        .filter((e) => e.start).sort((a, b) => a.start - b.start);
+      const now = list.find((e) => !e.allDay && e.start <= t && e.end > t) || null;
+      const next = list.find((e) => !e.allDay && e.start > t && (day(e.start) === day(t) || day(e.start) === tom.toDateString())) || null;
+      return {
+        now, next: next && { ...next, today: day(next.start) === day(t) }, goals: [], waiting: 0, updated: 0, error: '', h24: S.settings.hour12 === false,
+        today: list.filter((e) => day(e.start) === day(t) && (e.allDay || e.end > t)).slice(0, 7).map((e) => ({ ...e, now: e === now })),
+        tomorrow: list.filter((e) => day(e.start) === tom.toDateString()).slice(0, 3),
+      };
+    };
+
+    /**
+     * The picture of the screen, drawn to scale: the phone's own size and bars (setup.phone) and the cards as
+     * they show now (setup.panel, from OnyxPanel.preview), in the dp and sp LockPanelActivity and OnyxPanel use
+     * (LauncherActivity's on the home screen), then shrunk to fit. What shows only at times (music playing,
+     * notifications) is an outline. Parts, and shortcuts among themselves, are dragged into order.
+     */
     const preview = () => {
       const l = L();
-      const next = nextRun.items.find((e) => new Date(e.end) > Date.now());
       const left = l.align === 'left';
-      const now = new Date();
-      const parts = {
-        clock: h('div', { class: 'lp-clock' },
-          h('div', { class: `lp-time ${l.clockSize}` }, now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: S.settings.hour12 }).replace(/\s?[AP]M$/i, '')),
-          l.date && h('div', { class: 'lp-date' }, now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }))),
-        onyx: h('div', { class: 'lp-card' }, h('small', null, next && new Date(next.start) <= Date.now() ? 'NOW' : 'NEXT'), h('b', null, next?.title || 'What is on now and next'), h('i')),
-        shortcuts: setup.shortcuts.length
-          ? h('div', { class: 'lp-chips' }, setup.shortcuts.map((s, i) => h('span', { class: 'lp-chip', 'data-i': i }, h('em', null, kindIcon(s)), labelOf(s))))
-          : h('div', { class: 'lp-chips' }, h('span', { class: 'lp-chip ghost' }, 'Your shortcuts')),
-        noise: h('div', { class: 'lp-card lp-noise' }, h('span', { class: 'lp-play' }, '▶'),
-          h('div', null, h('small', null, 'NOISE MACHINE'), h('b', null, NOISE_KINDS.find(([k]) => k === noiseNow.kind)?.[2] || 'Brown noise')), h('span', { class: 'lp-next' }, 'Next ›')),
-        music: h('div', { class: 'lp-card lp-music' }, h('span', { class: 'lp-art' }), h('div', null, h('small', null, 'NOW PLAYING'), h('b', null, 'When something plays')), h('span', { class: 'lp-play' }, '▶')),
-        notifications: h('div', { class: 'lp-notes' }, h('small', null, 'NOTIFICATIONS'), h('div', { class: 'lp-card' }), h('div', { class: 'lp-card' })),
-        widgets: h('div', { class: 'lp-card lp-widget' }, h('small', null, 'WIDGETS'), h('b', null, 'The ones you add')),
-        apps: h('div', { class: 'lp-apps' }, Array.from({ length: 8 }, () => h('span'))),
+      const big = !home; // the lock screen's panel: larger titles, and the box to add a task
+      const ph = { w: 411, h: 891, top: 32, bottom: 24, ...(setup.phone || {}) };
+      const k = PREVIEW_W / ph.w;
+      const p = setup.panel || panelGuess();
+      const t = Date.now();
+      const clock = (ms) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: !p.h24 });
+      const C = { text: '#f4f4f6', muted: '#a4a8b4', faint: '#6e7380', accent: '#8b7cf6', green: '#5fd38d', amber: '#f5b83d', dim: 'rgba(255,255,255,.6)' };
+      const txt = (s, size, color = C.text, cls = '') => h('div', { class: `lx-t ${cls}`, css: { 'font-size': `${size}px`, color } }, s);
+      const label = (s, color = C.muted, cls = '') => h('div', { class: `lx-label ${cls}`, css: { color } }, s);
+      const title = (s) => h('div', { class: 'lx-title', css: { 'font-size': `${big ? 22 : 19}px` } }, s);
+      const bar = (color, part, tall) => h('div', { class: 'lx-bar', css: { height: `${tall}px` } },
+        h('span', { css: { width: `${Math.max(0, Math.min(1, part || 0)) * 100}%`, background: color || C.accent } }));
+      const card = (...kids) => h('div', { class: 'lx-card' }, ...kids);
+      const row = (it) => h('div', { class: 'lx-row' },
+        h('span', { class: 'lx-dot', css: { background: it.color || C.accent } }),
+        txt(it.allDay ? 'All day' : clock(it.start), 13, C.muted, 'lx-when'),
+        txt(it.title, 14, it.done ? C.faint : C.text, `lx-name${it.done ? ' done' : ''}`),
+        it.now ? txt('now', 12, C.green, 'lx-b') : it.call ? txt('📞', 12, C.amber) : null);
+
+      // The Onyx panel: now and next, the goals, the box to add a task (lock screen), the rest of today.
+      const nowNext = card(
+        p.now
+          ? [label('● Now', C.green), title(p.now.title), bar(p.now.color, (t - p.now.start) / Math.max(1, p.now.end - p.now.start), big ? 12 : 10),
+            txt(`${panelSpan(p.now.end - t)} left  ·  until ${clock(p.now.end)}`, 13, C.muted)]
+          : [label('Now'), title('Free'), txt(p.next ? `Free for ${panelSpan(p.next.start - t)}` : 'Nothing on', 13, C.muted)],
+        h('div', { class: 'lx-divider' }),
+        p.next
+          ? [label(p.next.today ? 'Next' : 'Next · tomorrow', C.accent), title(p.next.title),
+            txt(`in ${panelSpan(p.next.start - t)}  ·  ${clock(p.next.start)}`, big ? 17 : 15, C.text, 'lx-b'),
+            p.next.leaveAt > 0 && txt(p.next.leaveAt > t ? `Leave by ${clock(p.next.leaveAt)}  ·  in ${panelSpan(p.next.leaveAt - t)}` : `Time to leave (by ${clock(p.next.leaveAt)})`, 13, C.amber)]
+          : [label('Next'), txt('Nothing else today or tomorrow', 15, C.muted, 'lx-pt3')]);
+      const goals = p.goals?.length && card(label('Goals'), p.goals.map((g) => [
+        h('div', { class: 'lx-goal' }, txt(g.title, 14, C.text, 'lx-name'), txt(`${g.percent}%`, 14, C.muted, 'lx-b')),
+        bar(g.color, g.percent / 100, 6)]));
+      const quick = big && card(h('div', { class: 'lx-quick' }, txt('Add a task…', 16, C.faint, 'lx-name'), h('span', { class: 'lx-add' }, 'Add')),
+        p.waiting > 0 && txt(`${p.waiting} ${p.waiting === 1 ? 'note waits' : 'notes wait'} for your PC, then go to Onyx's inbox`, 12, C.muted, 'lx-pt4'));
+      const dayCard = card(label(`Today · ${new Date(t).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}`),
+        p.today?.length ? p.today.map(row) : txt('Nothing else today', 14, C.muted, 'lx-pt6'),
+        p.tomorrow?.length && [label('Tomorrow', C.faint, 'lx-pt12'), p.tomorrow.map(row)]);
+      const foot = txt(p.error ? `${p.error}${p.updated ? `  ·  from ${clock(p.updated)}` : ''}` : p.updated ? `Updated ${clock(p.updated)}` : 'Loading from your PC…', 11, C.faint, 'lx-foot');
+
+      // Your shortcuts: tiles of a bento box (bentoTiles), or the row of pills.
+      const tiles = (l.shortcutLook || (home ? 'pills' : 'tiles')) === 'tiles';
+      const cell = Math.min(96, Math.floor((ph.w - 32 - 30) / 4)); // LockShortcuts.Bento: four across, 10dp apart, 96dp at most
+      const spot = (el, [c, r, w, tall]) => {
+        el.style.setProperty('grid-column', `${c + 1} / span ${w}`);
+        el.style.setProperty('grid-row', `${r + 1} / span ${tall}`);
+        el.classList.remove('big', 'small', 'wide', 'full');
+        el.classList.add('lx-tile', tall === 2 ? 'big' : w === 1 ? 'small' : w === 4 ? 'full' : 'wide');
       };
-      const shown = l.order.filter((p) => shows(p) && parts[p]);
-      for (const p of shown) parts[p].dataset.part = p;
-      const inner = h('div', { class: 'lp-inner' }, shown.map((p) => parts[p]));
-      const phone = h('div', { class: `lp-phone${left ? ' left' : ''}${home ? ' home' : ''}`, css: { '--dim': String(l.dim / 100) }, 'aria-label': `How your ${home ? 'home' : 'lock'} screen will look` },
+      const spots = bentoTiles(setup.shortcuts.length);
+      const shortcuts = !setup.shortcuts.length ? h('div', { class: 'lx-chips' }, h('span', { class: 'lx-chip ghost' }, 'Your shortcuts'))
+        : tiles ? h('div', { class: `lx-bento${left ? '' : ' mid'}`, css: { 'grid-template-columns': `repeat(4, ${cell}px)`, 'grid-auto-rows': `${cell}px` } },
+          setup.shortcuts.map((s, i) => {
+            const el = h('div', { 'data-i': i }, h('span', { class: 'lx-ic' }, kindIcon(s)), h('small', null, shortcutKind(s)), h('b', null, labelOf(s)));
+            spot(el, spots[i]);
+            return el;
+          }))
+          : h('div', { class: 'lx-chips' }, setup.shortcuts.map((s, i) => h('span', { class: 'lx-chip', 'data-i': i }, h('em', null, kindIcon(s)), h('span', null, labelOf(s)))));
+
+      const parts = {
+        clock: h('div', { class: 'lx-clock' },
+          h('div', { class: 'lx-time', css: { 'font-size': `${CLOCK_SP[l.clockSize] || 76}px` } }, clock(t).replace(/\s?[AP]M$/i, '')),
+          l.date && h('div', { class: 'lx-date' }, new Date(t).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }))),
+        onyx: h('div', { class: 'lx-panel' }, nowNext, goals, quick, dayCard, foot),
+        shortcuts: h('div', { class: 'lx-shortcuts' }, shortcuts),
+        music: h('div', { class: 'lx-music' }, h('div', { class: 'lx-ghost' }, h('span', { class: 'lx-art' }),
+          h('div', null, txt('NOW PLAYING', 10.5, C.dim, 'lx-caps'), txt('Shows here while music plays', 15, C.text, 'lx-b')))),
+        notifications: h('div', { class: 'lx-notes' }, txt('NOTIFICATIONS', 11, C.dim, 'lx-caps lx-head'),
+          h('div', { class: 'lx-ghost lx-note' }, txt('Your notifications show here', 14, C.muted)), h('div', { class: 'lx-ghost lx-note' })),
+        noise: h('div', { class: 'lx-noise' }, h('span', { class: 'lx-play' }, '▶'),
+          h('div', null, txt('NOISE MACHINE', 11, 'rgba(255,255,255,.7)', 'lx-b lx-caps'), txt(NOISE_KINDS.find(([kind]) => kind === noiseNow.kind)?.[2] || 'Brown noise', 15, '#fff', 'lx-b')),
+          h('span', { class: 'lx-next' }, 'Next ›')),
+        widgets: h('div', { class: 'lx-ghost lx-widget' }, txt('WIDGETS', 11, C.muted, 'lx-caps'), txt('The ones you add', 15, C.text, 'lx-b')),
+        apps: h('div', { class: 'lx-apps' }, Array.from({ length: 8 }, () => h('span'))),
+      };
+      const shown = l.order.filter((part) => shows(part) && parts[part]);
+      for (const part of shown) parts[part].dataset.part = part;
+      // Where the list starts and ends: below the status bar, and above the Unlock pill (or Onyx Home's dock).
+      const inner = h('div', { class: 'lp-inner', css: home
+        ? { padding: `${ph.top + 24}px 16px 16px`, bottom: `${ph.bottom + 98}px` }
+        : { padding: `${ph.top + 36}px 16px 12px`, bottom: `${ph.bottom + 18 + 44 + 10}px` } }, shown.map((part) => parts[part]));
+      const phone = h('div', { class: `lp-phone${left ? ' left' : ''}${home ? ' home' : ''}`, 'aria-label': `How your ${home ? 'home' : 'lock'} screen will look`,
+        css: { '--dim': String(l.dim / 100), width: `${PREVIEW_W}px`, height: `${Math.round(ph.h * k)}px` } },
+      h('div', { class: 'lp-screen', css: { width: `${ph.w}px`, height: `${ph.h}px`, transform: `scale(${k})` } },
         inner,
-        home ? h('div', { class: 'lp-dock' }, h('span'), h('span'), h('span'), h('span')) : h('div', { class: 'lp-unlock' }, '︿ Unlock'));
-      // Moved by hand: a part up or down, a shortcut along its row. Saved as soon as it is let go.
-      dragToOrder(inner, { axis: 'y', items: () => [...inner.children], skip: (t) => t.closest('.lp-chip[data-i]:not(.ghost)'), key: (el) => el.dataset.part,
+        home ? h('div', { class: 'lp-dock', css: { bottom: `${ph.bottom + 8}px` } }, h('span'), h('span'), h('span'), h('span'))
+          : h('div', { class: 'lp-unlock', css: { bottom: `${ph.bottom + 18}px` } }, '︿  Unlock')));
+
+      // Moved by hand: a part up or down, a shortcut to another's place. Saved as soon as it is let go.
+      const scale = () => k;
+      dragToOrder(inner, { axis: 'y', scale, items: () => [...inner.children], skip: (el) => el.closest('[data-i]'), key: (el) => el.dataset.part,
         done: (order) => {
           if (!order) { draw(); return; }
           const moved = [...order];
-          const next = l.order.map((p) => (shown.includes(p) ? moved.shift() : p));
+          const next = l.order.map((part) => (shown.includes(part) ? moved.shift() : part));
           if (next.join() === l.order.join()) return;
           setLayout({ order: next });
         } });
-      const chips = parts.shortcuts; // the row of them
-      if (setup.shortcuts.length > 1) dragToOrder(chips, { axis: 'x', items: () => [...chips.querySelectorAll('.lp-chip:not(.ghost)')], key: (el) => +el.dataset.i,
-        done: (order) => {
-          if (!order) { draw(); return; }
-          if (order.every((i, j) => i === j)) return;
-          save({ shortcuts: order.map((i) => setup.shortcuts[i]) });
-        } });
+      if (setup.shortcuts.length > 1) {
+        const items = () => [...shortcuts.querySelectorAll('[data-i]')];
+        dragToOrder(shortcuts, { axis: tiles ? 'grid' : 'x', scale, items, key: (el) => +el.dataset.i,
+          // A tile takes the size of the place it moves to, as it will on the phone.
+          moved: tiles ? () => items().forEach((el, j) => spot(el, spots[j])) : null,
+          done: (order) => {
+            if (!order) { draw(); return; }
+            if (order.every((i, j) => i === j)) return;
+            save({ shortcuts: order.map((i) => setup.shortcuts[i]) });
+          } });
+      }
       return phone;
     };
 
@@ -8518,8 +8682,10 @@
       if (!setup) return;
       const l = L();
       const size = (v, name) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(l.clockSize === v), class: `le-kind${l.clockSize === v ? ' on' : ''}`, onclick: () => setLayout({ clockSize: v }) }, name);
+      const look = l.shortcutLook || (home ? 'pills' : 'tiles');
       box.replaceChildren(
         h('div', { class: 'le-top' }, preview(),
+          h('small', { class: 'le-below', hidden: true }),
           h('small', { class: 'le-drag-hint' }, 'Press and hold a part or a shortcut on it, then drag it where you want it.'),
           h('small', { class: 'le-saved' }, home
             ? 'Changes save as you make them, and show the next time you go to your home screen.'
@@ -8540,6 +8706,9 @@
           field('Clock size', null, h('div', { class: 'le-kinds', role: 'radiogroup', 'aria-label': 'Clock size' }, size('small', 'S'), size('medium', 'M'), size('large', 'L'), size('huge', 'XL'))),
           field('Clock and shortcuts on', null, h('div', { class: 'le-kinds', role: 'radiogroup', 'aria-label': 'Side' },
             ['center', 'left'].map((v) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(l.align === v), class: `le-kind${l.align === v ? ' on' : ''}`, onclick: () => setLayout({ align: v }) }, v === 'center' ? 'Center' : 'Left')))),
+          field('Shortcuts as', look === 'tiles' ? 'Tiles that fit together like a bento box: the first is big, and the rest fill in around it.' : 'A row of pills that scrolls sideways.',
+            h('div', { class: 'le-kinds', role: 'radiogroup', 'aria-label': 'Shortcuts as' },
+              [['tiles', 'Tiles'], ['pills', 'Pills']].map(([v, name]) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(look === v), class: `le-kind${look === v ? ' on' : ''}`, onclick: () => setLayout({ shortcutLook: v }) }, name)))),
           field('Date under the clock', null, toggle(l.date, (v) => setLayout({ date: v }))),
           field('Background', home ? `${l.dim}% dark over your wallpaper: 0 shows it as it is.` : `${l.dim}% dark: lower lets your wallpaper show through.`,
             h('input', { type: 'range', min: 0, max: 100, step: 5, value: l.dim, class: 'le-range',
@@ -8564,6 +8733,14 @@
             ? h('button', { type: 'button', class: 'btn primary', onclick: () => { D.editing = { screen, at: -1, s: { id: `s${Date.now().toString(36)}`, kind: 'link', target: '', label: '', icon: '' } }; draw(); } }, 'Add a shortcut')
             : h('small', null, `That's the most (${setup.max}). Remove one to add another.`))),
         ...(editing() ? [form()] : [])); // replaceChildren writes a null out as the text "null"
+      // What starts below the first screen, as on the phone, where it is scrolled to.
+      requestAnimationFrame(() => {
+        const inner = box.querySelector('.lp-inner'), below = box.querySelector('.le-below');
+        if (!inner || !below) return;
+        const names = [...inner.children].filter((el) => el.offsetTop + el.offsetHeight / 2 > inner.clientHeight).map((el) => PARTS[el.dataset.part] || el.dataset.part);
+        below.hidden = !names.length;
+        below.textContent = `Below the first screen: ${names.join(', ')}. Scroll the picture to see ${names.length > 1 ? 'them' : 'it'}, or drag ${names.length > 1 ? 'one' : 'it'} higher to see it ${home ? 'as soon as you go to your home screen' : 'as soon as your screen turns on'}.`;
+      });
       if (!apps && setup.shortcuts.some((s) => s.kind === 'app')) onyx.launcher.shortcutApps().then((a) => { apps = a; draw(); }).catch(() => { apps = []; });
     };
     D.redraw = () => {
@@ -9839,8 +10016,8 @@
     keys: { name: 'Keys & accounts', icon: 'shield', c: '#8b7cff', items: ['AI for Breakdown', 'Notion', 'Google', 'Outlook', 'Calendar link (read-only)', 'Excel sheet (live)'], words: 'claude api key credentials microsoft ics feed sign in excel spreadsheet google sheets onedrive xlsx csv rows' },
     pi: { name: 'Calls & alerts', icon: 'bell', c: '#ff6b6b', items: ['Alarm on my phone', 'Push notification (free)', 'Phone call (Twilio)', 'Raspberry Pi (advanced)', 'Show Pi phone reminders', 'Quiet hours'], words: 'ntfy twilio escalation reminders call ring' },
     // The lock screen editor was its own page before: its name (and "Where should Onyx show?") still finds this one.
-    launcher: { name: 'Home & lock screen', icon: 'lock', c: '#3fd0c9', items: ['Onyx on your lock screen', 'Onyx on your home screen', 'Make Onyx Home your home app', 'What shows, and in what order', 'Clock size', 'Clock and shortcuts on', 'Date under the clock', 'Background', 'Shortcuts', 'Full-screen pop-ups', 'Alarm for everything as it starts', 'Full-screen alarms'],
-      words: 'onyx home launcher overlay notifications music spotify alarms lock screen editor home screen editor where should onyx show set up layout look wallpaper dark link app file audio macro widgets' },
+    launcher: { name: 'Home & lock screen', icon: 'lock', c: '#3fd0c9', items: ['Onyx on your lock screen', 'Onyx on your home screen', 'Make Onyx Home your home app', 'What shows, and in what order', 'Clock size', 'Clock and shortcuts on', 'Shortcuts as', 'Date under the clock', 'Background', 'Shortcuts', 'Full-screen pop-ups', 'Alarm for everything as it starts', 'Full-screen alarms'],
+      words: 'onyx home launcher overlay notifications music spotify alarms lock screen editor home screen editor where should onyx show set up layout look wallpaper dark link app file audio macro widgets tiles bento pills grid' },
     doomscroll: { name: 'Doomscroll saver', icon: 'target', c: '#ff9f4a', items: ['Doomscroll saver', 'Show it after', 'Accessibility access', 'See the card', 'Apps it watches', 'Daily limits'], words: 'social media instagram tiktok youtube minutes apps choose pick add games which apps daily limit limits time limit block blocked maximum max screen time' },
     voice: { name: 'Hey Claude', icon: 'mic', c: '#e08a5f', items: ['Listen for “Hey Claude”', 'Speech model', 'Wake phrase', 'Claude reads it', 'Chimes', 'How to say it'], words: 'voice speak talk say dictate microphone mic wake word phrase assistant hands free add a task by voice claude listening' },
     general: { name: 'General', icon: 'sliders', c: '#b9b9c2', items: ['New blocks go to', 'Updates', 'Now / Next bar', 'Popups', 'Tick-off sound', '24-hour time', 'Week starts on', 'Keep running when closed', 'Start with Windows'], words: 'default calendar chime clock tray' },

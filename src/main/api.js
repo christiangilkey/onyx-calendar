@@ -162,6 +162,10 @@ const handlers = {
   // Boards: whiteboards for long workflows (boards.js); the app makes each board's id.
   boards: () => require('./boards').boards(),
   'board:save': (board) => require('./boards').save(board),
+  // The blocker's lists (blocklists.js): every one, one added or changed (its newest copy wins), one deleted.
+  blockLists: () => require('./blocklists').lists(),
+  'blockList:save': (list) => require('./blocklists').save(list),
+  'blockList:delete': (id) => require('./blocklists').remove(id),
   'board:delete': (id) => require('./boards').remove(id),
   'notion:search': (query) => notion.search(query),
   // Sending a block: by email from a connected account, or onto a Notion page (share.js).

@@ -14,7 +14,7 @@ function buildWww(out, { web = false } = {}) {
   fs.rmSync(out, { recursive: true, force: true });
   fs.mkdirSync(path.join(out, 'vendor'), { recursive: true });
 
-  for (const file of ['boot.js', 'app.js', 'graph.js', 'boards.js', 'focus-plan.js', 'remote.js', 'styles.css', 'changelog.js']) {
+  for (const file of ['boot.js', 'app.js', 'graph.js', 'boards.js', 'focus-plan.js', 'block-rules.js', 'remote.js', 'styles.css', 'changelog.js']) {
     fs.copyFileSync(path.join(src, file), path.join(out, file));
   }
   fs.copyFileSync(path.join(root, 'node_modules/fullcalendar/index.global.min.js'), path.join(out, 'vendor/fullcalendar.js'));

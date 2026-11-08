@@ -143,6 +143,21 @@ public class OnyxWidgetPlugin extends Plugin {
         call.resolve(o);
     }
 
+    /**
+     * The blocker (Blocker): { lists, at } hands over a copy of the block lists (kept when newer, or always with
+     * force: changed on this phone); {} only asks. Answers with the lists kept, when, and whether it can block.
+     */
+    @PluginMethod
+    public void blocker(PluginCall call) {
+        try {
+            org.json.JSONArray lists = call.getData().optJSONArray("lists");
+            if (lists != null) Blocker.put(getContext(), lists, call.getData().optLong("at", 0), Boolean.TRUE.equals(call.getBoolean("force", false)));
+            call.resolve(JSObject.fromJSONObject(Blocker.info(getContext())));
+        } catch (Exception e) {
+            call.reject(e.getMessage() == null ? "The blocker couldn't be read" : e.getMessage());
+        }
+    }
+
     /** A Hyperfocus session on this phone (or { clear: true } when it is over), for Onyx Home and the lock screen. */
     @PluginMethod
     public void setFocus(PluginCall call) {

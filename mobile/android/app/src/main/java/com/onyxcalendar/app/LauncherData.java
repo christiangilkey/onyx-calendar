@@ -253,6 +253,15 @@ final class LauncherData {
             } catch (Exception ignored) {
                 // an older PC: no Hyperfocus card from it
             }
+            // The block lists, when the PC's copy is newer than the phone's (Blocker): blocking goes on with the PC off.
+            try {
+                Object b = WidgetData.rpc(ctx, "blockLists", new JSONArray());
+                if (b instanceof JSONObject && ((JSONObject) b).optJSONArray("lists") != null) {
+                    Blocker.put(ctx, ((JSONObject) b).optJSONArray("lists"), ((JSONObject) b).optLong("at", 0), false);
+                }
+            } catch (Exception ignored) {
+                // an older PC, without the blocker
+            }
             JSONObject data = new JSONObject();
             data.put("day", today.toString());
             if (focus instanceof JSONObject) data.put("focus", focus);

@@ -271,9 +271,20 @@ async function boot() {
   updater.start((s) => win?.webContents.send('update', s));
   require('./caller').start(hub); // reminders by push (ntfy) or call (Twilio), when set up
   require('./focus').start(hub); // a Hyperfocus stop left unanswered reaches the phone
+  // The blocker: a block list on now closes its apps here and turns its sites away (blocker.js).
+  if (!SMOKE_SHOT) {
+    require('./blocker').start({
+      notify: (title, body) => {
+        if (!Notification.isSupported()) return;
+        const n = new Notification({ title, body, silent: true });
+        n.on('click', showWindow);
+        n.show();
+      },
+    });
+  }
 }
 
-app.on('before-quit', () => { quitting = true; store.flush(); });
+app.on('before-quit', () => { quitting = true; require('./blocker').stop(); store.flush(); });
 app.on('window-all-closed', () => { if (quitting || !store.data.settings.closeToTray) app.quit(); });
 
 // ---------------------------------------------------------------- what the window can ask for
@@ -404,6 +415,10 @@ const HANDLERS = {
   'alert:closeAll': () => { let n = 0; for (const w of [...alerts]) if (!w.isDestroyed()) { w.close(); n++; } return n; },
   // Tamkeen on this PC (not offered to the phone, which opens its own Tamkeen).
   'tamkeen:info': () => ({ installed: tamkeenInstalled() }),
+  // The blocker on this PC (blocker.js): how it is doing, Websites on this PC on or off, and the programs to pick from.
+  'blocker:pc': () => require('./blocker').status(),
+  'blocker:pcSet': (o) => require('./blocker').set(o),
+  'blocker:apps': () => require('./blocker').apps(),
   'tamkeen:watch': (id, seconds) => watchInTamkeen(id, seconds),
   'tamkeen:embed': (id, seconds) => tamkeenEmbed(id, seconds),
 };

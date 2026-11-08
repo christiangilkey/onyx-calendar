@@ -590,6 +590,29 @@
       return structuredClone(kept);
     },
     deleteBoard: async (id) => { mockBoards = allBoards().filter((x) => x.id !== id); return { ok: true }; },
+    // The blocker (blocklists.js, blocker.js), kept for this visit: one list to start with (?blocker=none: none yet).
+    blocker: (() => {
+      let lists = new URLSearchParams(location.search).get('blocker') === 'none' ? [] : [{
+        id: 'bl-work', name: 'Work hours', sites: ['youtube.com', 'youtu.be', 'reddit.com', 'x.com', 'twitter.com'],
+        phoneApps: [{ pkg: 'com.google.android.youtube', label: 'YouTube' }, { pkg: 'com.reddit.frontpage', label: 'Reddit' }, { pkg: 'com.twitter.android', label: 'X' }],
+        pcApps: [{ exe: 'discord.exe', label: 'Discord' }], schedule: [{ days: [1, 2, 3, 4, 5], start: '09:00', end: '17:00' }],
+        manual: { on: false, until: 0 }, skipUntil: 0, duringFocus: true, updated: Date.now() - 86400000,
+      }];
+      const out = () => ({ lists: structuredClone(lists), at: Math.max(0, ...lists.map((l) => l.updated || 0)) });
+      const pc = { windows: true, sites: true, blocking: [], applied: false, conflict: null, on: [], closed: [{ label: 'Discord', at: Date.now() - 50 * 60000 }] };
+      return {
+        lists: async () => out(),
+        save: async (l) => { const i = lists.findIndex((x) => x.id === l.id); if (i >= 0) lists[i] = structuredClone(l); else lists.push(structuredClone(l)); return out(); },
+        remove: async (id) => { lists = lists.filter((x) => x.id !== id); return out(); },
+        pc: {
+          status: async () => ({ ...pc }),
+          set: async (o) => { if (o.sites != null) pc.sites = !!o.sites; return { ...pc }; },
+          apps: async () => [{ exe: 'discord.exe', label: 'Discord', running: true }, { exe: 'steam.exe', label: 'Steam', running: true }, { exe: 'chrome.exe', label: 'Google Chrome', running: true },
+            { exe: 'spotify.exe', label: 'Spotify', running: false }, { exe: 'robloxplayerbeta.exe', label: 'Roblox Player', running: false }],
+        },
+        phone: { status: async () => ({ ...out(), allowed: !new URLSearchParams(location.search).has('noaccess'), running: true }) },
+      };
+    })(),
     addPin: async (r) => {
       if (r.source === 'web') {
         let u; try { u = new URL(/^www\./i.test(r.url) ? `https://${r.url}` : r.url); } catch { throw new Error('That is not a web address.'); }

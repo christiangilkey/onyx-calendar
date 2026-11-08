@@ -49,10 +49,11 @@ const svc = () => fs.readFileSync(path.join(main, 'java/com/onyxcalendar/app/Doo
 test('an app whose time is up today is covered, at once and until it leaves the front', () => {
   const j = svc();
   assert.match(j, /if \(name != null && leftToday\(name, now\) == 0\) \{\s*hideCard\(\);\s*if \(now >= blockQuietUntil\) showBlock\(name\);/);
-  assert.match(j, /if \(!limits\(this\)\.isEmpty\(\)\) handler\.post\(this::tick\);/, 'a switch of app is looked at straight away');
+  assert.match(j, /if \(!limits\(this\)\.isEmpty\(\) \|\| Blocker\.any\(this, System\.currentTimeMillis\(\)\)\) handler\.post\(this::tick\);/, 'a switch of app is looked at straight away');
   assert.match(j, /hideBlock\(\);\s*if \(name != null\) \{/, 'gone once something else is in front');
   assert.match(j, /boolean over = name != null && leftToday\(name, now\) == 0;\s*if \(name != null && !over/, 'time under the cover does not count');
-  assert.match(j, /String name = screenOn && \(nudge \|\| !limits\(this\)\.isEmpty\(\)\) \? social\(\) : null;/, 'limits work with the card off');
+  assert.match(j, /boolean watch = nudge \|\| !limits\(this\)\.isEmpty\(\);/, 'limits work with the card off');
+  assert.match(j, /String seen = screenOn && \(watch \|\| blocking\) \? social\(\) : null;\s*String name = watch \? seen : null;/, 'a block list looks too, without counting time');
   // The cover takes every touch, but Android's own home and back still work, and it offers the way out itself.
   assert.match(j, /root\.setClickable\(true\)/);
   assert.match(j, /TYPE_ACCESSIBILITY_OVERLAY,\s*WindowManager\.LayoutParams\.FLAG_NOT_FOCUSABLE \| WindowManager\.LayoutParams\.FLAG_LAYOUT_IN_SCREEN/);
@@ -62,7 +63,7 @@ test('an app whose time is up today is covered, at once and until it leaves the 
 
 test('Onyx itself and the lock screen never count as the app last open (or Back to Onyx would be covered too)', () => {
   const j = svc();
-  assert.match(j, /if \(pkg\.equals\(getPackageName\(\)\)\) \{ frontPkg = pkg; frontSite = null; \}/);
+  assert.match(j, /if \(pkg\.equals\(getPackageName\(\)\)\) \{ frontPkg = pkg; frontSite = null; frontHost = null; \}/);
   assert.match(j, /boolean screenOn = \(pm == null \|\| pm\.isInteractive\(\)\) && \(km == null \|\| !km\.isKeyguardLocked\(\)\);/);
 });
 

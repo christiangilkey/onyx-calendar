@@ -115,6 +115,17 @@ contextBridge.exposeInMainWorld('onyx', {
   globe: () => call('globe'),
   createNote: (data) => call('note:create', data),
   boards: () => call('boards'),
+  // The blocker: the block lists (shared with the phone and the web app), and what this PC does about them.
+  blocker: {
+    lists: () => call('blockLists'),
+    save: (list) => call('blockList:save', list),
+    remove: (id) => call('blockList:delete', id),
+    pc: {
+      status: () => call('blocker:pc'),
+      set: (o) => call('blocker:pcSet', o),
+      apps: () => call('blocker:apps'),
+    },
+  },
   saveBoard: (board) => call('board:save', board),
   deleteBoard: (id) => call('board:delete', id),
   updateNote: (id, patch) => call('note:update', id, patch),

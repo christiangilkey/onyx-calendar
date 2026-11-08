@@ -151,7 +151,7 @@
     return null;
   }
 
-  const CACHED = new Set(['state', 'events', 'tasks', 'globe', 'goals']);
+  const CACHED = new Set(['state', 'events', 'tasks', 'globe', 'goals', 'blockLists']);
 
   // The home-screen widgets fetch from the PC themselves: they get its address and token
   // from here, and a nudge to refresh after anything is changed in the app.
@@ -350,6 +350,7 @@
     'task:create', 'task:update', 'task:move', 'task:resize', 'task:delete', 'task:backburner', 'task:repeat', 'inbox:dismiss',
     'tags:set', 'memo:set', 'pomodoro:set', 'blockTasks:set', 'blockLinks:set', 'blockTasks:tick', 'eventColor:set',
     'note:create', 'note:update', 'note:delete', 'board:save', 'board:delete', 'goal:step', 'goal:update', 'pin:update', 'pin:remove', 'focus:log',
+    'blockList:save', 'blockList:delete',
   ]);
   let outbox = read(OUTBOX, []);
   const ids = read(IDS, {});
@@ -441,6 +442,19 @@
         else if (o.name === 'tags:set') touch(a, (t) => ({ ...t, tags: b || [] }));
       }
       return { ...value, tasks: list };
+    }
+    if (name === 'blockLists' && Array.isArray(value.lists)) {
+      let list = value.lists.slice();
+      let at = value.at || 0;
+      for (const o of outbox) {
+        if (o.name === 'blockList:save' && o.args[0]?.id) {
+          const i = list.findIndex((l) => l.id === o.args[0].id);
+          if (i >= 0) list[i] = o.args[0]; else list.push(o.args[0]);
+        } else if (o.name === 'blockList:delete') list = list.filter((l) => l.id !== o.args[0]);
+        else continue;
+        at = Math.max(at, o.at || 0);
+      }
+      return { ...value, lists: list, at };
     }
     return value;
   }
@@ -761,6 +775,15 @@
   const maybeSetUp = () => { if (!own && !auto.busy && Date.now() >= auto.next) setTimeout(autoSetUp, 0); };
 
   window.ONYX_PHONE = true;
+  /** A change to the block lists made on this phone: into the app's own copy at once, PC or not (Blocker.java). */
+  async function blockerHere(change) {
+    if (!Widget?.blocker) return;
+    try {
+      const mine = await Widget.blocker({});
+      await Widget.blocker({ lists: change(Array.isArray(mine?.lists) ? mine.lists : []), at: Date.now(), force: true });
+    } catch { /* an app from before the blocker */ }
+  }
+
   window.onyx = {
     isPhone: true,
     isWeb: WEB,
@@ -831,6 +854,25 @@
     readSource: (src) => call('source:read', src),
     magicReplan: (tasks, travel, date, opts) => call('magic:replan', tasks, travel, date, opts),
     magicRemember: (opts) => call('magic:remember', opts),
+    // The blocker: the block lists, kept on the PC (or, on its own, through Drive) and shared with every device.
+    // On the phone a copy goes to the app too (Blocker.java), so it blocks with the PC off; the newer copy is shown.
+    blocker: {
+      lists: async () => {
+        let pc = null;
+        try { pc = await call('blockLists'); } catch (err) { if (!Widget?.blocker) throw err; }
+        if (!Widget?.blocker) return pc;
+        const mine = await Widget.blocker({}).catch(() => null);
+        if (pc && Array.isArray(pc.lists) && (!mine || (pc.at || 0) >= (mine.at || 0))) {
+          Widget.blocker({ lists: pc.lists, at: pc.at || 0 }).catch(() => {});
+          return pc;
+        }
+        return mine ? { lists: mine.lists || [], at: mine.at || 0 } : pc;
+      },
+      save: async (list) => { await blockerHere((lists) => { const i = lists.findIndex((l) => l.id === list.id); return i >= 0 ? lists.map((l, j) => (j === i ? list : l)) : [...lists, list]; }); return call('blockList:save', list); },
+      remove: async (id) => { await blockerHere((lists) => lists.filter((l) => l.id !== id)); return call('blockList:delete', id); },
+      // This phone: whether it can block (Accessibility allowed), as the app says.
+      phone: Widget?.blocker ? { status: () => Widget.blocker({}) } : null,
+    },
     // Onyx Home (the launcher) and Onyx on the lock screen, chosen in Settings.
     launcher: Widget ? {
       info: () => Widget.launcherInfo(),
@@ -1113,6 +1155,8 @@
       }
     };
     setTimeout(takeVoice, 4000);
+    // The block lists, from the PC or Drive, into the app's own copy: it blocks by them with the PC off.
+    if (Widget?.blocker) setTimeout(() => window.onyx.blocker.lists().catch(() => {}), 5000);
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(takeVoice, 1500); });
     App.addListener('appUrlOpen', (e) => handle(e.url));
     App.getLaunchUrl?.().then((r) => handle(r?.url)).catch(() => {});

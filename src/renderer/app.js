@@ -46,6 +46,7 @@
     menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
     device: '<rect x="7" y="3" width="10" height="18" rx="2.5"/><path d="M11 18h2"/>',
     target: '<circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="2.5"/>',
+    ban: '<circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/>',
     globe: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.6 2.3 3.9 5.1 3.9 8.5s-1.3 6.2-3.9 8.5c-2.6-2.3-3.9-5.1-3.9-8.5s1.3-6.2 3.9-8.5z"/>',
     link: '<path d="M14 5h5v5M19 5l-8 8M11 7H6v11h11v-5"/>',
     update: '<path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/><path d="M12 8v6M9.5 11.5L12 14l2.5-2.5"/>',
@@ -9476,6 +9477,291 @@
       ];
     },
 
+    // The blocker: lists of websites, PC apps and phone apps, each on by its schedule, switched on by hand (for a
+    // while, or until switched off) or during Hyperfocus. The same lists on every device (blocklists.js, synced);
+    // the PC closes its apps and turns its sites away (blocker.js), the phone covers them (Blocker.java, through the
+    // doomscroll saver's Accessibility service). The rules are block-rules.js.
+    blocker() {
+      const B = window.OnyxBlockRules;
+      const head = [h('h3', null, 'Blocker'), h('p', { class: 'lead' }, 'Lists of apps and websites to keep closed: on a schedule, for a while, or until you switch them off.')];
+      if (!onyx.blocker || !B) return [...head, h('div', { class: 'card' }, h('p', null, 'Update Onyx to use this.'))];
+      const page = h('div', { class: 'bk' }, h('div', { class: 'card' }, h('p', null, 'Loading your block lists…')));
+      const here = onyx.isWeb ? 'web' : onyx.isPhone ? 'phone' : 'pc';
+      const ui = blockerUi;
+      let lists = [];
+      let pc = null, phone = null;
+      const DAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+      const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      const H12 = S.settings.hour12 !== false;
+      const when = (t) => B.when(t, Date.now(), H12);
+      const clock = (hhmm) => { const m = B.minutesOf(hhmm); return new Date(2000, 0, 1, Math.floor(m / 60), m % 60).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: H12 }); };
+      const newId = () => (window.crypto?.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`);
+      const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+      const HOW = [[0, 'Until I switch it off'], [30, '30 min'], [60, '1 hour'], [120, '2 hours'], [240, '4 hours']];
+      // What each new list can start from: a name, a schedule and the presets on it.
+      const TEMPLATES = [
+        { name: 'Work hours', hint: 'Weekdays, 9 to 5', schedule: [{ days: [1, 2, 3, 4, 5], start: '09:00', end: '17:00' }], presets: ['YouTube', 'Reddit', 'X', 'Instagram', 'TikTok', 'Facebook'] },
+        { name: 'Wind down', hint: 'Every night, 10 PM to 7 AM', schedule: [{ days: [0, 1, 2, 3, 4, 5, 6], start: '22:00', end: '07:00' }], presets: ['YouTube', 'Instagram', 'TikTok', 'Netflix', 'Reddit', 'X'] },
+        { name: 'Focus', hint: 'Empty, on when you switch it on', schedule: [], presets: [] },
+      ];
+      const withPreset = (l, p) => ({
+        ...l,
+        sites: [...new Set([...l.sites, ...p.sites])],
+        phoneApps: [...l.phoneApps, ...(p.phone || []).filter(([pkg]) => !l.phoneApps.some((a) => a.pkg === pkg)).map(([pkg, label]) => ({ pkg, label }))],
+        pcApps: [...l.pcApps, ...(p.pc || []).filter(([exe]) => !l.pcApps.some((a) => a.exe === exe)).map(([exe, label]) => ({ exe, label }))],
+      });
+
+      const load = async () => {
+        try {
+          const [l, p, ph] = await Promise.all([
+            onyx.blocker.lists(),
+            here === 'pc' ? onyx.blocker.pc.status().catch(() => null) : null,
+            onyx.blocker.phone ? onyx.blocker.phone.status().catch(() => null) : null,
+          ]);
+          lists = B.cleanLists(l?.lists || []);
+          pc = p;
+          phone = ph;
+          draw();
+        } catch (err) {
+          page.replaceChildren(h('div', { class: 'card' }, h('p', null, err.message || 'The block lists could not be read.')));
+        }
+      };
+      const refreshPc = () => { if (here === 'pc') setTimeout(() => onyx.blocker.pc.status().then((s) => { pc = s; if (page.isConnected) draw(); }).catch(() => {}), 3000); };
+      const save = async (list) => {
+        const next = { ...list, updated: Date.now() };
+        const i = lists.findIndex((l) => l.id === next.id);
+        if (i >= 0) lists[i] = next; else lists.push(next);
+        draw();
+        try {
+          await onyx.blocker.save(next);
+          refreshPc();
+        } catch (err) { fail(err); }
+      };
+      const remove = async (list) => {
+        if (!confirm(`Delete "${list.name}"? What it blocks opens again.`)) return;
+        lists = lists.filter((l) => l.id !== list.id);
+        if (ui.open === list.id) ui.open = null;
+        draw();
+        try {
+          await onyx.blocker.remove(list.id);
+          refreshPc();
+        } catch (err) { fail(err); }
+      };
+      const add = (t) => {
+        const id = newId();
+        let l = { id, name: t.name, sites: [], phoneApps: [], pcApps: [], schedule: t.schedule, manual: { on: false, until: 0 }, skipUntil: 0, duringFocus: false };
+        for (const name of t.presets) l = withPreset(l, B.PRESETS.find((p) => p.name === name));
+        ui.open = id;
+        ui.pick = null;
+        save(l);
+      };
+
+      /** "On until 5:00 PM · Scheduled", "Off · starts Mon 9:00 AM". */
+      const stateLine = (l) => {
+        const s = B.stateOf(l, Date.now());
+        if (s.on) return { on: true, text: s.until ? `On until ${when(s.until)}` : 'On until you switch it off', why: { schedule: 'Scheduled', focus: 'Hyperfocus' }[s.why] || '' };
+        return { on: false, text: s.next ? `Off · starts ${when(s.next)}` : 'Off', why: '' };
+      };
+      const holds = (l) => [l.sites.length && plural(l.sites.length, 'site'), l.phoneApps.length && plural(l.phoneApps.length, 'phone app'), l.pcApps.length && plural(l.pcApps.length, 'PC app')]
+        .filter(Boolean).join(' · ') || 'Nothing on it yet';
+      const switchOff = (l) => {
+        const scheduled = !!B.windowAt(l.schedule, Date.now());
+        save(B.switched(l, false, Date.now()));
+        if (scheduled) toast('Off until its scheduled time is over. It comes on again at the next one.');
+      };
+
+      /** Switched on: for how long. */
+      const howLong = (l) => h('div', { class: 'bk-how', role: 'group', 'aria-label': `Switch ${l.name} on for how long` },
+        h('small', null, 'Block for how long?'),
+        h('div', { class: 'fs-chips' },
+          HOW.map(([m, label]) => h('button', { type: 'button', class: `bk-chip${m ? '' : ' main'}`, onclick: () => { ui.asking = null; save(B.switched(l, true, Date.now(), { minutes: m })); } }, label)),
+          h('button', { type: 'button', class: 'bk-chip ghost', onclick: () => { ui.asking = null; draw(); } }, 'Cancel')));
+
+      const chipX = (label, onx, sub) => h('span', { class: 'doom-app doom-mine bk-item', title: sub ? `${label} (${sub})` : label },
+        h('span', { class: 'bk-item-name' }, label),
+        h('button', { type: 'button', class: 'doom-x', 'aria-label': `Remove ${label}`, onclick: onx }, '×'));
+
+      /** Adding apps: the PC's programs (blocker.js apps) or the phone's apps, searched. */
+      const picker = (kind, l, set) => {
+        const list = h('div', { class: 'doom-pick-list' });
+        const fill = () => {
+          const all = kind === 'pc' ? ui.pcApps : ui.phoneApps;
+          if (!all) { list.replaceChildren(h('small', null, kind === 'pc' ? 'Looking at the apps on this PC…' : 'Loading your apps…')); return; }
+          const q = ui.q.trim().toLowerCase();
+          const have = new Set(kind === 'pc' ? l.pcApps.map((a) => a.exe) : l.phoneApps.map((a) => a.pkg));
+          const rows = all.filter((a) => !have.has(kind === 'pc' ? a.exe : a.pkg) && (!q || a.label.toLowerCase().includes(q) || String(a.exe || a.pkg).includes(q)));
+          list.replaceChildren(...(rows.length ? rows.slice(0, 200).map((a) => h('button', { type: 'button', class: 'doom-pick-row',
+            onclick: () => set(kind === 'pc' ? { pcApps: [...l.pcApps, { exe: a.exe, label: a.label }] } : { phoneApps: [...l.phoneApps, { pkg: a.pkg, label: a.label }] }) },
+            h('span', null, a.label, kind === 'pc' && h('small', { class: 'bk-exe' }, a.running ? `open now · ${a.exe}` : a.exe)), h('b', null, 'Add')))
+            : [h('small', null, q ? 'Nothing by that name.' : 'Every app is on the list already.')]));
+        };
+        if (kind === 'pc' && !ui.pcApps) onyx.blocker.pc.apps().then((a) => { ui.pcApps = a || []; fill(); }).catch(() => { ui.pcApps = []; fill(); });
+        if (kind === 'phone' && !ui.phoneApps) {
+          onyx.launcher.shortcutApps().then((a) => { ui.phoneApps = (a || []).filter((x) => !B.NEVER_PKG.has(x.pkg)); fill(); }).catch(() => { ui.phoneApps = []; fill(); });
+        }
+        fill();
+        return h('div', { class: 'doom-pick' },
+          h('input', { type: 'search', class: 'doom-pick-find', placeholder: kind === 'pc' ? 'Search the apps on this PC' : 'Search your apps', value: ui.q, autocapitalize: 'off', spellcheck: false,
+            oninput: (e) => { ui.q = e.target.value; fill(); } }),
+          list);
+      };
+      const pickButton = (kind, label) => h('button', { type: 'button', class: `btn${ui.pick === kind ? '' : ' primary'}`, onclick: () => { ui.pick = ui.pick === kind ? null : kind; ui.q = ''; draw(); } },
+        ui.pick === kind ? 'Done adding' : label);
+
+      /** One list opened: its name, what it blocks, and when. */
+      const editor = (l) => {
+        const set = (patch) => save({ ...l, ...patch });
+        const name = h('input', { type: 'text', class: 'bk-name', value: l.name, maxlength: 60, 'aria-label': 'List name', onchange: (e) => set({ name: e.target.value.trim() || l.name }) });
+
+        const siteIn = h('input', { type: 'text', inputmode: 'url', placeholder: 'youtube.com', autocapitalize: 'off', spellcheck: false, 'aria-label': 'Add a website' });
+        const addSite = () => {
+          const typed = siteIn.value.split(/[\s,]+/).filter(Boolean);
+          const ok = typed.map(B.cleanSite).filter(Boolean);
+          if (!ok.length) { toast(typed.length ? 'That isn\'t a website address. Try one like youtube.com.' : 'Type a site like youtube.com.'); return; }
+          set({ sites: [...new Set([...l.sites, ...ok])] });
+        };
+        siteIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addSite(); } });
+        const sites = h('div', { class: 'bk-sec' },
+          h('div', { class: 'doom-head' }, h('h4', null, 'Websites'), h('small', null, plural(l.sites.length, 'site'))),
+          l.sites.length ? h('div', { class: 'fs-chips doom-chips' }, l.sites.map((s) => chipX(s, () => set({ sites: l.sites.filter((x) => x !== s) })))) : null,
+          h('div', { class: 'row bk-add' }, siteIn, h('button', { type: 'button', class: 'btn', onclick: addSite }, 'Add')),
+          h('small', null, 'Every part of a site goes with it: youtube.com covers m.youtube.com and music.youtube.com. Web apps you installed from your browser are blocked by their site.'));
+
+        const presets = B.PRESETS.filter((p) => !p.sites.every((s) => l.sites.includes(s)));
+        const quick = presets.length ? h('div', { class: 'bk-sec' },
+          h('div', { class: 'doom-head' }, h('h4', null, 'Quick add'), h('small', null, 'Its sites and its apps')),
+          h('div', { class: 'fs-chips doom-chips' }, presets.map((p) => h('button', { type: 'button', class: 'doom-app doom-tap bk-preset', onclick: () => save(withPreset(l, p)) }, icon('plus'), p.name)))) : null;
+
+        const exeIn = h('input', { type: 'text', placeholder: 'discord.exe', autocapitalize: 'off', spellcheck: false, 'aria-label': 'Add a PC app by its program name' });
+        const addExe = () => {
+          const exe = B.exeName(exeIn.value);
+          if (!exe) { toast('That isn\'t a program Onyx can close. Try its file name, like discord.exe.'); return; }
+          if (!l.pcApps.some((a) => a.exe === exe)) set({ pcApps: [...l.pcApps, { exe, label: exe.replace(/\.exe$/, '') }] });
+        };
+        exeIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addExe(); } });
+        const pcSec = h('div', { class: 'bk-sec' },
+          h('div', { class: 'doom-head' }, h('h4', null, 'Apps on the PC'), h('small', null, plural(l.pcApps.length, 'app'))),
+          l.pcApps.length ? h('div', { class: 'fs-chips doom-chips' }, l.pcApps.map((a) => chipX(a.label, () => set({ pcApps: l.pcApps.filter((x) => x.exe !== a.exe) }), a.exe))) : null,
+          here === 'pc' && h('div', { class: 'row' }, pickButton('pc', 'Add a PC app')),
+          here === 'pc' && ui.pick === 'pc' && picker('pc', l, set),
+          h('details', { class: 'bk-more' }, h('summary', null, 'Type its program name'), h('div', { class: 'row bk-add' }, exeIn, h('button', { type: 'button', class: 'btn', onclick: addExe }, 'Add'))),
+          h('small', null, here === 'pc' ? 'Closed as they open while the list is on. One already open as the list comes on gets 30 seconds to save first.'
+            : 'Closed on your PC while the list is on. Pick them from Onyx on the PC, or type the program\'s name.'));
+
+        const phoneSec = h('div', { class: 'bk-sec' },
+          h('div', { class: 'doom-head' }, h('h4', null, 'Apps on the phone'), h('small', null, plural(l.phoneApps.length, 'app'))),
+          l.phoneApps.length ? h('div', { class: 'fs-chips doom-chips' }, l.phoneApps.map((a) => chipX(a.label, () => set({ phoneApps: l.phoneApps.filter((x) => x.pkg !== a.pkg) }), a.pkg))) : null,
+          here === 'phone' && onyx.launcher && h('div', { class: 'row' }, pickButton('phone', 'Add a phone app')),
+          here === 'phone' && onyx.launcher && ui.pick === 'phone' && picker('phone', l, set),
+          h('small', null, here === 'phone' ? 'Covered as they open while the list is on, with the way back to Onyx. Web apps added to your home screen are here too.'
+            : 'Covered on your phone while the list is on. Pick them from the Onyx app on your phone.'));
+
+        const setWin = (i, patch) => set({ schedule: l.schedule.map((w, j) => (j === i ? { ...w, ...patch } : w)) });
+        const flipDay = (i, d) => {
+          const w = l.schedule[i];
+          const days = w.days.includes(d) ? w.days.filter((x) => x !== d) : [...w.days, d].sort();
+          if (!days.length) { toast('Keep at least one day, or take the time away with ×.'); return; }
+          setWin(i, { days });
+        };
+        const times = l.schedule.map((w, i) => {
+          const s = B.minutesOf(w.start), e = B.minutesOf(w.end);
+          return h('div', { class: 'bk-win' },
+            h('div', { class: 'bk-days', role: 'group', 'aria-label': 'Days' },
+              DAYS.map((d, k) => h('button', { type: 'button', class: `bk-day${w.days.includes(k) ? ' on' : ''}`, 'aria-pressed': String(w.days.includes(k)), 'aria-label': DAY_NAMES[k], onclick: () => flipDay(i, k) }, d))),
+            h('div', { class: 'bk-times' },
+              h('input', { type: 'time', value: w.start, 'aria-label': 'From', onchange: (ev) => ev.target.value && setWin(i, { start: ev.target.value }) }),
+              h('span', null, 'to'),
+              h('input', { type: 'time', value: w.end, 'aria-label': 'Until', onchange: (ev) => ev.target.value && setWin(i, { end: ev.target.value }) }),
+              h('button', { type: 'button', class: 'doom-x', 'aria-label': 'Take this time away', onclick: () => set({ schedule: l.schedule.filter((_, j) => j !== i) }) }, '×')),
+            e <= s && h('small', null, e === s ? 'The whole day.' : `Runs past midnight, until ${clock(w.end)} the next morning.`));
+        });
+        const sched = h('div', { class: 'bk-sec' },
+          h('div', { class: 'doom-head' }, h('h4', null, 'When it\'s on'), h('small', null, l.schedule.length ? plural(l.schedule.length, 'time') : 'When you switch it on')),
+          ...times,
+          h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn', onclick: () => set({ schedule: [...l.schedule, { days: [1, 2, 3, 4, 5], start: '09:00', end: '17:00' }] }) }, icon('plus'), l.schedule.length ? 'Add another time' : 'Add a time')),
+          h('small', null, l.schedule.length ? 'It comes on and goes off by itself at these times. Switched off in the middle of one, it stays off until that time is over.'
+            : 'No times yet: it is on only when you switch it on above.'),
+          field('Also during Hyperfocus', 'On while a Hyperfocus session runs, on the PC or the phone.', toggle(l.duringFocus, (v) => set({ duringFocus: v }))));
+
+        return h('div', { class: 'bk-edit' },
+          h('label', { class: 'bk-name-row' }, h('small', null, 'Name'), name),
+          sites, quick, phoneSec, pcSec, sched,
+          h('div', { class: 'row bk-foot' },
+            h('button', { type: 'button', class: 'btn danger', onclick: () => remove(l) }, icon('trash'), 'Delete list'),
+            h('button', { type: 'button', class: 'btn primary', onclick: () => { ui.open = null; ui.pick = null; draw(); } }, 'Done')));
+      };
+
+      const card = (l) => {
+        const st = stateLine(l);
+        const editing = ui.open === l.id;
+        return h('div', { class: `bk-list${st.on ? ' on' : ''}${editing ? ' editing' : ''}` },
+          h('div', { class: 'bk-head' },
+            h('button', { type: 'button', class: 'bk-title', 'aria-expanded': String(editing), onclick: () => { ui.open = editing ? null : l.id; ui.pick = null; ui.asking = null; draw(); } },
+              h('span', { class: 'bk-icon' }, icon('ban')),
+              h('span', { class: 'bk-words' },
+                h('b', null, l.name),
+                h('small', { class: 'bk-state' }, st.text, st.why && h('em', null, ` · ${st.why}`)),
+                h('small', null, holds(l))),
+              h('span', { class: 'bk-chev' }, icon(editing ? 'down' : 'right'))),
+            toggle(st.on, (v) => { if (v) { ui.asking = l.id; draw(); } else switchOff(l); })),
+          ui.asking === l.id && !st.on && howLong(l),
+          editing && editor(l));
+      };
+
+      /** What this device does about the lists. */
+      const deviceCard = () => {
+        if (here === 'pc') {
+          const p = pc || {};
+          const blocking = p.blocking?.length ? `Turning away ${plural(p.blocking.length, 'site')} now.` : '';
+          const closed = (p.closed || []).slice(0, 3).map((c) => `${c.label} (${when(c.at)})`).join(', ');
+          return h('div', { class: 'card bk-device' },
+            h('h4', null, 'On this PC', p.windows === false ? h('span', { class: 'badge' }, 'Windows only') : null),
+            field('Websites on this PC', 'Blocked sites are turned away in Chrome, Edge and Firefox while a list is on. Onyx uses Windows\' own proxy setting for your account to do it, only while a list with sites is on, and takes it away after.',
+              toggle(p.sites !== false, (v) => onyx.blocker.pc.set({ sites: v }).then((s) => { pc = s; draw(); }).catch((err) => fail(err)))),
+            p.conflict && h('p', { class: 'bk-warn' }, p.conflict),
+            (blocking || closed) && h('small', { class: 'bk-note' }, [blocking, closed && `Closed lately: ${closed}.`].filter(Boolean).join(' ')),
+            h('small', { class: 'bk-note' }, 'Apps on a list are closed here as they open. The phone blocks its own apps and sites, with this PC on or off.'));
+        }
+        if (here === 'phone' && phone) {
+          return h('div', { class: 'card bk-device' },
+            h('h4', null, 'On this phone', phone.allowed ? h('span', { class: 'badge ok' }, 'Ready') : h('span', { class: 'badge bad' }, 'Needs Accessibility')),
+            phone.allowed
+              ? h('p', null, 'Blocked apps and sites are covered as they open, with your PC on or off. Sites are blocked in Chrome, Samsung Internet, Firefox, Edge, Brave, Opera, Vivaldi and DuckDuckGo.')
+              : h('p', null, 'To block on this phone, Android needs Onyx\'s Accessibility switch on. In the list there, open "Onyx doomscroll saver" and turn it on: it only looks at which app is open and, in a browser, the site in the address bar.'),
+            !phone.allowed && h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn primary', onclick: () => onyx.launcher.open('accessibility') }, 'Allow')),
+            !phone.allowed && h('div', { class: 'restricted-guide' },
+              h('b', null, 'Switch greyed out?'),
+              h('p', null, 'Android locks Accessibility for apps installed from a download. Tap App info, then ⋮ at the top right, then Allow restricted settings. Come back and tap Allow.'),
+              h('button', { type: 'button', class: 'btn', onclick: () => onyx.launcher.open('appinfo') }, 'App info')));
+        }
+        if (here === 'phone') return h('div', { class: 'card bk-device' }, h('p', null, 'Update the Onyx app on this phone to block here too. Your lists still reach your PC.'));
+        return h('div', { class: 'card bk-device' }, h('h4', null, 'Onyx on the web'), h('p', null, 'Your lists are the same everywhere. The blocking itself happens on your PC and in the Onyx app on your phone.'));
+      };
+
+      const draw = () => {
+        page.replaceChildren(...[
+          deviceCard(),
+          ...lists.map(card),
+          lists.length
+            ? h('div', { class: 'row bk-new' }, h('button', { type: 'button', class: 'btn', onclick: () => add(TEMPLATES[2]) }, icon('plus'), 'New list'))
+            : h('div', { class: 'card bk-start' },
+              h('h4', null, 'Make your first list'),
+              h('p', null, 'Start from one of these. You can change everything on it after.'),
+              h('div', { class: 'bk-templates' }, TEMPLATES.map((t) => h('button', { type: 'button', class: 'bk-template', onclick: () => add(t) }, h('b', null, t.name), h('small', null, t.hint))))),
+        ].filter(Boolean));
+      };
+
+      load();
+      // Its "On until 5:00 PM" kept true as time goes, and what changed while Android's settings were open.
+      const tick = setInterval(() => {
+        if (!page.isConnected) { clearInterval(tick); return; }
+        if (!page.contains(document.activeElement)) draw();
+      }, 30000);
+      const back = () => { if (!page.isConnected) document.removeEventListener('visibilitychange', back); else if (!document.hidden) load(); };
+      document.addEventListener('visibilitychange', back);
+      return [...head, page];
+    },
+
     // "Hey Claude" (the Android app only: VoiceService, VoiceModel): the phone listens for the phrase, offline, and
     // what is said after it goes to the inbox as a task (voice-task.js reads the day and time out of it).
     voice() {
@@ -10019,6 +10305,8 @@
     launcher: { name: 'Home & lock screen', icon: 'lock', c: '#3fd0c9', items: ['Onyx on your lock screen', 'Onyx on your home screen', 'Make Onyx Home your home app', 'What shows, and in what order', 'Clock size', 'Clock and shortcuts on', 'Shortcuts as', 'Date under the clock', 'Background', 'Shortcuts', 'Full-screen pop-ups', 'Alarm for everything as it starts', 'Full-screen alarms'],
       words: 'onyx home launcher overlay notifications music spotify alarms lock screen editor home screen editor where should onyx show set up layout look wallpaper dark link app file audio macro widgets tiles bento pills grid' },
     doomscroll: { name: 'Doomscroll saver', icon: 'target', c: '#ff9f4a', items: ['Doomscroll saver', 'Show it after', 'Accessibility access', 'See the card', 'Apps it watches', 'Daily limits'], words: 'social media instagram tiktok youtube minutes apps choose pick add games which apps daily limit limits time limit block blocked maximum max screen time' },
+    blocker: { name: 'Blocker', icon: 'ban', c: '#ff6b81', items: ['On this PC', 'On this phone', 'Websites on this PC', 'Make your first list', 'Websites', 'Quick add', 'Apps on the phone', 'Apps on the PC', "When it's on", 'Also during Hyperfocus'],
+      words: 'block blocker blocked block list apps websites sites web apps focus distraction distractions schedule scheduled lock out keep closed youtube social media games timer until switch off proxy work hours wind down' },
     voice: { name: 'Hey Claude', icon: 'mic', c: '#e08a5f', items: ['Listen for “Hey Claude”', 'Speech model', 'Wake phrase', 'Claude reads it', 'Chimes', 'How to say it'], words: 'voice speak talk say dictate microphone mic wake word phrase assistant hands free add a task by voice claude listening' },
     general: { name: 'General', icon: 'sliders', c: '#b9b9c2', items: ['New blocks go to', 'Updates', 'Now / Next bar', 'Popups', 'Tick-off sound', '24-hour time', 'Week starts on', 'Keep running when closed', 'Start with Windows'], words: 'default calendar chime clock tray' },
     changelog: { name: 'Changelog', icon: 'note', c: '#5fd38d', items: [], words: 'versions changes new what\'s new' },
@@ -10031,8 +10319,8 @@
   const SET_HOME = 'home'; // the phone's list of sections
   /** The groups of sections, in order, for this device. */
   const settingsGroups = () => (onyx.isPhone
-    ? [['This phone', [...(onyx.launcher ? ['launcher', 'doomscroll'] : []), ...(onyx.voice ? ['voice'] : [])]], ['Alerts', ['pi']], ['Sync & accounts', ['connection', 'keys']], ['App', ['general', 'changelog']]]
-    : [['Calendar', ['calendars', 'general']], ['Connected', ['connections', 'phone', 'desktops']], ['Alerts', ['pi']], ['Advanced', ['mcp']], ['About', ['changelog']]])
+    ? [['This phone', [...(onyx.launcher ? ['launcher', 'doomscroll'] : []), ...(onyx.voice ? ['voice'] : [])]], ['Focus', ['blocker']], ['Alerts', ['pi']], ['Sync & accounts', ['connection', 'keys']], ['App', ['general', 'changelog']]]
+    : [['Calendar', ['calendars', 'general']], ['Focus', ['blocker']], ['Connected', ['connections', 'phone', 'desktops']], ['Alerts', ['pi']], ['Advanced', ['mcp']], ['About', ['changelog']]])
     .filter(([, ids]) => ids.length);
 
   let settingsTab = MOBILE ? SET_HOME : 'calendars';
@@ -10040,6 +10328,8 @@
   const settingsSums = {}; // how each section is set, for the phone's list; filled in as the phone answers
   const lockDraft = { editing: null, redraw: null }; // a screen editor's shortcut being made (see screenEditor)
   const lsScreen = { now: '' }; // Home & lock screen: the screen picked at the top ('lock' or 'home'), kept through redraws
+  // Blocker: the list opened, the one being switched on (asked for how long), the app picker open and its search, the apps found.
+  const blockerUi = { open: null, asking: null, pick: null, q: '', pcApps: null, phoneApps: null };
 
   /** The line under a section's name on the phone's list: how it is set now, or what it is for. */
   function sectionSummary(id) {
@@ -10053,7 +10343,7 @@
       case 'pi': return { alarm: 'Alarm on this phone', ntfy: 'Push notifications', twilio: 'Phone calls', pi: 'Raspberry Pi calls' }[method] || 'How Onyx reaches you';
       case 'general': return `${S.settings.hour12 ? '12' : '24'}-hour time · week starts ${['Sunday', 'Monday', '', '', '', '', 'Saturday'][S.settings.weekStart] || 'Sunday'}`;
       case 'changelog': return window.OnyxChangelog?.[0] ? `Newest: ${window.OnyxChangelog[0].version}` : 'What came with each version';
-      default: return settingsSums[id] || { launcher: 'Onyx on your lock and home screens', doomscroll: 'A nudge back from social media', voice: 'Add tasks by saying them' }[id] || '';
+      default: return settingsSums[id] || { launcher: 'Onyx on your lock and home screens', doomscroll: 'A nudge back from social media', voice: 'Add tasks by saying them', blocker: 'Block apps and sites' }[id] || '';
     }
   }
   /** Asks the phone how its own sections are set, and writes it into the list. */
@@ -10072,6 +10362,16 @@
         put('doomscroll', i.doomscroll ? [`On · after ${i.doomMinutes} ${i.doomMinutes === 1 ? 'minute' : 'minutes'}`, limText].filter(Boolean).join(' · ')
           : limText ? `Card off · ${limText}` : 'Off');
       }
+    }).catch(() => {});
+    // The blocker: the list on now (and until when), or how many there are.
+    onyx.blocker?.lists().then((r) => {
+      const B = window.OnyxBlockRules;
+      if (!B) return;
+      const all = B.cleanLists(r?.lists || []);
+      const on = all.map((l) => [l, B.stateOf(l, Date.now())]).filter(([, st]) => st.on);
+      const until = (st) => (st.until ? ` until ${B.when(st.until, Date.now(), S.settings.hour12 !== false)}` : '');
+      put('blocker', !all.length ? 'Block apps and sites' : on.length ? `${on[0][0].name} on${until(on[0][1])}${on.length > 1 ? ` · ${on.length - 1} more` : ''}`
+        : `${all.length} ${all.length === 1 ? 'list' : 'lists'} · none on now`);
     }).catch(() => {});
     onyx.voice?.state().then((v) => {
       if (!v?.available) return;

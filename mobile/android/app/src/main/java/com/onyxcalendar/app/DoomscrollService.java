@@ -318,6 +318,7 @@ public class DoomscrollService extends AccessibilityService {
     private final ExecutorService bg = Executors.newSingleThreadExecutor();
     private String frontPkg = "";          // the app in front
     private String frontSite = null;       // in a browser: the social site it shows (null: none)
+    private String frontHost = null;       // in a browser: the host in its address bar, for the blocker (null: none read)
     private long stretchStart = 0, lastSocial = 0, hiddenUntil = 0, previewUntil = 0, lastFetch = 0;
     private final LinkedHashSet<String> names = new LinkedHashSet<>(); // what this stretch has been on
     private String iconPkg = "", shownIcon = null;
@@ -354,8 +355,9 @@ public class DoomscrollService extends AccessibilityService {
         if (!pkg.equals(frontPkg)) {
             frontPkg = pkg;
             frontSite = null;
-            // An app whose time is up today is covered at once, not at the next tick.
-            if (!limits(this).isEmpty()) handler.post(this::tick);
+            frontHost = null;
+            // An app whose time is up today, or one a block list has on now, is covered at once, not at the next tick.
+            if (!limits(this).isEmpty() || Blocker.any(this, System.currentTimeMillis())) handler.post(this::tick);
         }
     }
 
@@ -386,14 +388,18 @@ public class DoomscrollService extends AccessibilityService {
             if (root != null && root.getPackageName() != null) {
                 String pkg = root.getPackageName().toString();
                 // Onyx itself in front (its window has the focus; the card and the cover never take it): nothing counts.
-                if (pkg.equals(getPackageName())) { frontPkg = pkg; frontSite = null; }
+                if (pkg.equals(getPackageName())) { frontPkg = pkg; frontSite = null; frontHost = null; }
                 else if (!passing(pkg)) {
-                    if (!pkg.equals(frontPkg)) { frontPkg = pkg; frontSite = null; }
+                    if (!pkg.equals(frontPkg)) { frontPkg = pkg; frontSite = null; frontHost = null; }
                     String[] ids = BROWSERS.get(pkg);
                     if (ids != null) {
                         String url = addressBar(root, pkg, ids);
                         // The address bar slides away while you scroll: the site stays as last read.
-                        if (url != null) frontSite = siteName(url);
+                        if (url != null) {
+                            frontSite = siteName(url);
+                            String host = Blocker.hostOf(url);
+                            if (host != null) frontHost = host; // words being typed there leave the site as it was
+                        }
                     }
                 }
             }
@@ -446,8 +452,19 @@ public class DoomscrollService extends AccessibilityService {
         // On the lock screen nothing counts (the app last open is not in front, whatever is under it).
         boolean screenOn = (pm == null || pm.isInteractive()) && (km == null || !km.isKeyguardLocked());
         boolean nudge = on(this);
-        // The limits work with the card off too.
-        String name = screenOn && (nudge || !limits(this).isEmpty()) ? social() : null;
+        // The limits work with the card off too, and the block lists with neither.
+        boolean watch = nudge || !limits(this).isEmpty();
+        boolean blocking = screenOn && Blocker.any(this, now);
+        String seen = screenOn && (watch || blocking) ? social() : null;
+        String name = watch ? seen : null;
+        // A block list on now: what it blocks is covered (the app, or the site in a browser), before anything else.
+        Blocker.Hit hit = blocking ? Blocker.hit(this, frontPkg, BROWSERS.containsKey(frontPkg) ? frontHost : null, now) : null;
+        if (hit != null) {
+            hideCard();
+            if (now >= blockQuietUntil) showListBlock(hit);
+            handler.postDelayed(this::tick, 1_500);
+            return;
+        }
         // The time since the last look counts toward today's total for what is in front (not a gap, a sleep).
         long dt = lastTick > 0 ? now - lastTick : 0;
         lastTick = now;
@@ -476,7 +493,8 @@ public class DoomscrollService extends AccessibilityService {
             if (stretchStart != 0 && now - lastSocial > GAP) { stretchStart = 0; names.clear(); }
         }
         if (card != null) drawCard(now);
-        handler.postDelayed(this::tick, card != null ? 1_000 : TICK);
+        // In a browser while a list blocks sites: looked at often, as a new page brings no window change.
+        handler.postDelayed(this::tick, card != null ? 1_000 : blocking && BROWSERS.containsKey(frontPkg) ? 1_500 : TICK);
     }
 
     /** How much of its daily limit is left today, in ms: 0 when used up, -1 with no limit. */
@@ -710,12 +728,41 @@ public class DoomscrollService extends AccessibilityService {
      * browser). Android's own home and back still work. Gone as soon as something else is in front.
      */
     private void showBlock(String name) {
-        if (block != null && name.equals(blockFor)) return;
+        boolean site = BROWSERS.containsKey(frontPkg) && !APPS.containsKey(frontPkg) && extra(this).get(frontPkg) == null;
+        Integer lim = limits(this).get(name);
+        cover("limit|" + name, name, name + " is done for today",
+            "You gave it " + span((lim == null ? 0 : lim) * MIN) + " a day, and today's is used up. It opens again at midnight.", site);
+    }
+
+    /**
+     * Covers what a block list has on now (Blocker): the app in front, or the site a browser shows. The same
+     * screen as a daily limit's, saying which list and until when.
+     */
+    private void showListBlock(Blocker.Hit hit) {
+        String until;
+        if (hit.until <= 0) until = "until you switch it off in Onyx";
+        else {
+            long now = System.currentTimeMillis();
+            String time = DateFormat.getTimeFormat(this).format(new Date(hit.until));
+            boolean today = LauncherData.dayOf(hit.until).equals(LauncherData.dayOf(now));
+            boolean tomorrow = LauncherData.dayOf(hit.until).equals(LauncherData.dayOf(now).plusDays(1));
+            until = "until " + (today ? time : tomorrow ? "tomorrow " + time
+                : new java.text.SimpleDateFormat("EEE", java.util.Locale.getDefault()).format(new Date(hit.until)) + " " + time);
+        }
+        cover("list|" + hit.list + "|" + hit.label, hit.label, hit.label + " is blocked", hit.list + " is on " + until + ".", hit.site != null);
+    }
+
+    /** A block list changed (Blocker.put): looked at again now. */
+    void recheck() {
+        handler.post(this::tick);
+    }
+
+    /** The screen over the app in front: `key` says what for, so the same one isn't drawn again on each look. */
+    private void cover(String key, String name, String headline, String reason, boolean site) {
+        if (block != null && key.equals(blockFor)) return;
         hideBlock();
         WindowManager wm = getSystemService(WindowManager.class);
         if (wm == null) return;
-        boolean site = BROWSERS.containsKey(frontPkg) && !APPS.containsKey(frontPkg) && extra(this).get(frontPkg) == null;
-        Integer lim = limits(this).get(name);
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(0xFA0B0B0F);
         root.setClickable(true); // every touch stops here: nothing reaches the app under it
@@ -736,7 +783,7 @@ public class DoomscrollService extends AccessibilityService {
         head.setSingleLine(false);
         head.setMaxLines(3);
         head.setGravity(Gravity.CENTER);
-        head.setText(name + " is done for today");
+        head.setText(headline);
         LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         hp.topMargin = dp(20);
         col.addView(head, hp);
@@ -745,7 +792,7 @@ public class DoomscrollService extends AccessibilityService {
         why.setMaxLines(4);
         why.setGravity(Gravity.CENTER);
         why.setLineSpacing(dp(3), 1f);
-        why.setText("You gave it " + span((lim == null ? 0 : lim) * MIN) + " a day, and today's is used up. It opens again at midnight.");
+        why.setText(reason);
         LinearLayout.LayoutParams wp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         wp.topMargin = dp(10);
         col.addView(why, wp);
@@ -777,7 +824,7 @@ public class DoomscrollService extends AccessibilityService {
         try {
             wm.addView(root, lp);
             block = root;
-            blockFor = name;
+            blockFor = key;
         } catch (Exception ignored) {
             block = null; // not allowed just now: the next tick tries again
             blockFor = null;

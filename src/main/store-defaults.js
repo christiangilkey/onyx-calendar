@@ -55,6 +55,9 @@ const DEFAULTS = {
   linkedTasks: {},       // "app:id" from an onyx://task link -> the task it made, so a second send updates it
   taskMinutes: {},       // task id -> how long its block is on the calendar (Google Tasks and To Do have no length)
   focusSessions: [],     // Hyperfocus sessions, oldest first: what each was for, when it ran, how it ended (focus.js)
+  blockLists: [],        // the blocker's lists: apps on the PC and the phone, sites, when each is on (blocklists.js, block-rules.js)
+  blockListsAt: 0,       // when a block list last changed (ms), so the phone knows whose copy is newer
+  blockerPc: { sites: true }, // this PC's own: whether it turns blocked sites away (blocker.js); never synced
   madeHere: {},          // event or task id -> date it was added from Onyx (so a window can say where it came from)     // completed task id -> the task added after it, so Undo can take that back
   news: null,          // { channels: [{ id, name, on, live?, custom? }] } for the News panel (news.js)
   desktops: {},          // linked desktops: device id -> { name, addresses, version } (sync.js)

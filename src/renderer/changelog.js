@@ -2,9 +2,22 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
-  "version": "1.117.0",
+  "version": "1.118.0",
   "date": "2026-11-08",
-  "title": "Lock screen shortcuts as tiles, and an editor picture that matches your lock screen",
+  "title": "Blocker: keep apps and websites closed on a schedule, for a while, or until you switch it off",
+  "items": [
+   "New in Settings: Blocker. Make lists of websites, apps on your PC and apps on your phone to keep closed. The same lists are on your PC, your phone and Onyx on the web.",
+   "Each list can come on by itself at the times you set: pick the days, a start and an end, and add as many times as you like. A time that ends before it starts runs past midnight.",
+   "Or switch a list on yourself: until you switch it off, or for 30 minutes, 1, 2 or 4 hours. Switching it off in the middle of a scheduled time keeps it off until that time is over. A list can also come on while a Hyperfocus session runs.",
+   "Quick add puts in a site's addresses and its apps in one tap. Blocking a site covers every part of it, so youtube.com also blocks m.youtube.com and music.youtube.com. Web apps you installed from your browser are blocked by their site.",
+   "On the PC, a blocked app is closed as it opens. One that is already open when its list comes on gets 30 seconds so you can save first. Blocked sites are turned away in Chrome, Edge and Firefox. To do that, Onyx sets Windows' own proxy setting for your account, only while a list with sites is on, and takes it away after. You can turn this off under \"Websites on this PC\". If you already use a proxy of your own, Onyx leaves it alone.",
+   "On the phone, a blocked app or site is covered as soon as it opens, with a way back to Onyx and a way out. This works with the PC on or off. It needs Onyx's Accessibility switch, the same one the doomscroll saver uses. Settings → Blocker shows you how to turn it on."
+  ]
+ },
+ {
+  "version": "1.117.0",
+  "date": "2026-11-07",
+  "title": "Lock screen shortcuts as bento tiles; an editor picture drawn to scale from the lock screen's own cards",
   "items": [
    "Shortcuts on the lock screen are tiles now, fitted together like a bento box. The first is a big square showing what it opens (the app, the site, or audio). The rest fill in beside it: wide tiles when there are only a few, small squares when there are more. Every row is filled, with no gaps.",
    "To choose which one is big, drag it to the front in the lock screen editor. Each tile takes the size of the spot it lands in, as it will on the phone.",

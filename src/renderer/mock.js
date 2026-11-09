@@ -554,6 +554,9 @@
     },
     takeMagicLink: async () => { const d = window.__magicLink || null; window.__magicLink = null; return d; },
     onMagicLink: (fn) => { window.__onMagicLink = fn; },
+    // A board link (onyx://board), handed in by the preview: window.__boardLink = { title, text }, then window.__onBoardLink().
+    takeBoardLink: async () => { const d = window.__boardLink || null; window.__boardLink = null; return d; },
+    onBoardLink: (fn) => { window.__onBoardLink = fn; },
     planTask: async (id, to) => {
       const t = tasks.find((x) => x.id === id);
       const prev = { title: t.title, due: t.due || null, minutes: t.minutes || null, leaveBy: t.leaveBy || null, state: 'new' };

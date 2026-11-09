@@ -68,6 +68,9 @@ test('an arrow leaves from the side that faces the card it goes to', () => {
   const down = B.linkPath({ x: 0, y: 0, w: 100, h: 50 }, { x: 0, y: 300, w: 100, h: 50 });
   assert.match(down.d, /^M50 50 C/);
   assert.match(down.d, / 50 300$/);
+  // The end of one column to the top of the next: out of the side and up the gap between them, over no card.
+  const jump = B.linkPath({ x: 40, y: 800, w: 200, h: 90 }, { x: 300, y: 40, w: 200, h: 80 });
+  assert.equal(jump.d, 'M240 845 C270 845 270 80 300 80');
 });
 
 test('boards are kept tidy: only their own cards and arrows, picks that still exist, within bounds', () => {
@@ -150,7 +153,7 @@ test('a step picked goes into the calendar on its own: Add to calendar, first am
   assert.match(css, /\.wb-plan-ways \{ display: grid; grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\);/, 'both buttons stay on a narrow phone');
 });
 
-test('a list pasted from a spreadsheet becomes steps: numbered, with details under their column names, a line per heading', () => {
+test('a list pasted from a spreadsheet becomes steps: numbered, with details under their column names, a column per heading', () => {
   const rows = [
     'Step\tName\tWho\tWhat to do\tOutput / stop',
     '1 PRODUCT RESEARCH',
@@ -168,17 +171,18 @@ test('a list pasted from a spreadsheet becomes steps: numbered, with details und
   assert.equal(nodes[1].notes, 'Who: Claude. You pick.\n\nWhat to do: Trendtrack gap search:\nscore 5 to 10\n\nOutput / stop: Shortlist.', 'a cell with a line break stays one cell');
   assert.equal(nodes[5].notes, 'What to do: Price tiers, "Buy 2 Get 1".\n\nOutput / stop: Offer sheet.', 'empty cells are left out');
   assert.ok(nodes.filter((n) => n.kind === 'step').every((n) => n.minutes === 30));
-  // Every card leads to the next, the end of one heading's line to the next heading.
+  // Every card leads to the next, the end of one heading's column to the next heading.
   assert.deepEqual(links.map((l) => [nodes.findIndex((n) => n.id === l.from), nodes.findIndex((n) => n.id === l.to)]), [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5]]);
-  // A line per heading, its goal at the left; the next heading's line below it.
-  assert.deepEqual(nodes.map((n) => [n.x, n.y]), [[40, 40], [300, 40], [560, 40], [820, 40], [40, 260], [300, 260]]);
+  // A column per heading, its goal at the top and its steps under it (spaced by the length of their names);
+  // the next heading's column to its right.
+  assert.deepEqual(nodes.map((n) => [n.x, n.y]), [[40, 40], [40, 164], [40, 308], [40, 432], [300, 40], [300, 164]]);
   // What it makes is a board as kept (src/main/boards.js clean), nothing lost on the way.
   const kept = boards.clean({ id: 'board/test-list', title: 'From a list', nodes, links });
   assert.equal(kept.nodes.length, 6);
   assert.equal(kept.links.length, 5);
 });
 
-test('a plain list: bullets and numbers go, a heading line starts a new line of cards, long lines are cut with all of it in the details', () => {
+test('a plain list: bullets and numbers go, a heading line starts a new column of cards, long lines are cut with all of it in the details', () => {
   const long = 'Vacuum the whole flat, including under the sofa and behind the TV unit, then mop the kitchen floor. Then do the bathroom.';
   const { nodes } = B.fromList(`Groceries:\n- milk\n• eggs\n\n# Cleaning\n1. ${long}\n[ ] Bins out`);
   assert.deepEqual(nodes.map((n) => [n.kind, n.title]), [
@@ -192,11 +196,26 @@ test('a plain list: bullets and numbers go, a heading line starts a new line of 
   assert.deepEqual(B.fromList('  \n\n').nodes, [], 'nothing in it: nothing made');
 });
 
-test('a long line of cards wraps under its first step, and new cards start where they are told', () => {
+test('a long column goes on at the top of the next, and new cards start where they are told', () => {
   const list = ['PHASE', ...Array.from({ length: 10 }, (_, i) => `step ${i + 1}`)].join('\n');
   const { nodes } = B.fromList(list, { x0: 100, y0: 500 });
-  assert.deepEqual(nodes.slice(0, 2).map((n) => [n.x, n.y]), [[100, 500], [360, 500]]);
-  assert.deepEqual(nodes.slice(7, 9).map((n) => [n.title, n.x, n.y]), [['step 7', 1920, 500], ['step 8', 360, 720]], 'eight a line; the rest under step 1');
+  assert.deepEqual(nodes.slice(0, 2).map((n) => [n.x, n.y]), [[100, 500], [100, 624]]);
+  assert.deepEqual(nodes.slice(9, 11).map((n) => [n.title, n.x]), [['step 9', 100], ['step 10', 360]], 'ten a column; the rest in the next');
+  assert.equal(nodes[10].y, 500, 'from its top');
+});
+
+test('step numbers with a point or a letter in front ("0.1", "2.3b", "D1") stay with their names', () => {
+  const rows = [
+    'Step\tName\tWho',
+    'PHASE 0: PRODUCT RESEARCH',
+    '0.1\tMarket gap search\tClaude.',
+    '2.3b\tProduct images\tYou.',
+    'D1\tDECISION: Awareness level\tClaude reads the evidence.',
+    '6b\tBrand foundation\tClaude.',
+  ].join('\n');
+  const { nodes } = B.fromList(rows);
+  assert.deepEqual(nodes.map((n) => n.title), ['PHASE 0: PRODUCT RESEARCH', '0.1 Market gap search', '2.3b Product images', 'D1 DECISION: Awareness level', '6b. Brand foundation']);
+  assert.equal(nodes[3].notes, 'Who: Claude reads the evidence.');
 });
 
 test('the app: paste a list on a board, or in its box, from the boards menu or an empty board; a board link (PC) makes one', () => {

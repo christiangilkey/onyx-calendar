@@ -109,7 +109,10 @@
   function linkPath(a, b) {
     const ac = { x: a.x + a.w / 2, y: a.y + a.h / 2 }, bc = { x: b.x + b.w / 2, y: b.y + b.h / 2 };
     const dx = bc.x - ac.x, dy = bc.y - ac.y;
-    const sideways = Math.abs(dx) * (a.h + b.h) >= Math.abs(dy) * (a.w + b.w);
+    // Side by side in two columns but far apart up and down (the end of one column to the top of the next): out of
+    // the side and along the gap between the columns, so the arrow never runs over the cards of either.
+    const apart = b.x >= a.x + a.w || a.x >= b.x + b.w;
+    const sideways = (apart && Math.abs(dy) > a.h + b.h) || Math.abs(dx) * (a.h + b.h) >= Math.abs(dy) * (a.w + b.w);
     let p1, p2, c1, c2;
     if (sideways) {
       const s = Math.sign(dx) || 1;
@@ -191,7 +194,7 @@
   }
 
   const BULLET = /^(?:[-*•▪◦–]|\d{1,3}[.)]|\[[ xX]?\])\s+/;
-  const STEP_NO = /^(?:step\s*)?(\d{1,3}[a-z]?)[.):]?$/i;
+  const STEP_NO = /^(?:step\s*)?([a-z]?\d{1,3}(?:\.\d{1,3})?[a-z]?)[.):]?$/i;
   /** A heading: "# Phase", "Phase one:", or a short line in capitals ("1 PRODUCT RESEARCH"). */
   const isHeading = (t) => /^#{1,6}\s*\S/.test(t) || (/:$/.test(t) && t.length <= 80)
     || (t.length <= 60 && /[A-Z].*[A-Z].*[A-Z]/.test(t) && !/[a-z]/.test(t));
@@ -206,28 +209,31 @@
   }
 
   /**
-   * Cards made from a pasted list: rows from a spreadsheet, or a plain list with one step a line. A row that is
-   * only a heading ("1 PRODUCT RESEARCH", "Launch:", "# Week 2") starts a new line of cards with a goal at its
-   * left. Every card is joined to the next by an arrow, in order: along a line, and from the end of one line to
-   * the start of the next (through the gap between them, so no arrow crosses a card). A long line wraps, under
-   * its first step. In spreadsheet rows, a step number in the first cell ("1", "6b") goes before the name in the
-   * next cell, and the cells after it become the details, under their column names when the rows start with a
-   * header row. The cards start at (x0, y0): below what the board already has. Returns { nodes, links }.
+   * Cards made from a pasted list: rows from a spreadsheet, or a plain list with one step a line. They go down in
+   * columns: a row that is only a heading ("PHASE 1: BRAND FOUNDATION", "Launch:", "# Week 2") starts a new
+   * column with its goal at the top, and its steps under it. Every card is joined to the next by an arrow, in
+   * order: down a column, and from the end of one column to the top of the next (along the gap between them, so
+   * no arrow crosses a card). A long column goes on at the top of the next. In spreadsheet rows, a step number in
+   * the first cell ("1", "6b", "0.1", "D1") goes before the name in the next cell, and the cells after it become
+   * the details, under their column names when the rows start with a header row. The cards start at (x0, y0):
+   * below what the board already has. Returns { nodes, links }.
    */
   function fromList(text, { x0 = 40, y0 = 40 } = {}) {
-    const STEP_X = 260, LINE_Y = 220, PER_LINE = 8;
+    const COL_X = 260, GAP_Y = 40, PER_COL = 10;
     const nodes = [], links = [];
-    let header = null, line = -1, slot = 0, indent = 0, prev = null;
-    const newLine = (goal) => { line += 1; slot = 0; indent = goal ? 1 : indent; };
+    let header = null, col = -1, inCol = 0, y = y0, prev = null;
+    // A card's height on the board, near enough: about 20 letters a line of its name, and the rest of the card.
+    const tall = (title) => 64 + 20 * Math.min(6, Math.max(1, Math.ceil(title.length / 20)));
+    const newCol = () => { col += 1; inCol = 0; y = y0; };
     const place = (kind, title, notes) => {
-      if (line < 0) newLine(false);
-      if (slot >= PER_LINE) { line += 1; slot = indent; } // wraps, under the first step (a goal keeps its own column)
-      const n = { id: newId('n'), kind, x: x0 + slot * STEP_X, y: y0 + line * LINE_Y, title: title.slice(0, 300), notes: notes.slice(0, 4000) };
+      if (col < 0 || inCol >= PER_COL) newCol(); // a long column goes on in the next one
+      const n = { id: newId('n'), kind, x: x0 + col * COL_X, y, title: title.slice(0, 300), notes: notes.slice(0, 4000) };
       if (kind === 'step') n.minutes = 30;
       nodes.push(n);
       if (prev) links.push({ id: newId('l'), from: prev.id, to: n.id, label: '' });
       prev = n;
-      slot += 1;
+      inCol += 1;
+      y += tall(n.title) + GAP_Y;
       return n;
     };
     const rows = rowsOf(text);
@@ -238,9 +244,9 @@
       const filled = cells.filter(Boolean);
       if (!filled.length) continue;
       const first = cells.findIndex(Boolean);
-      // A heading: a new line, with its goal at the left (the last card before it leads to it).
+      // A heading: a new column, with its goal at the top (the last card before it leads to it).
       if (filled.length === 1 && first === 0 && isHeading(filled[0].replace(BULLET, ''))) {
-        newLine(true);
+        if (col < 0 || inCol > 0) newCol();
         place('goal', headingText(filled[0].replace(BULLET, '')), '');
         continue;
       }
@@ -256,7 +262,7 @@
       const { title, cut } = shorten(name);
       const details = cells.map((c, i) => (i > at && c ? (header?.[i] ? `${header[i]}: ${c}` : c) : null)).filter(Boolean);
       if (cut) details.unshift(name);
-      place('step', num ? `${num}. ${title}` : title, details.join('\n\n'));
+      place('step', num ? `${num}${/[.]|^[a-z]/i.test(num) ? '' : '.'} ${title}` : title, details.join('\n\n'));
     }
     return { nodes, links };
   }

@@ -2,9 +2,18 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.121.0 · Blocks just to keep in mind — on the calendar, with no tick, never shown as next
+## 1.122.0 · Boards from a list go in columns, each goal at the top of its own column
 
 _2026-11-09_
+
+- A list pasted onto a board, or sent with an onyx://board link, now goes down in columns. Each heading row ("PHASE 1: BRAND FOUNDATION", "Launch:", "# Week 2") starts a new column with its goal at the top and its steps under it. Before, each heading started a row.
+- The arrows still join every card to the next in order. From the end of one column to the goal at the top of the next, the arrow runs up the gap between the columns, so it never goes over a card. A column longer than ten cards carries on at the top of the next one.
+- Step numbers like 0.1, 2.3b or D1 in a spreadsheet's first column now stay with their step's name ("0.1 Market gap search"), with the other columns in the details. Plain numbers work as before ("6b. Brand foundation").
+- Cards are spaced by how long their names are, so long names don't run into the card below.
+
+## 1.121.0 · Blocks just to keep in mind — on the calendar, with no tick, never shown as next
+
+_2026-11-08_
 
 - New in a block's window: "Just to keep in mind". Use it for things to be aware of rather than to do, like meal hours, a time frame or something that repeats. The block stays on your calendar, drawn lighter with a dashed edge.
 - A block like this has no tick circle and no Complete button.

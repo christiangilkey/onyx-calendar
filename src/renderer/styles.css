@@ -3876,3 +3876,15 @@ body.mobile .wb-tool { padding: 0 8px; height: 34px; }
 .wb-card.done { opacity: .78; }
 .wb-card.done .wb-title { text-decoration: line-through; }
 body.mobile .wb-check { width: 24px; height: 24px; top: 7px; right: 7px; }
+
+/* ------------------------------------------------------------ the doomscroll saver's page: your own limits, and the blocker as its part */
+.doom-limit-add { display: grid; gap: 8px; margin-top: 4px; padding: 12px; border-radius: 14px; background: #0e0f12; border: 1px dashed var(--line-2); }
+.doom-limit-add h4 { margin: 0; font-size: 13.5px; }
+.doom-limit .doom-x { flex: none; margin-left: -6px; }
+.doom-mine svg { width: 13px; height: 13px; margin-right: 4px; color: var(--muted); }
+.doom-elsewhere { display: flex; align-items: flex-start; gap: 10px; }
+.doom-elsewhere svg { flex: none; width: 18px; height: 18px; margin-top: 2px; color: var(--muted); }
+.doom-elsewhere p { margin: 0; color: var(--soft); }
+.bk-heading { display: flex; align-items: center; gap: 8px; margin: 22px 0 2px; font-size: 17px; }
+.bk-heading svg { width: 18px; height: 18px; color: #ff8fa0; }
+.bk-lead { margin: 0 0 10px; color: var(--muted); font-size: 13px; line-height: 1.45; }

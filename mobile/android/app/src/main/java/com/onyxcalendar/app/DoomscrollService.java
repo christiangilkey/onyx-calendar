@@ -225,6 +225,75 @@ public class DoomscrollService extends AccessibilityService {
         if (live != null) live.handler.post(live::tick);
     }
 
+    // ---- your own websites (Settings → Doomscroll saver → Daily limits → Add a website): they count as the
+    // built-in sites do, in any browser, with every part of them ("netflix.com" covers "www.netflix.com").
+
+    private static Map<String, String> sitesCache;
+
+    /** The websites added on top, by host ("netflix.com"), with the name the card shows (the host itself). */
+    static synchronized Map<String, String> extraSites(Context ctx) {
+        if (sitesCache == null) {
+            Map<String, String> m = new LinkedHashMap<>();
+            try {
+                JSONArray a = new JSONArray(prefs(ctx).getString("addedSites", "[]"));
+                for (int i = 0; i < a.length(); i++) {
+                    JSONObject o = a.optJSONObject(i);
+                    String host = o == null ? null : Blocker.hostOf(o.optString("host"));
+                    if (host != null) m.put(host, o.optString("label", host));
+                }
+            } catch (Exception ignored) {
+                // none added yet
+            }
+            sitesCache = m;
+        }
+        return sitesCache;
+    }
+
+    /** What Settings shows: [{ host, label }] of the websites added. */
+    static JSONArray sitesList(Context ctx) {
+        JSONArray a = new JSONArray();
+        try {
+            for (Map.Entry<String, String> e : extraSites(ctx).entrySet()) a.put(new JSONObject().put("host", e.getKey()).put("label", e.getValue()));
+        } catch (Exception ignored) {
+            // a JSON key can't fail here
+        }
+        return a;
+    }
+
+    /** The built-in sites, by host, with their names: for Settings, so a typed "youtube.com" finds YouTube. */
+    static JSONObject builtInSites() {
+        JSONObject o = new JSONObject();
+        try {
+            for (Map.Entry<String, String> e : SITES.entrySet()) o.put(e.getKey(), e.getValue());
+        } catch (Exception ignored) {
+            // a JSON key can't fail here
+        }
+        return o;
+    }
+
+    /** Settings → Add a website: every website added ([{ host, label }]). One of the built-in ones is left to its name. */
+    static synchronized void setSites(Context ctx, JSONArray added) {
+        if (added == null) return;
+        JSONArray keep = new JSONArray();
+        Map<String, String> m = new LinkedHashMap<>();
+        for (int i = 0; i < added.length(); i++) {
+            JSONObject o = added.optJSONObject(i);
+            String host = o == null ? null : Blocker.hostOf(o.optString("host"));
+            if (host == null || m.containsKey(host) || siteName(host) != null) continue;
+            String label = o.optString("label", host);
+            if (label.isEmpty()) label = host;
+            m.put(host, label);
+            try {
+                keep.put(new JSONObject().put("host", host).put("label", label));
+            } catch (Exception ignored) {
+                // a JSON key can't fail here
+            }
+        }
+        prefs(ctx).edit().putString("addedSites", keep.toString()).apply();
+        sitesCache = m;
+        if (live != null) live.handler.post(live::tick);
+    }
+
     // ---- daily limits (Settings → Doomscroll saver → Daily limits): the most each one may be open in a day
 
     private static Map<String, Integer> limitsCache;
@@ -396,7 +465,7 @@ public class DoomscrollService extends AccessibilityService {
                         String url = addressBar(root, pkg, ids);
                         // The address bar slides away while you scroll: the site stays as last read.
                         if (url != null) {
-                            frontSite = siteName(url);
+                            frontSite = siteName(url, extraSites(this));
                             String host = Blocker.hostOf(url);
                             if (host != null) frontHost = host; // words being typed there leave the site as it was
                         }
@@ -430,6 +499,11 @@ public class DoomscrollService extends AccessibilityService {
 
     /** The social site an address is on ("m.instagram.com/reels" → Instagram), or null. */
     static String siteName(String url) {
+        return siteName(url, null);
+    }
+
+    /** The same, with your own websites too (by host → name): a built-in one first, then yours. */
+    static String siteName(String url, Map<String, String> extra) {
         String s = url.trim().toLowerCase();
         int scheme = s.indexOf("://");
         if (scheme >= 0) s = s.substring(scheme + 3);
@@ -440,6 +514,12 @@ public class DoomscrollService extends AccessibilityService {
         for (Map.Entry<String, String> e : SITES.entrySet()) {
             String site = e.getKey();
             if (host.equals(site) || host.endsWith("." + site)) return e.getValue();
+        }
+        if (extra != null) {
+            for (Map.Entry<String, String> e : extra.entrySet()) {
+                String site = e.getKey();
+                if (host.equals(site) || host.endsWith("." + site)) return e.getValue();
+            }
         }
         return null;
     }

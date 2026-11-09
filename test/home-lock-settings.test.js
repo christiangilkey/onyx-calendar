@@ -11,7 +11,7 @@ const J = 'mobile/android/app/src/main/java/com/onyxcalendar/app/';
 
 test('the lock screen editor is part of Home & lock screen, and its old names still find it', () => {
   assert.doesNotMatch(app, /\blockeditor\(\)|lockeditor: \{ name/, 'no page of its own');
-  assert.match(app, /\['launcher', 'doomscroll'\]/);
+  assert.match(app, /\['This phone', \[\.\.\.\(onyx\.launcher \? \['launcher'\] : \[\]\)/, 'listed under This phone (the doomscroll saver is under Focus now)');
   assert.match(app, /if \(tab === 'lockeditor'\) tab = 'launcher';/, 'an old link to it lands on the new page');
   const entry = app.match(/launcher: \{ name: 'Home & lock screen'[\s\S]*?words: '([^']*)' \}/);
   assert.ok(entry, 'the page\'s search entry');

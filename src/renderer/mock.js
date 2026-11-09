@@ -714,7 +714,9 @@
         // The doomscroll saver as the app keeps it: which apps count, the daily limits, and today's time on each (ms).
         doomAllowed: true, doomNames: ['Instagram', 'TikTok', 'YouTube', 'Facebook', 'X', 'Snapchat', 'Reddit', 'Threads', 'Pinterest', 'Bluesky', 'Tumblr', 'Twitch', 'LinkedIn', 'BeReal', 'CapCut', 'VK', '9GAG'],
         doomOff: ['LinkedIn', 'BeReal', 'CapCut', 'VK', '9GAG', 'Tumblr', 'Twitch', 'Bluesky', 'Pinterest'], doomExtra: [{ pkg: 'com.supercell.clashroyale', label: 'Clash Royale' }],
-        doomLimits: { Instagram: 30, YouTube: 60 }, doomUsed: { Instagram: 31 * 60000, YouTube: 22 * 60000, TikTok: 9 * 60000, 'Clash Royale': 40000 } };
+        doomSites: [{ host: 'netflix.com', label: 'netflix.com' }],
+        doomBuiltInSites: { 'instagram.com': 'Instagram', 'tiktok.com': 'TikTok', 'youtube.com': 'YouTube', 'youtu.be': 'YouTube', 'facebook.com': 'Facebook', 'x.com': 'X', 'twitter.com': 'X', 'reddit.com': 'Reddit', 'linkedin.com': 'LinkedIn' },
+        doomLimits: { Instagram: 30, YouTube: 60, 'netflix.com': 45 }, doomUsed: { Instagram: 31 * 60000, YouTube: 22 * 60000, TikTok: 9 * 60000, 'Clash Royale': 40000, 'netflix.com': 12 * 60000 } };
       const screens = {
         lock: { layout: { order: ['clock', 'onyx', 'shortcuts', 'music', 'notifications', 'noise'], hidden: ['noise'], clockSize: 'small', align: 'center', date: true, dim: 80, shortcutLook: 'tiles' },
           shortcuts: [{ id: 's1', kind: 'link', target: 'https://docs.google.com/forms/migraine', label: 'Log migraine', icon: '🤕' }, { id: 's2', kind: 'link', target: 'spotify:', label: 'Pick', icon: '🗣️' }, { id: 's3', kind: 'app', target: 'com.unstick', label: 'Unstick', icon: '😵' }, { id: 's4', kind: 'link', target: 'https://lichess.org', label: 'Game', icon: '❤️', image: 'mockpicture01.png' }] },
@@ -745,11 +747,12 @@
         set: async (show) => { info.show = show; return { ...info }; },
         setCover: async (v) => { info.cover = v; return { ...info }; },
         setAlarm: async (v) => { info.alarm = v; return { ...info }; },
-        setDoomscroll: async ({ on, minutes, off, extra, limits } = {}) => {
+        setDoomscroll: async ({ on, minutes, off, extra, sites, limits } = {}) => {
           if (on != null) info.doomscroll = !!on;
           if (minutes) info.doomMinutes = minutes;
           if (off) info.doomOff = off;
           if (extra) info.doomExtra = extra;
+          if (sites) info.doomSites = sites;
           if (limits) info.doomLimits = Object.fromEntries(Object.entries(limits).filter(([, m]) => m > 0));
           return structuredClone(info);
         },

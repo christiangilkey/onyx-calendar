@@ -35,10 +35,10 @@ test('every Android string builds: no bare apostrophe or quote (the resource com
 test('the service keeps nothing but today\'s time per app: no files, no network', () => {
   const j = fs.readFileSync(path.join(main, 'java/com/onyxcalendar/app/DoomscrollService.java'), 'utf8');
   assert.doesNotMatch(j, /FileOutputStream|openFileOutput|HttpURLConnection|URL\(|putString\("(site|app|url|history)/);
-  // What it stores: its own settings (on/off, the minutes, the built-in apps left out, the apps added and the daily
-  // limits) and today's totals (only the day and the time per app).
+  // What it stores: its own settings (on/off, the minutes, the built-in apps left out, the apps and the websites you
+  // added, and the daily limits) and today's totals (only the day and the time per app).
   const stored = [...j.matchAll(/\.put(Boolean|Int|StringSet|String|Long)\("([^"]+)"/g)].map((m) => m[2]);
-  assert.deepEqual([...new Set(stored)].sort(), ['extra', 'limits', 'minutes', 'off', 'on', 'today']);
+  assert.deepEqual([...new Set(stored)].sort(), ['addedSites', 'extra', 'limits', 'minutes', 'off', 'on', 'today']);
   assert.match(j, /new JSONObject\(\)\.put\("day", usedDay\)\.put\("used", u\)/, 'today is the day and the time per app, nothing else');
   assert.match(j, /if \(!day\.equals\(usedDay\)\) \{ used\.clear\(\)/, 'and it starts again each day');
 });
@@ -82,4 +82,30 @@ test('the limits are kept per name, at most 12 hours, warned two minutes before,
   const app = fs.readFileSync(path.join(__dirname, '../src/renderer/app.js'), 'utf8');
   assert.match(app, /limitsPart\(info, set\),/, 'Settings → Doomscroll saver → Daily limits');
   assert.match(app, /if \(!info\.doomLimits \|\| !Array\.isArray\(info\.doomNames\)\) return null;/, 'an older Onyx app shows no limits');
+});
+
+test('daily limits take your own websites and apps, each with its own minutes, covered until midnight as the rest are', () => {
+  const j = svc();
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  // A website you add counts as the built-in sites do, in any browser, with every part of it.
+  assert.match(j, /frontSite = siteName\(url, extraSites\(this\)\);/);
+  assert.match(j, /static String siteName\(String url, Map<String, String> extra\)/);
+  assert.match(j, /if \(extra != null\) \{\s*for \(Map\.Entry<String, String> e : extra\.entrySet\(\)\) \{\s*String site = e\.getKey\(\);\s*if \(host\.equals\(site\) \|\| host\.endsWith\("\." \+ site\)\) return e\.getValue\(\);/);
+  assert.match(j, /String host = o == null \? null : Blocker\.hostOf\(o\.optString\("host"\)\);\s*if \(host == null \|\| m\.containsKey\(host\) \|\| siteName\(host\) != null\) continue;/, 'a built-in one is left to its name');
+  assert.match(j, /putString\("addedSites", keep\.toString\(\)\)/, 'your list, not where you went');
+  // It reaches Settings and comes back from it, with the built-in sites so a typed youtube.com finds YouTube.
+  const data = read('mobile/android/app/src/main/java/com/onyxcalendar/app/LauncherData.java');
+  assert.match(data, /o\.put\("doomSites", DoomscrollService\.sitesList\(ctx\)\);/);
+  assert.match(data, /o\.put\("doomBuiltInSites", DoomscrollService\.builtInSites\(\)\);/);
+  assert.match(read('mobile/android/app/src/main/java/com/onyxcalendar/app/OnyxWidgetPlugin.java'), /if \(call\.hasOption\("doomSites"\)\) DoomscrollService\.setSites\(getContext\(\), call\.getData\(\)\.optJSONArray\("doomSites"\)\);\s*\/\/ The daily limits/, 'before the limits, in one call');
+  assert.match(read('src/renderer/remote.js'), /\.\.\.\(sites \? \{ doomSites: sites \} : \{\}\), \.\.\.\(limits \? \{ doomLimits: limits \} : \{\}\)/);
+  // Settings: added in Daily limits with 30 minutes to start, shown with today's time, taken off with ×.
+  const app = read('src/renderer/app.js');
+  assert.match(app, /const NEW_LIMIT = 30;/);
+  assert.match(app, /set\(\{ sites: \[\.\.\.sites, \{ host, label: host \}\], limits: \{ \.\.\.limits, \[host\]: limits\[host\] \|\| NEW_LIMIT \} \}\);/);
+  assert.match(app, /const known = Object\.entries\(info\.doomBuiltInSites \|\| \{\}\)\.find\(\(\[s\]\) => host === s \|\| host\.endsWith\(`\.\$\{s\}`\)\);/);
+  assert.match(app, /extra: extra\.some\(\(x\) => x\.pkg === a\.pkg\) \? extra : \[\.\.\.extra, \{ pkg: a\.pkg, label: a\.label \}\], limits: \{ \.\.\.limits, \[a\.label\]: limits\[a\.label\] \|\| NEW_LIMIT \}/);
+  assert.match(app, /\.\.\.\(sites \|\| \[\]\)\.map\(\(s\) => s\.label\)\]\)\];/, 'in the list, with today\'s time as every other');
+  assert.match(app, /mine\(n\) && h\('button', \{ type: 'button', class: 'doom-x', 'aria-label': `Remove \$\{n\}`/);
+  assert.match(app, /const sites = Array\.isArray\(info\.doomSites\) \? info\.doomSites : null;/, 'an older Onyx app: apps only');
 });

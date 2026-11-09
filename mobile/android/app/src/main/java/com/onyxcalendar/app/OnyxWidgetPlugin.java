@@ -131,6 +131,8 @@ public class OnyxWidgetPlugin extends Plugin {
                 call.hasOption("doomOff") ? call.getData().optJSONArray("doomOff") : null,
                 call.hasOption("doomExtra") ? call.getData().optJSONArray("doomExtra") : null);
         }
+        // Your own websites ([{ host, label }]): they count, and can have limits, as the built-in sites do.
+        if (call.hasOption("doomSites")) DoomscrollService.setSites(getContext(), call.getData().optJSONArray("doomSites"));
         // The daily limits: { name: minutes } for all of them (one left out has none).
         if (call.hasOption("doomLimits")) DoomscrollService.setLimits(getContext(), call.getData().optJSONObject("doomLimits"));
         call.resolve(launcherState());

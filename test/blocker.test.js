@@ -324,7 +324,7 @@ test('the phone covers what a list on now blocks, before a daily limit, with the
   assert.match(read('mobile/android/app/src/main/res/values/strings.xml'), /It is also the blocker: while one of your block lists is on, it covers the apps and sites on it\./);
 });
 
-test('every device has Settings → Blocker, and the PC starts and stops its blocker', () => {
+test('every device has the blocker, in Settings → Doomscroll saver, and the PC starts and stops its blocker', () => {
   const api = read('src/main/api.js');
   for (const name of ["blockLists: () => require('./blocklists').lists(),", "'blockList:save': (list) => require('./blocklists').save(list),", "'blockList:delete': (id) => require('./blocklists').remove(id),"]) assert.ok(api.includes(name), name);
   const main = read('src/main/main.js');
@@ -335,8 +335,15 @@ test('every device has Settings → Blocker, and the PC starts and stops its blo
   const html = read('src/renderer/index.html');
   assert.ok(html.indexOf('<script src="block-rules.js">') > 0 && html.indexOf('<script src="block-rules.js">') < html.indexOf('<script src="app.js">'), 'the rules load before the window');
   assert.match(read('scripts/build-mobile.js'), /'focus-plan\.js', 'block-rules\.js', 'remote\.js'/, 'and in the phone and web app');
-  assert.match(app, /\['Focus', \['blocker'\]\]/);
-  assert.match(app, /blocker: \{ name: 'Blocker', icon: 'ban'/);
+  // The blocker is the last part of the doomscroll saver's page, under Focus on every device (the PC and the web too).
+  assert.equal((app.match(/\['Focus', \['doomscroll'\]\]/g) || []).length, 2, 'phone and web, and the PC');
+  assert.doesNotMatch(app, /\n {4}blocker: \{ name: 'Blocker'/, 'no page of its own');
+  assert.match(app, /return \[\.\.\.head, box, \.\.\.PANES\.blockerPart\(\)\];/, 'on the phone: after the card and the limits');
+  assert.match(app, /if \(!onyx\.launcher\) \{\s*return \[\.\.\.head,[\s\S]*?\.\.\.PANES\.blockerPart\(\)\];/, 'on the PC and the web: the blocker, with where the rest is set');
+  assert.match(app, /if \(tab === 'blocker'\) \{ tab = 'doomscroll'; find = find \|\| 'Blocker'; \}/, 'an old link lands on its part');
+  const entry = app.match(/doomscroll: \{ name: 'Doomscroll saver'[\s\S]*?items: \[([^\]]*)\][\s\S]*?words: ([^}]*)\}/);
+  for (const item of ["'Blocker'", "'Websites on this PC'", "'Quick add'", "\"When it's on\"", "'Add your own'"]) assert.ok(entry[1].includes(item), item);
+  for (const w of ['blocker', 'block list', 'work hours', 'your own website']) assert.ok(entry[2].includes(w), w);
   assert.match(app, /const HOW = \[\[0, 'Until I switch it off'\], \[30, '30 min'\], \[60, '1 hour'\], \[120, '2 hours'\], \[240, '4 hours'\]\];/);
   assert.match(app, /save\(B\.switched\(l, true, Date\.now\(\), \{ minutes: m \}\)\);/);
   assert.match(app, /toggle\(st\.on, \(v\) => \{ if \(v\) \{ ui\.asking = l\.id; draw\(\); \} else switchOff\(l\); \}\)/, 'switching off is always allowed');

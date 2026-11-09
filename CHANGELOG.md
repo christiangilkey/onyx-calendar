@@ -2,9 +2,20 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.125.0 · Draw on boards with a pencil and an eraser, and a tick box on every card
+## 1.126.0 · The blocker is part of the doomscroll saver now, and daily limits take your own websites and apps
 
 _2026-11-09_
+
+- Settings → Doomscroll saver is now one place for staying off distractions: the card in the corner, Daily limits, and the Blocker's lists below them. It sits in the Focus group, on the phone, the PC and Onyx on the web.
+- On the PC and the web, the page has the Blocker and a note that the card and the daily limits are set in the phone app. Searching Settings for "Blocker", or any of its settings, still takes you there.
+- Daily limits has a new "Add your own" box. Type a website, or pick any app on your phone. Each one gets its own limit, 30 minutes to start, which you can change.
+- What you add shows today's time like the rest. Once its time is used up, the phone covers it until midnight. The × beside it takes it off.
+- If you type a site Onyx already knows, like m.youtube.com, it sets the limit on YouTube instead of adding a second entry.
+- The blocker on the phone uses the same Accessibility switch as the saver, so the page asks for it once, at the top.
+
+## 1.125.0 · Draw on boards with a pencil and an eraser, and a tick box on every card
+
+_2026-11-08_
 
 - Draw on a board: the bar above it has Move, Pencil and Eraser. With the pencil, drag anywhere on the board to draw. Your drawing sits behind the cards and arrows, and moves and zooms with them. On the phone, draw with a finger; two fingers still zoom.
 - Tap the round colour button to choose the pencil's colour. Go round the wheel for the colour and in towards the middle for a paler one. Use the slider to make it darker, or tap one of the ready-made colours, or type a colour code. You can pick a size there too: Fine, Pen, Thick or Marker. Onyx keeps the colour and size on that device.

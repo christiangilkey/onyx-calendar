@@ -152,6 +152,9 @@ final class LauncherData {
             o.put("doomNames", new JSONArray(java.util.Arrays.asList(DoomscrollService.NAMES)));
             o.put("doomOff", DoomscrollService.offList(ctx));
             o.put("doomExtra", DoomscrollService.extraList(ctx));
+            // Your own websites ([{ host, label }]), and the built-in ones by host (so a typed "youtube.com" finds YouTube).
+            o.put("doomSites", DoomscrollService.sitesList(ctx));
+            o.put("doomBuiltInSites", DoomscrollService.builtInSites());
             // The daily limits ({ name: minutes }) and today's time on each so far ({ name: ms }).
             o.put("doomLimits", DoomscrollService.limitsJson(ctx));
             o.put("doomUsed", DoomscrollService.usedJson(ctx));

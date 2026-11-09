@@ -9909,8 +9909,19 @@
     },
 
     // The doomscroll saver: after a while on social media, a card in the corner with the time spent,
-    // what is next, and a way back to Onyx. The Android app only (DoomscrollService).
+    // what is next, and a way back to Onyx; daily limits on apps and sites (yours too); and the blocker's
+    // lists. The card and the limits are the Android app's (DoomscrollService); the blocker is on every device,
+    // so on the PC and the web this page is the blocker, with a word on where the rest is set.
     doomscroll() {
+      const head = [h('h3', null, 'Doomscroll saver'), h('p', { class: 'lead' }, onyx.launcher
+        ? 'A nudge back to your plan when a quick look at social media turns into a long one, daily limits, and lists of apps and sites to keep closed.'
+        : 'Lists of apps and websites to keep closed, here and on your phone.')];
+      if (!onyx.launcher) {
+        return [...head,
+          h('div', { class: 'card doom-elsewhere' }, icon('device'),
+            h('p', null, 'The card that nudges you off social media, and the daily limits on apps and sites, work in the Onyx app on your phone. Set them there, on this same page.')),
+          ...PANES.blockerPart()];
+      }
       const box = h('div', { class: 'card' }, h('p', null, 'Checking…'));
       const MINUTES = [1, 2, 3, 5, 10, 15, 20, 30, 45, 60];
       const APPS = ['Instagram', 'TikTok', 'YouTube', 'Facebook', 'X', 'Snapchat', 'Reddit', 'Threads', 'Pinterest', 'Bluesky', 'Tumblr', 'Twitch', 'LinkedIn'];
@@ -9965,12 +9976,64 @@
       // the card says so; once the time is used up, the phone covers the app until midnight (DoomscrollService).
       const LIMITS = [5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240];
       const mins = (m) => (m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`);
+      // Your own websites and apps are added right here, each with a limit of its own (30 minutes to start). They
+      // count for the card too, as an app added under Apps it watches does. A site goes with every part of it.
+      const limPick = { open: false, q: '' };
+      const NEW_LIMIT = 30;
       const limitsPart = (info, set) => {
         if (!info.doomLimits || !Array.isArray(info.doomNames)) return null; // an Onyx app from before limits
         const off = new Set(info.doomOff || []);
-        const names = [...new Set([...info.doomNames.filter((n) => !off.has(n)), ...(info.doomExtra || []).map((a) => a.label)])];
+        const extra = info.doomExtra || [];
+        const sites = Array.isArray(info.doomSites) ? info.doomSites : null; // null: an Onyx app from before added sites
+        const names = [...new Set([...info.doomNames.filter((n) => !off.has(n)), ...extra.map((a) => a.label), ...(sites || []).map((s) => s.label)])];
         const limits = info.doomLimits;
         const used = info.doomUsed || {};
+        const mine = (n) => extra.some((a) => a.label === n) || (sites || []).some((s) => s.label === n);
+        const drop = (n) => {
+          const next = { ...limits };
+          delete next[n];
+          set({ extra: extra.filter((a) => a.label !== n), ...(sites ? { sites: sites.filter((s) => s.label !== n) } : {}), limits: next });
+        };
+        const B = window.OnyxBlockRules;
+        const siteIn = h('input', { type: 'text', inputmode: 'url', placeholder: 'netflix.com', autocapitalize: 'off', spellcheck: false, 'aria-label': 'Add a website with a daily limit' });
+        const addSite = () => {
+          const host = B?.cleanSite(siteIn.value);
+          if (!host) { toast('Type a website like netflix.com.'); return; }
+          // One of the built-in ones: it counts again if it was left out, and its limit is below.
+          const known = Object.entries(info.doomBuiltInSites || {}).find(([s]) => host === s || host.endsWith(`.${s}`));
+          if (known) {
+            const n = known[1];
+            set({ off: [...off].filter((x) => x !== n), limits: { ...limits, [n]: limits[n] || NEW_LIMIT } });
+            toast(`${host} is ${n}'s, which Onyx knows already. Its limit is in the list.`);
+            return;
+          }
+          if (sites.some((s) => s.host === host)) { toast(`${host} is in the list already.`); return; }
+          set({ sites: [...sites, { host, label: host }], limits: { ...limits, [host]: limits[host] || NEW_LIMIT } });
+        };
+        siteIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addSite(); } });
+        const appList = h('div', { class: 'doom-pick-list' });
+        const fillApps = () => {
+          if (!phoneApps) { appList.replaceChildren(h('small', null, 'Loading your apps…')); return; }
+          const q = limPick.q.trim().toLowerCase();
+          const rows = phoneApps.filter((a) => !(limits[a.label] > 0 && extra.some((x) => x.pkg === a.pkg)) && (!q || a.label.toLowerCase().includes(q)));
+          appList.replaceChildren(...(rows.length ? rows.slice(0, 200).map((a) => h('button', { type: 'button', class: 'doom-pick-row',
+            onclick: () => set({ extra: extra.some((x) => x.pkg === a.pkg) ? extra : [...extra, { pkg: a.pkg, label: a.label }], limits: { ...limits, [a.label]: limits[a.label] || NEW_LIMIT } }) },
+          h('span', null, a.label), h('b', null, 'Add')))
+            : [h('small', null, limPick.q ? 'No app by that name.' : 'Every app has a limit already.')]));
+        };
+        if (limPick.open) {
+          if (!phoneApps) onyx.launcher.shortcutApps().then((a) => { phoneApps = a; fillApps(); }).catch(() => { phoneApps = []; fillApps(); });
+          fillApps();
+        }
+        const adder = h('div', { class: 'doom-limit-add' },
+          h('h4', null, 'Add your own'),
+          h('small', null, sites ? 'A website (every part of it counts, in any browser) or any app on this phone, with its own daily limit.' : 'Any app on this phone, with its own daily limit. Update the Onyx app to add websites too.'),
+          sites && h('div', { class: 'row bk-add' }, siteIn, h('button', { type: 'button', class: 'btn', onclick: addSite }, 'Add website')),
+          h('div', { class: 'row' }, h('button', { type: 'button', class: `btn${limPick.open ? '' : ' primary'}`, onclick: () => { limPick.open = !limPick.open; limPick.q = ''; load(); } }, limPick.open ? 'Done adding' : 'Add an app')),
+          limPick.open && h('div', { class: 'doom-pick' },
+            h('input', { type: 'search', class: 'doom-pick-find', placeholder: 'Search your apps', value: limPick.q, autocapitalize: 'off', spellcheck: false,
+              oninput: (e) => { limPick.q = e.target.value; fillApps(); } }),
+            appList));
         const setOne = (n, m) => {
           const next = { ...limits };
           if (m > 0) next[n] = m; else delete next[n];
@@ -9987,12 +10050,14 @@
           return h('div', { class: `doom-limit${done ? ' done' : ''}${lim ? ' set' : ''}` },
             h('div', { class: 'dl-name' }, h('b', null, n), h('small', null, note)),
             h('select', { 'aria-label': `Daily limit for ${n}`, onchange: (e) => setOne(n, +e.target.value) },
-              [...new Set([0, ...LIMITS, lim])].sort((a, b) => a - b).map((m) => h('option', { value: m, selected: m === lim }, m ? `${mins(m)} a day` : 'No limit'))));
+              [...new Set([0, ...LIMITS, lim])].sort((a, b) => a - b).map((m) => h('option', { value: m, selected: m === lim }, m ? `${mins(m)} a day` : 'No limit'))),
+            mine(n) && h('button', { type: 'button', class: 'doom-x', 'aria-label': `Remove ${n}`, title: `Take ${n} off`, onclick: () => drop(n) }, '×'));
         });
         return h('div', { class: 'doom-apps doom-limits' },
           h('div', { class: 'doom-head' }, h('h4', null, 'Daily limits'), h('small', null, count ? `${count} set` : 'None set')),
-          h('small', null, 'The most each app may be open in a day, in its app and in your browser. Two minutes before, the card says how much is left. Once it is used up, Onyx covers the app until midnight. Limits work even with the card above off.'),
-          rows.length ? h('div', { class: 'doom-limit-list' }, rows) : h('small', null, 'No apps are counted. Count some above to give them limits.'));
+          h('small', null, 'The most each app or site may be open in a day, in its app and in your browser. Two minutes before, the card says how much is left. Once it is used up, Onyx covers it until midnight. Limits work even with the card above off.'),
+          rows.length ? h('div', { class: 'doom-limit-list' }, rows) : h('small', null, 'Nothing is counted yet. Count some above, or add your own below.'),
+          adder);
       };
       // Which apps count. The built-in ones (each in its app and in a browser) tap on and off; any other app on
       // the phone can be added. The add list keeps its search and scroll across a save.
@@ -10006,15 +10071,18 @@
         }
         const off = new Set(info.doomOff || []);
         const extra = info.doomExtra || [];
-        const counted = info.doomNames.filter((n) => !off.has(n)).length + extra.length;
+        const mySites = info.doomSites || [];
+        const counted = info.doomNames.filter((n) => !off.has(n)).length + extra.length + mySites.length;
         const flip = (n) => { const next = new Set(off); if (next.has(n)) next.delete(n); else next.add(n); set({ off: [...next] }); };
         const builtIn = h('div', { class: 'fs-chips doom-chips', role: 'group', 'aria-label': 'Built-in apps' },
           info.doomNames.map((n) => h('button', { type: 'button', class: `doom-app doom-tap${off.has(n) ? ' off' : ''}`, 'aria-pressed': String(!off.has(n)),
             title: off.has(n) ? `${n} doesn't count. Tap to count it.` : `${n} counts. Tap to leave it out.`, onclick: () => flip(n) },
             off.has(n) ? null : icon('check'), n)));
-        const added = extra.length ? h('div', { class: 'fs-chips doom-chips', role: 'group', 'aria-label': 'Apps you added' },
+        const added = extra.length || mySites.length ? h('div', { class: 'fs-chips doom-chips', role: 'group', 'aria-label': 'Apps and websites you added' },
           extra.map((a) => h('span', { class: 'doom-app doom-mine' }, a.label,
-            h('button', { type: 'button', class: 'doom-x', 'aria-label': `Remove ${a.label}`, onclick: () => set({ extra: extra.filter((x) => x.pkg !== a.pkg) }) }, '×'))))
+            h('button', { type: 'button', class: 'doom-x', 'aria-label': `Remove ${a.label}`, onclick: () => set({ extra: extra.filter((x) => x.pkg !== a.pkg) }) }, '×'))),
+          mySites.map((s) => h('span', { class: 'doom-app doom-mine' }, icon('globe'), s.label,
+            h('button', { type: 'button', class: 'doom-x', 'aria-label': `Remove ${s.label}`, onclick: () => set({ sites: mySites.filter((x) => x.host !== s.host) }) }, '×'))))
           : null;
         const list = h('div', { class: 'doom-pick-list' });
         const fill = () => {
@@ -10038,7 +10106,7 @@
           h('div', { class: 'doom-head' }, h('h4', null, 'Apps it watches'), h('small', null, `${counted} counted`)),
           h('small', null, 'Tap one to leave it out or count it again. Each counts in its app and in your browser (Chrome, Samsung Internet, Firefox, Edge, Brave, Opera, DuckDuckGo).'),
           builtIn,
-          h('small', null, 'Any other app, a game, a shopping app, a video app, counts too once you add it here.'),
+          h('small', null, 'Any other app, a game, a shopping app, a video app, counts too once you add it here. Your own websites are added under Daily limits.'),
           added,
           h('div', { class: 'row' },
             h('button', { type: 'button', class: `btn${pick.open ? '' : ' primary'}`, onclick: () => { pick.open = !pick.open; pick.q = ''; load(); } }, pick.open ? 'Done adding' : 'Add an app'),
@@ -10050,20 +10118,18 @@
       // Back from Android's Accessibility settings: show what changed.
       const back = () => { if (!box.isConnected) document.removeEventListener('visibilitychange', back); else if (!document.hidden) load(); };
       document.addEventListener('visibilitychange', back);
-      return [
-        h('h3', null, 'Doomscroll saver'),
-        h('p', { class: 'lead' }, 'A nudge back to your plan when a quick look at social media turns into a long one.'),
-        box,
-      ];
+      return [...head, box, ...PANES.blockerPart()];
     },
 
     // The blocker: lists of websites, PC apps and phone apps, each on by its schedule, switched on by hand (for a
     // while, or until switched off) or during Hyperfocus. The same lists on every device (blocklists.js, synced);
     // the PC closes its apps and turns its sites away (blocker.js), the phone covers them (Blocker.java, through the
-    // doomscroll saver's Accessibility service). The rules are block-rules.js.
-    blocker() {
+    // doomscroll saver's Accessibility service). The rules are block-rules.js. Not a page of its own: the last part
+    // of the doomscroll saver's page (openSettings('blocker') lands there, on its heading).
+    blockerPart() {
       const B = window.OnyxBlockRules;
-      const head = [h('h3', null, 'Blocker'), h('p', { class: 'lead' }, 'Lists of apps and websites to keep closed: on a schedule, for a while, or until you switch them off.')];
+      const head = [h('h4', { class: 'bk-heading', id: 'set-blocker' }, icon('ban'), 'Blocker'),
+        h('p', { class: 'bk-lead' }, 'Lists of apps and websites to keep closed: on a schedule, for a while, or until you switch them off.')];
       if (!onyx.blocker || !B) return [...head, h('div', { class: 'card' }, h('p', null, 'Update Onyx to use this.'))];
       const page = h('div', { class: 'bk' }, h('div', { class: 'card' }, h('p', null, 'Loading your block lists…')));
       const here = onyx.isWeb ? 'web' : onyx.isPhone ? 'phone' : 'pc';
@@ -10303,16 +10369,12 @@
             h('small', { class: 'bk-note' }, 'Apps on a list are closed here as they open. The phone blocks its own apps and sites, with this PC on or off.'));
         }
         if (here === 'phone' && phone) {
+          // The same Accessibility switch as the saver's above, so its Allow and its help are up there.
           return h('div', { class: 'card bk-device' },
             h('h4', null, 'On this phone', phone.allowed ? h('span', { class: 'badge ok' }, 'Ready') : h('span', { class: 'badge bad' }, 'Needs Accessibility')),
             phone.allowed
               ? h('p', null, 'Blocked apps and sites are covered as they open, with your PC on or off. Sites are blocked in Chrome, Samsung Internet, Firefox, Edge, Brave, Opera, Vivaldi and DuckDuckGo.')
-              : h('p', null, 'To block on this phone, Android needs Onyx\'s Accessibility switch on. In the list there, open "Onyx doomscroll saver" and turn it on: it only looks at which app is open and, in a browser, the site in the address bar.'),
-            !phone.allowed && h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn primary', onclick: () => onyx.launcher.open('accessibility') }, 'Allow')),
-            !phone.allowed && h('div', { class: 'restricted-guide' },
-              h('b', null, 'Switch greyed out?'),
-              h('p', null, 'Android locks Accessibility for apps installed from a download. Tap App info, then ⋮ at the top right, then Allow restricted settings. Come back and tap Allow.'),
-              h('button', { type: 'button', class: 'btn', onclick: () => onyx.launcher.open('appinfo') }, 'App info')));
+              : h('p', null, 'The blocker uses the same Accessibility switch as the saver: turn on Accessibility access above, and it can block on this phone too.'));
         }
         if (here === 'phone') return h('div', { class: 'card bk-device' }, h('p', null, 'Update the Onyx app on this phone to block here too. Your lists still reach your PC.'));
         return h('div', { class: 'card bk-device' }, h('h4', null, 'Onyx on the web'), h('p', null, 'Your lists are the same everywhere. The blocking itself happens on your PC and in the Onyx app on your phone.'));
@@ -10884,9 +10946,11 @@
     // The lock screen editor was its own page before: its name (and "Where should Onyx show?") still finds this one.
     launcher: { name: 'Home & lock screen', icon: 'lock', c: '#3fd0c9', items: ['Onyx on your lock screen', 'Onyx on your home screen', 'Make Onyx Home your home app', 'What shows, and in what order', 'Clock size', 'Clock and shortcuts on', 'Shortcuts as', 'Date under the clock', 'Background', 'Shortcuts', 'Full-screen pop-ups', 'Alarm for everything as it starts', 'Full-screen alarms'],
       words: 'onyx home launcher overlay notifications music spotify alarms lock screen editor home screen editor where should onyx show set up layout look wallpaper dark link app file audio macro widgets tiles bento pills grid icon emoji picture image photo upload' },
-    doomscroll: { name: 'Doomscroll saver', icon: 'target', c: '#ff9f4a', items: ['Doomscroll saver', 'Show it after', 'Accessibility access', 'See the card', 'Apps it watches', 'Daily limits'], words: 'social media instagram tiktok youtube minutes apps choose pick add games which apps daily limit limits time limit block blocked maximum max screen time' },
-    blocker: { name: 'Blocker', icon: 'ban', c: '#ff6b81', items: ['On this PC', 'On this phone', 'Websites on this PC', 'Make your first list', 'Websites', 'Quick add', 'Apps on the phone', 'Apps on the PC', "When it's on", 'Also during Hyperfocus'],
-      words: 'block blocker blocked block list apps websites sites web apps focus distraction distractions schedule scheduled lock out keep closed youtube social media games timer until switch off proxy work hours wind down' },
+    // The blocker was its own page before 1.126: it is part of this one now, and still found by its name and words.
+    doomscroll: { name: 'Doomscroll saver', icon: 'target', c: '#ff9f4a',
+      items: ['Doomscroll saver', 'Show it after', 'Accessibility access', 'See the card', 'Apps it watches', 'Daily limits', 'Add your own', 'Blocker', 'On this PC', 'On this phone', 'Websites on this PC', 'Make your first list', 'Websites', 'Quick add', 'Apps on the phone', 'Apps on the PC', "When it's on", 'Also during Hyperfocus'],
+      words: 'social media instagram tiktok youtube minutes apps choose pick add games which apps daily limit limits time limit maximum max screen time your own website websites site sites app '
+        + 'block blocker blocked block list web apps focus distraction distractions schedule scheduled lock out keep closed timer until switch off proxy work hours wind down' },
     voice: { name: 'Hey Claude', icon: 'mic', c: '#e08a5f', items: ['Listen for “Hey Claude”', 'Speech model', 'Wake phrase', 'Claude reads it', 'Chimes', 'How to say it'], words: 'voice speak talk say dictate microphone mic wake word phrase assistant hands free add a task by voice claude listening' },
     general: { name: 'General', icon: 'sliders', c: '#b9b9c2', items: ['New blocks go to', 'Updates', 'Now / Next bar', 'Popups', 'Tick-off sound', '24-hour time', 'Week starts on', 'Keep running when closed', 'Start with Windows'], words: 'default calendar chime clock tray' },
     changelog: { name: 'Changelog', icon: 'note', c: '#5fd38d', items: [], words: 'versions changes new what\'s new' },
@@ -10899,8 +10963,8 @@
   const SET_HOME = 'home'; // the phone's list of sections
   /** The groups of sections, in order, for this device. */
   const settingsGroups = () => (onyx.isPhone
-    ? [['This phone', [...(onyx.launcher ? ['launcher', 'doomscroll'] : []), ...(onyx.voice ? ['voice'] : [])]], ['Focus', ['blocker']], ['Alerts', ['pi']], ['Sync & accounts', ['connection', 'keys']], ['App', ['general', 'changelog']]]
-    : [['Calendar', ['calendars', 'general']], ['Focus', ['blocker']], ['Connected', ['connections', 'phone', 'desktops']], ['Alerts', ['pi']], ['Advanced', ['mcp']], ['About', ['changelog']]])
+    ? [['This phone', [...(onyx.launcher ? ['launcher'] : []), ...(onyx.voice ? ['voice'] : [])]], ['Focus', ['doomscroll']], ['Alerts', ['pi']], ['Sync & accounts', ['connection', 'keys']], ['App', ['general', 'changelog']]]
+    : [['Calendar', ['calendars', 'general']], ['Focus', ['doomscroll']], ['Connected', ['connections', 'phone', 'desktops']], ['Alerts', ['pi']], ['Advanced', ['mcp']], ['About', ['changelog']]])
     .filter(([, ids]) => ids.length);
 
   let settingsTab = MOBILE ? SET_HOME : 'calendars';
@@ -10923,7 +10987,7 @@
       case 'pi': return { alarm: 'Alarm on this phone', ntfy: 'Push notifications', twilio: 'Phone calls', pi: 'Raspberry Pi calls' }[method] || 'How Onyx reaches you';
       case 'general': return `${S.settings.hour12 ? '12' : '24'}-hour time · week starts ${['Sunday', 'Monday', '', '', '', '', 'Saturday'][S.settings.weekStart] || 'Sunday'}`;
       case 'changelog': return window.OnyxChangelog?.[0] ? `Newest: ${window.OnyxChangelog[0].version}` : 'What came with each version';
-      default: return settingsSums[id] || { launcher: 'Onyx on your lock and home screens', doomscroll: 'A nudge back from social media', voice: 'Add tasks by saying them', blocker: 'Block apps and sites' }[id] || '';
+      default: return settingsSums[id] || { launcher: 'Onyx on your lock and home screens', doomscroll: onyx.launcher ? 'Nudges, daily limits and the blocker' : 'Block apps and sites', voice: 'Add tasks by saying them' }[id] || '';
     }
   }
   /** Asks the phone how its own sections are set, and writes it into the list. */
@@ -10933,25 +10997,30 @@
       const el = list.querySelector(`[data-sum="${id}"]`);
       if (el) el.textContent = text;
     };
+    // The doomscroll saver's line: the card and its limits (the phone's), then the blocker's list on now.
+    const doom = { saver: '', blocker: '' };
+    const putDoom = () => { const t = [doom.saver, doom.blocker].filter(Boolean).join(' · '); if (t) put('doomscroll', t); };
     onyx.launcher?.info?.().then((i) => {
       put('launcher', { lock: 'Lock screen on · home screen off', home: 'Home screen on · lock screen off', both: 'Lock and home screens on', off: 'Off: just the app' }[i?.show] || 'Onyx on your lock and home screens');
       if (i && 'doomscroll' in i) {
         // Limits work with the card off, so they show either way.
         const lims = Object.keys(i.doomLimits || {}).length;
         const limText = lims ? `${lims} daily ${lims === 1 ? 'limit' : 'limits'}` : '';
-        put('doomscroll', i.doomscroll ? [`On · after ${i.doomMinutes} ${i.doomMinutes === 1 ? 'minute' : 'minutes'}`, limText].filter(Boolean).join(' · ')
-          : limText ? `Card off · ${limText}` : 'Off');
+        doom.saver = i.doomscroll ? [`On · after ${i.doomMinutes} ${i.doomMinutes === 1 ? 'minute' : 'minutes'}`, limText].filter(Boolean).join(' · ')
+          : limText ? `Card off · ${limText}` : 'Card off';
+        putDoom();
       }
     }).catch(() => {});
-    // The blocker: the list on now (and until when), or how many there are.
+    // The blocker: the list on now (and until when); with none on, said only when there is no card to speak of.
     onyx.blocker?.lists().then((r) => {
       const B = window.OnyxBlockRules;
       if (!B) return;
       const all = B.cleanLists(r?.lists || []);
       const on = all.map((l) => [l, B.stateOf(l, Date.now())]).filter(([, st]) => st.on);
       const until = (st) => (st.until ? ` until ${B.when(st.until, Date.now(), S.settings.hour12 !== false)}` : '');
-      put('blocker', !all.length ? 'Block apps and sites' : on.length ? `${on[0][0].name} on${until(on[0][1])}${on.length > 1 ? ` · ${on.length - 1} more` : ''}`
-        : `${all.length} ${all.length === 1 ? 'list' : 'lists'} · none on now`);
+      doom.blocker = on.length ? `${on[0][0].name} on${until(on[0][1])}${on.length > 1 ? ` · ${on.length - 1} more` : ''}`
+        : onyx.launcher ? '' : all.length ? `${all.length} block ${all.length === 1 ? 'list' : 'lists'} · none on now` : 'Block apps and sites';
+      putDoom();
     }).catch(() => {});
     onyx.voice?.state().then((v) => {
       if (!v?.available) return;
@@ -10993,6 +11062,7 @@
 
   function openSettings(tab = settingsTab, { find } = {}) {
     if (tab === 'lockeditor') tab = 'launcher'; // the lock screen editor is part of Home & lock screen now
+    if (tab === 'blocker') { tab = 'doomscroll'; find = find || 'Blocker'; } // and the blocker part of the doomscroll saver
     const groups = settingsGroups();
     const ids = groups.flatMap(([, list]) => list);
     if (tab !== SET_HOME && !ids.includes(tab)) tab = MOBILE ? SET_HOME : ids[0];

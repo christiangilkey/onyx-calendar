@@ -2,9 +2,15 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.124.0 · Time chunks pick out like blocks, with bars to drag, and a colour of their own
+## 1.124.1 · The column of hours no longer gets stuck too wide on the phone
 
 _2026-11-09_
+
+- Sometimes on the phone, the column of hours at the left of the calendar became very wide and squeezed the days into half the screen until Onyx was restarted. It now keeps the width its hours need. If anything ever makes it wider for a moment, it goes back on its own.
+
+## 1.124.0 · Time chunks pick out like blocks, with bars to drag, and a colour of their own
+
+_2026-11-08_
 
 - Tapping a time chunk (its band, or the left half of its time) now picks it out the way a block is: a white outline, with a bar above it and below it. It no longer opens its window on the first tap.
 - Drag the bars to change when it starts or ends, a quarter hour at a time. Drag its band to move it. A chunk on one day can move to another day shown; one that repeats keeps its days and changes its hours on every day of it. One Undo puts it back.

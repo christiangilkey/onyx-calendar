@@ -2,8 +2,16 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
-  "version": "1.124.0",
+  "version": "1.124.1",
   "date": "2026-11-09",
+  "title": "The column of hours no longer gets stuck too wide on the phone",
+  "items": [
+   "Sometimes on the phone, the column of hours at the left of the calendar became very wide and squeezed the days into half the screen until Onyx was restarted. It now keeps the width its hours need. If anything ever makes it wider for a moment, it goes back on its own."
+  ]
+ },
+ {
+  "version": "1.124.0",
+  "date": "2026-11-08",
   "title": "Time chunks pick out like blocks, with bars to drag, and a colour of their own",
   "items": [
    "Tapping a time chunk (its band, or the left half of its time) now picks it out the way a block is: a white outline, with a bar above it and below it. It no longer opens its window on the first tap.",

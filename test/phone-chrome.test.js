@@ -65,3 +65,10 @@ test('one + button on the phone: type it, then Choose a time or Find time', () =
   assert.match(app, /for \(const el of \[\$\('#magic-add'\), MOBILE \? \$\('#fab'\) : null, \$\('#task-magic'\)\]\)/);
   assert.match(css, /body\.mobile #fab \.magic-count \{ position: absolute;/);
 });
+
+test('the column of hours keeps the width its hours need, and goes back to it after anything wider passes', () => {
+  // The calendar sizes it from each hour label's own width. A label as wide as its column (display: block) measured
+  // the column itself, so a column drawn too wide once stayed that way, the days squeezed into half the phone.
+  assert.match(css, /\.fc \.fc-timegrid-slot-label-cushion \{[^}]*display: inline-block; \}/);
+  assert.doesNotMatch(css, /\.fc \.fc-timegrid-slot-label-cushion \{[^}]*display: block;/);
+});

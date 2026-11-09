@@ -1243,12 +1243,12 @@
    * A row of colour swatches: the calendar's own colour first (a block with none of its own), then the
    * palette. `pick(color | null)` is told each choice; get() gives the one chosen.
    */
-  function colorSwatches(current, calColor, pick) {
+  function colorSwatches(current, calColor, pick, baseName = 'The calendar\'s colour') {
     let chosen = current || null;
     const sw = (color, name) => h('button', { type: 'button', class: `bcolor${color ? '' : ' cal'}`, title: name, 'aria-label': name,
       css: { '--s': color || calColor || 'var(--accent)' }, onclick: (e) => { e.stopPropagation(); chosen = color; draw(); pick?.(color); } });
     const row = h('div', { class: 'bcolors', role: 'radiogroup', 'aria-label': 'Colour' },
-      sw(null, 'The calendar\'s colour'), BLOCK_COLORS.map(([c, n]) => sw(c, n)));
+      sw(null, baseName), BLOCK_COLORS.map(([c, n]) => sw(c, n)));
     const draw = () => {
       [...row.children].forEach((b, i) => {
         const on = i === 0 ? !chosen : chosen === BLOCK_COLORS[i - 1][0];
@@ -2230,7 +2230,8 @@
         const start = info.date;
         if (!info.allDay && pressWasChunk(5000)) {
           const there = OnyxChunks.chunkAt(chunkList(), start);
-          return there ? openChunk(there, pointRect(info.jsEvent)) : newChunkFrom({ start, end: new Date(start.getTime() + 60 * 60000) }, pointRect(info.jsEvent));
+          if (there) return isPicked(there) ? openChunk(there, pointRect(info.jsEvent)) : pickChunk(there);
+          return newChunkFrom({ start, end: new Date(start.getTime() + 60 * 60000) }, pointRect(info.jsEvent));
         }
         const end = info.allDay ? addDays(start, 1) : new Date(start.getTime() + 30 * 60000);
         // Inside a time chunk, a new block starts with its category's tag.
@@ -2578,6 +2579,7 @@
   document.addEventListener('mousemove', (e) => { clip.x = e.clientX; clip.y = e.clientY; }, { passive: true });
 
   function selectEntry(src) {
+    if (chunkPick.occ) unpickChunk();
     clip.selected = src.id;
     for (const el of document.querySelectorAll('#calendar .fc-event.is-selected')) el.classList.remove('is-selected');
     for (const el of document.querySelectorAll(`#calendar .fc-event[data-eid="${CSS.escape(src.id)}"]`)) el.classList.add('is-selected');
@@ -3144,6 +3146,7 @@
 
   const chunkList = () => S?.timeChunks || [];
   const chunkName = (c) => c.title || `#${c.tag}`;
+  const chunkColor = (c) => c.color || tagColor(c.tag);
   const spanText = (m) => (m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`);
   const sameTag = (a, b) => String(a || '').toLowerCase() === String(b || '').toLowerCase();
   // Where the last press on a day landed: its left half (a time chunk) or its right (a block).
@@ -3162,27 +3165,192 @@
 
   function setChunks(list) {
     S.timeChunks = list;
+    const p = chunkPick.occ;
+    if (p) {
+      const c = list.find((x) => x.id === p.chunk.id);
+      const day = OnyxChunks.fromYmd(p.day);
+      const o = c && OnyxChunks.occurrences([c], day, new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1))[0];
+      if (o) chunkPick.occ = o; else unpickChunk();
+    }
     calendar?.getEventSourceById('chunks')?.refetch();
+    drawPick();
   }
 
   /** The band down a chunk's left side, with its name; its title says the rest. */
   function chunkContent(arg) {
     const o = arg.event.extendedProps.occ, c = o.chunk;
     const tip = `${chunkName(c)}${c.title ? ` · #${c.tag}` : ''}\n${fmtTime(o.start)} – ${fmtTime(o.end)}${c.recur ? ` · ${recurText({ ...c.recur, until: c.until })}` : ''}\nClick to fill it with tasks or change it`;
-    return { domNodes: [h('div', { class: 'tchunk-rail', role: 'button', tabindex: '0', title: tip, 'aria-label': `Time chunk ${chunkName(c)}` },
+    return { domNodes: [h('div', { class: 'tchunk-rail', role: 'button', tabindex: '0', title: tip.replace('Click to fill it with tasks or change it', 'Tap to pick it out, then drag its bars. Tap again to open it'), 'aria-label': `Time chunk ${chunkName(c)}` },
       h('span', { class: 'tchunk-name' }, chunkName(c)))] };
   }
 
   function chunkMounted(arg) {
     const o = arg.event.extendedProps.occ;
-    arg.el.style.setProperty('--c', tagColor(o.chunk.tag));
+    arg.el.style.setProperty('--c', chunkColor(o.chunk));
+    arg.el.dataset.occ = o.id;
+    arg.el.classList.toggle('is-picked', isPicked(o));
+    if (isPicked(o)) { chunkPick.occ = o; requestAnimationFrame(drawPick); } // drawn again (a reload, a change): still picked
     const rail = arg.el.querySelector('.tchunk-rail');
     if (!rail) return;
     // The band is a button of its own: the calendar under it never starts a selection from it.
     for (const type of ['pointerdown', 'mousedown', 'touchstart']) rail.addEventListener(type, (ev) => ev.stopPropagation(), { passive: true });
-    const open = (ev) => { ev.stopPropagation(); hideTapBubble(); openChunk(o, rail.getBoundingClientRect()); };
-    rail.addEventListener('click', open);
-    rail.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); open(ev); } });
+    // Like a block: a tap picks it out (its bars show); once picked, the band drags it, and a tap opens it.
+    rail.addEventListener('pointerdown', (ev) => {
+      if (ev.button) return;
+      if (isPicked(o)) { chunkDrag('move', ev); return; }
+      const x = ev.clientX, y = ev.clientY;
+      const up = (u) => {
+        document.removeEventListener('pointerup', up, true);
+        if (Math.hypot(u.clientX - x, u.clientY - y) < 8) pickChunk(o);
+      };
+      document.addEventListener('pointerup', up, true);
+    });
+    rail.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'Enter' && ev.key !== ' ') return;
+      ev.preventDefault();
+      if (isPicked(o)) openChunk(o, rail.getBoundingClientRect()); else pickChunk(o);
+    });
+  }
+
+  // ---- a chunk picked out, the way a block is: a white outline, and a bar above it and below it to drag, which
+  // move its start and its end a quarter hour at a time; its band moves the whole of it (to another day too, for
+  // one that doesn't repeat). A repeat changes every day of it, as a block's repeat does. A second tap opens its
+  // window. The outline and bars are drawn over the calendar (the chunk itself is behind the blocks), and follow it.
+  const chunkPick = { occ: null, el: null, drag: null };
+  const isPicked = (o) => !!chunkPick.occ && chunkPick.occ.id === o.id;
+
+  function pickChunk(o) {
+    hideTapBubble();
+    clearSelection(); // one thing picked at a time: a block or a chunk
+    chunkPick.occ = o;
+    if (!chunkPick.el) {
+      const bar = (edge, title) => {
+        const b = h('span', { class: `tchunk-bar ${edge}`, title });
+        b.addEventListener('pointerdown', (ev) => { if (!ev.button) chunkDrag(edge, ev); });
+        return b;
+      };
+      chunkPick.el = h('div', { class: 'tchunk-pick', hidden: true }, h('span', { class: 'tchunk-pick-time' }),
+        bar('start', 'Drag to change when it starts'), bar('end', 'Drag to change when it ends'));
+      document.body.append(chunkPick.el);
+      document.addEventListener('scroll', drawPick, { capture: true, passive: true });
+      window.addEventListener('resize', drawPick);
+      // A press anywhere else lets it go (the left half of its own time keeps it: a second tap there opens it).
+      document.addEventListener('pointerdown', (e) => {
+        if (!chunkPick.occ || chunkPick.drag || e.target.closest?.('.tchunk-pick, #popover')) return;
+        const rail = e.target.closest?.('.tchunk[data-occ]');
+        if (rail?.dataset.occ === chunkPick.occ.id && e.target.closest('.tchunk-rail')) return;
+        const r = chunkPick.el.getBoundingClientRect();
+        if (!chunkPick.el.hidden && e.clientX >= r.left && e.clientX < r.left + r.width / 2 && e.clientY >= r.top && e.clientY <= r.bottom) return;
+        unpickChunk();
+      }, true);
+      document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && chunkPick.occ && $('#popover').hidden) unpickChunk(); });
+    }
+    markPicked();
+    drawPick();
+    try { navigator.vibrate?.(8); } catch { /* no buzz here */ }
+  }
+
+  function unpickChunk() {
+    chunkPick.occ = null;
+    chunkPick.drag = null;
+    if (chunkPick.el) chunkPick.el.hidden = true;
+    markPicked();
+  }
+
+  function markPicked() {
+    for (const el of document.querySelectorAll('#calendar .tchunk[data-occ]')) el.classList.toggle('is-picked', !!chunkPick.occ && el.dataset.occ === chunkPick.occ.id);
+  }
+
+  /** Where a stretch of a day is on the screen: { top, bottom, left, width, area } (null when that day isn't shown). */
+  function dayGeo(day, sMin, eMin) {
+    const lane0 = $('#calendar .fc-timegrid-slot-lane[data-time="00:00:00"]'), lane12 = $('#calendar .fc-timegrid-slot-lane[data-time="12:00:00"]');
+    const col = $(`#calendar .fc-timegrid-col[data-date="${day}"]`);
+    const scroller = $('#calendar .fc-timegrid-body')?.closest('.fc-scroller');
+    if (!lane0 || !lane12 || !col || !scroller) return null;
+    const top0 = lane0.getBoundingClientRect().top, perMin = (lane12.getBoundingClientRect().top - top0) / 720;
+    const c = col.getBoundingClientRect();
+    return { top: top0 + sMin * perMin, bottom: top0 + eMin * perMin, left: c.left, width: c.width, area: scroller.getBoundingClientRect(), perMin };
+  }
+
+  function drawPick() {
+    const el = chunkPick.el, o = chunkPick.occ;
+    if (!el) return;
+    if (!o || !calendar.view.type.startsWith('timeGrid')) { el.hidden = true; return; }
+    const d = chunkPick.drag;
+    const day = d ? d.day : o.day, sMin = d ? d.start : OnyxChunks.mins(o.chunk.start), eMin = d ? d.end : OnyxChunks.mins(o.chunk.end);
+    const g = dayGeo(day, sMin, eMin);
+    if (!g) { el.hidden = true; return; }
+    const top = Math.max(g.top, g.area.top), bottom = Math.min(g.bottom, g.area.bottom);
+    el.hidden = bottom - top < 2;
+    Object.assign(el.style, { left: `${g.left + 1}px`, width: `${g.width - 3}px`, top: `${top}px`, height: `${Math.max(0, bottom - top)}px` });
+    el.style.setProperty('--c', chunkColor(o.chunk));
+    el.classList.toggle('cut-top', g.top < g.area.top);
+    el.classList.toggle('cut-bottom', g.bottom > g.area.bottom);
+    el.classList.toggle('dragging', !!d?.moved);
+    const at = (m) => fmtTime(new Date(2000, 0, 1, 0, m));
+    el.firstChild.textContent = `${at(sMin)} – ${eMin >= 1440 ? fmtTime(new Date(2000, 0, 2)) : at(eMin)}`;
+  }
+
+  /**
+   * Drags a picked chunk: 'start' or 'end' by its bars, 'move' by its band. A quarter hour at a time, never shorter
+   * than the shortest chunk or past the day's ends. Let go: it is saved (one Undo puts it back). A band pressed and let
+   * go without moving opens the chunk.
+   */
+  function chunkDrag(edge, ev) {
+    const o = chunkPick.occ;
+    if (!o) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const c = o.chunk, s0 = OnyxChunks.mins(c.start), e0 = OnyxChunks.mins(c.end);
+    const g = dayGeo(o.day, s0, e0);
+    if (!g) return;
+    const d = chunkPick.drag = { edge, x0: ev.clientX, y0: ev.clientY, start: s0, end: e0, day: o.day, moved: false };
+    try { ev.target.setPointerCapture?.(ev.pointerId); } catch { /* fine without */ }
+    document.body.classList.add('dragging-chunk');
+    const SNAP = 15, MIN_LEN = OnyxChunks.SHORTEST;
+    const move = (e) => {
+      if (!d.moved && Math.hypot(e.clientX - d.x0, e.clientY - d.y0) < 6) return;
+      d.moved = true;
+      const dm = Math.round((e.clientY - d.y0) / g.perMin / SNAP) * SNAP;
+      if (edge === 'start') d.start = Math.max(0, Math.min(e0 - MIN_LEN, s0 + dm));
+      else if (edge === 'end') d.end = Math.min(1440, Math.max(s0 + MIN_LEN, e0 + dm));
+      else {
+        const len = e0 - s0;
+        d.start = Math.max(0, Math.min(1440 - len, s0 + dm));
+        d.end = d.start + len;
+        if (!c.recur) { // a chunk on one day can go to another day shown
+          for (const col of document.querySelectorAll('#calendar .fc-timegrid-col[data-date]')) {
+            const r = col.getBoundingClientRect();
+            if (e.clientX >= r.left && e.clientX < r.right) { d.day = col.dataset.date; break; }
+          }
+        }
+      }
+      drawPick();
+    };
+    const done = async () => {
+      document.removeEventListener('pointermove', move, true);
+      document.removeEventListener('pointerup', done, true);
+      document.removeEventListener('pointercancel', done, true);
+      document.body.classList.remove('dragging-chunk');
+      chunkPick.drag = null;
+      if (!d.moved) { // a tap on a picked chunk's band opens it
+        drawPick();
+        if (edge === 'move') openChunk(o, chunkPick.el.getBoundingClientRect());
+        return;
+      }
+      const next = { ...c, start: OnyxChunks.hm(d.start), end: OnyxChunks.hm(d.end), ...(c.recur ? {} : { date: d.day }) };
+      if (next.start === c.start && next.end === c.end && next.date === c.date) { drawPick(); return; }
+      const before = structuredClone(c);
+      chunkPick.occ = { ...o, id: `${c.id}@${d.day}`, day: d.day, chunk: next }; // stays picked where it was put
+      drawPick();
+      if (!await putChunk(next)) { chunkPick.occ = o; drawPick(); return; }
+      const when = `${fmtTime(at(d.day, next.start))} – ${d.end >= 1440 ? 'midnight' : fmtTime(at(d.day, next.end))}`;
+      recordAction(`${edge === 'move' ? 'Moved' : 'Changed'} ${chunkName(c)} to ${when}${c.recur ? ' (every day of it)' : ''}`,
+        () => putChunk(before), () => putChunk(next));
+    };
+    document.addEventListener('pointermove', move, true);
+    document.addEventListener('pointerup', done, true);
+    document.addEventListener('pointercancel', done, true);
   }
 
   /** The day under a point of the time grid: found by where it is, since the grid's empty parts are its hour rows. */
@@ -3280,7 +3448,10 @@
         onclick: () => { tag = n; newCat.value = ''; drawChips(); },
       }, `#${n}`)));
     };
-    newCat.addEventListener('input', () => { tag = newCat.value.replace(/^#+/, '').trim(); drawChips(); });
+    const colorPick = colorSwatches(base.color || null, tagColor(tag), null, 'The category\'s colour');
+    const followTag = () => colorPick.el.firstChild.style.setProperty('--s', tagColor((newCat.value.trim() || tag).replace(/^#+/, '')) || 'var(--accent)');
+    newCat.addEventListener('input', () => { tag = newCat.value.replace(/^#+/, '').trim(); drawChips(); followTag(); });
+    chips.addEventListener('click', () => setTimeout(followTag, 0));
     drawChips();
 
     const title = limitName(h('input', { type: 'text', class: 'pop-title tc-title', placeholder: 'Name it (optional), e.g. Deep work', value: base.title || '', spellcheck: false, maxlength: 80 }));
@@ -3310,7 +3481,7 @@
         : fit.placed.length ? `Fill with #${t} tasks (${fit.placed.length})`
         : wanted.length ? `No room left for its ${wanted.length} #${t} task${wanted.length > 1 ? 's' : ''}`
         : `No open #${t} tasks without a time`;
-      info = h('div', { class: 'tc-info', css: { '--c': tagColor(t) } },
+      info = h('div', { class: 'tc-info', css: { '--c': chunkColor(occ.chunk) } },
         h('div', { class: 'tc-when' }, h('b', null, fmtDay(occ.start)), ` · ${fmtTime(occ.start)} – ${fmtTime(occ.end)}`),
         h('div', { class: 'tc-meter', role: 'img', 'aria-label': `${p.planned} of ${p.total} minutes planned` }, h('i', { css: { width: `${Math.round((p.planned / Math.max(1, p.total)) * 100)}%` } })),
         h('small', { class: 'tc-sum' }, `${spanText(p.planned)} of ${spanText(p.total)} planned · ${spanText(p.total - p.planned)} free`),
@@ -3331,7 +3502,7 @@
       const recur = r === undefined ? (existing ? existing.recur : base.recur || null) : r;
       const chunk = {
         id: existing?.id || OnyxChunks.newId(), tag: tagInfo(t)?.name || t, title: title.value, date: date.value, start: startTime.value, end,
-        recur, until: recur ? until.value || null : null, skip: existing?.skip || [], ...(existing ? { created: existing.created } : {}),
+        recur, until: recur ? until.value || null : null, skip: existing?.skip || [], color: colorPick.get() || null, ...(existing ? { created: existing.created } : {}),
       };
       try { OnyxChunks.clean(chunk); } catch (err) { toast(err.message, 'warn'); return; }
       const before = existing ? structuredClone(existing) : null;
@@ -3354,6 +3525,7 @@
         h('small', null, 'Time set aside for one category. Its blocks and tasks go inside it.')),
       info,
       h('div', { class: 'row top tc-cat-row' }, icon('tag'), h('div', { class: 'tc-cats' }, chips, newCat)),
+      h('div', { class: 'row color-row' }, icon('drop'), colorPick.el),
       title,
       h('div', { class: 'row' }, icon('clock'), date, startTime, h('span', { class: 'dash' }, '–'), endTime),
       h('div', { class: 'row top recur-row' }, icon('repeat'), repeatField.el),

@@ -131,7 +131,7 @@ test('the left half of a day makes a time chunk, the right half a block; a block
   assert.match(app, /if \(info\.event\.display === 'background' \|\| !info\.event\.extendedProps\.src\) return;/, 'a click on its tint is the day\'s, not an entry\'s');
   assert.match(app, /gridPress\.chunk = e\.clientX - r\.left < r\.width \/ 2;/, 'the left half');
   assert.match(app, /if \(!info\.allDay && info\.view\.type\.startsWith\('timeGrid'\) && pressWasChunk\(\)\) return newChunkFrom\(info, anchor\);\s*blockOut\(info, anchor\);/, 'a drag');
-  assert.match(app, /return there \? openChunk\(there, pointRect\(info\.jsEvent\)\) : newChunkFrom\(/, 'a click: the chunk there, or a new one');
+  assert.match(app, /if \(there\) return isPicked\(there\) \? openChunk\(there, pointRect\(info\.jsEvent\)\) : pickChunk\(there\);/, 'a click: picks the chunk there (a second opens it), or makes a new one');
   assert.match(app, /return chunk \? newChunkFrom\(range, r \|\| pointRect\(info\.jsEvent\)\) : blockOut\(range, r \|\| pointRect\(info\.jsEvent\)\);/, 'a long press on the phone');
   assert.match(app, /holdNew\.chunk = pressWasChunk\(5000\);/);
   assert.match(app, /const tagsHere = inChunk \? \[inChunk\.chunk\.tag\] : \[\];/, 'a block made inside one');
@@ -148,4 +148,33 @@ test('drawn behind the blocks, with a band that stays in view beside them', () =
   assert.match(css, /\.tchunk-name \{[^}]*writing-mode: vertical-rl;/);
   assert.match(css, /\.fc \.fc-timegrid-col-frame:has\(\.tchunk\) \.fc-timegrid-col-events \{ margin-left: 15px; \}/);
   assert.match(css, /body\.making-chunk #calendar \.fc-timegrid \.fc-event-mirror \{/);
+});
+
+test('picked out like a block: a tap highlights it with bars to stretch it, its band moves it, a second tap opens it', () => {
+  // The band: a tap picks it out; once picked, it drags the chunk, and a tap that doesn't move opens it.
+  assert.match(app, /if \(isPicked\(o\)\) \{ chunkDrag\('move', ev\); return; \}/);
+  assert.match(app, /if \(Math\.hypot\(u\.clientX - x, u\.clientY - y\) < 8\) pickChunk\(o\);/);
+  assert.match(app, /if \(edge === 'move'\) openChunk\(o, chunkPick\.el\.getBoundingClientRect\(\)\);/, 'a tap on a picked one opens it');
+  // The bars above and below: a quarter hour at a time, never shorter than the shortest chunk or past the day.
+  assert.match(app, /bar\('start', 'Drag to change when it starts'\), bar\('end', 'Drag to change when it ends'\)/);
+  assert.match(app, /if \(edge === 'start'\) d\.start = Math\.max\(0, Math\.min\(e0 - MIN_LEN, s0 \+ dm\)\);/);
+  assert.match(app, /else if \(edge === 'end'\) d\.end = Math\.min\(1440, Math\.max\(s0 \+ MIN_LEN, e0 \+ dm\)\);/);
+  assert.match(app, /if \(!c\.recur\) \{ \/\/ a chunk on one day can go to another day shown/, 'a repeat keeps its days');
+  assert.match(app, /recordAction\(`\$\{edge === 'move' \? 'Moved' : 'Changed'\} \$\{chunkName\(c\)\} to \$\{when\}/, 'one Undo puts it back');
+  // One thing picked at a time, and a press elsewhere lets it go.
+  assert.match(app, /function selectEntry\(src\) \{\s*if \(chunkPick\.occ\) unpickChunk\(\);/);
+  assert.match(app, /clearSelection\(\); \/\/ one thing picked at a time: a block or a chunk/);
+  assert.match(css, /\.tchunk-pick \{[^}]*outline: 2px solid #fff;/);
+  assert.match(css, /\.tchunk-bar::after \{[^}]*width: 30px; height: 6px;/, 'the same bars as a block');
+  assert.match(css, /body\.mobile \.tchunk-bar \{ width: 60px; margin-left: -30px; height: 28px; \}/, 'bigger on the phone');
+});
+
+test('a chunk can wear a colour of its own, picked in its window as a block\'s is', () => {
+  assert.equal(chunk({ color: '#FF9F4A' }).color, '#ff9f4a');
+  assert.equal(chunk({ color: 'red' }).color, null, 'only a colour written like #rrggbb');
+  assert.equal(chunk().color, null, 'none: its category\'s');
+  assert.match(app, /const chunkColor = \(c\) => c\.color \|\| tagColor\(c\.tag\);/);
+  assert.match(app, /const colorPick = colorSwatches\(base\.color \|\| null, tagColor\(tag\), null, 'The category\\'s colour'\);/);
+  assert.match(app, /color: colorPick\.get\(\) \|\| null,/);
+  assert.match(app, /arg\.el\.style\.setProperty\('--c', chunkColor\(o\.chunk\)\);/);
 });

@@ -2,9 +2,18 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.123.0 · A board card's panel — click a step to read all of it beside the board, and change it there
+## 1.124.0 · Time chunks pick out like blocks, with bars to drag, and a colour of their own
 
 _2026-11-09_
+
+- Tapping a time chunk (its band, or the left half of its time) now picks it out the way a block is: a white outline, with a bar above it and below it. It no longer opens its window on the first tap.
+- Drag the bars to change when it starts or ends, a quarter hour at a time. Drag its band to move it. A chunk on one day can move to another day shown; one that repeats keeps its days and changes its hours on every day of it. One Undo puts it back.
+- Tap it again (or double-click it on the PC) to open its window. A press anywhere else, or Esc, lets it go. Picking a block lets a picked chunk go, and the other way round.
+- A chunk's window has a colour row like a block's: its category's colour, or one of its own from the same palette.
+
+## 1.123.0 · A board card's panel — click a step to read all of it beside the board, and change it there
+
+_2026-11-08_
 
 - Click a card on a board and all of it shows in a panel beside the board: its full name, how long it takes, whether it is done or in your calendar, and every detail. Details from a spreadsheet, like Who, What to do, Output and Choices, each get their own heading, so long steps are easy to read. On the phone the panel is a sheet along the bottom.
 - The card's options are along the foot of the panel: Add to calendar, Edit, Next, Done, Copy and Delete. The small toolbar that sat over the card, and could cover the cards above it, is gone.

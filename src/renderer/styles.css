@@ -3787,3 +3787,32 @@ body.mobile .wb-panel .wb-notes { min-height: 180px; }
 body.mobile .wb-p-foot .wb-q-row { flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start; }
 /* The tips along the foot of the board give way to it (it would cover its buttons). */
 body.wb-panel-on #board .wb-hint, body.mobile.board-on.wb-panel-on #fab { display: none; }
+
+/* A time chunk picked out (app.js chunkPick): a white outline over it, as a picked block has, with the same bars
+   above and below it to stretch it; its band (brighter now) drags it. Drawn over the calendar, never in the way of a
+   tap: only the bars take one. */
+.tchunk-pick {
+  position: fixed; z-index: 24; pointer-events: none; box-sizing: border-box; border-radius: 6px;
+  outline: 2px solid #fff; outline-offset: -1px; box-shadow: 0 0 0 4px color-mix(in srgb, var(--c, #8b7cff) 30%, transparent);
+}
+.tchunk-pick[hidden] { display: none; }
+.tchunk-pick.dragging { background: color-mix(in srgb, var(--c, #8b7cff) 14%, transparent); }
+.tchunk-pick-time {
+  position: absolute; right: 5px; top: 4px; padding: 1px 6px; border-radius: 6px; background: rgba(0, 0, 0, .6);
+  color: #fff; font-size: 11px; font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.tchunk-bar { position: absolute; left: 50%; width: 48px; margin-left: -24px; height: 22px; pointer-events: auto; cursor: ns-resize; touch-action: none; }
+.tchunk-bar::after {
+  content: ''; position: absolute; left: 50%; width: 30px; height: 6px; margin-left: -15px; border-radius: 4px; background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .35), 0 2px 6px rgba(0, 0, 0, .55);
+}
+.tchunk-bar.start { top: -25px; }
+.tchunk-bar.start::after { bottom: 8px; }
+.tchunk-bar.end { bottom: -25px; }
+.tchunk-bar.end::after { top: 8px; }
+.tchunk-pick.cut-top .tchunk-bar.start, .tchunk-pick.cut-bottom .tchunk-bar.end { display: none; }
+body.mobile .tchunk-bar { width: 60px; margin-left: -30px; height: 28px; }
+body.mobile .tchunk-bar.start { top: -31px; }
+body.mobile .tchunk-bar.end { bottom: -31px; }
+.fc .tchunk.is-picked .tchunk-rail { background: color-mix(in srgb, var(--c) 72%, #0c0c0f); cursor: grab; touch-action: none; }
+body.dragging-chunk, body.dragging-chunk * { cursor: grabbing !important; user-select: none; }

@@ -7,7 +7,7 @@
 //   { id: 'chunk/…', tag, title, date: 'YYYY-MM-DD' (its first day), start: 'HH:MM', end: 'HH:MM' (or '24:00'),
 //     recur: null | { freq: 'daily' | 'weekly' | 'monthly' | 'yearly', days?, dates?, months? } (as a block's Repeat),
 //     until: 'YYYY-MM-DD' | null (its last day), skip: ['YYYY-MM-DD', …] (days taken out of one that repeats),
-//     created, updated }
+//     color: '#rrggbb' | null (its own; none: its category's), created, updated }
 // One day of it (an occurrence): { id: 'chunk/…@YYYY-MM-DD', chunk, day, start: Date, end: Date }.
 
 (() => {
@@ -70,8 +70,9 @@
     const until = recur && realDay(c.until) && c.until >= date ? c.until : null;
     const skip = recur ? [...new Set((Array.isArray(c.skip) ? c.skip : []).filter((s) => realDay(s) && s >= date))].sort().slice(-MAX_SKIP) : [];
     const title = String(c.title ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    const color = /^#[0-9a-f]{6}$/i.test(String(c.color || '')) ? c.color.toLowerCase() : null;
     const stamp = (v) => (typeof v === 'string' && !Number.isNaN(Date.parse(v)) ? v : null);
-    return { id: c.id, tag, title, date, start, end, recur, until, skip, created: stamp(c.created) || now.toISOString(), updated: now.toISOString() };
+    return { id: c.id, tag, title, date, start, end, recur, until, skip, color, created: stamp(c.created) || now.toISOString(), updated: now.toISOString() };
   }
 
   /** Whether a chunk is on a day (a Date at any time of that day). */

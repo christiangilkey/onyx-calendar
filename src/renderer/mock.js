@@ -685,9 +685,14 @@
         doomLimits: { Instagram: 30, YouTube: 60 }, doomUsed: { Instagram: 31 * 60000, YouTube: 22 * 60000, TikTok: 9 * 60000, 'Clash Royale': 40000 } };
       const screens = {
         lock: { layout: { order: ['clock', 'onyx', 'shortcuts', 'music', 'notifications', 'noise'], hidden: ['noise'], clockSize: 'small', align: 'center', date: true, dim: 80, shortcutLook: 'tiles' },
-          shortcuts: [{ id: 's1', kind: 'link', target: 'https://docs.google.com/forms/migraine', label: 'Log migraine', icon: '🤕' }, { id: 's2', kind: 'link', target: 'spotify:', label: 'Pick', icon: '🗣️' }, { id: 's3', kind: 'app', target: 'com.unstick', label: 'Unstick', icon: '😵' }, { id: 's4', kind: 'link', target: 'https://lichess.org', label: 'Game', icon: '❤️' }] },
+          shortcuts: [{ id: 's1', kind: 'link', target: 'https://docs.google.com/forms/migraine', label: 'Log migraine', icon: '🤕' }, { id: 's2', kind: 'link', target: 'spotify:', label: 'Pick', icon: '🗣️' }, { id: 's3', kind: 'app', target: 'com.unstick', label: 'Unstick', icon: '😵' }, { id: 's4', kind: 'link', target: 'https://lichess.org', label: 'Game', icon: '❤️', image: 'mockpicture01.png' }] },
         home: { layout: { order: ['clock', 'onyx', 'shortcuts', 'widgets', 'apps', 'noise'], hidden: ['noise'], clockSize: 'medium', align: 'left', date: true, dim: 0, shortcutLook: 'pills' }, shortcuts: [] },
       };
+      // Pictures kept as shortcuts' icons (ShortcutImages): name → address. "Game" starts with one; a picture picked
+      // here is an SVG (a wide one, with no size of its own), drawn by the page and handed back as a PNG.
+      const svg = (body, box) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${box}">${body}</svg>`;
+      const images = { 'mockpicture01.png': `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg('<defs><linearGradient id="g" x2="0" y2="1"><stop offset="0" stop-color="#ff9a5a"/><stop offset="1" stop-color="#8b4fd8"/></linearGradient></defs><rect width="64" height="64" fill="url(#g)"/><circle cx="32" cy="30" r="13" fill="#ffe08a"/><path d="M0 50 L18 34 L30 44 L44 28 L64 46 V64 H0 Z" fill="#2b1d4a"/>', '0 0 64 64'))}` };
+      const picked = svg('<rect width="48" height="32" fill="#3fd0c9"/><path d="M24 5 L27.5 13 L36 13.6 L29.5 19 L31.6 27.5 L24 23 L16.4 27.5 L18.5 19 L12 13.6 L20.5 13 Z" fill="#fff"/>', '0 0 48 32');
       // What the phone's cards show now (OnyxPanel.preview) and its screen in dp, as the app reports them.
       const panel = () => {
         const at = (days, hours, minutes = 0) => { const d = new Date(); d.setDate(d.getDate() + days); d.setHours(hours, minutes, 0, 0); return d.getTime(); };
@@ -701,7 +706,8 @@
           waiting: 3, updated: Date.now() - 4 * 60000, error: '', h24: false,
         };
       };
-      const setup = (screen) => ({ screen, ...structuredClone(screens[screen]), max: 12, panel: panel(), phone: { w: 363.6, h: 800, top: 36, bottom: 20 } });
+      const setup = (screen) => ({ screen, ...structuredClone(screens[screen]), max: 12, panel: panel(), phone: { w: 363.6, h: 800, top: 36, bottom: 20 },
+        images: Object.fromEntries(Object.entries(images).filter(([name]) => screens[screen].shortcuts.some((s) => s.image === name))) });
       return {
         info: async () => ({ ...info }),
         set: async (show) => { info.show = show; return { ...info }; },
@@ -721,6 +727,12 @@
         setLockSetup: async (o, screen = 'lock') => { if (o.layout) screens[screen].layout = structuredClone(o.layout); if (o.shortcuts) screens[screen].shortcuts = structuredClone(o.shortcuts); return setup(screen); },
         shortcutApps: async () => [{ pkg: 'com.spotify.music', label: 'Spotify' }],
         pickShortcutFile: async () => ({ cancelled: true }),
+        pickShortcutImage: async () => ({ svg: picked }),
+        saveShortcutImage: async (png) => {
+          const name = `mock${Date.now().toString(36)}.png`;
+          images[name] = `data:image/png;base64,${png}`;
+          return { image: name, url: images[name] };
+        },
         tryShortcut: async () => {},
       };
     })() : undefined,

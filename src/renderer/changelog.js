@@ -2,6 +2,18 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.119.0",
+  "date": "2026-11-09",
+  "title": "Your own pictures as shortcut icons on the lock screen and Onyx Home",
+  "items": [
+   "A shortcut on the lock screen or Onyx Home can now have a picture of your own as its icon, not just an emoji. In Settings → Home & lock screen, add or edit a shortcut and tap Upload image.",
+   "Pick any picture on your phone: JPEG, PNG, WebP, GIF (its first frame), BMP, HEIC (Android 9 and later) or SVG. Onyx cuts it to a square around its middle and keeps a small copy on the phone, so it still shows if you delete the original.",
+   "The picture shows wherever the emoji did: the big, wide and small tiles, the pills, and the editor's picture and list of shortcuts.",
+   "To go back, tap Use an emoji (the emoji you had comes back) or Remove (no icon of its own; an app shortcut shows the app's icon).",
+   "If the picture is ever missing from the phone, the shortcut shows its emoji instead."
+  ]
+ },
+ {
   "version": "1.118.0",
   "date": "2026-11-08",
   "title": "Blocker: keep apps and websites closed on a schedule, for a while, or until you switch it off",

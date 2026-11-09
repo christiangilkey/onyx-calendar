@@ -1434,6 +1434,9 @@ details.restricted-guide summary { cursor: pointer; font-weight: 600; color: var
 .lx-chip em { font-style: normal; font-size: 16px; margin-right: 7px; }
 .lx-chip > span { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
 .lx-chip.ghost { border: 1px dashed rgba(255,255,255,.4); background: none; opacity: .7; }
+/* A shortcut's own picture in its emoji's place: as wide as the phone draws it (LockShortcuts.mark: the emoji's
+   size is 0.8 of it), corners rounded. Not a thing to drag by itself: the press goes to its tile. */
+.lx-ic img, .lx-chip em img { display: block; width: 1.25em; height: 1.25em; border-radius: 24%; object-fit: cover; pointer-events: none; -webkit-user-drag: none; }
 /* What shows only at times: an outline where it goes. */
 .lx-ghost { border: 1.5px dashed rgba(255,255,255,.3); border-radius: 18px; box-sizing: border-box; }
 .lx-music { margin-top: 14px; }
@@ -1509,6 +1512,9 @@ body.mobile .nm { width: auto; }
 .le-two { display: flex; gap: 10px; }
 .le-icon { flex: 0 0 70px; }
 .le-icon input { text-align: center; font-size: 18px; }
+.le-ic img { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
+.le-ic.le-pic { width: 44px; height: 44px; border-radius: 11px; }
+.le-pics { gap: 8px; flex-wrap: wrap; margin-top: -2px; }
 .le-hint { color: var(--muted); margin-top: -4px; }
 .le-err { color: var(--danger); }
 .le-err:empty { display: none; }

@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.content.pm.LauncherActivityInfo;
 import android.content.pm.LauncherApps;
 import android.content.res.ColorStateList;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
@@ -23,6 +24,9 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import androidx.core.graphics.drawable.RoundedBitmapDrawable;
+import androidx.core.graphics.drawable.RoundedBitmapDrawableFactory;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -34,7 +38,7 @@ import java.util.function.Consumer;
 /**
  * Your own shortcuts on the Onyx panel over the lock screen, and on Onyx Home, set in the app (Settings, Home
  * and lock screen), a list for each screen:
- * each a name, an icon (an emoji, or the app's own) and what it opens: a link (a web page, or an app's own
+ * each a name, an icon (an emoji, a picture of your own, or the app's own) and what it opens: a link (a web page, or an app's own
  * link such as spotify: or tel:), an app, or a file picked on the phone. A tap unlocks and opens it.
  * Kept on the phone as a list per screen, in the order they show. The home screen starts with none.
  */
@@ -53,7 +57,7 @@ final class LockShortcuts {
         return list(ctx, LockLayout.LOCK);
     }
 
-    /** That screen's list as saved: [{ id, label, icon, kind: link | app | file, target, name?, type? }]. */
+    /** That screen's list as saved: [{ id, label, icon, image?, kind: link | app | file, target, name?, type? }]. */
     static JSONArray list(Context ctx, String screen) {
         try {
             return new JSONArray(LauncherData.prefs(ctx).getString(key(screen), "[]"));
@@ -80,6 +84,9 @@ final class LockShortcuts {
                 o.put("id", s.optString("id", Long.toString(System.nanoTime(), 36)));
                 o.put("label", s.optString("label").trim());
                 o.put("icon", s.optString("icon").trim());
+                // A picture of your own in the emoji's place: the name of its file (ShortcutImages), never a path.
+                String image = s.optString("image").trim();
+                if (ShortcutImages.valid(image)) o.put("image", image);
                 o.put("kind", kind);
                 o.put("target", target);
                 if (s.has("name")) o.put("name", s.optString("name"));
@@ -247,9 +254,25 @@ final class LockShortcuts {
         return chip;
     }
 
-    /** A shortcut's icon, `size` dp across: the app's own, or its emoji (a mark for its kind when it has none). */
+    /**
+     * A shortcut's icon, `size` dp across: your own picture (ShortcutImages), the app's own, or its emoji (a mark
+     * for its kind when it has none). A picture whose file is gone falls back to the emoji.
+     */
     private static View mark(Activity a, JSONObject s, int size) {
         String icon = s.optString("icon"), kind = s.optString("kind");
+        Bitmap pic = ShortcutImages.load(a, s.optString("image"));
+        if (pic != null) {
+            int px = dp(a, size);
+            RoundedBitmapDrawable d = RoundedBitmapDrawableFactory.create(a.getResources(), pic);
+            d.setCornerRadius(px * 0.24f); // in the view's pixels: FIT_XY draws it to the view's size
+            d.setAntiAlias(true);
+            ImageView img = new ImageView(a);
+            img.setImageDrawable(d);
+            img.setScaleType(ImageView.ScaleType.FIT_XY);
+            img.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO); // the tile says "Open …"
+            img.setLayoutParams(new LinearLayout.LayoutParams(px, px));
+            return img;
+        }
         if (icon.isEmpty() && "app".equals(kind)) {
             try {
                 Drawable d = a.getPackageManager().getApplicationIcon(s.optString("target"));

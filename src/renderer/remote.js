@@ -892,6 +892,10 @@
       setLockSetup: (o, screen = 'lock') => Widget.setLockSetup({ ...o, screen }),
       shortcutApps: () => Widget.shortcutApps().then((r) => r.apps || []),
       pickShortcutFile: () => Widget.pickShortcutFile(),
+      // A picture of your own as a shortcut's icon (ShortcutImages): { image, url } once kept, { svg } for the page to
+      // draw and hand back as a PNG (saveShortcutImage), or { cancelled }.
+      pickShortcutImage: () => Widget.pickShortcutImage(),
+      saveShortcutImage: (png) => Widget.saveShortcutImage({ png }),
       tryShortcut: (shortcut) => Widget.tryShortcut({ shortcut }),
       // A Hyperfocus session on this phone, shown on Onyx Home and the lock screen (null: it is over).
       focus: (s) => Widget.setFocus?.(s ? { goal: s.goal, startedAt: s.startedAt, plannedEnd: s.plannedEnd } : { clear: true })?.catch?.(() => {}),

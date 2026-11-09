@@ -8455,6 +8455,65 @@
     }
   }
 
+  /**
+   * A shortcut's icon, as the phone draws it (LockShortcuts.mark): its own picture while the phone still has
+   * it ({ src }, from urls: name → address, setup.images), else its emoji, else a mark for what it opens ({ text }).
+   */
+  function shortcutIcon(s, urls) {
+    const src = s.image && urls?.[s.image];
+    if (src) return { src };
+    return { text: s.icon || (s.kind === 'file' ? '📄' : s.kind === 'app' ? '▦' : '🔗') };
+  }
+
+  /**
+   * An SVG made ready to draw as a picture, its short side `side` pixels so its middle square comes out sharp:
+   * { text, width, height }. One with no size of its own (an icon's usual way) takes its viewBox's; one with
+   * no viewBox gets its size as one, so it scales rather than crops. Null for text that isn't an SVG.
+   */
+  function svgSized(text, side = 384) {
+    const m = /<svg\b[^>]*>/i.exec(text || '');
+    if (!m) return null;
+    const tag = m[0];
+    const attr = (name) => new RegExp(`\\s${name}\\s*=\\s*(["'])([^"']*)\\1`, 'i').exec(tag)?.[2];
+    const num = (v) => (v && /^\s*\d*\.?\d+\s*(px)?\s*$/i.test(v) ? parseFloat(v) : 0);
+    const box = (attr('viewBox') || '').trim().split(/[\s,]+/).map(Number);
+    const hasBox = box.length === 4 && box[2] > 0 && box[3] > 0;
+    let w = num(attr('width')), tall = num(attr('height'));
+    if (!(w > 0 && tall > 0)) [w, tall] = hasBox ? [box[2], box[3]] : [side, side];
+    const k = side / Math.min(w, tall);
+    const width = Math.round(w * k), height = Math.round(tall * k);
+    let open = tag.replace(/\s(width|height)\s*=\s*(["'])[^"']*\2/gi, '');
+    if (!hasBox) open = open.replace(/^<svg\b/i, `<svg viewBox="0 0 ${w} ${tall}"`);
+    open = open.replace(/^<svg\b/i, `<svg width="${width}" height="${height}"`);
+    return { text: text.slice(0, m.index) + open + text.slice(m.index + tag.length), width, height };
+  }
+
+  /**
+   * An SVG picked as a shortcut's icon, drawn here (Android can't read SVGs): its middle square, 192 pixels
+   * across, as a PNG in base64, for the phone to keep as it keeps any picture (ShortcutImages).
+   */
+  function svgToPng(svg) {
+    return new Promise((resolve, reject) => {
+      const sized = svgSized(svg);
+      if (!sized) { reject(new Error('That file isn\'t a picture Onyx can read.')); return; }
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const c = document.createElement('canvas');
+          c.width = c.height = 192;
+          const side = Math.min(sized.width, sized.height);
+          c.getContext('2d').drawImage(img, (sized.width - side) / 2, (sized.height - side) / 2, side, side, 0, 0, 192, 192);
+          resolve(c.toDataURL('image/png').replace(/^data:image\/png;base64,/, ''));
+        } catch {
+          reject(new Error('That SVG couldn\'t be drawn.'));
+        }
+      };
+      img.onerror = () => reject(new Error('That SVG couldn\'t be drawn.'));
+      // A data: address: the page's rules let pictures come from there (not from blob:).
+      img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(sized.text)}`;
+    });
+  }
+
   /** "2h 05m", "48m 12s", "12s": a countdown as the phone's cards write it (OnyxPanel.span). */
   function panelSpan(ms) {
     const s = Math.max(0, Math.floor(ms / 1000));
@@ -8491,7 +8550,10 @@
     const shows = (p) => !L().hidden.includes(p);
     const setLayout = (patch) => save({ layout: { ...L(), ...patch } });
     const move = (list, i, by) => { const out = [...list]; const j = i + by; if (j < 0 || j >= out.length) return out; [out[i], out[j]] = [out[j], out[i]]; return out; };
-    const kindIcon = (s) => s.icon || (s.kind === 'file' ? '📄' : s.kind === 'app' ? '▦' : '🔗');
+    const kindIcon = (s) => shortcutIcon({ kind: s.kind, icon: s.icon }).text;
+    // Where each shortcut's own picture is: the phone's list (setup.images), and the ones just picked (D.images).
+    const urls = () => ({ ...D.images, ...(setup?.images || {}) });
+    const iconOf = (s) => { const i = shortcutIcon(s, urls()); return i.src ? h('img', { src: i.src, alt: '' }) : i.text; };
     const labelOf = (s) => s.label || s.name || (s.kind === 'app' ? apps?.find((a) => a.pkg === s.target)?.label : '') || s.target;
     const what = (s) => (s.kind === 'app' ? `App · ${apps?.find((a) => a.pkg === s.target)?.label || s.target}` : s.kind === 'file' ? `File · ${s.name || 'picked file'}` : s.target);
 
@@ -8575,11 +8637,11 @@
       const shortcuts = !setup.shortcuts.length ? h('div', { class: 'lx-chips' }, h('span', { class: 'lx-chip ghost' }, 'Your shortcuts'))
         : tiles ? h('div', { class: `lx-bento${left ? '' : ' mid'}`, css: { 'grid-template-columns': `repeat(4, ${cell}px)`, 'grid-auto-rows': `${cell}px` } },
           setup.shortcuts.map((s, i) => {
-            const el = h('div', { 'data-i': i }, h('span', { class: 'lx-ic' }, kindIcon(s)), h('small', null, shortcutKind(s)), h('b', null, labelOf(s)));
+            const el = h('div', { 'data-i': i }, h('span', { class: 'lx-ic' }, iconOf(s)), h('small', null, shortcutKind(s)), h('b', null, labelOf(s)));
             spot(el, spots[i]);
             return el;
           }))
-          : h('div', { class: 'lx-chips' }, setup.shortcuts.map((s, i) => h('span', { class: 'lx-chip', 'data-i': i }, h('em', null, kindIcon(s)), h('span', null, labelOf(s)))));
+          : h('div', { class: 'lx-chips' }, setup.shortcuts.map((s, i) => h('span', { class: 'lx-chip', 'data-i': i }, h('em', null, iconOf(s)), h('span', null, labelOf(s)))));
 
       const parts = {
         clock: h('div', { class: 'lx-clock' },
@@ -8653,6 +8715,22 @@
             } }, s.target ? 'Choose another file' : 'Choose a file'),
             s.target && h('small', null, s.name || 'File chosen'));
       if (s.kind === 'app' && !apps) onyx.launcher.shortcutApps().then((a) => { apps = a; draw(); }).catch(() => { apps = []; draw(); });
+      // A picture of its own for the icon, in the emoji's place: picked on the phone and kept there, a square
+      // (ShortcutImages). An SVG comes back as text for this page to draw (svgToPng), then is kept the same way.
+      const pic = shortcutIcon(s, urls()).src;
+      const upload = async () => {
+        let f = await onyx.launcher.pickShortcutImage().catch((e) => { fail(e); return null; });
+        if (f?.svg) f = await svgToPng(f.svg).then((png) => onyx.launcher.saveShortcutImage(png)).catch((e) => { fail(e); return null; });
+        if (!f?.image) return;
+        if (f.url) D.images[f.image] = f.url;
+        s.image = f.image;
+        D.redraw?.();
+      };
+      const iconHint = pic
+        ? `Your picture, cut to a square. Use an emoji to go back to one, or Remove for ${s.kind === 'app' ? 'the app\'s own icon' : 'no icon of its own'}.`
+        : s.image ? 'Its picture is gone from this phone, so the emoji shows instead. Upload it again to bring it back.'
+          : s.kind === 'app' ? 'An emoji or a picture of your own; leave both out for the app\'s own icon.'
+            : 'An emoji, or a picture of your own: JPEG, PNG, WebP, GIF, HEIC or SVG.';
       const done = () => {
         if (!s.target) { err.textContent = s.kind === 'link' ? 'Type the link it opens.' : s.kind === 'app' ? 'Choose the app it opens.' : 'Choose the file it opens.'; return; }
         const list = [...setup.shortcuts];
@@ -8666,12 +8744,17 @@
           Object.entries(KINDS).map(([k, name]) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(s.kind === k), class: `le-kind${s.kind === k ? ' on' : ''}`,
             onclick: () => { if (s.kind !== k) { Object.assign(s, { kind: k, target: '', name: '', type: '' }); draw(); } } }, name))),
         h('label', { class: 'le-lbl' }, s.kind === 'link' ? 'Link' : s.kind === 'app' ? 'App' : 'File', target),
+        s.kind === 'file' && h('small', { class: 'le-hint' }, home ? 'Files from the phone or Google Drive: a tap opens it.'
+          : 'Files from the phone or Google Drive. An audio file plays right on the lock screen, with a player there; anything else unlocks and opens.'),
         h('div', { class: 'le-two' },
-          h('label', { class: 'le-lbl le-icon' }, 'Icon', h('input', { type: 'text', value: s.icon || '', maxLength: 4, placeholder: kindIcon({ kind: s.kind }), oninput: (e) => { s.icon = e.target.value.trim(); } })),
+          pic ? h('div', { class: 'le-lbl le-icon' }, 'Icon', h('span', { class: 'le-ic le-pic' }, h('img', { src: pic, alt: 'Your picture' })))
+            : h('label', { class: 'le-lbl le-icon' }, 'Icon', h('input', { type: 'text', value: s.icon || '', maxLength: 4, placeholder: kindIcon({ kind: s.kind }), oninput: (e) => { s.icon = e.target.value.trim(); } })),
           h('label', { class: 'le-lbl' }, 'Name', h('input', { type: 'text', value: s.label || '', maxLength: 30, placeholder: s.kind === 'app' ? 'The app\'s name' : s.kind === 'file' ? 'The file\'s name' : 'e.g. Workout playlist', oninput: (e) => { s.label = e.target.value; } }))),
-        h('small', { class: 'le-hint' }, s.kind === 'app' ? 'Leave the icon empty for the app\'s own.'
-          : s.kind === 'file' ? (home ? 'Files from the phone or Google Drive: a tap opens it.' : 'Files from the phone or Google Drive. An audio file plays right on the lock screen, with a player there; anything else unlocks and opens.')
-            : 'An emoji works well as the icon.'),
+        h('div', { class: 'row le-pics' },
+          h('button', { type: 'button', class: 'btn', onclick: upload }, pic ? 'Change picture' : 'Upload image'),
+          pic && h('button', { type: 'button', class: 'btn', onclick: () => { delete s.image; draw(); } }, 'Use an emoji'),
+          pic && h('button', { type: 'button', class: 'btn', onclick: () => { delete s.image; s.icon = ''; draw(); } }, 'Remove')),
+        h('small', { class: 'le-hint' }, iconHint),
         err,
         h('div', { class: 'row' },
           h('button', { type: 'button', class: 'btn primary', onclick: done }, 'Save'),
@@ -8724,7 +8807,7 @@
             h('div', { class: 'le-move' },
               h('button', { type: 'button', class: 'icon-btn', 'aria-label': `Move ${labelOf(s)} left`, disabled: i === 0, onclick: () => save({ shortcuts: move(setup.shortcuts, i, -1) }) }, '▲'),
               h('button', { type: 'button', class: 'icon-btn', 'aria-label': `Move ${labelOf(s)} right`, disabled: i === setup.shortcuts.length - 1, onclick: () => save({ shortcuts: move(setup.shortcuts, i, 1) }) }, '▼')),
-            h('span', { class: 'le-ic' }, kindIcon(s)),
+            h('span', { class: 'le-ic' }, iconOf(s)),
             h('div', { class: 'le-txt' }, h('b', null, labelOf(s)), h('small', null, what(s))),
             h('button', { type: 'button', class: 'btn', onclick: () => onyx.launcher.tryShortcut(s).catch((e) => fail(e)) }, 'Try'),
             h('button', { type: 'button', class: 'btn', onclick: () => { D.editing = { screen, at: i, s: { ...s } }; draw(); } }, 'Edit'),
@@ -10303,7 +10386,7 @@
     pi: { name: 'Calls & alerts', icon: 'bell', c: '#ff6b6b', items: ['Alarm on my phone', 'Push notification (free)', 'Phone call (Twilio)', 'Raspberry Pi (advanced)', 'Show Pi phone reminders', 'Quiet hours'], words: 'ntfy twilio escalation reminders call ring' },
     // The lock screen editor was its own page before: its name (and "Where should Onyx show?") still finds this one.
     launcher: { name: 'Home & lock screen', icon: 'lock', c: '#3fd0c9', items: ['Onyx on your lock screen', 'Onyx on your home screen', 'Make Onyx Home your home app', 'What shows, and in what order', 'Clock size', 'Clock and shortcuts on', 'Shortcuts as', 'Date under the clock', 'Background', 'Shortcuts', 'Full-screen pop-ups', 'Alarm for everything as it starts', 'Full-screen alarms'],
-      words: 'onyx home launcher overlay notifications music spotify alarms lock screen editor home screen editor where should onyx show set up layout look wallpaper dark link app file audio macro widgets tiles bento pills grid' },
+      words: 'onyx home launcher overlay notifications music spotify alarms lock screen editor home screen editor where should onyx show set up layout look wallpaper dark link app file audio macro widgets tiles bento pills grid icon emoji picture image photo upload' },
     doomscroll: { name: 'Doomscroll saver', icon: 'target', c: '#ff9f4a', items: ['Doomscroll saver', 'Show it after', 'Accessibility access', 'See the card', 'Apps it watches', 'Daily limits'], words: 'social media instagram tiktok youtube minutes apps choose pick add games which apps daily limit limits time limit block blocked maximum max screen time' },
     blocker: { name: 'Blocker', icon: 'ban', c: '#ff6b81', items: ['On this PC', 'On this phone', 'Websites on this PC', 'Make your first list', 'Websites', 'Quick add', 'Apps on the phone', 'Apps on the PC', "When it's on", 'Also during Hyperfocus'],
       words: 'block blocker blocked block list apps websites sites web apps focus distraction distractions schedule scheduled lock out keep closed youtube social media games timer until switch off proxy work hours wind down' },
@@ -10326,7 +10409,7 @@
   let settingsTab = MOBILE ? SET_HOME : 'calendars';
   let settingsQuery = '';
   const settingsSums = {}; // how each section is set, for the phone's list; filled in as the phone answers
-  const lockDraft = { editing: null, redraw: null }; // a screen editor's shortcut being made (see screenEditor)
+  const lockDraft = { editing: null, redraw: null, images: {} }; // a screen editor's shortcut being made, and pictures picked for it (see screenEditor)
   const lsScreen = { now: '' }; // Home & lock screen: the screen picked at the top ('lock' or 'home'), kept through redraws
   // Blocker: the list opened, the one being switched on (asked for how long), the app picker open and its search, the apps found.
   const blockerUi = { open: null, asking: null, pick: null, q: '', pcApps: null, phoneApps: null };

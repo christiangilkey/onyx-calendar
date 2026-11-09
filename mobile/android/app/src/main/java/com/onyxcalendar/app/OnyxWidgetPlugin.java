@@ -10,6 +10,7 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
+import com.getcapacitor.Bridge;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
@@ -245,7 +246,10 @@ public class OnyxWidgetPlugin extends Plugin {
         try {
             o.put("screen", screen);
             o.put("layout", LockLayout.get(getContext(), screen));
-            o.put("shortcuts", LockShortcuts.list(getContext(), screen));
+            org.json.JSONArray list = LockShortcuts.list(getContext(), screen);
+            o.put("shortcuts", list);
+            // Where the editor finds each shortcut's own picture: { name: address } of the ones still on the phone.
+            o.put("images", ShortcutImages.urls(getContext(), imagePrefix(), list));
             o.put("max", LockShortcuts.MAX);
             // For the editor's preview, drawn to scale: what the cards show now, and the screen they show on.
             o.put("panel", OnyxPanel.preview(getContext()));
@@ -276,7 +280,12 @@ public class OnyxWidgetPlugin extends Plugin {
         return o;
     }
 
-    /** { screen, layout, shortcuts, max, panel, phone } for { screen: "lock" (the default) | "home" }. */
+    /** A file of the app's own as the page can load it: through Capacitor's own server, same origin as the page. */
+    private String imagePrefix() {
+        return getBridge().getLocalUrl() + Bridge.CAPACITOR_FILE_START;
+    }
+
+    /** { screen, layout, shortcuts, images, max, panel, phone } for { screen: "lock" (the default) | "home" }. */
     @PluginMethod
     public void lockSetup(PluginCall call) {
         call.resolve(lockSetup(LockLayout.screen(call.getString("screen", LockLayout.LOCK))));
@@ -290,8 +299,76 @@ public class OnyxWidgetPlugin extends Plugin {
     public void setLockSetup(PluginCall call) {
         String screen = LockLayout.screen(call.getString("screen", LockLayout.LOCK));
         if (call.hasOption("layout")) LockLayout.save(getContext(), screen, call.getObject("layout"));
-        if (call.hasOption("shortcuts")) LockShortcuts.save(getContext(), screen, call.getArray("shortcuts"));
+        if (call.hasOption("shortcuts")) {
+            LockShortcuts.save(getContext(), screen, call.getArray("shortcuts"));
+            ShortcutImages.tidy(getContext()); // a picture changed or removed is cleared away
+        }
         call.resolve(lockSetup(screen));
+    }
+
+    /**
+     * Android's picker, for a picture to use as a shortcut's icon (any kind of image): { image, url } once it is
+     * kept, cut to its middle square (ShortcutImages); { svg } with an SVG's text, for the app to draw and hand
+     * back (saveShortcutImage); or { cancelled }.
+     */
+    @PluginMethod
+    public void pickShortcutImage(PluginCall call) {
+        Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("image/*")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        startActivityForResult(call, pick, "pickedShortcutImage");
+    }
+
+    @ActivityCallback
+    private void pickedShortcutImage(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        Intent data = result.getData();
+        Uri uri = data == null ? null : data.getData();
+        if (result.getResultCode() != android.app.Activity.RESULT_OK || uri == null) {
+            JSObject o = new JSObject();
+            o.put("cancelled", true);
+            call.resolve(o);
+            return;
+        }
+        android.content.Context c = getContext();
+        // Read away from the main thread: a large photo (a HEIC from the camera) takes a moment.
+        getBridge().execute(() -> {
+            try {
+                if (ShortcutImages.isSvg(c.getContentResolver().getType(uri), LockShortcuts.nameOf(c, uri))) {
+                    JSObject o = new JSObject();
+                    o.put("svg", ShortcutImages.svgText(c, uri));
+                    call.resolve(o);
+                    return;
+                }
+                android.graphics.Bitmap b = ShortcutImages.decode(c, uri);
+                if (b == null) throw new java.io.IOException("unreadable");
+                call.resolve(keptImage(ShortcutImages.keep(c, b)));
+            } catch (Exception | OutOfMemoryError e) {
+                // A kind this phone can't read (HEIC before Android 9, say), or a file that isn't a picture.
+                call.reject(e instanceof ShortcutImages.Unusable ? e.getMessage() : "This phone can't read that picture. Try a JPEG or a PNG.");
+            }
+        });
+    }
+
+    /** An SVG the app drew, as a PNG ({ png: base64 }), kept as a picked picture is: { image, url }. */
+    @PluginMethod
+    public void saveShortcutImage(PluginCall call) {
+        String png = call.getString("png", "");
+        try {
+            if (png == null || png.isEmpty() || png.length() > 4 * 1024 * 1024) throw new java.io.IOException("too big");
+            android.graphics.Bitmap b = ShortcutImages.decode(android.util.Base64.decode(png, android.util.Base64.DEFAULT));
+            if (b == null) throw new java.io.IOException("unreadable");
+            call.resolve(keptImage(ShortcutImages.keep(getContext(), b)));
+        } catch (Exception e) {
+            call.reject("That picture couldn't be kept.");
+        }
+    }
+
+    private JSObject keptImage(String name) {
+        JSObject o = new JSObject();
+        o.put("image", name);
+        java.io.File f = ShortcutImages.file(getContext(), name);
+        o.put("url", f == null ? "" : imagePrefix() + f.getAbsolutePath());
+        return o;
     }
 
     /** The apps a shortcut can open: { apps: [{ pkg, label }] }. */

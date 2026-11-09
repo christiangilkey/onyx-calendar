@@ -30,6 +30,7 @@ function state() {
     })),
     calendars: hub.calendars(),
     tags: hub.allTags(),
+    timeChunks: require('./time-chunks').chunks(),
     google: { ready: !!d.google.clientId },
     microsoft: { clientId: d.microsoft.clientId },
     // `peers`: the other linked desktops, which the phone can use when this one is off.
@@ -167,6 +168,10 @@ const handlers = {
   'blockList:save': (list) => require('./blocklists').save(list),
   'blockList:delete': (id) => require('./blocklists').remove(id),
   'board:delete': (id) => require('./boards').remove(id),
+  // Time chunks: time set aside for a category, behind the blocks (time-chunks.js); the app makes each one's id.
+  timeChunks: () => require('./time-chunks').chunks(),
+  'timeChunk:save': (chunk) => require('./time-chunks').save(chunk),
+  'timeChunk:delete': (id, day) => require('./time-chunks').remove(id, day),
   'notion:search': (query) => notion.search(query),
   // Sending a block: by email from a connected account, or onto a Notion page (share.js).
   'share:senders': () => ({ senders: require('./share').senders(), recents: require('./share').recents() }),

@@ -67,6 +67,15 @@
     { id: 'g1/tl~main/i', title: 'Pay phone bill', label: 'Pay phone bill', date: ymd(day(-1)), time: null, start: null, call: null, done: true, completed: day(-1, 18).toISOString() },
   ].map((t) => ({ listId: 'g1/tl~main', listName: 'My Tasks', color: '#f5b83d', provider: 'google', notes: '', due: t.date, done: false, mirror: false, ...t }));  Object.assign(tags, { 'g1/tl~main/a': ['work'], 'g1/tl~main/d': ['admin'], 'g1/tl~main/e': ['study', 'arabic'], 'g1/tl~main/f': ['admin', 'work'], 'g1/tl~main/g': ['arabic'] });
 
+  // Time chunks (time-chunks.js): study on weekday mornings around the Arabic block, admin this afternoon, Arabic
+  // each evening this week. ?chunks=none: none yet.
+  const at0 = new Date().toISOString();
+  let timeChunks = new URLSearchParams(location.search).get('chunks') === 'none' ? [] : [
+    { id: 'chunk/study01', tag: 'study', title: 'Deep work', date: ymd(day(-7)), start: '08:30', end: '12:00', recur: { freq: 'weekly', days: [1, 2, 3, 4, 5] }, until: null, skip: [], created: at0, updated: at0 },
+    { id: 'chunk/admin01', tag: 'admin', title: '', date: ymd(day(0)), start: '14:30', end: '16:30', recur: null, until: null, skip: [], created: at0, updated: at0 },
+    { id: 'chunk/arabic1', tag: 'arabic', title: '', date: ymd(day(-1)), start: '19:00', end: '20:30', recur: { freq: 'daily' }, until: ymd(day(6)), skip: [], created: at0, updated: at0 },
+  ];
+
   // Boards (whiteboards): none to start with, so the preview shows the first visit (?boards: the example).
   let mockBoards = null; // made when first asked for (boards.js loads after this file)
   const allBoards = () => mockBoards || (mockBoards = new URLSearchParams(location.search).has('boards') && globalThis.OnyxBoards ? [OnyxBoards.newBoard('New board', true)] : []);
@@ -116,6 +125,7 @@
   const allTags = () => {
     const counts = {};
     for (const list of Object.values(tags)) for (const t of list) counts[t] = (counts[t] || 0) + 1;
+    for (const c of timeChunks) if (!(c.tag in counts)) counts[c.tag] = 0;
     return Object.keys(counts).sort().map((name) => ({ name, color: tagColors[name] || TAG_COLORS[0], count: counts[name] }));
   };
   const setTags = (id, list) => {
@@ -159,7 +169,7 @@
       { id: 'c3', self: false, name: 'OFFICE-PC', version: 'preview', addresses: ['10.0.0.8:4747'], online: false, seen: Date.now() - 3 * 86400000, error: 'Not reachable.' },
     ] },
   };
-  const snapshot = () => structuredClone({ ...state, tags: allTags() });
+  const snapshot = () => structuredClone({ ...state, tags: allTags(), timeChunks });
 
   // A live Excel sheet's rules, run by the PC's own code (providers/sheet-rows.js needs no Node) on a demo sheet.
   // It is loaded as a script of the page (the page may not evaluate text), with a `module` for it to fill in.
@@ -613,6 +623,22 @@
         phone: { status: async () => ({ ...out(), allowed: !new URLSearchParams(location.search).has('noaccess'), running: true }) },
       };
     })(),
+    // Time chunks, kept for this visit as the PC keeps them (src/main/time-chunks.js).
+    timeChunks: async () => structuredClone(timeChunks),
+    saveTimeChunk: async (c) => {
+      const old = timeChunks.find((x) => x.id === c.id);
+      const kept = window.OnyxChunks.clean({ ...(old ? { created: old.created } : {}), ...c });
+      kept.tag = Object.keys(tagColors).find((t) => t.toLowerCase() === kept.tag.toLowerCase()) || kept.tag;
+      if (!tagColors[kept.tag]) tagColors[kept.tag] = TAG_COLORS[Object.keys(tagColors).length % TAG_COLORS.length];
+      timeChunks = old ? timeChunks.map((x) => (x.id === c.id ? kept : x)) : [...timeChunks, kept];
+      return structuredClone(timeChunks);
+    },
+    deleteTimeChunk: async (id, d) => {
+      const c = timeChunks.find((x) => x.id === id);
+      if (c && d && c.recur) c.skip = [...(c.skip || []), d];
+      else timeChunks = timeChunks.filter((x) => x.id !== id);
+      return structuredClone(timeChunks);
+    },
     addPin: async (r) => {
       if (r.source === 'web') {
         let u; try { u = new URL(/^www\./i.test(r.url) ? `https://${r.url}` : r.url); } catch { throw new Error('That is not a web address.'); }

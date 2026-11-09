@@ -349,7 +349,7 @@
     'event:create', 'event:update', 'event:delete', 'event:done', 'event:leaveby', 'event:call', 'event:ack',
     'task:create', 'task:update', 'task:move', 'task:resize', 'task:delete', 'task:backburner', 'task:repeat', 'inbox:dismiss',
     'tags:set', 'memo:set', 'pomodoro:set', 'blockTasks:set', 'blockLinks:set', 'blockTasks:tick', 'eventColor:set',
-    'note:create', 'note:update', 'note:delete', 'board:save', 'board:delete', 'goal:step', 'goal:update', 'pin:update', 'pin:remove', 'focus:log',
+    'note:create', 'note:update', 'note:delete', 'board:save', 'board:delete', 'timeChunk:save', 'timeChunk:delete', 'goal:step', 'goal:update', 'pin:update', 'pin:remove', 'focus:log',
     'blockList:save', 'blockList:delete',
   ]);
   let outbox = read(OUTBOX, []);
@@ -1009,6 +1009,9 @@
     boards: () => call('boards'),
     saveBoard: (board) => call('board:save', board),
     deleteBoard: (id) => call('board:delete', id),
+    timeChunks: () => call('timeChunks'),
+    saveTimeChunk: (chunk) => call('timeChunk:save', chunk),
+    deleteTimeChunk: (id, day) => call('timeChunk:delete', id, day),
     updateNote: (id, patch) => call('note:update', id, patch),
     deleteNote: (id) => call('note:delete', id),
     addPin: (item) => call('pin:add', item),

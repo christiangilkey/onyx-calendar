@@ -2,9 +2,20 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.119.0 · Your own pictures as shortcut icons on the lock screen and Onyx Home
+## 1.120.0 · Time chunks: part of a day set aside for a category, with its blocks and tasks inside
 
 _2026-11-09_
+
+- New: time chunks. Set aside part of a day for one category, like Study on weekday mornings or Admin on Friday afternoons. A chunk sits behind that day's blocks and tasks, tinted in its category's colour, with its name on a band down its left side.
+- To make one, drag down the left half of a day in the Day, 3-day or Week view, or click there to make a one-hour chunk. The right half still makes a block, as before. On the PC, the half-hour under the pointer shows which one a click there makes. On the phone, press and hold on the left half.
+- A chunk's category is one of your tags, or a new one you type. You can give it a name and set it to repeat: every day, on certain weekdays, monthly or yearly, with a last day if you want one. Dragging across several days gives the same hours on each of them.
+- Blocks and tasks fit inside a chunk. A block you make inside one starts with its category's tag.
+- Click a chunk's band to see how much of that day is planned and what's in it. "Fill with tasks" puts that category's open tasks that have no time yet into the free time, soonest due first. Each task takes its own length, or half an hour if it has none. One Undo takes them all out again.
+- You can change a chunk, skip one day of it or delete it from the same window. Chunks are kept in Onyx and synced to your other PCs, your phone and Onyx on the web. They are never sent to Google or Outlook. If you make one on the phone while the PC is out of reach, it goes through once the PC is back.
+
+## 1.119.0 · Your own pictures as shortcut icons on the lock screen and Onyx Home
+
+_2026-11-08_
 
 - A shortcut on the lock screen or Onyx Home can now have a picture of your own as its icon, not just an emoji. In Settings → Home & lock screen, add or edit a shortcut and tap Upload image.
 - Pick any picture on your phone: JPEG, PNG, WebP, GIF (its first frame), BMP, HEIC (Android 9 and later) or SVG. Onyx cuts it to a square around its middle and keeps a small copy on the phone, so it still shows if you delete the original.
@@ -12,7 +23,7 @@ _2026-11-09_
 - To go back, tap Use an emoji (the emoji you had comes back) or Remove (no icon of its own; an app shortcut shows the app's icon).
 - If the picture is ever missing from the phone, the shortcut shows its emoji instead.
 
-## 1.118.0 · Blocker: keep apps and websites closed on a schedule, for a while, or until you switch it off
+## 1.118.0 · The blocker — lists of sites, PC apps and phone apps, on by schedule, by hand or during Hyperfocus
 
 _2026-11-08_
 

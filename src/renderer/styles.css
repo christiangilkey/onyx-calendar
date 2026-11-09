@@ -3643,3 +3643,70 @@ input.vc-phrase { width: 170px; }
 .bk-template b { font-size: 14px; }
 .bk-template small { color: var(--muted); font-size: 12px; }
 .bk-template:hover { border-color: color-mix(in srgb, #ff6b81 45%, var(--line-2)); }
+
+/* ------------------------------------------------------------ time chunks (time-chunks.js) */
+/* Behind a day's blocks: a tint in its category's colour, edged at its top, and a band down its left side that bears
+   its name (a click on it opens the chunk). That day's blocks sit a little in from the left, so the band shows beside them. */
+.fc .fc-timegrid-col-bg .fc-bg-event.tchunk {
+  opacity: 1; background: color-mix(in srgb, var(--c) 10%, transparent) !important; box-sizing: border-box; /* over the calendar's own colour */
+  border-top: 1.5px solid color-mix(in srgb, var(--c) 75%, transparent);
+  border-bottom: 1px dashed color-mix(in srgb, var(--c) 40%, transparent);
+}
+.fc .fc-timegrid-col-bg .fc-bg-event.tchunk.is-dim { opacity: .35; }
+.tchunk-rail {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 13px; cursor: pointer; overflow: hidden; outline: none;
+  display: flex; justify-content: center; padding-top: 4px; box-sizing: border-box;
+  background: color-mix(in srgb, var(--c) 38%, #0c0c0f); transition: background .12s;
+}
+.tchunk-rail:hover, .tchunk-rail:focus-visible { background: color-mix(in srgb, var(--c) 62%, #0c0c0f); }
+.tchunk-name {
+  writing-mode: vertical-rl; font-size: 10px; font-weight: 650; letter-spacing: .03em; line-height: 13px; color: #fff;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-height: 100%;
+}
+.fc .fc-timegrid-col-frame:has(.tchunk) .fc-timegrid-col-events { margin-left: 15px; }
+body.mobile .tchunk-rail { width: 12px; }
+body.mobile .fc .fc-timegrid-col-frame:has(.tchunk) .fc-timegrid-col-events { margin-left: 13px; }
+
+/* Dragging out a new one on a day's left half: a dashed outline, not a block. */
+body.making-chunk #calendar .fc-timegrid .fc-event-mirror {
+  background: rgba(255, 255, 255, .06) !important; border: 1.5px dashed rgba(255, 255, 255, .6) !important; box-shadow: none !important;
+}
+body.making-chunk #calendar .fc-timegrid .fc-event-mirror .t { color: #fff; font-weight: 600; }
+body.making-chunk #calendar .fc .fc-highlight { background: rgba(255, 255, 255, .05); outline-color: rgba(255, 255, 255, .5); }
+.new-block-ghost.is-chunk { border: 1.5px dashed rgba(255, 255, 255, .65); background: rgba(34, 34, 40, .9); box-shadow: 0 10px 26px rgba(0, 0, 0, .55); }
+
+/* On the PC, the half-hour under the pointer: what a click or a drag there makes. */
+.grid-hint {
+  position: fixed; z-index: 20; pointer-events: none; box-sizing: border-box; border-radius: 6px; overflow: hidden;
+  border: 1px dashed rgba(255, 255, 255, .13); display: flex; align-items: center; padding: 0 6px;
+}
+.grid-hint[data-kind=chunk] { background: rgba(255, 255, 255, .03); border-color: rgba(255, 255, 255, .2); }
+.grid-hint span { font-size: 10.5px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* A chunk's window. */
+.tc-head { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.tc-head .ico { width: 14px; height: 14px; color: var(--accent); }
+.tc-head b { font-size: 11.5px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; }
+.tc-head small { flex-basis: 100%; color: var(--muted); font-size: 11.5px; }
+.tc-info {
+  display: grid; gap: 6px; padding: 9px 10px; border-radius: 9px; border: 1px solid color-mix(in srgb, var(--c) 30%, var(--line-2));
+  border-left: 3px solid var(--c); background: color-mix(in srgb, var(--c) 7%, var(--raise));
+}
+.tc-when { font-size: 12.5px; color: var(--soft); }
+.tc-when b { color: var(--text); font-weight: 600; }
+.tc-meter { height: 6px; border-radius: 3px; background: var(--line-2); overflow: hidden; }
+.tc-meter i { display: block; height: 100%; border-radius: 3px; background: var(--c); }
+.tc-sum { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.tc-inside { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+.tc-inside li { display: flex; align-items: center; gap: 7px; font-size: 12px; min-width: 0; }
+.tc-inside .tc-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--c); flex: none; }
+.tc-inside .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tc-inside small { color: var(--muted); font-variant-numeric: tabular-nums; }
+.tc-inside .more { color: var(--muted); font-size: 11.5px; padding-left: 14px; }
+.tc-fill { justify-content: center; gap: 6px; }
+.tc-fill .ico { width: 14px; height: 14px; }
+.tc-left { color: var(--warn); font-size: 11.5px; }
+.tc-cats { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.tc-chips { display: contents; }
+.tc-newcat { width: 118px; height: 24px !important; padding: 0 8px !important; border-radius: 12px !important; font-size: 11.5px; }
+.tc-until small { color: var(--faint); font-size: 11px; }

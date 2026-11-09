@@ -25,7 +25,8 @@ test('it starts as half an hour, follows the finger a quarter hour at a time, an
 
 test('lifting saves it and opens it; a cancelled touch makes nothing', () => {
   assert.match(app, /if \(holdNew\.cancelled\) \{ newBlockStop\(\); calendar\.unselect\(\); return; \}/);
-  assert.match(app, /return blockOut\(range, r \|\| pointRect\(info\.jsEvent\)\);/);
+  // A block, or (pressed on a day's left half) a time chunk: test/time-chunks.test.js.
+  assert.match(app, /: blockOut\(range, r \|\| pointRect\(info\.jsEvent\)\);/);
   assert.match(app, /'touchcancel', \(\) => \{ if \(holdNew\.on\) holdNew\.cancelled = true; lifted\(\); \}/);
 });
 

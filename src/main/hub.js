@@ -1094,10 +1094,11 @@ function setMemo(id, text) {
   return memo;
 }
 
-/** Every tag with its colour and how many entries carry it. */
+/** Every tag with its colour and how many entries carry it (a time chunk's category too, though nothing carries it yet). */
 function allTags() {
   const counts = {};
   for (const list of Object.values(store.data.tags)) for (const t of list) counts[t] = (counts[t] || 0) + 1;
+  for (const c of Array.isArray(store.data.timeChunks) ? store.data.timeChunks : []) if (c?.tag && !(c.tag in counts)) counts[c.tag] = 0;
   return Object.keys(counts).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
     .map((name) => ({ name, color: store.data.tagColors[name] || TAG_COLORS[0], count: counts[name] }));
 }
@@ -1118,6 +1119,7 @@ function renameTag(from, to) {
   if (!store.data.tagColors[name]) store.data.tagColors[name] = store.data.tagColors[from];
   if (name !== from) delete store.data.tagColors[from];
   ensureColor(name);
+  require('./time-chunks').renameTag(from, name); // its time chunks follow
   store.save();
   return name;
 }
@@ -1377,6 +1379,6 @@ function removeLocalCalendar(id) {
 module.exports = {
   calendars, refreshCalendars, invalidate, getEvents, setBackburner, setEventDone, createEvent, updateEvent, deleteEvent, setLeaveBy, ackPiCall, piAlerts,
   getTasks, archivedTasks, fetchTask, createTask, updateTask, moveTask, resizeTask, receiveTask, queueTask, planTask, unplanTask, dismissInbox, deleteTask, setRepeat, setPomodoro, setBlockTasks, setBlockLinks, tickBlockTask, setEventColor, setPiCall, freeTime, setTaskMinutes, addLocalCalendar, removeLocalCalendar,
-  setTags, allTags, setTagColor, renameTag, deleteTag, setMemo, MAX_NOTE,
+  setTags, allTags, setTagColor, renameTag, deleteTag, setMemo, MAX_NOTE, cleanTags, ensureColor,
   callNotes, piTaskList, // Hyperfocus gives the Pi its stop the same way (focus.js)
 };

@@ -3710,3 +3710,16 @@ body.making-chunk #calendar .fc .fc-highlight { background: rgba(255, 255, 255, 
 .tc-chips { display: contents; }
 .tc-newcat { width: 118px; height: 24px !important; padding: 0 8px !important; border-radius: 12px !important; font-size: 11.5px; }
 .tc-until small { color: var(--faint); font-size: 11px; }
+
+/* ------------------------------------------------------------ blocks just to keep in mind (hub.js setAware) */
+/* Something to be aware of, not to do: a lighter block with a dashed edge and no tick. */
+.fc .fc-event.is-aware {
+  background: color-mix(in srgb, var(--c, var(--accent)) 16%, #0b0b0e) !important;
+  border: 1px dashed color-mix(in srgb, var(--c, var(--accent)) 60%, transparent) !important;
+  border-left: 3px solid color-mix(in srgb, var(--c, var(--accent)) 70%, transparent) !important;
+  box-shadow: none !important;
+}
+.fc .fc-event.is-aware .fc-event-main, .fc .fc-event.is-aware .ev-title .t { color: color-mix(in srgb, var(--c, var(--accent)) 35%, #e8e8ee) !important; }
+.fc .fc-event.is-aware .ev-title .t { font-weight: 500; }
+#popover .aware-row label.check { color: var(--soft); }
+#popover .aware-hint { color: var(--faint); font-size: 11px; margin-left: auto; white-space: nowrap; }

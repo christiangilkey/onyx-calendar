@@ -27,7 +27,7 @@
    */
   function nextEntry(items, now, own) {
     return (items || [])
-      .filter((e) => e && e.kind === 'event' && !e.allDay && !e.done && e.start && ms(e.start) > now)
+      .filter((e) => e && e.kind === 'event' && !e.allDay && !e.done && !e.aware && e.start && ms(e.start) > now)
       .filter((e) => !(own && e.id === own.id && String(e.start) === String(own.start)))
       .sort((a, b) => ms(a.start) - ms(b.start))[0] || null;
   }

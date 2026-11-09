@@ -287,7 +287,8 @@
       const { events } = await onyx.events(from.toISOString(), addDays(from, 9).toISOString());
       pomoRun.blocks = events.filter((e) => e.pomodoro && !e.allDay && e.end && visible(e.calendarId));
       // The next-thing bar uses the same read: every timed entry and task still to come.
-      nextRun.items = events.filter((e) => !e.allDay && e.end && !e.done && (e.kind === 'event' || (e.kind === 'task' && !e.mirror)) && visible(e.calendarId));
+      // A block just to keep in mind is never the next thing (nor its cues, popups or alarms).
+      nextRun.items = events.filter((e) => !e.allDay && e.end && !e.done && !e.aware && (e.kind === 'event' || (e.kind === 'task' && !e.mirror)) && visible(e.calendarId));
       // And the open tasks due today with no time: shown when nothing timed is coming today.
       const today = ymd(now);
       nextRun.today = events.filter((e) => e.kind === 'task' && e.allDay && !e.done && !e.mirror && visible(e.calendarId) && String(e.start).slice(0, 10) === today);
@@ -1662,7 +1663,7 @@
       editable: e.kind === 'task' ? !!e.movable : e.writable && e.kind === 'event',
       // An entry or a timed task can be stretched by its top or bottom edge.
       durationEditable: (e.kind === 'event' && e.writable) || (e.kind === 'task' && !!e.movable && !e.allDay),
-      classNames: [e.kind === 'task' ? 'is-task' : e.kind === 'goal' ? 'is-goal' : 'is-event', e.kind === 'goal' ? '' : 'can-tick', e.done ? 'is-done' : '', matchesFilter(e.tags) ? '' : 'is-dim', e.offline ? 'is-offline' : ''],
+      classNames: [e.kind === 'task' ? 'is-task' : e.kind === 'goal' ? 'is-goal' : 'is-event', e.kind === 'goal' || e.aware ? '' : 'can-tick', e.aware ? 'is-aware' : '', e.done ? 'is-done' : '', matchesFilter(e.tags) ? '' : 'is-dim', e.offline ? 'is-offline' : ''],
       extendedProps: { src: e },
     };
   }
@@ -1732,7 +1733,8 @@
     }
     const title = h('div', { class: 'ev-title' },
       // A task's circle: clicking it ticks the task off (eventClick); the rest opens it.
-      (src.kind === 'task' || src.kind === 'event') && h('span', { class: 'dot', title: src.done ? 'Done. Tap to bring it back' : 'Mark done' }, src.done && checkMark()),
+      // Just to keep in mind: nothing to tick.
+      (src.kind === 'task' || src.kind === 'event') && !src.aware && h('span', { class: 'dot', title: src.done ? 'Done. Tap to bring it back' : 'Mark done' }, src.done && checkMark()),
       h('span', { class: 't' }, arg.event.title),
       src.goal && h('span', { class: 'ev-goal', title: `A step toward: ${src.goal.title}` }, icon('flag')),
       src.repeat && h('span', { title: REPEAT[src.repeat] }, icon('repeat')),
@@ -2289,7 +2291,7 @@
         const src = info.event.extendedProps.src;
         if (src && (src.kind === 'event' || src.kind === 'task')) selectEntry(src);
         const anchor = info.el.getBoundingClientRect();
-        if ((src.kind === 'task' || src.kind === 'event') && info.jsEvent.target.closest?.('.dot')) {
+        if ((src.kind === 'task' || src.kind === 'event') && !src.aware && info.jsEvent.target.closest?.('.dot')) {
           const dot = info.el.querySelector('.dot');
           if (info.el.classList.contains('done-anim')) return; // already on its way
           if (src.done) {
@@ -4303,6 +4305,8 @@
     const endTime = h('input', { type: 'time', value: hm(model.end), step: 300, disabled: readOnly });
     const endDate = h('input', { type: 'date', value: ymd(lastDay), disabled: readOnly });
     const allDay = h('input', { type: 'checkbox', checked: model.allDay, disabled: readOnly });
+    // Just to keep in mind: on the calendar, but no tick, and never "Next" (kept in Onyx, so read-only calendars too).
+    const aware = h('input', { type: 'checkbox', checked: !!src?.aware });
     const calendarPick = h('select', { disabled: readOnly },
       (readOnly ? [S.calendars.find((c) => c.id === src.calendarId) || { id: src.calendarId, name: src.calendarName, accountLabel: '' }] : writable)
         .map((c) => h('option', { value: c.id }, c.account === 'local' || !c.accountLabel ? c.name : `${c.name}  ·  ${c.accountLabel}`)));
@@ -4471,6 +4475,10 @@
         // Its colour, kept in Onyx by the block (a repeat's by its series).
         const color = colorPick.get();
         if (id && color !== (src?.ownColor ? src.color : null)) await onyx.setEventColor(id, color);
+        // Just to keep in mind: kept in Onyx by the block (a repeat's by its series).
+        if (id && aware.checked !== !!src?.aware) {
+          try { await onyx.setAware(id, aware.checked); } catch (err) { toast(/unknown|not a command|no such/i.test(err.message) ? 'Update Onyx on your PC to keep "Just to keep in mind".' : err.message, 'warn'); }
+        }
         // The block's tasks: kept by the block (a repeat's by its series, the same every day).
         const list = tasksField.get(), had = src?.taskList || [];
         const shape = (items) => items.map((t) => `${t.id}\t${t.text}`).join('\n');
@@ -4574,6 +4582,9 @@
       h('div', { class: 'row' }, icon('clock'), date, startTime, dash, endTime),
       untilRow,
       h('div', { class: 'row' }, icon('calendar'), calendarPick, h('label', { class: 'check' }, allDay, 'All day')),
+      h('div', { class: 'row aware-row' }, icon('bell-off'),
+        h('label', { class: 'check', title: 'For things to be aware of, like meal hours or a time frame: it stays on the calendar, with no tick, and is never shown as next or reminded' }, aware, 'Just to keep in mind'),
+        h('small', { class: 'aware-hint' }, 'No tick · not in Next')),
       h('div', { class: 'row color-row' }, icon('drop'), colorPick.el),
       repeatField && h('div', { class: 'row top recur-row' }, icon('repeat'), repeatField.el),
       h('div', { class: 'row top btask-row' }, icon('tasks'), tasksField.el),
@@ -4602,7 +4613,7 @@
       readOnly && h('div', { class: 'pop-meta' }, 'This calendar is read-only here. ',
         src.link && h('a', { href: '#', onclick: (e) => { e.preventDefault(); onyx.open(src.link); } }, 'Open it in the browser')),
       h('div', { class: 'pop-actions' },
-        src && h('button', { class: 'btn complete', title: src.done ? 'Bring it back' : 'Mark it done (Undo brings it back)', onclick: () => { done(); if (src.done) restoreEvent(src); else completeEvent(src); } },
+        src && !src.aware && h('button', { class: 'btn complete', title: src.done ? 'Bring it back' : 'Mark it done (Undo brings it back)', onclick: () => { done(); if (src.done) restoreEvent(src); else completeEvent(src); } },
           icon('check'), src.done ? 'Not done' : 'Complete'),
         src && !readOnly && h('button', { class: 'btn danger', title: src.seriesId ? 'Delete every repeat' : null, onclick: () => remove('all') }, icon('trash'), src.seriesId ? 'Delete all' : 'Delete'),
         src?.seriesId && !readOnly && h('button', { class: 'btn', title: 'Take just this day off; the others stay', onclick: () => remove('one') }, 'Skip this day'),

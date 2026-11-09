@@ -141,6 +141,7 @@ const handlers = {
   'blockLinks:set': (key, items) => hub.setBlockLinks(key, items),
   'blockTasks:tick': (id, taskId, done) => hub.tickBlockTask(id, taskId, done),
   'eventColor:set': (key, color) => hub.setEventColor(key, color),
+  'aware:set': (key, on) => hub.setAware(key, !!on),
   'bugs:report': (list) => require('./bugs').fromApp(list),
   'phone:starts': (list, appVersion) => require('./bugs').startsFromPhone(list, appVersion),
   'tag:color': withState((tag, color) => hub.setTagColor(tag, color)),

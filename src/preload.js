@@ -57,6 +57,7 @@ contextBridge.exposeInMainWorld('onyx', {
   setBlockLinks: (key, items) => call('blockLinks:set', key, items),
   tickBlockTask: (id, taskId, done) => call('blockTasks:tick', id, taskId, done),
   setEventColor: (key, color) => call('eventColor:set', key, color),
+  setAware: (key, on) => call('aware:set', key, on),
   reportBugs: (list) => call('bugs:report', list),
   news: (force, mode) => call('news', force, mode),
   addNewsChannel: (input) => call('news:add', input),

@@ -359,6 +359,7 @@ final class LauncherData {
         String id = "", title = "", kind = "event", color = "";
         long start, end;
         boolean allDay, done, ack;
+        boolean aware; // just to keep in mind (hub.js setAware): drawn, never "now" or "next", nor in the day's list
         int leaveBy = -1; // minutes before the start; -1 for none
         int pomoWork, pomoRest; // a pomodoro split, in minutes (0: none)
 
@@ -459,6 +460,7 @@ final class LauncherData {
             if (it.start < 0) continue;
             if (it.end < it.start) it.end = it.start + 30 * MIN;
             it.done = e.optBoolean("done", false);
+            it.aware = e.optBoolean("aware", false);
             it.ack = e.optBoolean("callAck", false) || p.getBoolean("ack_" + it.id + "_" + it.start, false);
             it.leaveBy = e.isNull("leaveBy") ? -1 : e.optInt("leaveBy", -1);
             JSONObject pomo = e.optJSONObject("pomodoro");
@@ -511,7 +513,7 @@ final class LauncherData {
 
     /** Timed entries count for Now and Next; all-day ones and ticked-off ones don't. */
     static boolean timed(Item it) {
-        return !it.allDay && !it.done;
+        return !it.allDay && !it.done && !it.aware;
     }
 
     /** What is on now: the timed entry that started last and hasn't ended. */

@@ -348,7 +348,7 @@
   const QUEUEABLE = new Set([
     'event:create', 'event:update', 'event:delete', 'event:done', 'event:leaveby', 'event:call', 'event:ack',
     'task:create', 'task:update', 'task:move', 'task:resize', 'task:delete', 'task:backburner', 'task:repeat', 'inbox:dismiss',
-    'tags:set', 'memo:set', 'pomodoro:set', 'blockTasks:set', 'blockLinks:set', 'blockTasks:tick', 'eventColor:set',
+    'tags:set', 'memo:set', 'pomodoro:set', 'blockTasks:set', 'blockLinks:set', 'blockTasks:tick', 'eventColor:set', 'aware:set',
     'note:create', 'note:update', 'note:delete', 'board:save', 'board:delete', 'timeChunk:save', 'timeChunk:delete', 'goal:step', 'goal:update', 'pin:update', 'pin:remove', 'focus:log',
     'blockList:save', 'blockList:delete',
   ]);
@@ -401,6 +401,7 @@
         else if (o.name === 'event:done') touch(a, (e) => ({ ...e, done: !!b }));
         else if (o.name === 'tags:set') touch(a, (e) => ({ ...e, tags: b || [] }));
         else if (o.name === 'eventColor:set') touch(a, (e) => ({ ...e, color: b || e.calColor || e.color, ownColor: !!b }));
+        else if (o.name === 'aware:set') touch(a, (e) => ({ ...e, aware: !!b }));
         else if (o.name === 'blockTasks:set') touch(a, (e) => ({ ...e, taskList: (b || []).length ? b.map((t) => ({ id: t.id, text: t.text, done: !!e.taskList?.find((x) => x.id === t.id)?.done })) : null }));
         else if (o.name === 'blockLinks:set') touch(a, (e) => ({ ...e, links: (b || []).length ? b : null }));
         else if (o.name === 'blockTasks:tick') list = list.map((e) => (e.id === a && e.taskList ? { ...e, taskList: e.taskList.map((t) => (t.id === b ? { ...t, done: !!c } : t)) } : e));
@@ -997,6 +998,7 @@
     setBlockLinks: (key, items) => call('blockLinks:set', key, items),
     tickBlockTask: (id, taskId, done) => call('blockTasks:tick', id, taskId, done),
     setEventColor: (key, color) => call('eventColor:set', key, color),
+    setAware: (key, on) => call('aware:set', key, on),
     reportBugs: (list) => call('bugs:report', list),
     reportStarts: async (list) => call('phone:starts', list, await appVersion()),
     news: (force, mode) => call('news', force, mode),

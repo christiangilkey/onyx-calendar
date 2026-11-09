@@ -416,7 +416,7 @@ final class OnyxPanel {
         c.addView(label("Today · " + date, MUTED));
         int rows = 0;
         for (LauncherData.Item it : items) {
-            if (!LauncherData.dayOf(it.start).equals(today) || (!it.allDay && it.end <= t)) continue;
+            if (it.aware || !LauncherData.dayOf(it.start).equals(today) || (!it.allDay && it.end <= t)) continue; // not what's coming
             if (rows++ == 7) break;
             c.addView(row(it, t));
         }
@@ -427,7 +427,7 @@ final class OnyxPanel {
         }
         int tomorrow = 0;
         for (LauncherData.Item it : items) {
-            if (!LauncherData.dayOf(it.start).equals(today.plusDays(1))) continue;
+            if (it.aware || !LauncherData.dayOf(it.start).equals(today.plusDays(1))) continue;
             if (tomorrow == 0) {
                 TextView l = label("Tomorrow", FAINT);
                 l.setPadding(0, dp(12), 0, 0);
@@ -499,12 +499,12 @@ final class OnyxPanel {
             LocalDate today = LocalDate.now();
             org.json.JSONArray rest = new org.json.JSONArray(), tomorrow = new org.json.JSONArray();
             for (LauncherData.Item it : items) {
-                if (!LauncherData.dayOf(it.start).equals(today) || (!it.allDay && it.end <= t)) continue;
+                if (it.aware || !LauncherData.dayOf(it.start).equals(today) || (!it.allDay && it.end <= t)) continue; // as dayCard
                 if (rest.length() == 7) break;
                 rest.put(item(it, now));
             }
             for (LauncherData.Item it : items) {
-                if (!LauncherData.dayOf(it.start).equals(today.plusDays(1))) continue;
+                if (it.aware || !LauncherData.dayOf(it.start).equals(today.plusDays(1))) continue;
                 if (tomorrow.length() == 3) break;
                 tomorrow.put(item(it, now));
             }

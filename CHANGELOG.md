@@ -2,9 +2,19 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.120.0 · Time chunks: part of a day set aside for a category, with its blocks and tasks inside
+## 1.121.0 · Blocks just to keep in mind — on the calendar, with no tick, never shown as next
 
 _2026-11-09_
+
+- New in a block's window: "Just to keep in mind". Use it for things to be aware of rather than to do, like meal hours, a time frame or something that repeats. The block stays on your calendar, drawn lighter with a dashed edge.
+- A block like this has no tick circle and no Complete button.
+- It is never shown as next: not in the Next bar at the top, not in the "starting soon" reminders or popups, and it doesn't ring the phone's alarm as it starts. Hyperfocus doesn't count it as the next thing either.
+- On the phone it stays out of Now and Next on the lock screen and Onyx Home, out of their list of what's left today and tomorrow, and out of the small widget's "next". The day list widget and the calendar still show it.
+- For a block that repeats, ticking it once covers every day of it. It's kept in Onyx and synced to your other PCs, your phone and Onyx on the web. It works on read-only calendars too.
+
+## 1.120.0 · Time chunks — part of a day set aside for a category, behind the blocks and tasks that fit inside it
+
+_2026-11-08_
 
 - New: time chunks. Set aside part of a day for one category, like Study on weekday mornings or Admin on Friday afternoons. A chunk sits behind that day's blocks and tasks, tinted in its category's colour, with its name on a band down its left side.
 - To make one, drag down the left half of a day in the Day, 3-day or Week view, or click there to make a one-hour chunk. The right half still makes a block, as before. On the PC, the half-hour under the pointer shows which one a click there makes. On the phone, press and hold on the left half.

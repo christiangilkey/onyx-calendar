@@ -47,6 +47,7 @@ const DEFAULTS = {
   pomodoro: {},          // event or task id -> { work, rest, minutes? }: split into work and rest chunks (hub.js)
   blockLinks: {},        // event id (a repeat's: the series') -> [{ url, title, source, kind, icon }]: a website, Drive file or Notion page it is about (hub.js)
   blockTasks: {},        // event id (a repeat's: the series') -> [{ id, text }]: what to get done within the block (hub.js)
+  awareEvents: {},       // event id (a repeat's: the series') -> true: just to keep in mind (no tick, never "next")
   eventColors: {},       // event id (a repeat's: the series') -> '#rrggbb': a colour of its own, in place of its calendar's
   opsDone: {},           // a change sent by a phone (its outbox id) -> { at, value }: made once, even if sent again (mcp.js)
   bugReports: [],        // bugs in Onyx itself, the PC's and the app's, with where they happened (bugs.js): kept to be fixed

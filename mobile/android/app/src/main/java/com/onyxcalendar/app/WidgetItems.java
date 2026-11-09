@@ -20,6 +20,7 @@ final class WidgetItems {
     static final class Item {
         String id = "", kind = "event", title = "", calendar = "";
         boolean allDay, piCall;
+        boolean aware; // just to keep in mind: on the day's list, never the small widget's "next"
         LocalDate day, lastDay;     // all-day: the days it covers (lastDay inclusive)
         LocalDateTime start, end;   // timed: local times
         int color = 0xFF8B7CFF;
@@ -55,6 +56,7 @@ final class WidgetItems {
             it.calendar = e.optString("calendar");
             it.allDay = e.optBoolean("all_day");
             it.piCall = e.optBoolean("pi_call");
+            it.aware = e.optBoolean("keep_in_mind");
             it.color = parseColor(e.optString("color"), it.color);
             it.tags = tags(e);
             try {
@@ -99,7 +101,7 @@ final class WidgetItems {
         LocalDateTime now = LocalDateTime.now();
         Item best = null;
         for (Item it : all) {
-            if (it.allDay || "goal".equals(it.kind) || it.end == null || !it.end.isAfter(now)) continue;
+            if (it.allDay || it.aware || "goal".equals(it.kind) || it.end == null || !it.end.isAfter(now)) continue;
             if (best == null || it.start.isBefore(best.start)) best = it;
         }
         if (best == null) {

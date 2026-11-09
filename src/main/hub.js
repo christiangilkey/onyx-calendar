@@ -166,6 +166,18 @@ function setEventColor(key, color) {
   return store.data.eventColors[key] || null;
 }
 
+/**
+ * Marks a block (a repeat: every day of it) as just to keep in mind: it stays on the calendar, but it has no tick
+ * and is never the next thing (the Next bar, its cues and alarms, the phone's Now and Next and its widget).
+ */
+function setAware(key, on) {
+  if (!key) throw new Error('Nothing to mark.');
+  store.data.awareEvents ??= {};
+  if (on) store.data.awareEvents[key] = true; else delete store.data.awareEvents[key];
+  store.save();
+  return !!store.data.awareEvents[key];
+}
+
 // ---- what a block links to: a website, a Drive file or a Notion page, opened from the bubble by it
 const MAX_BLOCK_LINKS = 6;
 const LINK_SOURCES = ['web', 'drive', 'notion'];
@@ -362,6 +374,8 @@ async function getEvents(start, end, { includeHidden = false, force = false } = 
       ...(e.kind === 'event' || e.kind === 'task' ? { taskList: taskListOf(e), links: linksOf(e) } : {}), // a timed task is a block too
       // A block given a colour of its own wears it; its calendar's stays known for "Calendar colour".
       ...(e.kind === 'event' && store.data.eventColors[keyOf(e)] ? { color: store.data.eventColors[keyOf(e)], calColor: e.color, ownColor: true } : {}),
+      // Just to keep in mind (setAware): drawn, but never ticked and never the next thing.
+      ...(e.kind === 'event' && store.data.awareEvents?.[keyOf(e)] ? { aware: true } : {}),
       // A calendar entry or block ticked off, like a task (kept in Onyx: each day of a repeat on its own).
       ...(e.kind === 'event' ? { done: !!store.data.doneEvents?.[e.id] } : {}),
     }))
@@ -556,6 +570,7 @@ async function updateEvent(id, patch) {
     if (store.data.blockLinks?.[id]) store.data.blockLinks[created.id] = store.data.blockLinks[id]; // and its links
     if (store.data.blockTicks[id]) store.data.blockTicks[created.id] = store.data.blockTicks[id];
     if (store.data.eventColors[id]) store.data.eventColors[created.id] = store.data.eventColors[id]; // and its colour
+    if (store.data.awareEvents?.[id]) store.data.awareEvents[created.id] = true; // and "just to keep in mind"
     await deleteEvent(id);
     return { ...created, pomodoro: pomodoroOf(created.id) };
   }
@@ -621,6 +636,7 @@ async function deleteEvent(id, { scope = 'all', seriesId = null } = {}) {
   if (store.data.blockLinks) delete store.data.blockLinks[id];
   delete store.data.blockTicks[id];
   delete store.data.eventColors[id];
+  if (store.data.awareEvents) delete store.data.awareEvents[id];
   await setPiCall({ id }, false).catch((err) => console.error('onyx: could not remove the Pi reminder:', err.message));
 }
 
@@ -1378,7 +1394,7 @@ function removeLocalCalendar(id) {
 
 module.exports = {
   calendars, refreshCalendars, invalidate, getEvents, setBackburner, setEventDone, createEvent, updateEvent, deleteEvent, setLeaveBy, ackPiCall, piAlerts,
-  getTasks, archivedTasks, fetchTask, createTask, updateTask, moveTask, resizeTask, receiveTask, queueTask, planTask, unplanTask, dismissInbox, deleteTask, setRepeat, setPomodoro, setBlockTasks, setBlockLinks, tickBlockTask, setEventColor, setPiCall, freeTime, setTaskMinutes, addLocalCalendar, removeLocalCalendar,
+  getTasks, archivedTasks, fetchTask, createTask, updateTask, moveTask, resizeTask, receiveTask, queueTask, planTask, unplanTask, dismissInbox, deleteTask, setRepeat, setPomodoro, setBlockTasks, setBlockLinks, tickBlockTask, setEventColor, setAware, setPiCall, freeTime, setTaskMinutes, addLocalCalendar, removeLocalCalendar,
   setTags, allTags, setTagColor, renameTag, deleteTag, setMemo, MAX_NOTE, cleanTags, ensureColor,
   callNotes, piTaskList, // Hyperfocus gives the Pi its stop the same way (focus.js)
 };

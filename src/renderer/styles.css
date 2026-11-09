@@ -3723,3 +3723,67 @@ body.making-chunk #calendar .fc .fc-highlight { background: rgba(255, 255, 255, 
 .fc .fc-event.is-aware .ev-title .t { font-weight: 500; }
 #popover .aware-row label.check { color: var(--soft); }
 #popover .aware-hint { color: var(--faint); font-size: 11px; margin-left: auto; white-space: nowrap; }
+
+/* ------------------------------------------------------------ a board card's panel (app.js showCardPanel, openBoardCard) */
+/* The card picked, whole, beside the board: its name, chips and every detail under its heading, its options at the
+   foot. Opened, the same panel is where it is changed, with room to write. On the phone, a sheet along the bottom. */
+#board-main { position: relative; flex: 1; min-height: 0; display: flex; }
+#board-main > #board-space { min-width: 0; }
+.wb-panel { position: relative; flex: none; width: 420px; max-width: 70vw; min-height: 0; display: flex; flex-direction: column;
+  background: #0f0f13; border-left: 1px solid var(--line-2); box-shadow: -14px 0 32px rgba(0, 0, 0, .4); --k: #9fb6ff; }
+.wb-panel[hidden] { display: none; }
+.wb-p-grip { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; z-index: 2; cursor: col-resize; touch-action: none; }
+.wb-p-grip:hover, .wb-p-grip:active { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+.wb-p-head { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; padding: 12px 10px 10px 18px; border-bottom: 1px solid var(--line);
+  border-top: 3px solid var(--k); }
+.wb-p-head .grow { flex: 1; }
+.wb-p-kind { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--k); }
+.wb-panel.k-note .wb-p-kind { color: var(--soft); }
+.wb-p-chip { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: 11px; background: var(--raise-2); color: var(--soft); font-size: 12px; }
+.wb-p-chip .ico { width: 12px; height: 12px; }
+.wb-p-chip.ok { color: #6fdc8c; background: color-mix(in srgb, #6fdc8c 12%, transparent); }
+.wb-p-editing { font-size: 12px; color: var(--muted); }
+.wb-p-close { margin-left: auto; }
+.wb-p-close .ico { width: 16px; height: 16px; }
+.wb-p-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; padding: 16px 18px 22px;
+  user-select: text; -webkit-user-select: text; overscroll-behavior: contain; }
+.wb-p-title { margin: 0; font-size: 19px; line-height: 1.32; font-weight: 650; overflow-wrap: anywhere; }
+.wb-p-title.empty { color: var(--faint); font-weight: 500; }
+.wb-panel .wb-placed { display: flex; align-items: center; gap: 6px; }
+.wb-panel .wb-placed .ico { width: 14px; height: 14px; }
+.wb-p-details { display: flex; flex-direction: column; }
+.wb-p-sec { display: flex; flex-direction: column; gap: 5px; padding: 12px 0; }
+.wb-p-sec:first-child { padding-top: 0; }
+.wb-p-sec + .wb-p-sec { border-top: 1px solid var(--line); }
+.wb-p-label { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.wb-p-text { font-size: 14px; line-height: 1.55; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.wb-p-none { margin: 0; font-size: 13.5px; color: var(--muted); }
+.wb-p-links { display: flex; flex-wrap: wrap; gap: 6px; }
+.wb-p-ways { display: flex; flex-direction: column; gap: 6px; }
+.wb-p-way { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line-2);
+  background: var(--raise); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.wb-p-way:hover { border-color: #5a5a66; }
+.wb-p-way.on { border-color: #f5b83d; background: color-mix(in srgb, #f5b83d 10%, var(--raise)); }
+.wb-p-way b { font-weight: 650; }
+.wb-p-way small { color: var(--faint); font-size: 12px; }
+.wb-p-foot { flex: none; padding: 8px 10px; border-top: 1px solid var(--line); background: #111116; }
+.wb-p-foot .wb-q-row { flex-wrap: wrap; justify-content: space-between; gap: 2px; }
+.wb-p-foot .wb-q { flex: 1 1 0; min-width: 0; font-size: 11px; white-space: normal; text-align: center; line-height: 1.15; }
+.wb-p-foot .pop-actions { margin: 0; flex-wrap: wrap; }
+/* Changing it: the details get the room that is left. */
+.wb-panel .wb-edit { width: auto; flex: 1 0 auto; }
+.wb-p-name { width: 100%; box-sizing: border-box; min-height: 42px; resize: none; overflow: hidden; padding: 9px 11px; border-radius: 10px;
+  border: 1px solid transparent; background: var(--raise); color: var(--text); font: inherit; font-size: 16px; font-weight: 600; line-height: 1.35; }
+.wb-p-name:focus { border-color: var(--accent); outline: none; }
+.wb-panel .wb-notes-f { flex: 1 0 auto; }
+.wb-panel .wb-notes { flex: 1; min-height: 260px; resize: vertical; padding: 10px 12px; font-size: 14px; line-height: 1.55; color: var(--text); }
+/* The phone: a sheet along the bottom, over the board; taller while it is changed. */
+body.mobile .wb-panel { position: absolute; left: 0; right: 0; bottom: 0; z-index: 6; width: auto !important; max-width: none; max-height: 60%;
+  border-left: 0; border-top: 1px solid var(--line-2); border-radius: 18px 18px 0 0; box-shadow: 0 -16px 40px rgba(0, 0, 0, .6);
+  padding-bottom: var(--safe-bottom, env(safe-area-inset-bottom, 0px)); }
+body.mobile .wb-panel .wb-p-head { border-top: 0; border-radius: 18px 18px 0 0; box-shadow: inset 0 3px 0 var(--k); }
+body.mobile .wb-panel.edit { height: 88%; max-height: 88%; }
+body.mobile .wb-panel .wb-notes { min-height: 180px; }
+body.mobile .wb-p-foot .wb-q-row { flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start; }
+/* The tips along the foot of the board give way to it (it would cover its buttons). */
+body.wb-panel-on #board .wb-hint, body.mobile.board-on.wb-panel-on #fab { display: none; }

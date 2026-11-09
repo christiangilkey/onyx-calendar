@@ -2,8 +2,22 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
-  "version": "1.122.0",
+  "version": "1.123.0",
   "date": "2026-11-09",
+  "title": "A board card's panel — click a step to read all of it beside the board, and change it there",
+  "items": [
+   "Click a card on a board and all of it shows in a panel beside the board: its full name, how long it takes, whether it is done or in your calendar, and every detail. Details from a spreadsheet, like Who, What to do, Output and Choices, each get their own heading, so long steps are easy to read. On the phone the panel is a sheet along the bottom.",
+   "The card's options are along the foot of the panel: Add to calendar, Edit, Next, Done, Copy and Delete. The small toolbar that sat over the card, and could cover the cards above it, is gone.",
+   "Double-click a card (tap it again on the phone), or press Edit, and you change it in the same panel. The details box fills the panel, so there is room to write, and nothing is cut off at the edge of the window any more. Changes are kept as you type. Save goes back to reading it.",
+   "Drag the panel's left edge to make it wider or narrower, and Onyx keeps that width. The board slides so the card you picked stays in view beside the panel.",
+   "Escape (or the phone's back button) goes back a step: out of changing the card, then the panel closes, then off the board.",
+   "Fixed: picking a card at the edge of the board could leave the cards out of step with where you were looking.",
+   "A board taller than the window now starts at its top when it is fitted to the view, where its columns begin."
+  ]
+ },
+ {
+  "version": "1.122.0",
+  "date": "2026-11-08",
   "title": "Boards from a list go in columns, each goal at the top of its own column",
   "items": [
    "A list pasted onto a board, or sent with an onyx://board link, now goes down in columns. Each heading row (\"PHASE 1: BRAND FOUNDATION\", \"Launch:\", \"# Week 2\") starts a new column with its goal at the top and its steps under it. Before, each heading started a row.",

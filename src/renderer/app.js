@@ -12337,7 +12337,8 @@
   // in the calendar, each a block of its own: one after another from a time, or fitted into free time by Magic add.
   // Kept and synced with the rest of Onyx (src/main/boards.js); where each board was looked at is kept here only.
 
-  const board = { on: false, all: [], cur: null, view: null, saveT: 0, route: true, dirty: false };
+  // panel: the card picked, shown whole beside the board ('view'), or being changed there ('edit').
+  const board = { on: false, all: [], cur: null, view: null, saveT: 0, route: true, dirty: false, panel: { id: null, mode: 'view' } };
   const readLocal = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } };
   const writeLocal = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* this visit only */ } };
   let boardCamT = 0;
@@ -12364,6 +12365,7 @@
   function closeBoards() {
     flushBoard();
     board.on = false;
+    hideCardPanel();
     document.body.classList.remove('board-on');
     $('#board').hidden = true;
     $('#board-toggle').classList.remove('on');
@@ -12398,6 +12400,7 @@
     const space = $('#board-space'), empty = $('#board-empty');
     $('#range').textContent = 'Boards'; // the board's own name is on its bar
     if (!b) {
+      hideCardPanel();
       board.view?.destroy();
       board.view = null;
       space.replaceChildren();
@@ -12425,7 +12428,8 @@
       when: placedText,
       onCam: (c) => { clearTimeout(boardCamT); boardCamT = setTimeout(() => writeLocal(`onyx.boardCam.${board.cur?.id}`, c), 400); },
       onDraw: (r) => { board.lastRoute = r; paintBoardBar(); },
-      quick: (n) => boardQuick(n),
+      // The card picked shows whole in the panel beside the board, with its options under it (boardQuick).
+      onPick: (n) => boardPicked(n),
       onAddHere: (at, pt) => openBoardAdd({ getBoundingClientRect: () => ({ left: pt.x, right: pt.x, top: pt.y, bottom: pt.y, width: 0, height: 0 }) }, at),
     };
     if (board.view) board.view.setBoard(b, cam || { x: 40, y: 40, z: 1 });
@@ -12442,8 +12446,8 @@
     if (readLocal('onyx.boardHint', '') === 'done') return;
     const hint = h('div', { class: 'wb-hint' },
       h('span', null, MOBILE
-        ? 'Tap a card for its options, tap again to open it. Press and hold a card to move it, or hold empty space to add one there. Drag a card’s + to join it to another.'
-        : 'Click a card for its options, double-click to open it. Drag to move it; right-click empty space to add one there. Drag a card’s + to join it to another.'),
+        ? 'Tap a card to see all of it, tap again to change it. Press and hold a card to move it, or hold empty space to add one there. Drag a card’s + to join it to another.'
+        : 'Click a card to see all of it beside the board, double-click to change it. Drag to move it; right-click empty space to add one there. Drag a card’s + to join it to another.'),
       h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Got it', title: 'Got it', onclick: () => { writeLocal('onyx.boardHint', 'done'); hint.remove(); } }, icon('x')));
     $('#board').append(hint);
   }
@@ -12643,16 +12647,120 @@
   }
 
   /** A card's editor: what it is, its name and details, and for a step how long it takes; for a decision its ways. */
+  // ---- the card picked, in the panel beside the board (a sheet along the bottom on the phone). Picked, it shows
+  // all of the card: its name in full, its length and where it stands, and every detail, a spreadsheet's columns
+  // each under its own heading ("Who", "What to do"…), with the card's options at the foot (boardQuick). Opened
+  // (a double-click, a second tap, Edit), the same panel is where it is changed, with room to write.
+
+  /** A card's details as sections: a paragraph that starts "Label: " (a spreadsheet's column) under that label. */
+  function cardSections(text) {
+    return String(text || '').replace(/\r\n?/g, '\n').split(/\n{2,}/).map((p) => p.trim()).filter(Boolean).map((p) => {
+      const m = /^([^\n:]{1,32}):[ \t]+([\s\S]+)$/.exec(p);
+      return m ? { label: m[1].trim(), body: m[2].trim() } : { label: '', body: p };
+    });
+  }
+
+  const panelEl = () => $('#board-panel');
+  function hideCardPanel() {
+    board.panel = { id: null, mode: 'view' };
+    const p = panelEl();
+    if (!p) return;
+    p.hidden = true;
+    p.replaceChildren();
+    document.body.classList.remove('wb-panel-on');
+  }
+
+  /** The canvas picked a card (or none): it shows whole in the panel, unless that card is being changed there. */
+  function boardPicked(n) {
+    if (!board.on) return;
+    if (!n) { hideCardPanel(); return; }
+    if (board.panel.mode === 'edit' && board.panel.id === n.id) return; // being typed in: left as it is
+    showCardPanel(n);
+  }
+
+  /** The panel's frame: a handle to make it wider (the PC), the card's kind, the contents, and its foot. */
+  function panelFrame(n, head, body, foot, mode) {
+    const p = panelEl();
+    const k = OnyxBoards.KINDS[n.kind] || OnyxBoards.KINDS.step;
+    const close = h('button', { type: 'button', class: 'icon-btn wb-p-close', title: mode === 'edit' ? 'Done changing it' : 'Close', 'aria-label': 'Close',
+      onclick: () => { if (mode === 'edit') { board.panel = { id: n.id, mode: 'view' }; showCardPanel(n); } else board.view?.select(null); } }, icon('x'));
+    const grip = !MOBILE && h('div', { class: 'wb-p-grip', title: 'Drag to make it wider or narrower', 'aria-hidden': 'true' });
+    if (grip) {
+      grip.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        grip.setPointerCapture(e.pointerId);
+        const x0 = e.clientX, w0 = p.offsetWidth;
+        const move = (ev) => { p.style.width = `${Math.max(300, Math.min(Math.round(innerWidth * 0.7), w0 + (x0 - ev.clientX)))}px`; };
+        const up = () => { grip.removeEventListener('pointermove', move); writeLocal('onyx.boardPanelW', p.offsetWidth); board.view?.reveal?.(n.id); };
+        grip.addEventListener('pointermove', move);
+        grip.addEventListener('pointerup', up, { once: true });
+      });
+    }
+    p.className = `wb-panel k-${n.kind} ${mode}`;
+    p.style.setProperty('--k', { step: '#9fb6ff', decision: '#f5b83d', goal: '#6fdc8c', note: n.color || OnyxBoards.NOTE_COLORS[0] }[n.kind] || '#9fb6ff');
+    if (!MOBILE) { const w = Number(readLocal('onyx.boardPanelW', 0)); if (w >= 300) p.style.width = `${Math.min(w, Math.round(innerWidth * 0.7))}px`; }
+    p.replaceChildren(...[grip,
+      h('div', { class: 'wb-p-head' }, h('span', { class: 'wb-p-kind' }, `${k.icon} ${k.label}`), ...head, h('div', { class: 'grow' }), close),
+      h('div', { class: 'wb-p-body' }, ...body),
+      foot && h('div', { class: 'wb-p-foot' }, foot)].filter(Boolean));
+    // Escape: out of changing it, or (reading it) the card is put down.
+    p.onkeydown = (e) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      if (mode === 'edit') { board.panel = { id: n.id, mode: 'view' }; showCardPanel(n); } else board.view?.select(null);
+    };
+    const opening = p.hidden;
+    p.hidden = false;
+    document.body.classList.add('wb-panel-on');
+    // The card stays in sight beside it (or above the phone's sheet).
+    requestAnimationFrame(() => board.view?.reveal?.(n.id, { bottom: MOBILE ? p.offsetHeight : 0 }));
+    if (opening) p.scrollTop = 0;
+  }
+
+  /** All of a card, to read: its name in full, its chips, a decision's ways, and its details under their headings. */
+  function showCardPanel(n) {
+    board.panel = { id: n.id, mode: 'view' };
+    const b = board.cur;
+    const k = OnyxBoards.KINDS[n.kind] || OnyxBoards.KINDS.step;
+    const chips = [];
+    if (n.kind === 'step' && n.minutes) chips.push(h('span', { class: 'wb-p-chip' }, icon('clock'), OnyxBoards.lengthText(n.minutes)));
+    if (n.done) chips.push(h('span', { class: 'wb-p-chip ok' }, icon('check'), n.kind === 'goal' ? 'Reached' : 'Done'));
+    const body = [h('h3', { class: `wb-p-title${n.title ? '' : ' empty'}` }, n.title || k.empty)];
+    if (n.placed) body.push(h('p', { class: 'wb-placed' }, icon('calendar'), `In your calendar: ${placedText(n.placed)}`));
+    if (n.kind === 'decision') {
+      const outs = b.links.filter((l) => l.from === n.id);
+      body.push(h('div', { class: 'wb-p-ways' }, h('div', { class: 'wb-p-label' }, outs.length ? (n.chosen ? 'Taking' : 'Which way?') : 'The ways it can go'),
+        outs.length ? outs.map((l) => {
+          const to = b.nodes.find((x) => x.id === l.to);
+          return h('button', { type: 'button', class: `wb-p-way${n.chosen === l.id ? ' on' : ''}`, 'aria-pressed': String(n.chosen === l.id), title: n.chosen === l.id ? 'Undecide' : 'Take this way',
+            onclick: () => { n.chosen = n.chosen === l.id ? null : l.id; boardChanged(); board.view.draw(); } },
+          h('b', null, l.label || 'Branch'), h('small', null, `→ ${to?.title || 'Untitled'}`));
+        }) : h('p', { class: 'wb-p-none' }, 'None yet. Edit it to add the ways, or drag its + to another card.')));
+    }
+    const parts = cardSections(n.notes);
+    if (parts.length) {
+      body.push(h('div', { class: 'wb-p-details' }, parts.map((x) => h('section', { class: 'wb-p-sec' },
+        x.label && h('div', { class: 'wb-p-label' }, x.label), h('div', { class: 'wb-p-text' }, x.body)))));
+      const urls = linksIn(n.notes || '');
+      if (urls.length) body.push(h('div', { class: 'wb-p-links' }, urls.slice(0, 6).map((u) => h('button', { type: 'button', class: 'btn link-open', title: u, onclick: () => onyx.open(u) }, icon('link'), `Open ${hostOf(u)}`))));
+    } else {
+      body.push(h('p', { class: 'wb-p-none' }, n.kind === 'note' ? 'Nothing written on it yet.' : 'No details yet.',
+        ' ', h('button', { type: 'button', class: 'link-btn inline', onclick: () => openBoardCard(n) }, 'Add them')));
+    }
+    panelFrame(n, chips, body, boardQuick(n), 'view');
+  }
+
+  /** A card opened: changed in the panel (its kind, name, length, ways, colour, details), each change kept at once. */
   function openBoardCard(n) {
     if (!n) return;
     const b = board.cur;
     const redraw = () => { boardChanged(); board.view.draw(); };
-    const anchor = () => ($(`#board .wb-card[data-id="${CSS.escape(n.id)}"]`) || $('#board-space')).getBoundingClientRect();
+    const grow = (ta) => { ta.style.height = 'auto'; ta.style.height = `${ta.scrollHeight + 2}px`; };
     const draw = () => {
       const k = OnyxBoards.KINDS[n.kind];
-      const title = h('input', { type: 'text', class: 'pop-title', value: n.title, maxLength: 300, placeholder: k.empty, spellcheck: true,
-        oninput: (e) => { n.title = e.target.value; redraw(); },
-        onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); closePopover(); } } });
+      const title = h('textarea', { class: 'wb-p-name', rows: 1, maxLength: 300, placeholder: k.empty, spellcheck: true, value: n.title, 'aria-label': 'Name',
+        oninput: (e) => { n.title = e.target.value.replace(/\n+/g, ' '); grow(e.target); redraw(); },
+        onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); notes.focus(); } } });
       const kinds = h('div', { class: 'le-kinds', role: 'radiogroup', 'aria-label': 'What it is' }, Object.entries(OnyxBoards.KINDS).map(([key, v]) => h('button', {
         type: 'button', role: 'radio', 'aria-checked': String(n.kind === key), class: `le-kind${n.kind === key ? ' on' : ''}`,
         onclick: () => { if (n.kind === key) return; n.kind = key; if (key === 'step' && !n.minutes) n.minutes = 30; if (key === 'note' && !n.color) n.color = OnyxBoards.NOTE_COLORS[0]; redraw(); draw(); },
@@ -12681,31 +12789,35 @@
                 redraw(); draw();
               } }, icon('x')));
           }),
-          h('button', { type: 'button', class: 'btn', onclick: () => { closePopover(); const next = board.view.after(n.id); openBoardCard(next); } }, icon('plus'), 'Add a way')));
+          h('button', { type: 'button', class: 'btn', onclick: () => { const next = board.view.after(n.id); openBoardCard(next); } }, icon('plus'), 'Add a way')));
       }
       if (n.kind === 'note') {
         parts.push(h('div', { class: 'wb-colors', role: 'radiogroup', 'aria-label': 'Colour' }, OnyxBoards.NOTE_COLORS.map((c) => h('button', {
           type: 'button', role: 'radio', 'aria-checked': String(n.color === c), class: `wb-color${n.color === c ? ' on' : ''}`, css: { '--c': c }, 'aria-label': c,
           onclick: () => { n.color = c; redraw(); draw(); } }))));
       }
-      parts.push(h('textarea', { class: 'wb-notes', rows: n.kind === 'note' ? 4 : 2, placeholder: n.kind === 'note' ? 'Write the note' : 'Details, links, what done looks like', value: n.notes || '',
-        oninput: (e) => { n.notes = e.target.value; redraw(); } }));
+      // The details: room to write. A blank line between parts keeps each under its own heading when read.
+      const notes = h('textarea', { class: 'wb-notes', placeholder: n.kind === 'note' ? 'Write the note' : 'Details, links, what done looks like.\n\nWho: …\n\nWhat to do: …', value: n.notes || '', spellcheck: true, 'aria-label': 'Details',
+        oninput: (e) => { n.notes = e.target.value; redraw(); } });
+      parts.push(h('label', { class: 'wb-field wb-notes-f' }, h('span', null, n.kind === 'note' ? 'The note' : 'Details'), notes));
       if (n.kind === 'step' || n.kind === 'goal') {
         parts.push(h('label', { class: 'wb-done' }, toggle(!!n.done, (v) => { n.done = v; redraw(); }), h('span', null, n.kind === 'goal' ? 'Reached' : 'Done')));
       }
       if (n.placed) parts.push(h('p', { class: 'wb-placed' }, `In your calendar: ${placedText(n.placed)}`));
-      parts.push(h('div', { class: 'pop-actions' },
-        h('button', { type: 'button', class: 'btn ghost danger', onclick: () => { closePopover(); deleteBoardCard(n); } }, icon('trash'), 'Delete'),
+      const foot = h('div', { class: 'pop-actions' },
+        h('button', { type: 'button', class: 'btn ghost danger', onclick: () => { hideCardPanel(); deleteBoardCard(n); } }, icon('trash'), 'Delete'),
         h('div', { class: 'grow' }),
         n.kind === 'step' && h('button', { type: 'button', class: 'btn', title: 'Put just this step in your calendar', onclick: () => {
-          closePopover();
           planStep(n, cardOf(n));
         } }, icon('calendar'), 'Add to calendar'),
-        h('button', { type: 'button', class: 'btn primary', onclick: closePopover }, 'Done')));
-      showPopover(anchor(), [h('div', { class: `wb-edit k-${n.kind}` }, ...parts)]);
-      if (!n.title) setTimeout(() => title.focus(), 30);
+        h('button', { type: 'button', class: 'btn primary', onclick: () => { board.panel = { id: n.id, mode: 'view' }; showCardPanel(n); } }, 'Save'));
+      panelFrame(n, [h('span', { class: 'wb-p-editing' }, 'Changing it')], [h('div', { class: `wb-edit k-${n.kind}` }, ...parts)], foot, 'edit');
+      grow(title);
+      setTimeout(() => (n.title ? null : title.focus()), 30);
     };
-    board.view.select(n.id);
+    // Changed in the panel: the canvas's redraws leave it as it is while it is typed in.
+    board.panel = { id: n.id, mode: 'edit' };
+    if (board.view.selected?.()?.id !== n.id) board.view.select(n.id);
     draw();
   }
 
@@ -13346,7 +13458,11 @@
       } else closeSettings();
     } else if (['drawer-left', 'drawer-right', 'drawer-news'].some((c) => document.body.classList.contains(c))) closeDrawers();
     else if (graph.on) closeGraph();
-    else if (board.on) closeBoards();
+    // On a board, a card open in the panel goes first: out of changing it, then put down; then the board itself.
+    else if (board.on && board.panel.id && !$('#board-panel').hidden) {
+      const n = board.cur?.nodes.find((x) => x.id === board.panel.id);
+      if (board.panel.mode === 'edit' && n) { board.panel = { id: n.id, mode: 'view' }; showCardPanel(n); } else board.view?.select(null);
+    } else if (board.on) closeBoards();
     else return false;
     return true;
   };

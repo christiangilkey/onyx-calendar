@@ -443,6 +443,7 @@
       quickFor = null; // made again for the card as it is now
       apply();
       o.onDraw?.(r);
+      o.onPick?.(sel ? node(sel) : null); // the card picked, as it is now (app.js: its panel), or none
     }
 
     // ---- adding
@@ -510,6 +511,7 @@
       for (const c of cards.children) c.classList.toggle('sel', c.dataset.id === id);
       quickFor = null;
       placeQuick();
+      o.onPick?.(node(id));
     };
     const held = (a) => {
       if (act !== a || a.moved) return;
@@ -650,6 +652,15 @@
       if (card && !e.target.closest('.wb-plus, .wb-way')) o.onOpen?.(node(card.dataset.id));
       else if (!card && !e.target.closest('.wb-label')) { const w = toWorld(e.clientX, e.clientY); add('step', { x: w.x - KINDS.step.w / 2, y: w.y - 30 }); o.onOpen?.(node(sel)); }
     });
+    // The browser scrolls the board itself to show a card that takes the focus (a click, Tab) when it is partly out of
+    // sight, which would put the cards out of step with the view: the scroll becomes a move of the view instead.
+    space.addEventListener('scroll', () => {
+      if (!space.scrollLeft && !space.scrollTop) return;
+      cam = { ...cam, x: cam.x - space.scrollLeft, y: cam.y - space.scrollTop };
+      space.scrollLeft = 0;
+      space.scrollTop = 0;
+      apply();
+    });
     space.addEventListener('wheel', (e) => {
       e.preventDefault();
       if (e.ctrlKey || e.metaKey) zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.01));
@@ -679,7 +690,8 @@
       const pad = 40;
       const z = Math.max(0.25, Math.min(1, (r.width - pad * 2) / (x1 - x0 || 1), (r.height - pad * 2) / (y1 - y0 || 1)));
       // Too small to read (a phone, a wide board): readable instead, from its left edge, to be moved along.
-      if (z < 0.55) cam = { x: pad - x0 * 0.55, y: (r.height - (y1 - y0) * 0.55) / 2 - y0 * 0.55, z: 0.55 };
+      // (A board taller than the view starts at its top, where its columns begin.)
+      if (z < 0.55) cam = { x: pad - x0 * 0.55, y: (y1 - y0) * 0.55 > r.height - pad * 2 ? pad - y0 * 0.55 : (r.height - (y1 - y0) * 0.55) / 2 - y0 * 0.55, z: 0.55 };
       else cam = { x: (r.width - (x1 - x0) * z) / 2 - x0 * z, y: (r.height - (y1 - y0) * z) / 2 - y0 * z, z };
       apply();
     }
@@ -691,6 +703,19 @@
       fit,
       zoom: (k) => { const r = space.getBoundingClientRect(); zoomAt(r.left + r.width / 2, r.top + r.height / 2, k); },
       select: (id) => { sel = id; draw(); },
+      /** Moves the view just enough that a card is in sight (`bottom`: px covered at the foot, the phone's panel). */
+      reveal: (id, { bottom = 0 } = {}) => {
+        const n = node(id);
+        if (!n) return;
+        const r = space.getBoundingClientRect(), b = box(n), m = 24;
+        const sx = cam.x + b.x * cam.z, sy = cam.y + b.y * cam.z, sw = b.w * cam.z, sh = b.h * cam.z;
+        let dx = 0, dy = 0;
+        if (sx + sw > r.width - m) dx = r.width - m - (sx + sw);
+        if (sx + dx < m) dx = m - sx;
+        if (sy + sh > r.height - bottom - m) dy = r.height - bottom - m - (sy + sh);
+        if (sy + dy < m) dy = m - sy;
+        if (dx || dy) { cam = { ...cam, x: cam.x + dx, y: cam.y + dy }; apply(); }
+      },
       selected: () => node(sel),
       setBoard: (b, c) => { board = b; sel = null; if (c) cam = { ...cam, ...c }; draw(); },
       setRoute: (on) => { showRoute = !!on; draw(); },

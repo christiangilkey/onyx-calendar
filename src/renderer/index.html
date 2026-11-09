@@ -70,7 +70,10 @@
       <!-- Boards: whiteboards for long workflows, their steps planned into the calendar (boards.js; app.js, openBoards) -->
       <section id="board" hidden>
         <div id="board-bar"></div>
-        <div id="board-space"></div>
+        <div id="board-main">
+          <div id="board-space"></div>
+          <aside id="board-panel" class="wb-panel" hidden aria-label="The card picked"></aside>
+        </div>
         <div id="board-empty" hidden></div>
       </section>
     </main>

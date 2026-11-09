@@ -3888,3 +3888,16 @@ body.mobile .wb-check { width: 24px; height: 24px; top: 7px; right: 7px; }
 .bk-heading { display: flex; align-items: center; gap: 8px; margin: 22px 0 2px; font-size: 17px; }
 .bk-heading svg { width: 18px; height: 18px; color: #ff8fa0; }
 .bk-lead { margin: 0 0 10px; color: var(--muted); font-size: 13px; line-height: 1.45; }
+/* ------------------------------------------------------------ several board cards at once (boards.js multi); Ctrl snaps to the grid */
+.wb-card.multi { box-shadow: 0 0 0 2px #b4a6ff, 0 0 0 6px color-mix(in srgb, #8b7cff 30%, transparent), 0 8px 22px rgba(0, 0, 0, .45); }
+.wb-band { position: absolute; z-index: 5; pointer-events: none; border: 1px solid var(--accent); border-radius: 4px; background: color-mix(in srgb, var(--accent) 16%, transparent); }
+/* The grid a card snaps to while it is dragged with Ctrl, moving and zooming with the board. */
+#board-space.snapping {
+  background-image: linear-gradient(rgba(180, 166, 255, .16) 1px, transparent 1px), linear-gradient(90deg, rgba(180, 166, 255, .16) 1px, transparent 1px);
+  background-size: var(--gs, 20px) var(--gs, 20px); background-position: var(--gx, 0) var(--gy, 0);
+}
+.wb-multi { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 14px;
+  border-radius: 12px; background: #1c1c23; border: 1px solid #3a3a48; box-shadow: 0 12px 30px rgba(0, 0, 0, .55); white-space: nowrap; }
+.wb-multi b { font-weight: 650; }
+.wb-multi small { color: var(--muted); font-size: 11.5px; margin-right: 4px; }
+.wb-multi .btn { height: 30px; font-size: 12.5px; }

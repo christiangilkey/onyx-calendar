@@ -12614,6 +12614,7 @@
     flushBoard();
     board.on = false;
     hideCardPanel();
+    paintMultiBar([]);
     document.body.classList.remove('board-on');
     $('#board').hidden = true;
     $('#board-toggle').classList.remove('on');
@@ -12644,6 +12645,7 @@
 
   function showBoard(b) {
     flushBoard();
+    paintMultiBar([]); // cards picked together on the last board are let go
     board.cur = b;
     const space = $('#board-space'), empty = $('#board-empty');
     $('#range').textContent = 'Boards'; // the board's own name is on its bar
@@ -12676,6 +12678,13 @@
       when: placedText,
       onCam: (c) => { clearTimeout(boardCamT); boardCamT = setTimeout(() => writeLocal(`onyx.boardCam.${board.cur?.id}`, c), 400); },
       onDraw: (r) => { board.lastRoute = r; paintBoardBar(); },
+      // Several picked together (Shift): a bar over the board for all of them; moved, deleted, one Undo.
+      onMulti: (list) => paintMultiBar(list),
+      onDeleteMany: (list) => deleteBoardCards(list),
+      onMovedMany: (spots) => {
+        const b = board.cur;
+        toast(`Moved ${spots.length} cards`, '', { label: 'Undo', run: () => { if (board.cur === b) board.view?.placeAt(spots); } });
+      },
       // The card picked shows whole in the panel beside the board, with its options under it (boardQuick).
       onPick: (n) => boardPicked(n),
       onAddHere: (at, pt) => openBoardAdd({ getBoundingClientRect: () => ({ left: pt.x, right: pt.x, top: pt.y, bottom: pt.y, width: 0, height: 0 }) }, at),
@@ -12697,7 +12706,7 @@
     const hint = h('div', { class: 'wb-hint' },
       h('span', null, MOBILE
         ? 'Tap a card to see all of it, tap again to change it. Press and hold a card to move it, or hold empty space to add one there. Drag a card’s + to join it to another.'
-        : 'Click a card to see all of it beside the board, double-click to change it. Drag to move it; right-click empty space to add one there. Drag a card’s + to join it to another.'),
+        : 'Click a card to see all of it beside the board, double-click to change it. Drag to move it (hold Ctrl to snap it to the grid); Shift and a drag picks several. Right-click empty space to add one there. Drag a card’s + to join it to another.'),
       h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Got it', title: 'Got it', onclick: () => { writeLocal('onyx.boardHint', 'done'); hint.remove(); } }, icon('x')));
     $('#board').append(hint);
   }
@@ -13192,6 +13201,44 @@
     board.panel = { id: n.id, mode: 'edit' };
     if (board.view.selected?.()?.id !== n.id) board.view.select(n.id);
     draw();
+  }
+
+  /**
+   * The bar over the board while several cards are picked together (Shift and a drag, or Shift+click): how many, and
+   * for all of them at once: tick them off (or untick), delete them, or let them go.
+   */
+  function paintMultiBar(list) {
+    let bar = $('#board-main .wb-multi');
+    if (!list?.length) { bar?.remove(); return; }
+    if (!bar) { bar = h('div', { class: 'wb-multi', role: 'toolbar', 'aria-label': 'Cards picked' }); $('#board-main').append(bar); }
+    const allDone = list.every((n) => n.done);
+    bar.replaceChildren(
+      h('b', null, `${list.length} card${list.length > 1 ? 's' : ''} picked`),
+      h('small', null, 'Drag one to move them all'),
+      h('button', { type: 'button', class: 'btn', onclick: () => {
+        for (const n of list) n.done = !allDone;
+        boardChanged();
+        board.view.draw();
+        paintMultiBar(board.view.picked());
+      } }, icon('check'), allDone ? 'Untick them' : 'Tick them off'),
+      h('button', { type: 'button', class: 'btn ghost danger', onclick: () => deleteBoardCards(list) }, icon('trash'), 'Delete'),
+      h('button', { type: 'button', class: 'icon-btn', title: 'Let them go (Esc)', 'aria-label': 'Let them go', onclick: () => board.view.clearPicked() }, icon('x')));
+  }
+
+  /** Takes several cards off the board at once, with their arrows; one Undo puts them all back. */
+  function deleteBoardCards(list) {
+    const b = board.cur;
+    if (!b || !list?.length) return;
+    if (list.length === 1) { deleteBoardCard(list[0]); return; }
+    const ids = new Set(list.map((n) => n.id));
+    const before = { nodes: structuredClone(b.nodes), links: structuredClone(b.links) };
+    b.links = b.links.filter((l) => !ids.has(l.from) && !ids.has(l.to));
+    b.nodes = b.nodes.filter((x) => !ids.has(x.id));
+    for (const x of b.nodes) if (x.chosen && !b.links.some((l) => l.id === x.chosen)) x.chosen = null;
+    boardChanged();
+    board.view.draw();
+    paintMultiBar([]);
+    toast(`Deleted ${list.length} cards`, '', { label: 'Undo', run: () => { if (board.cur !== b) return; Object.assign(b, before); boardChanged(); board.view.draw(); } });
   }
 
   /** Takes a card off the board, with the arrows to and from it; Undo puts them back. */
@@ -13832,6 +13879,7 @@
     } else if (['drawer-left', 'drawer-right', 'drawer-news'].some((c) => document.body.classList.contains(c))) closeDrawers();
     else if (graph.on) closeGraph();
     // On a board, a card open in the panel goes first: out of changing it, then put down; then the board itself.
+    else if (board.on && board.view?.picked?.().length) board.view.clearPicked();
     else if (board.on && board.tool !== 'move') setBoardTool('move');
     else if (board.on && board.panel.id && !$('#board-panel').hidden) {
       const n = board.cur?.nodes.find((x) => x.id === board.panel.id);

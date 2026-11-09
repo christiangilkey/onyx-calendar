@@ -134,6 +134,16 @@
     return { d: `M${r(p1.x)} ${r(p1.y)} C${r(c1.x)} ${r(c1.y)} ${r(c2.x)} ${r(c2.y)} ${r(p2.x)} ${r(p2.y)}`, mid, start: p1, end: p2 };
   }
 
+  /** The board's grid (Ctrl while dragging snaps a card's corner to it): a number to the nearest step. */
+  const GRID = 20;
+  const snap = (v, step = GRID) => Math.round(v / step) * step;
+
+  /** The cards a band ({ x0, y0, x1, y1 }, in the board's units, any corners) touches, given each card's box. */
+  function inBand(nodes, band, boxOf) {
+    const x0 = Math.min(band.x0, band.x1), x1 = Math.max(band.x0, band.x1), y0 = Math.min(band.y0, band.y1), y1 = Math.max(band.y0, band.y1);
+    return nodes.filter((n) => { const b = boxOf(n); return b.x < x1 && b.x + b.w > x0 && b.y < y1 && b.y + b.h > y0; }).map((n) => n.id);
+  }
+
   /** A short length: "45 min", "1 h 30 min". */
   const lengthText = (m) => {
     const n = Math.round(Number(m) || 0);
@@ -452,9 +462,19 @@
     /** The quick options made again (a change to the card picked: done, its colour). */
     const freshQuick = () => { quickFor = null; placeQuick(); };
 
+    // Several cards picked at once (Shift and a band, or Shift+click): they move, tick off and delete together.
+    const multi = new Set();
+    const multiNodes = () => board.nodes.filter((n) => multi.has(n.id));
+    const tellMulti = () => o.onMulti?.(multiNodes());
     const apply = () => {
       world.style.transform = `translate(${Math.round(cam.x)}px, ${Math.round(cam.y)}px) scale(${cam.z})`;
       space.style.setProperty('--z', String(cam.z));
+      space.style.setProperty('--gx', `${Math.round(cam.x)}px`);
+      space.style.setProperty('--gy', `${Math.round(cam.y)}px`);
+      // Zoomed out, every 2nd or 4th line of the grid shows (never closer than 12px); cards still snap to every one.
+      let gs = GRID * cam.z;
+      while (gs < 12) gs *= 2;
+      space.style.setProperty('--gs', `${gs}px`);
       o.onCam?.({ ...cam });
       placeQuick();
     };
@@ -469,7 +489,7 @@
     function cardEl(n, r) {
       const k = KINDS[n.kind] || KINDS.step;
       const off = showRoute && r.off.has(n.id), open = r.open.includes(n.id);
-      const c = el('div', `wb-card k-${n.kind}${n.done ? ' done' : ''}${sel === n.id ? ' sel' : ''}${off ? ' off' : ''}${open ? ' open' : ''}${showRoute && r.order.includes(n.id) ? ' on' : ''}`);
+      const c = el('div', `wb-card k-${n.kind}${n.done ? ' done' : ''}${sel === n.id ? ' sel' : ''}${multi.has(n.id) ? ' multi' : ''}${off ? ' off' : ''}${open ? ' open' : ''}${showRoute && r.order.includes(n.id) ? ' on' : ''}`);
       c.dataset.id = n.id;
       c.tabIndex = 0;
       c.style.left = `${n.x}px`;
@@ -569,6 +589,7 @@
       measure();
       drawLines(r);
       if (sel && !node(sel)) sel = null;
+      for (const id of [...multi]) if (!node(id)) multi.delete(id);
       quickFor = null; // made again for the card as it is now
       apply();
       o.onDraw?.(r);
@@ -693,8 +714,16 @@
       if (t.closest('.wb-check') && card) { const id = card.dataset.id; act = { ...base, type: 'tap', run: () => { const n = node(id); if (!n) return; n.done = !n.done; changed(); draw(); } }; }
       else if (t.closest('.wb-way')) { const w = t.closest('.wb-way'); act = { ...base, type: 'tap', run: () => choose(w.dataset.node, w.dataset.link) }; }
       else if (t.closest('.wb-plus') && card) act = { ...base, type: 'link', from: card.dataset.id };
-      else if (card) { const n = node(card.dataset.id); act = { ...base, type: 'card', n, nx: n.x, ny: n.y, el: card, picked: !touchy || sel === n.id }; }
-      else if (t.closest('.wb-label, .wb-hit')) { const l = t.closest('[data-link]'); act = { ...base, type: 'tap', run: () => o.onOpenLink?.(board.links.find((x) => x.id === l.dataset.link), l.getBoundingClientRect()) }; }
+      else if (card) {
+        const n = node(card.dataset.id);
+        act = { ...base, type: 'card', n, nx: n.x, ny: n.y, el: card, picked: !touchy || sel === n.id, shift: e.shiftKey };
+        // One of several picked: they all go with it, the same way.
+        if (multi.has(n.id) && multi.size > 1) act.group = multiNodes().map((m) => ({ n: m, x: m.x, y: m.y, el: cards.querySelector(`.wb-card[data-id="${CSS.escape(m.id)}"]`) }));
+      } else if (e.shiftKey && !touchy && !t.closest('.wb-label, .wb-hit')) {
+        const band = el('div', 'wb-band');
+        space.append(band);
+        act = { ...base, type: 'band', band, w0: toWorld(e.clientX, e.clientY), keep: new Set(multi) };
+      } else if (t.closest('.wb-label, .wb-hit')) { const l = t.closest('[data-link]'); act = { ...base, type: 'tap', run: () => o.onOpenLink?.(board.links.find((x) => x.id === l.dataset.link), l.getBoundingClientRect()) }; }
       else act = { ...base, type: 'pan' };
       if (touchy && (act.type === 'card' || act.type === 'pan')) { const a = act; a.hold = setTimeout(() => held(a), HOLD_MS); }
       if (act.type !== 'tap') e.preventDefault();
@@ -746,12 +775,25 @@
       if (!act.moved) return;
       if (act.type === 'tap') { act = null; return; }
       if (act.type === 'pan') { cam.x = act.cx + dx; cam.y = act.cy + dy; apply(); }
-      else if (act.type === 'card') {
-        act.n.x = Math.round(act.nx + dx / cam.z);
-        act.n.y = Math.round(act.ny + dy / cam.z);
-        act.el.style.left = `${act.n.x}px`;
-        act.el.style.top = `${act.n.y}px`;
-        act.el.classList.add('dragging');
+      else if (act.type === 'band') {
+        const r = space.getBoundingClientRect();
+        Object.assign(act.band.style, { left: `${Math.min(act.x0, e.clientX) - r.left}px`, top: `${Math.min(act.y0, e.clientY) - r.top}px`, width: `${Math.abs(dx)}px`, height: `${Math.abs(dy)}px` });
+        const w = toWorld(e.clientX, e.clientY);
+        const hits = new Set([...act.keep, ...inBand(board.nodes, { x0: act.w0.x, y0: act.w0.y, x1: w.x, y1: w.y }, box)]);
+        for (const c of cards.children) c.classList.toggle('multi', hits.has(c.dataset.id));
+        act.hits = hits;
+      } else if (act.type === 'card') {
+        // Ctrl (Cmd on a Mac) held: the card's corner goes to the board's grid, and the grid shows.
+        const grid = e.ctrlKey || e.metaKey;
+        space.classList.toggle('snapping', grid);
+        let x = act.nx + dx / cam.z, y = act.ny + dy / cam.z;
+        if (grid) { x = snap(x); y = snap(y); }
+        const mx = Math.round(x) - act.nx, my = Math.round(y) - act.ny;
+        for (const g of act.group || [{ n: act.n, x: act.nx, y: act.ny, el: act.el }]) {
+          g.n.x = g.x + mx;
+          g.n.y = g.y + my;
+          if (g.el) { g.el.style.left = `${g.n.x}px`; g.el.style.top = `${g.n.y}px`; g.el.classList.add('dragging'); }
+        }
         drawLines();
       } else if (act.type === 'link') {
         const a = box(node(act.from)), w = toWorld(e.clientX, e.clientY);
@@ -791,10 +833,35 @@
         return;
       }
       if (a.type === 'tap') { a.run(); return; }
-      if (a.type === 'pan') { if (!a.moved && sel) { sel = null; draw(); } else placeQuick(); return; }
+      if (a.type === 'band') {
+        a.band.remove();
+        multi.clear();
+        for (const id of a.hits || a.keep) multi.add(id);
+        sel = null;
+        draw();
+        tellMulti();
+        return;
+      }
+      if (a.type === 'pan') {
+        if (!a.moved && (sel || multi.size)) { sel = null; const had = multi.size; multi.clear(); draw(); if (had) tellMulti(); } else placeQuick();
+        return;
+      }
       if (a.type === 'card') {
         a.el.classList.remove('lifted');
+        space.classList.remove('snapping');
+        if (a.moved && a.group) { changed(); draw(); o.onMovedMany?.(a.group.map((g) => ({ id: g.n.id, x: g.x, y: g.y }))); return; }
         if (a.moved) { sel = a.n.id; changed(); draw(); return; }
+        // Shift+click: in or out of the cards picked together (the one picked on its own joins them).
+        if (a.shift) {
+          if (sel && sel !== a.n.id && !multi.size) multi.add(sel);
+          if (multi.has(a.n.id)) multi.delete(a.n.id); else multi.add(a.n.id);
+          sel = null;
+          draw();
+          tellMulti();
+          return;
+        }
+        // A plain click: just this card, the others let go.
+        if (multi.size) { multi.clear(); draw(); tellMulti(); }
         if (a.lifted) { placeQuick(); return; } // held and let go: picked, with its options
         if (sel === a.n.id) o.onOpen?.(a.n); // a tap on the card picked: open it
         else pickCard(a.n.id);
@@ -818,7 +885,8 @@
       if (act?.type === 'link') tempEnd();
       if (act?.type === 'draw') act.live.remove();
       if (act?.type === 'erase' && strokesOf() !== act.before) { inkUndo.push(act.before); changed(); }
-      if (act?.type === 'card') { act.el.classList.remove('lifted'); if (act.moved) { changed(); draw(); } }
+      if (act?.type === 'band') act.band.remove();
+      if (act?.type === 'card') { act.el.classList.remove('lifted'); space.classList.remove('snapping'); if (act.moved) { changed(); draw(); } }
       act = null;
       placeQuick();
     };
@@ -845,9 +913,14 @@
       if (e.ctrlKey || e.metaKey) zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.01));
       else { cam.x -= e.deltaX; cam.y -= e.deltaY; apply(); }
     }, { passive: false });
+    const onKey = (e) => {
+      if (!multi.size || !space.isConnected || !space.offsetParent || e.target.closest?.('input, textarea, select, [contenteditable]')) return;
+      if ((e.key === 'Delete' || e.key === 'Backspace') && o.onDeleteMany) { e.preventDefault(); o.onDeleteMany(multiNodes()); }
+    };
+    addEventListener('keydown', onKey);
     space.addEventListener('keydown', (e) => {
       const card = e.target.closest?.('.wb-card');
-      if (!card) return;
+      if (!card || multi.size) return;
       if (e.key === 'Enter') { e.preventDefault(); o.onOpen?.(node(card.dataset.id)); }
       else if ((e.key === 'Delete' || e.key === 'Backspace') && o.onDelete) { e.preventDefault(); o.onDelete(node(card.dataset.id)); }
     });
@@ -897,7 +970,7 @@
         if (dx || dy) { cam = { ...cam, x: cam.x + dx, y: cam.y + dy }; apply(); }
       },
       selected: () => node(sel),
-      setBoard: (b, c) => { board = b; sel = null; inkUndo.length = 0; if (c) cam = { ...cam, ...c }; draw(); },
+      setBoard: (b, c) => { board = b; sel = null; multi.clear(); inkUndo.length = 0; if (c) cam = { ...cam, ...c }; draw(); },
       /** What a press on the board does: 'move', 'pen' or 'eraser'. */
       setTool: (t) => {
         tool = ['pen', 'eraser'].includes(t) ? t : 'move';
@@ -912,14 +985,19 @@
       canUndoInk: () => inkUndo.length > 0,
       clearInk: () => { if (!strokesOf().length) return false; keepInkUndo(); board.strokes = []; drawInk(); changed(); return true; },
       inkCount: () => strokesOf().length,
+      /** The cards picked together (Shift), and letting them go. */
+      picked: () => multiNodes(),
+      clearPicked: () => { if (!multi.size) return false; multi.clear(); draw(); tellMulti(); return true; },
+      /** Puts cards back where they were (undo of moving several): [{ id, x, y }]. */
+      placeAt: (spots) => { for (const p of spots || []) { const n = node(p.id); if (n) { n.x = p.x; n.y = p.y; } } changed(); draw(); },
       setRoute: (on) => { showRoute = !!on; draw(); },
-      destroy: () => { removeEventListener('pointermove', onMove); removeEventListener('pointerup', onUp); removeEventListener('pointercancel', onCancel); },
+      destroy: () => { removeEventListener('keydown', onKey); removeEventListener('pointermove', onMove); removeEventListener('pointerup', onUp); removeEventListener('pointercancel', onCancel); },
     };
     draw();
     return api;
   }
 
-  const api = { KINDS, NOTE_COLORS, route, planSteps, backToBack, branchName, linkPath, lengthText, newBoard, newId, fromList, rowsOf, mount, inkPath, simplifyInk, eraseInk, hsvToHex, hexToHsv };
+  const api = { KINDS, NOTE_COLORS, route, planSteps, backToBack, branchName, linkPath, lengthText, newBoard, newId, fromList, rowsOf, mount, inkPath, simplifyInk, eraseInk, hsvToHex, hexToHsv, GRID, snap, inBand };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else globalThis.OnyxBoards = api;
 })();

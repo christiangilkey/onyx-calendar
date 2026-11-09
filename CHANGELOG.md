@@ -2,9 +2,19 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.126.0 · The blocker is part of the doomscroll saver now, and daily limits take your own websites and apps
+## 1.127.0 · Boards: hold Ctrl to snap a card to the grid, and Shift to pick several cards at once
 
 _2026-11-09_
+
+- Hold Ctrl while you drag a card on a board (Cmd on a Mac), and it snaps to a grid. The grid shows faintly while you hold it, so cards line up neatly. Let go of Ctrl to place it freely again.
+- Hold Shift and drag on an empty part of the board to draw a box. Every card it touches is picked. Shift-click a card to add it to the ones picked, or take it out.
+- Drag any of the picked cards and they all move together, the same way. Ctrl snaps them to the grid too. One Undo puts them all back where they were.
+- While cards are picked, a bar over the board says how many, with Tick them off (or Untick them), Delete and ×. Delete (or the Delete key) takes them all off the board with their arrows, and Undo brings them back.
+- Escape, a click on an empty part of the board, or a plain click on one card lets go of the others.
+
+## 1.126.0 · The blocker is part of the doomscroll saver now, and daily limits take your own websites and apps
+
+_2026-11-08_
 
 - Settings → Doomscroll saver is now one place for staying off distractions: the card in the corner, Daily limits, and the Blocker's lists below them. It sits in the Focus group, on the phone, the PC and Onyx on the web.
 - On the PC and the web, the page has the Blocker and a note that the card and the daily limits are set in the phone app. Searching Settings for "Blocker", or any of its settings, still takes you there.

@@ -8,6 +8,8 @@ const store = require('./store');
 
 const KINDS = new Set(['step', 'decision', 'goal', 'note']);
 const MAX_BOARDS = 200, MAX_NODES = 500, MAX_LINKS = 1000;
+// Drawing on the board (the pencil): strokes of points in the board's own units, each with its colour and width.
+const MAX_STROKES = 1500, MAX_STROKE_PTS = 4000, MAX_INK_PTS = 60000;
 const text = (v, max) => String(v ?? '').slice(0, max);
 const num = (v, lo, hi, d = 0) => (Number.isFinite(+v) ? Math.max(lo, Math.min(hi, Math.round(+v))) : d);
 const COLOR = /^#[0-9a-f]{6}$/i;
@@ -29,7 +31,7 @@ function clean(b) {
     const out = { id: n.id, kind, x: num(n.x, -1e6, 1e6), y: num(n.y, -1e6, 1e6), title: text(n.title, 300), notes: text(n.notes, 4000) };
     if (n.w) out.w = num(n.w, 120, 600, 200);
     if (kind === 'step') out.minutes = num(n.minutes, 0, 12 * 60, 30);
-    if ((kind === 'step' || kind === 'goal') && n.done) out.done = true;
+    if (n.done) out.done = true; // every card can be ticked off (its box at the top right)
     if (kind === 'note' && COLOR.test(String(n.color || ''))) out.color = n.color;
     if (kind === 'decision' && n.chosen) out.chosen = text(n.chosen, 64);
     if (kind === 'step' && n.placed && typeof n.placed === 'object' && n.placed.start) {
@@ -47,7 +49,31 @@ function clean(b) {
   }
   // A decision's pick that is no longer one of its arrows is no pick.
   for (const n of nodes) if (n.chosen && !links.some((l) => l.id === n.chosen && l.from === n.id)) delete n.chosen;
-  return { id: b.id, title: text(b.title, 120).trim() || 'Untitled board', nodes, links, created: text(b.created, 40) || new Date().toISOString(), updated: new Date().toISOString() };
+  const strokes = cleanStrokes(b.strokes);
+  return { id: b.id, title: text(b.title, 120).trim() || 'Untitled board', nodes, links, ...(strokes.length ? { strokes } : {}), created: text(b.created, 40) || new Date().toISOString(), updated: new Date().toISOString() };
+}
+
+/** The drawing as kept: strokes with a colour, a width and whole-number points [x0, y0, x1, y1, …], within bounds. */
+function cleanStrokes(list) {
+  const out = [];
+  const seen = new Set();
+  let total = 0;
+  for (const st of Array.isArray(list) ? list : []) {
+    if (out.length >= MAX_STROKES || total >= MAX_INK_PTS) break;
+    if (!st || !ID.test(String(st.id)) || seen.has(st.id) || !Array.isArray(st.pts)) continue;
+    const pts = [];
+    const room = Math.min(MAX_STROKE_PTS, MAX_INK_PTS - total) * 2;
+    for (let i = 0; i + 1 < st.pts.length && pts.length < room; i += 2) {
+      const x = +st.pts[i], y = +st.pts[i + 1];
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      pts.push(num(x, -1e6, 1e6), num(y, -1e6, 1e6));
+    }
+    if (pts.length < 2) continue;
+    seen.add(st.id);
+    total += pts.length / 2;
+    out.push({ id: st.id, color: COLOR.test(String(st.color || '')) ? st.color.toLowerCase() : '#f1f1f4', width: num(st.width, 1, 40, 3), pts });
+  }
+  return out;
 }
 
 /** Every board, the one changed last first. */
@@ -76,4 +102,4 @@ function remove(id) {
   return { ok: true };
 }
 
-module.exports = { boards, save, remove, clean, MAX_NODES, MAX_LINKS };
+module.exports = { boards, save, remove, clean, cleanStrokes, MAX_NODES, MAX_LINKS, MAX_STROKES, MAX_INK_PTS };

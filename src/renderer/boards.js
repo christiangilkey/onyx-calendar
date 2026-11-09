@@ -172,6 +172,115 @@
     return b;
   }
 
+  // ------------------------------------------------------------ drawing on the board (the pencil and the eraser)
+  // A stroke: { id, color: '#rrggbb', width (the board's units), pts: [x0, y0, x1, y1, …] } in the board's units, so
+  // it moves and zooms with the cards. Kept with the board (src/main/boards.js cleanStrokes).
+
+  /** A stroke's points as a smooth SVG path: a curve through the middle of each pair of points. A single point: a dot. */
+  function inkPath(pts) {
+    const n = Math.floor((pts || []).length / 2);
+    if (!n) return '';
+    const r = (v) => Math.round(v * 10) / 10;
+    if (n === 1) return `M${r(pts[0])} ${r(pts[1])} l0.01 0`;
+    if (n === 2) return `M${r(pts[0])} ${r(pts[1])} L${r(pts[2])} ${r(pts[3])}`;
+    let d = `M${r(pts[0])} ${r(pts[1])}`;
+    for (let i = 1; i < n - 1; i++) {
+      const x = pts[i * 2], y = pts[i * 2 + 1], mx = (x + pts[i * 2 + 2]) / 2, my = (y + pts[i * 2 + 3]) / 2;
+      d += ` Q${r(x)} ${r(y)} ${r(mx)} ${r(my)}`;
+    }
+    return `${d} L${r(pts[(n - 1) * 2])} ${r(pts[(n - 1) * 2 + 1])}`;
+  }
+
+  /** Fewer points for the same line (Ramer–Douglas–Peucker, within `tol`), as whole numbers. */
+  function simplifyInk(pts, tol = 0.8) {
+    const n = Math.floor((pts || []).length / 2);
+    if (n <= 2) return (pts || []).slice(0, n * 2).map(Math.round);
+    const keep = new Uint8Array(n);
+    keep[0] = keep[n - 1] = 1;
+    const stack = [[0, n - 1]];
+    while (stack.length) {
+      const [a, b] = stack.pop();
+      const ax = pts[a * 2], ay = pts[a * 2 + 1], bx = pts[b * 2], by = pts[b * 2 + 1];
+      const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy) || 1;
+      let far = -1, best = tol;
+      for (let i = a + 1; i < b; i++) {
+        const d = Math.abs(dy * pts[i * 2] - dx * pts[i * 2 + 1] + bx * ay - by * ax) / len;
+        if (d > best) { best = d; far = i; }
+      }
+      if (far > 0) { keep[far] = 1; stack.push([a, far], [far, b]); }
+    }
+    const out = [];
+    for (let i = 0; i < n; i++) if (keep[i]) out.push(Math.round(pts[i * 2]), Math.round(pts[i * 2 + 1]));
+    return out;
+  }
+
+  /** Points no further apart than `step`: a long straight bit gets points along it (so the eraser can cut it). */
+  function densify(pts, step) {
+    const out = [];
+    for (let i = 0; i + 1 < pts.length; i += 2) {
+      if (i >= 2) {
+        const px = pts[i - 2], py = pts[i - 1], dx = pts[i] - px, dy = pts[i + 1] - py;
+        const k = Math.floor(Math.hypot(dx, dy) / step);
+        for (let j = 1; j <= k; j++) out.push(px + (dx * j) / (k + 1), py + (dy * j) / (k + 1));
+      }
+      out.push(pts[i], pts[i + 1]);
+    }
+    return out;
+  }
+
+  /**
+   * The drawing with what the eraser went over taken out: every stroke loses its points within `r` of the eraser's
+   * path (flat points), and splits where it was cut; what is left of each keeps its colour and width. A stroke the
+   * eraser never came near is kept as it was (the same object). `newIdFn` names the pieces of a cut stroke.
+   */
+  function eraseInk(strokes, path, r, newIdFn = () => newId('s')) {
+    const ep = densify(path || [], Math.max(1, r / 2));
+    if (!ep.length) return strokes || [];
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (let i = 0; i < ep.length; i += 2) { x0 = Math.min(x0, ep[i]); x1 = Math.max(x1, ep[i]); y0 = Math.min(y0, ep[i + 1]); y1 = Math.max(y1, ep[i + 1]); }
+    const near = (x, y) => {
+      for (let i = 0; i < ep.length; i += 2) if ((ep[i] - x) ** 2 + (ep[i + 1] - y) ** 2 <= r * r) return true;
+      return false;
+    };
+    const out = [];
+    for (const st of strokes || []) {
+      const reach = r + (st.width || 1) / 2;
+      // Near it at all? Each bit of the line (not just its points: a long straight bit has none in its middle).
+      let hit = false;
+      for (let i = 0; i + 1 < st.pts.length && !hit; i += 2) {
+        const x = st.pts[i], y = st.pts[i + 1], px = i ? st.pts[i - 2] : x, py = i ? st.pts[i - 1] : y;
+        if (Math.max(x, px) >= x0 - reach && Math.min(x, px) <= x1 + reach && Math.max(y, py) >= y0 - reach && Math.min(y, py) <= y1 + reach) hit = true;
+      }
+      if (!hit) { out.push(st); continue; } // nowhere near: as it was
+      const dense = densify(st.pts, Math.max(1, r / 3));
+      const pieces = [];
+      let cur = [];
+      for (let i = 0; i + 1 < dense.length; i += 2) {
+        if (near(dense[i], dense[i + 1])) { if (cur.length) pieces.push(cur); cur = []; } else cur.push(dense[i], dense[i + 1]);
+      }
+      if (cur.length) pieces.push(cur);
+      if (pieces.length === 1 && pieces[0].length === dense.length) { out.push(st); continue; } // went close, cut nothing
+      for (const p of pieces) if (p.length >= 4) out.push({ id: newIdFn(), color: st.color, width: st.width, pts: simplifyInk(p, 0.6) });
+    }
+    return out;
+  }
+
+  /** A colour from the wheel: hue 0–360, saturation and brightness 0–1, as '#rrggbb'. */
+  function hsvToHex(h, s, v) {
+    const f = (k) => { const n = (k + h / 60) % 6; return v - v * s * Math.max(0, Math.min(n, 4 - n, 1)); };
+    return `#${[f(5), f(3), f(1)].map((c) => Math.round(c * 255).toString(16).padStart(2, '0')).join('')}`;
+  }
+  /** '#rrggbb' as { h, s, v }, to put the wheel's marker where a colour already is. */
+  function hexToHsv(hex) {
+    const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''));
+    if (!m) return { h: 0, s: 0, v: 1 };
+    const [r, g, b] = [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16) / 255);
+    const max = Math.max(r, g, b), d = max - Math.min(r, g, b);
+    let h = 0;
+    if (d) h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return { h: Math.round(((h * 60) + 360) % 360), s: max ? d / max : 0, v: max };
+  }
+
   // ------------------------------------------------------------ cards from a list
 
   /** Text as rows of cells: copied from a spreadsheet (tabs between cells, quoted when a cell has line breaks), or one line a row. */
@@ -306,7 +415,17 @@
     temp.append(tempPath);
     const labels = el('div', 'wb-labels');
     const cards = el('div', 'wb-cards');
-    world.append(lines, labels, cards, temp);
+    // The drawing: under everything else, in the board's own units (a 1×1 box that shows all of it, overflowing).
+    const ink = svgEl('svg', { class: 'wb-ink', viewBox: '0 0 1 1', 'aria-hidden': 'true' });
+    world.append(ink, lines, labels, cards, temp);
+    // What a press on the board does: 'move' (pick, drag, pan), 'pen' (draw) or 'eraser' (rub out).
+    let tool = 'move';
+    let pen = { color: '#f1f1f4', size: 3 };
+    const inkUndo = []; // the drawing as it was before each stroke, rub or clear (this visit)
+    const strokesOf = () => (Array.isArray(board.strokes) ? board.strokes : []);
+    const strokeEl = (st) => svgEl('path', { d: inkPath(st.pts), stroke: st.color, 'stroke-width': st.width, class: 'wb-stroke' });
+    function drawInk() { ink.replaceChildren(...strokesOf().map(strokeEl)); }
+    const keepInkUndo = () => { inkUndo.push(strokesOf()); if (inkUndo.length > 60) inkUndo.shift(); };
     // The quick options for the card picked (o.quick builds them): over it, at full size whatever the zoom.
     const quick = el('div', 'wb-quick');
     quick.setAttribute('role', 'toolbar');
@@ -384,6 +503,15 @@
         }
         c.append(ways);
       }
+      // Ticked off or not: the box at the top right of every card.
+      const check = el('button', `wb-check${n.done ? ' on' : ''}`);
+      check.type = 'button';
+      check.dataset.node = n.id;
+      check.title = n.done ? 'Done. Tap to untick it' : 'Tick it off';
+      check.setAttribute('aria-label', check.title);
+      check.setAttribute('aria-pressed', String(!!n.done));
+      check.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>'; // constant markup
+      c.append(check);
       const plus = el('button', 'wb-plus', '+');
       plus.type = 'button';
       plus.title = n.kind === 'decision' ? 'Drag to a card to add a way it can go, or tap for a new one' : 'Drag to a card to join them, or tap for the next step';
@@ -436,6 +564,7 @@
 
     function draw() {
       const r = route(board);
+      drawInk();
       cards.replaceChildren(...board.nodes.map((n) => cardEl(n, r)));
       measure();
       drawLines(r);
@@ -532,6 +661,7 @@
       pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (pts.size === 2) {
         const p = pinchInfo();
+        if (act?.type === 'draw') act.live?.remove(); // two fingers: a pinch, not a line
         tempEnd();
         clearTimeout(act?.hold);
         act = { type: 'pinch', d0: p.d, z0: cam.z, w: toWorld(p.x, p.y) };
@@ -545,7 +675,23 @@
       if (touchy) touchAt = Date.now();
       const card = t.closest('.wb-card');
       const base = { x0: e.clientX, y0: e.clientY, moved: false, id: e.pointerId, touchy, cx: cam.x, cy: cam.y };
-      if (t.closest('.wb-way')) { const w = t.closest('.wb-way'); act = { ...base, type: 'tap', run: () => choose(w.dataset.node, w.dataset.link) }; }
+      if (tool !== 'move') {
+        const w = toWorld(e.clientX, e.clientY);
+        if (tool === 'pen') {
+          const live = svgEl('path', { class: 'wb-stroke', stroke: pen.color, 'stroke-width': Math.max(1, Math.min(40, pen.size / cam.z)) });
+          ink.append(live);
+          act = { ...base, type: 'draw', pts: [w.x, w.y], live, width: Math.max(1, Math.min(40, Math.round((pen.size / cam.z) * 10) / 10)) };
+          live.setAttribute('d', inkPath(act.pts));
+        } else {
+          act = { ...base, type: 'erase', before: strokesOf(), last: w, r: 12 / cam.z };
+          const now = strokesOf(), after = eraseInk(now, [w.x, w.y], act.r);
+          if (after.length !== now.length || after.some((x, i) => x !== now[i])) { board.strokes = after; drawInk(); }
+        }
+        e.preventDefault();
+        return;
+      }
+      if (t.closest('.wb-check') && card) { const id = card.dataset.id; act = { ...base, type: 'tap', run: () => { const n = node(id); if (!n) return; n.done = !n.done; changed(); draw(); } }; }
+      else if (t.closest('.wb-way')) { const w = t.closest('.wb-way'); act = { ...base, type: 'tap', run: () => choose(w.dataset.node, w.dataset.link) }; }
       else if (t.closest('.wb-plus') && card) act = { ...base, type: 'link', from: card.dataset.id };
       else if (card) { const n = node(card.dataset.id); act = { ...base, type: 'card', n, nx: n.x, ny: n.y, el: card, picked: !touchy || sel === n.id }; }
       else if (t.closest('.wb-label, .wb-hit')) { const l = t.closest('[data-link]'); act = { ...base, type: 'tap', run: () => o.onOpenLink?.(board.links.find((x) => x.id === l.dataset.link), l.getBoundingClientRect()) }; }
@@ -557,6 +703,7 @@
     space.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       if (Date.now() - touchAt < 1500) return; // a finger's long press: already handled
+      if (tool !== 'move') return; // drawing: no menus
       const card = e.target.closest('.wb-card');
       if (card) pickCard(card.dataset.id);
       else if (!e.target.closest('.wb-quick, .wb-label')) o.onAddHere?.(toWorld(e.clientX, e.clientY), { x: e.clientX, y: e.clientY });
@@ -575,6 +722,20 @@
         return;
       }
       if (e.pointerId !== act.id) return;
+      if (act.type === 'draw') {
+        const w = toWorld(e.clientX, e.clientY), n = act.pts.length;
+        if (Math.hypot(w.x - act.pts[n - 2], w.y - act.pts[n - 1]) * cam.z < 1.5) return; // too close to the last point
+        act.pts.push(w.x, w.y);
+        if (!act.raf) act.raf = requestAnimationFrame(() => { if (act?.type === 'draw') { act.raf = 0; act.live.setAttribute('d', inkPath(act.pts)); } });
+        return;
+      }
+      if (act.type === 'erase') {
+        const w = toWorld(e.clientX, e.clientY);
+        const now = strokesOf(), after = eraseInk(now, [act.last.x, act.last.y, w.x, w.y], act.r);
+        act.last = w;
+        if (after.length !== now.length || after.some((x, i) => x !== now[i])) { board.strokes = after; drawInk(); }
+        return;
+      }
       const dx = e.clientX - act.x0, dy = e.clientY - act.y0;
       if (!act.moved && Math.hypot(dx, dy) > (act.touchy ? 8 : 5)) {
         act.moved = true;
@@ -614,6 +775,21 @@
       if (e.pointerId !== a.id) return;
       clearTimeout(a.hold);
       act = null;
+      if (a.type === 'draw') {
+        cancelAnimationFrame(a.raf);
+        a.live.remove();
+        const pts = simplifyInk(a.pts, Math.max(0.3, 0.6 / cam.z));
+        if (pts.length < 2) return;
+        keepInkUndo();
+        board.strokes = [...strokesOf(), { id: newId('s'), color: pen.color, width: a.width, pts }];
+        drawInk();
+        changed();
+        return;
+      }
+      if (a.type === 'erase') {
+        if (strokesOf() !== a.before) { inkUndo.push(a.before); if (inkUndo.length > 60) inkUndo.shift(); changed(); }
+        return;
+      }
       if (a.type === 'tap') { a.run(); return; }
       if (a.type === 'pan') { if (!a.moved && sel) { sel = null; draw(); } else placeQuick(); return; }
       if (a.type === 'card') {
@@ -640,6 +816,8 @@
       pts.delete(e.pointerId);
       clearTimeout(act?.hold);
       if (act?.type === 'link') tempEnd();
+      if (act?.type === 'draw') act.live.remove();
+      if (act?.type === 'erase' && strokesOf() !== act.before) { inkUndo.push(act.before); changed(); }
       if (act?.type === 'card') { act.el.classList.remove('lifted'); if (act.moved) { changed(); draw(); } }
       act = null;
       placeQuick();
@@ -648,8 +826,9 @@
     addEventListener('pointerup', onUp);
     addEventListener('pointercancel', onCancel);
     space.addEventListener('dblclick', (e) => {
+      if (tool !== 'move') return;
       const card = e.target.closest('.wb-card');
-      if (card && !e.target.closest('.wb-plus, .wb-way')) o.onOpen?.(node(card.dataset.id));
+      if (card && !e.target.closest('.wb-plus, .wb-way, .wb-check')) o.onOpen?.(node(card.dataset.id));
       else if (!card && !e.target.closest('.wb-label')) { const w = toWorld(e.clientX, e.clientY); add('step', { x: w.x - KINDS.step.w / 2, y: w.y - 30 }); o.onOpen?.(node(sel)); }
     });
     // The browser scrolls the board itself to show a card that takes the focus (a click, Tab) when it is partly out of
@@ -683,10 +862,11 @@
 
     /** The whole board in view (zoomed out as far as needed, never in past full size). */
     function fit() {
-      if (!board.nodes.length) { cam = { x: 40, y: 40, z: 1 }; apply(); return; }
+      if (!board.nodes.length && !strokesOf().length) { cam = { x: 40, y: 40, z: 1 }; apply(); return; }
       const r = space.getBoundingClientRect();
       let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
       for (const n of board.nodes) { const b = box(n); x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + b.w); y1 = Math.max(y1, b.y + b.h); }
+      for (const st of strokesOf()) for (let i = 0; i + 1 < st.pts.length; i += 2) { x0 = Math.min(x0, st.pts[i]); x1 = Math.max(x1, st.pts[i]); y0 = Math.min(y0, st.pts[i + 1]); y1 = Math.max(y1, st.pts[i + 1]); }
       const pad = 40;
       const z = Math.max(0.25, Math.min(1, (r.width - pad * 2) / (x1 - x0 || 1), (r.height - pad * 2) / (y1 - y0 || 1)));
       // Too small to read (a phone, a wide board): readable instead, from its left edge, to be moved along.
@@ -717,7 +897,21 @@
         if (dx || dy) { cam = { ...cam, x: cam.x + dx, y: cam.y + dy }; apply(); }
       },
       selected: () => node(sel),
-      setBoard: (b, c) => { board = b; sel = null; if (c) cam = { ...cam, ...c }; draw(); },
+      setBoard: (b, c) => { board = b; sel = null; inkUndo.length = 0; if (c) cam = { ...cam, ...c }; draw(); },
+      /** What a press on the board does: 'move', 'pen' or 'eraser'. */
+      setTool: (t) => {
+        tool = ['pen', 'eraser'].includes(t) ? t : 'move';
+        space.classList.toggle('drawing', tool !== 'move');
+        space.dataset.tool = tool;
+        if (tool !== 'move' && sel) { sel = null; draw(); } // a card picked is put down while drawing
+      },
+      tool: () => tool,
+      setPen: (p) => { pen = { ...pen, ...(p || {}) }; },
+      /** The drawing back as it was before the last stroke, rub or clear. False when there is nothing to undo. */
+      undoInk: () => { if (!inkUndo.length) return false; board.strokes = inkUndo.pop(); drawInk(); changed(); return true; },
+      canUndoInk: () => inkUndo.length > 0,
+      clearInk: () => { if (!strokesOf().length) return false; keepInkUndo(); board.strokes = []; drawInk(); changed(); return true; },
+      inkCount: () => strokesOf().length,
       setRoute: (on) => { showRoute = !!on; draw(); },
       destroy: () => { removeEventListener('pointermove', onMove); removeEventListener('pointerup', onUp); removeEventListener('pointercancel', onCancel); },
     };
@@ -725,7 +919,7 @@
     return api;
   }
 
-  const api = { KINDS, NOTE_COLORS, route, planSteps, backToBack, branchName, linkPath, lengthText, newBoard, newId, fromList, rowsOf, mount };
+  const api = { KINDS, NOTE_COLORS, route, planSteps, backToBack, branchName, linkPath, lengthText, newBoard, newId, fromList, rowsOf, mount, inkPath, simplifyInk, eraseInk, hsvToHex, hexToHsv };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else globalThis.OnyxBoards = api;
 })();

@@ -7,6 +7,8 @@
 
   const ICONS = {
     pencil: '<path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/>',
+    eraser: '<path d="M9 20h11"/><path d="M4.7 14.7l9-9a2 2 0 0 1 2.8 0l3 3a2 2 0 0 1 0 2.8L12.2 18.8H8.8l-4.1-4.1a.6.6 0 0 1 0-.9z"/><path d="M9.6 9.8l5 5"/>',
+    hand: '<path d="M8 13V6.5a1.5 1.5 0 0 1 3 0V12"/><path d="M11 11.5V5a1.5 1.5 0 0 1 3 0v6.5"/><path d="M14 11.5V7a1.5 1.5 0 0 1 3 0v7a6 6 0 0 1-6 6h-.6a6 6 0 0 1-4.6-2.2L4 14.6a1.5 1.5 0 0 1 2.3-1.9L8 14.5"/>',
     copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
     board: '<rect x="2.5" y="3" width="7" height="5" rx="1.2"/><rect x="14.5" y="16" width="7" height="5" rx="1.2"/><path d="M18 4.5l3 3-3 3-3-3z"/><path d="M9.5 5.5H15"/><path d="M18 10.5V16"/><path d="M6 8v8.5h8.5"/>',
     waves: '<path d="M3 8c1.5-1.5 3-1.5 4.5 0s3 1.5 4.5 0 3-1.5 4.5 0 3 1.5 4.5 0"/><path d="M3 13c1.5-1.5 3-1.5 4.5 0s3 1.5 4.5 0 3-1.5 4.5 0 3 1.5 4.5 0"/><path d="M3 18c1.5-1.5 3-1.5 4.5 0s3 1.5 4.5 0 3-1.5 4.5 0 3 1.5 4.5 0"/>',
@@ -12510,7 +12512,9 @@
   // Kept and synced with the rest of Onyx (src/main/boards.js); where each board was looked at is kept here only.
 
   // panel: the card picked, shown whole beside the board ('view'), or being changed there ('edit').
-  const board = { on: false, all: [], cur: null, view: null, saveT: 0, route: true, dirty: false, panel: { id: null, mode: 'view' } };
+  const board = { on: false, all: [], cur: null, view: null, saveT: 0, route: true, dirty: false, panel: { id: null, mode: 'view' },
+    // tool: what a press on the board does ('move', 'pen', 'eraser'); pen: the pencil's colour and size (this device's).
+    tool: 'move', pen: { color: '#f1f1f4', size: 3 } };
   const readLocal = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } };
   const writeLocal = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* this visit only */ } };
   let boardCamT = 0;
@@ -12523,6 +12527,8 @@
     closeDrawers();
     if (graph.on) closeGraph();
     board.on = true;
+    board.tool = 'move';
+    { const p = readLocal('onyx.boardPen', null); if (p && /^#[0-9a-f]{6}$/i.test(p.color || '')) board.pen = { color: p.color.toLowerCase(), size: Math.max(1, Math.min(24, +p.size || 3)) }; }
     document.body.classList.add('board-on');
     $('#board').hidden = false;
     $('#board-toggle').classList.add('on');
@@ -12607,6 +12613,8 @@
     if (board.view) board.view.setBoard(b, cam || { x: 40, y: 40, z: 1 });
     else board.view = OnyxBoards.mount(space, opts);
     Object.assign(board.view, { opts });
+    board.view.setPen?.(board.pen);
+    board.view.setTool?.(board.tool);
     paintBoardBar(true);
     boardHint();
     if (!cam && b.nodes.length) requestAnimationFrame(() => board.view?.fit());
@@ -12702,6 +12710,132 @@
     addFromList(d.text, { newTitle: d.title || 'From a link' });
   }
 
+  // ---- drawing on a board: Move (pick and drag cards, move about), the pencil, the eraser, the pencil's colour from
+  // a wheel (with its size), and undo for the drawing. The drawing is kept with the board (boards.js: strokes).
+
+  const INK_SWATCHES = ['#f1f1f4', '#9d9da8', '#26262b', '#ff6b6b', '#ff9f4a', '#f5b83d', '#5fd38d', '#3fd0c9', '#4aa8ff', '#8b7cff', '#ff7eb6'];
+  const INK_SIZES = [[2, 'Fine'], [3, 'Pen'], [6, 'Thick'], [12, 'Marker']];
+
+  /** What a press on the board does now: 'move', 'pen' or 'eraser'. The bar's buttons show which. */
+  function setBoardTool(t) {
+    board.tool = ['pen', 'eraser'].includes(t) ? t : 'move';
+    board.view?.setTool?.(board.tool);
+    for (const b of document.querySelectorAll('#board-bar [data-tool]')) {
+      b.classList.toggle('on', b.dataset.tool === board.tool);
+      b.setAttribute('aria-pressed', String(b.dataset.tool === board.tool));
+    }
+    const undo = $('#board-bar .wb-ink-undo');
+    if (undo) undo.hidden = board.tool === 'move';
+    document.body.classList.toggle('wb-drawing', board.tool !== 'move');
+  }
+
+  function saveBoardPen(p) {
+    board.pen = { ...board.pen, ...p };
+    board.view?.setPen?.(board.pen);
+    writeLocal('onyx.boardPen', board.pen);
+    const sw = $('#board-bar .wb-ink-color');
+    if (sw) sw.style.setProperty('--c', board.pen.color);
+  }
+
+  /** The bar's drawing tools: Move, Pencil, Eraser, the pencil's colour (opens the wheel) and undo. */
+  function boardTools() {
+    const tool = (t, ico, label, tip) => h('button', { type: 'button', class: `wb-tool${board.tool === t ? ' on' : ''}`, 'data-tool': t, title: tip, 'aria-label': label, 'aria-pressed': String(board.tool === t),
+      onclick: () => setBoardTool(board.tool === t && t !== 'move' ? 'move' : t) }, icon(ico), h('span', { class: 'wb-tool-l' }, label));
+    return h('div', { class: 'wb-tools', role: 'group', 'aria-label': 'Drawing' },
+      tool('move', 'hand', 'Move', 'Pick, drag and open cards, and move about the board'),
+      tool('pen', 'pencil', 'Pencil', 'Draw on the board (Escape to stop)'),
+      tool('eraser', 'eraser', 'Eraser', 'Rub out what you drew (Escape to stop)'),
+      h('button', { type: 'button', class: 'wb-ink-color', css: { '--c': board.pen.color }, title: 'The pencil’s colour and size', 'aria-label': 'Pencil colour',
+        onclick: (e) => openInkColor(e.currentTarget) }),
+      h('button', { type: 'button', class: 'icon-btn wb-ink-undo', hidden: board.tool === 'move', title: 'Undo the last line or rub-out', 'aria-label': 'Undo drawing',
+        onclick: () => { if (!board.view?.undoInk?.()) toast('Nothing drawn to undo.'); } }, icon('undo')));
+  }
+
+  /**
+   * The pencil's colour: a wheel (round it for the colour, in to the middle for paler), a slider for how dark,
+   * ready-made colours, its size, and clearing the drawing. Picking a colour or a size takes up the pencil.
+   */
+  function openInkColor(anchor) {
+    let { h: hue, s: sat, v: val } = OnyxBoards.hexToHsv(board.pen.color);
+    const wheel = h('div', { class: 'wb-wheel', role: 'slider', 'aria-label': 'Colour wheel', tabindex: '0' });
+    const shade = h('div', { class: 'wb-wheel-shade' });
+    const dot = h('div', { class: 'wb-wheel-dot' });
+    wheel.append(shade, dot);
+    const dark = h('input', { type: 'range', min: 5, max: 100, value: Math.round(val * 100), class: 'wb-dark', 'aria-label': 'How dark' });
+    const preview = h('span', { class: 'wb-ink-preview' });
+    const hex = h('input', { type: 'text', class: 'wb-ink-hex', maxLength: 7, spellcheck: false, 'aria-label': 'Colour code' });
+    const sizes = h('div', { class: 'wb-ink-sizes', role: 'radiogroup', 'aria-label': 'Size' });
+    const swatches = h('div', { class: 'wb-ink-swatches' });
+    const paint = (from) => {
+      const c = OnyxBoards.hsvToHex(hue, sat, val);
+      const R = 84, rad = (hue * Math.PI) / 180;
+      dot.style.left = `${R + Math.cos(rad) * sat * R}px`;
+      dot.style.top = `${R + Math.sin(rad) * sat * R}px`;
+      dot.style.background = c;
+      shade.style.opacity = String(1 - val);
+      dark.style.setProperty('--full', OnyxBoards.hsvToHex(hue, sat, 1));
+      preview.style.background = c;
+      if (from !== 'hex') hex.value = c;
+      swatches.replaceChildren(...INK_SWATCHES.map((x) => h('button', { type: 'button', class: `wb-swatch${x === c ? ' on' : ''}`, css: { '--c': x }, 'aria-label': x, title: x,
+        onclick: () => { ({ h: hue, s: sat, v: val } = OnyxBoards.hexToHsv(x)); dark.value = Math.round(val * 100); pick(); } })));
+      sizes.replaceChildren(...INK_SIZES.map(([n, label]) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(board.pen.size === n), class: `wb-size${board.pen.size === n ? ' on' : ''}`,
+        onclick: () => { saveBoardPen({ size: n }); if (board.tool !== 'pen') setBoardTool('pen'); paint(); } },
+      h('i', { css: { width: `${Math.max(3, n + 2)}px`, height: `${Math.max(3, n + 2)}px`, background: c } }), label)));
+    };
+    const pick = (from) => {
+      saveBoardPen({ color: OnyxBoards.hsvToHex(hue, sat, val) });
+      if (board.tool !== 'pen') setBoardTool('pen');
+      paint(from);
+    };
+    const at = (e) => {
+      const r = wheel.getBoundingClientRect(), R = r.width / 2;
+      const dx = e.clientX - r.left - R, dy = e.clientY - r.top - R;
+      hue = Math.round(((Math.atan2(dy, dx) * 180) / Math.PI + 360) % 360);
+      sat = Math.min(1, Math.hypot(dx, dy) / R);
+      if (val < 0.2) { val = 1; dark.value = 100; } // a colour picked off the wheel shows, not black
+      pick();
+    };
+    wheel.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      try { wheel.setPointerCapture(e.pointerId); } catch { /* not a live pointer */ }
+      at(e);
+      const move = (ev) => at(ev);
+      wheel.addEventListener('pointermove', move);
+      wheel.addEventListener('pointerup', () => wheel.removeEventListener('pointermove', move), { once: true });
+    });
+    wheel.addEventListener('keydown', (e) => {
+      const step = { ArrowLeft: [-6, 0], ArrowRight: [6, 0], ArrowUp: [0, 0.05], ArrowDown: [0, -0.05] }[e.key];
+      if (!step) return;
+      e.preventDefault();
+      hue = (hue + step[0] + 360) % 360;
+      sat = Math.max(0, Math.min(1, sat + step[1]));
+      pick();
+    });
+    dark.addEventListener('input', () => { val = +dark.value / 100; pick(); });
+    hex.addEventListener('input', () => {
+      const v = hex.value.trim();
+      if (!/^#?[0-9a-f]{6}$/i.test(v)) return;
+      ({ h: hue, s: sat, v: val } = OnyxBoards.hexToHsv(v.startsWith('#') ? v : `#${v}`));
+      dark.value = Math.round(val * 100);
+      pick('hex');
+    });
+    let sure = false;
+    const clear = h('button', { type: 'button', class: 'btn ghost danger wb-ink-clear', onclick: () => {
+      if (!board.view?.inkCount?.()) { toast('Nothing drawn on this board.'); return; }
+      if (!sure) { sure = true; clear.textContent = 'Sure? Clear the drawing'; return; }
+      board.view.clearInk();
+      closePopover();
+      toast('Drawing cleared', '', { label: 'Undo', run: () => board.view?.undoInk?.() });
+    } }, icon('trash'), 'Clear the drawing');
+    showPopover(anchor.getBoundingClientRect(), [h('div', { class: 'wb-menu wb-ink-pop' },
+      h('h4', null, 'Pencil'),
+      h('div', { class: 'wb-ink-row' }, wheel,
+        h('div', { class: 'wb-ink-side' }, h('div', { class: 'wb-ink-now' }, preview, hex), h('label', { class: 'wb-ink-lbl' }, 'Darker', dark), sizes)),
+      swatches,
+      clear)]);
+    paint();
+  }
+
   /** The bar over the board: which board, adding cards, the route, and Plan it. */
   function paintBoardBar(full) {
     const bar = $('#board-bar'), b = board.cur;
@@ -12721,6 +12855,7 @@
     bar.replaceChildren(
       h('button', { type: 'button', class: 'btn wb-name', title: 'Your boards', onclick: (e) => openBoardsMenu(e.currentTarget) }, icon('board'), h('span', { class: 'wb-name-t' }, b.title), icon('down')),
       h('div', { class: 'wb-adds' }, ...['step', 'decision', 'goal', 'note'].map(addBtn)),
+      boardTools(),
       h('button', { type: 'button', class: 'btn wb-add-menu', onclick: (e) => openBoardAdd(e.currentTarget) }, icon('plus'), 'Add'),
       h('span', { class: `wb-sum${open ? ' warn' : ''}` }, sum),
       h('div', { class: 'grow' }),
@@ -12750,9 +12885,7 @@
     if (n.kind !== 'note') {
       kids.push(btn('plus', n.kind === 'decision' ? 'Add a way' : 'Next', () => { const next = board.view.after(n.id); openBoardCard(next); }));
     }
-    if (n.kind === 'step' || n.kind === 'goal') {
-      kids.push(btn('check', n.done ? 'Not done' : n.kind === 'goal' ? 'Reached' : 'Done', () => { n.done = !n.done; redraw(); }, n.done ? 'on' : ''));
-    }
+    kids.push(btn('check', n.done ? 'Not done' : n.kind === 'goal' ? 'Reached' : 'Done', () => { n.done = !n.done; redraw(); }, n.done ? 'on' : ''));
     if (n.kind === 'note') {
       const i = OnyxBoards.NOTE_COLORS.indexOf(n.color);
       kids.push(btn(h('span', { class: 'wb-q-dot', css: { '--c': n.color || OnyxBoards.NOTE_COLORS[0] } }), 'Colour', () => {
@@ -12972,9 +13105,7 @@
       const notes = h('textarea', { class: 'wb-notes', placeholder: n.kind === 'note' ? 'Write the note' : 'Details, links, what done looks like.\n\nWho: …\n\nWhat to do: …', value: n.notes || '', spellcheck: true, 'aria-label': 'Details',
         oninput: (e) => { n.notes = e.target.value; redraw(); } });
       parts.push(h('label', { class: 'wb-field wb-notes-f' }, h('span', null, n.kind === 'note' ? 'The note' : 'Details'), notes));
-      if (n.kind === 'step' || n.kind === 'goal') {
-        parts.push(h('label', { class: 'wb-done' }, toggle(!!n.done, (v) => { n.done = v; redraw(); }), h('span', null, n.kind === 'goal' ? 'Reached' : 'Done')));
-      }
+      parts.push(h('label', { class: 'wb-done' }, toggle(!!n.done, (v) => { n.done = v; redraw(); }), h('span', null, n.kind === 'goal' ? 'Reached' : 'Done')));
       if (n.placed) parts.push(h('p', { class: 'wb-placed' }, `In your calendar: ${placedText(n.placed)}`));
       const foot = h('div', { class: 'pop-actions' },
         h('button', { type: 'button', class: 'btn ghost danger', onclick: () => { hideCardPanel(); deleteBoardCard(n); } }, icon('trash'), 'Delete'),
@@ -13631,6 +13762,7 @@
     } else if (['drawer-left', 'drawer-right', 'drawer-news'].some((c) => document.body.classList.contains(c))) closeDrawers();
     else if (graph.on) closeGraph();
     // On a board, a card open in the panel goes first: out of changing it, then put down; then the board itself.
+    else if (board.on && board.tool !== 'move') setBoardTool('move');
     else if (board.on && board.panel.id && !$('#board-panel').hidden) {
       const n = board.cur?.nodes.find((x) => x.id === board.panel.id);
       if (board.panel.mode === 'edit' && n) { board.panel = { id: n.id, mode: 'view' }; showCardPanel(n); } else board.view?.select(null);

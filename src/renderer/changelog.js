@@ -2,8 +2,21 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
-  "version": "1.124.1",
+  "version": "1.125.0",
   "date": "2026-11-09",
+  "title": "Draw on boards with a pencil and an eraser, and a tick box on every card",
+  "items": [
+   "Draw on a board: the bar above it has Move, Pencil and Eraser. With the pencil, drag anywhere on the board to draw. Your drawing sits behind the cards and arrows, and moves and zooms with them. On the phone, draw with a finger; two fingers still zoom.",
+   "Tap the round colour button to choose the pencil's colour. Go round the wheel for the colour and in towards the middle for a paler one. Use the slider to make it darker, or tap one of the ready-made colours, or type a colour code. You can pick a size there too: Fine, Pen, Thick or Marker. Onyx keeps the colour and size on that device.",
+   "The eraser rubs out just what it passes over, so a line can be cut in two. The undo button beside the tools takes back the last line or rub-out. \"Clear the drawing\", in the colour window, takes it all off, and Undo brings it back.",
+   "Escape (or the phone's back button) puts the pencil down and goes back to moving cards about.",
+   "Every card now has a tick box at its top right: steps, goals, decisions and notes. Tap it to tick the card off, or untick it. A ticked card is crossed out and dimmed. It doesn't open the card or pick it up. Done is also in each card's panel.",
+   "The drawing is kept with the board and synced to your other PCs, your phone and Onyx on the web."
+  ]
+ },
+ {
+  "version": "1.124.1",
+  "date": "2026-11-08",
   "title": "The column of hours no longer gets stuck too wide on the phone",
   "items": [
    "Sometimes on the phone, the column of hours at the left of the calendar became very wide and squeezed the days into half the screen until Onyx was restarted. It now keeps the width its hours need. If anything ever makes it wider for a moment, it goes back on its own."

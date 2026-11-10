@@ -3044,10 +3044,10 @@ body.mobile .blink-add .link-btn { font-size: 14px; padding: 6px 0; }
 .mg-pane .mg-h { font-size: 18px !important; margin: 0 !important; }
 .mg-pane .mg-sub { font-size: 12.5px; }
 .mg-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 2px 20px 16px; }
-.mg-body > .magic-text { flex: none; min-height: 56px; resize: none; background: #121216; border: 1px solid rgba(255, 255, 255, .08); border-radius: 14px;
+.mg-body .magic-text { flex: none; min-height: 56px; resize: none; background: #121216; border: 1px solid rgba(255, 255, 255, .08); border-radius: 14px;
   padding: 13px 15px; font-size: 15px; line-height: 1.5; }
-.mg-body > .magic-text::placeholder { color: var(--faint); }
-.mg-body > .magic-text:focus { border-color: color-mix(in srgb, #8b7cff 55%, transparent); }
+.mg-body .magic-text::placeholder { color: var(--faint); }
+.mg-body .magic-text:focus { border-color: color-mix(in srgb, #8b7cff 55%, transparent); }
 .mg-body .magic-pick { display: flex; flex-direction: column; gap: 4px; }
 .mg-body .magic-pick[hidden] { display: none; }
 .mg-body .mg-list { margin: 2px 0 0; }
@@ -3406,37 +3406,85 @@ body.mobile .wb-hint { right: 86px; bottom: calc(22px + var(--safe-bottom, env(s
 .rb-off { flex: none; height: 44px; padding: 0 20px; border-radius: 99px; border: 0; background: #1a1206; color: #fff; font-size: 15px; font-weight: 800; }
 .rb-off:hover { background: #000; }
 
-/* ------------------------------------------------------------ the + sheet's two ways, as tabs (app.js, openMagic's add) */
-.mg-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0 14px; }
-.mg-tab { display: flex; align-items: center; gap: 10px; height: 56px; padding: 0 14px; border-radius: 14px; border: 1px solid var(--line-2); background: rgba(255, 255, 255, .03);
-  color: var(--muted); font: inherit; text-align: left; cursor: pointer; }
-.mg-tab .ico { flex: none; width: 19px; height: 19px; }
-.mg-tab.on { background: color-mix(in srgb, #8b7cff 22%, #121217); border-color: color-mix(in srgb, #8b7cff 65%, transparent); color: #fff; box-shadow: 0 0 0 1px color-mix(in srgb, #8b7cff 40%, transparent); }
-.mg-tab .mg-way-t small { opacity: .72; }
-.mg-time-note { margin: -4px 0 12px; font-size: 12.5px; color: var(--muted); }
+/* ------------------------------------------------------------ the + sheet (app.js, openMagic's add)
+   What is being added first (three big choices), then only what that needs, each part under its name, in one
+   column that scrolls, and one button at the foot. No fixed heights or widths around text: a phone's big system
+   text scales the fonts but not the boxes, so the sheet gets taller with it, never wider or cut off. */
+.sheet.magic.adding { height: min(760px, calc(100vh - 60px)); }
+body.mobile .sheet.magic.adding { height: 100vh; }
+.sheet.magic.adding .mg-head { padding-bottom: 12px; }
+.sheet.magic.adding .mg-body { gap: 18px; padding-top: 4px; padding-bottom: 24px; }
+.mg-kinds { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; flex: none; }
+.mg-kind { appearance: none; -webkit-appearance: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-width: 0; min-height: 80px;
+  padding: 10px 6px; border-radius: 14px; border: 1px solid var(--line-2); background: rgba(255, 255, 255, .03); color: var(--muted); font: inherit; text-align: center; cursor: pointer; }
+.mg-kind .ico { width: 20px; height: 20px; margin-bottom: 2px; }
+.mg-kind b { font-size: 14px; font-weight: 700; line-height: 1.2; color: var(--soft); overflow-wrap: anywhere; }
+.mg-kind small { font-size: 11.5px; line-height: 1.25; opacity: .75; overflow-wrap: anywhere; }
+.mg-kind:hover { border-color: color-mix(in srgb, #8b7cff 40%, var(--line-2)); }
+.mg-kind.on { background: color-mix(in srgb, #8b7cff 22%, #121217); border-color: color-mix(in srgb, #8b7cff 65%, transparent); color: #fff; box-shadow: 0 0 0 1px color-mix(in srgb, #8b7cff 40%, transparent); }
+.mg-kind.on b { color: #fff; }
+.mg-kind.on .ico { color: #c9b8ff; }
+.mg-kind-hint { flex: none; margin: -8px 2px 0; font-size: 12.5px; line-height: 1.45; color: var(--muted); }
+.mg-time-note { margin: -10px 0 0; font-size: 12.5px; color: var(--muted); }
 .mg-time-note[hidden] { display: none; }
-/* The block's own editor, in the sheet: as it is in its popover. */
+/* One part of it, under its name: What, When, Calendar, Category… */
+.mg-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; flex: none; }
+.mg-label { font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.mg-field > .row { flex-wrap: nowrap; min-width: 0; }
+.mg-field > .row > input, .mg-field > .row > select { flex: 1 1 0; min-width: 0; width: 100%; }
+.mg-field > .row > .check, .mg-field > .row > .dash, .mg-field > .row > select.ampm { flex: none; }
+.mg-field > .row > .ico:empty { display: none; }
+.mg-field > .mg-when-time:has(> input[type=time][hidden]) { display: none; }
+.mg-field > .tc-until { flex-wrap: wrap; }
+.mg-field > input[type=text] { width: 100%; }
+.mg-field .tc-newcat { width: 150px; }
+/* The block's own editor, in the sheet: When and Calendar, then More options with all the rest. */
 .mg-editor { display: flex; flex-direction: column; gap: 10px; }
+.mg-body > .mg-editor { gap: 18px; }
 .mg-editor > * { flex-shrink: 0; }
 .mg-editor input.scrub { cursor: ew-resize; }
 .mg-editor input.scrub:focus { cursor: text; }
 .mg-editor input.scrubbing { outline: 2px solid var(--accent, #8b7cff); }
-.mg-editor input[type=time] { min-width: 112px; }
-.mg-editor input[type=date] { min-width: 134px; color-scheme: dark; }
+.mg-editor input[type=date] { color-scheme: dark; }
 .mg-editor select.ampm { width: auto; min-width: 58px; flex: none; padding: 0 6px; }
 .mg-editor select.ampm[hidden] { display: none; }
+.mg-more-opts { flex: none; border: 1px solid rgba(255, 255, 255, .08); border-radius: 14px; background: rgba(255, 255, 255, .02); }
+.mg-more-opts > summary { list-style: none; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 8px 14px; cursor: pointer; user-select: none; }
+.mg-more-opts > summary::-webkit-details-marker { display: none; }
+.mg-more-opts > summary::after { content: ''; flex: none; width: 8px; height: 8px; margin: 0 4px 4px auto; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg); transition: transform .15s; }
+.mg-more-opts[open] > summary::after { transform: rotate(-135deg); margin-bottom: -4px; }
+.mg-more-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mg-more-t b { font-size: 14.5px; font-weight: 650; color: var(--soft); }
+.mg-more-t small { font-size: 12px; line-height: 1.35; color: var(--faint); }
+.mg-more-opts[open] .mg-more-t small { display: none; }
+.mg-more-body { gap: 14px; padding: 4px 14px 14px; }
+/* Its rows: the icon kept out of the flow, so it never sits alone on a line above what it is for. */
+.mg-more-body > .row { position: relative; padding-left: 28px; flex-wrap: wrap; row-gap: 8px; min-width: 0; }
+.mg-more-body > .row > .ico:first-child { position: absolute; left: 0; top: 50%; transform: translateY(-50%); margin: 0; }
+.mg-more-body > .row.top > .ico:first-child { top: 8px; transform: none; }
+.mg-more-body > .row > select, .mg-more-body > .row > input[type=time], .mg-more-body > .row > input[type=date] { flex: 1 1 140px; min-width: 0; }
+.mg-more-body small { white-space: normal; }
+/* Find time: the day and the hours, under When; the hours open right there. */
+.mg-find-when .mg-days { width: 100%; }
+.mg-body .mg-opts-wrap { display: flex; flex-direction: column-reverse; gap: 8px; }
+.mg-body .mg-pop { position: static; box-shadow: none; animation: none; }
+.mg-body .mg-opts-note { white-space: normal; }
+/* The foot: one button to add it. */
 .mg-footer.mg-foot-editor { padding-top: 10px; }
+.mg-footer.mg-foot-editor .mg-foot-row { display: flex; }
+.mg-footer.mg-foot-editor .mg-go { flex: 1 1 auto; width: 100%; min-height: 48px; height: auto; justify-content: center; }
 .mg-editor-foot .pop-actions { margin: 0; flex-wrap: wrap; row-gap: 8px; }
-.mg-editor-foot .pop-actions .btn.primary { height: 46px; padding: 0 22px; border-radius: 13px; font-size: 15px; font-weight: 700; }
-body.mobile .mg-editor .row { flex-wrap: wrap; min-width: 0; row-gap: 8px; }
-body.mobile .mg-editor input, body.mobile .mg-editor select { height: 40px; font-size: 15px; }
-body.mobile .mg-editor input[type=date], body.mobile .mg-editor input[type=time] { min-width: 0; flex: 1 1 38%; }
-body.mobile .mg-editor select { min-width: 0; flex: 1 1 auto; }
+.mg-editor-foot .pop-actions .grow { display: none; }
+.mg-editor-foot .pop-actions > .btn { justify-content: center; min-height: 48px; height: auto; border-radius: 13px; }
+.mg-editor-foot .pop-actions .btn.primary { flex: 1 1 160px; padding: 8px 22px; font-size: 16px; font-weight: 700; }
+body.mobile .sheet.magic.adding input, body.mobile .sheet.magic.adding select, body.mobile .sheet.magic.adding textarea { font-size: 16px; }
+body.mobile .mg-field > .row > input, body.mobile .mg-field > .row > select,
+body.mobile .mg-more-body input[type=date], body.mobile .mg-more-body input[type=time], body.mobile .mg-more-body select { min-height: 44px; height: auto; }
+body.mobile .mg-field .tc-newcat { min-height: 36px; height: auto !important; padding: 0 12px !important; border-radius: 18px !important; }
+body.mobile .mg-field .tag-pick { min-height: 36px; padding: 0 12px; }
 body.mobile .mg-editor select.ampm { display: none; }
 body.mobile .mg-editor textarea { width: 100%; }
-body.mobile .mg-editor-foot .pop-actions .focus-btn { order: -1; flex: 1 1 100%; justify-content: center; height: 42px; }
-body.mobile .mg-editor-foot .pop-actions > .btn { flex: 1 1 auto; justify-content: center; }
-body.mobile .mg-editor-foot .pop-actions .grow { display: none; }
 
 /* ------------------------------------------------------------ a live sheet's rules, beside a preview of its rows (app.js, openSheetRules) */
 .sheet.sr { grid-template-columns: 1fr; width: min(1120px, calc(100vw - 40px)); height: min(800px, calc(100vh - 48px)); }

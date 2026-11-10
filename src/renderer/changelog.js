@@ -2,8 +2,20 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.128.0",
+  "date": "2026-11-10",
+  "title": "A clearer + sheet: choose a block, Find time or a time chunk, and it fits the phone at any text size",
+  "items": [
+   "The + button opens with three big choices at the top: Block (you pick the time), Find time (Onyx fits it into your free time) and Time chunk (time set aside for one category). A line under them says what the one you picked does.",
+   "Time chunks can be added from the + button now, with their category, colour, name, day and hours, and Repeat, the same as the chunk window on the calendar.",
+   "A block shows only what it needs first: what it is, when, and which calendar. Colour, repeat, tasks, links, notes, tags, Breakdown, Pomodoro, travel, reminders and \"Just to keep in mind\" are under More options.",
+   "Each part has its name above it (What, When, Calendar…), and one button at the bottom adds it.",
+   "On the phone the day has a line of its own and the start and end times share the next one, so nothing wraps oddly or runs off the screen, even with large system text. Text boxes use 16px text, and the keyboard no longer pops up the moment the sheet opens."
+  ]
+ },
+ {
   "version": "1.127.0",
-  "date": "2026-11-09",
+  "date": "2026-11-08",
   "title": "Boards: hold Ctrl to snap a card to the grid, and Shift to pick several cards at once",
   "items": [
    "Hold Ctrl while you drag a card on a board (Cmd on a Mac), and it snaps to a grid. The grid shows faintly while you hold it, so cards line up neatly. Let go of Ctrl to place it freely again.",

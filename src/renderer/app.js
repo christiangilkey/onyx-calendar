@@ -3431,10 +3431,12 @@
   /**
    * A time chunk's window: its category (a tag: one of yours, or a new one), an optional name, its day and hours,
    * and Repeat. Opened on a chunk (`occ`: the day it was opened on), it first says how much of that day is
-   * planned and what is in it, and offers to fill it with its category's open tasks.
+   * planned and what is in it, and offers to fill it with its category's open tasks. In the + sheet it draws into
+   * it, as the block editor does: `into` = { body, foot, close }, each part under its name, closing the sheet.
    */
-  function openChunkEditor(base, anchor, occ = null) {
+  function openChunkEditor(base, anchor, occ = null, into = null) {
     const existing = occ ? occ.chunk : null;
+    const done = () => (into ? into.close() : closePopover());
     let tag = base.tag || '';
     // Its category: the ones chunks already use first, then the rest of your tags.
     const chips = h('div', { class: 'tc-chips' });
@@ -3492,7 +3494,7 @@
           inside.length > 6 && h('li', { class: 'more' }, `and ${inside.length - 6} more`)),
         h('button', { type: 'button', class: 'btn tc-fill', disabled: over || !fit.placed.length,
           title: 'Places the open tasks with its tag that have no time yet into its free time, soonest due first. Undo takes them out again.',
-          onclick: () => { closePopover(); fillChunk(occ); } }, icon('sparkles'), label),
+          onclick: () => { done(); fillChunk(occ); } }, icon('sparkles'), label),
         fit.left.length > 0 && fit.placed.length > 0 && h('small', { class: 'tc-left' }, `${fit.left.length} more won't fit.`));
     }
 
@@ -3508,20 +3510,40 @@
       };
       try { OnyxChunks.clean(chunk); } catch (err) { toast(err.message, 'warn'); return; }
       const before = existing ? structuredClone(existing) : null;
-      closePopover();
+      done();
       if (!await putChunk(chunk)) return;
       recordAction(before ? `Changed the time chunk ${chunkName(chunk)}` : `Added a time chunk: ${chunkName(chunk)}`,
         () => (before ? putChunk(before) : dropChunk(chunk.id)), () => putChunk(chunk));
     };
     const remove = async (oneDay) => {
       const before = structuredClone(existing);
-      closePopover();
+      done();
       if (!await dropChunk(existing.id, oneDay ? occ.day : null)) return;
       recordAction(oneDay ? `Took ${fmtDay(occ.start)} out of ${chunkName(existing)}` : `Deleted the time chunk ${chunkName(existing)}`,
         () => putChunk(before), () => dropChunk(before.id, oneDay ? occ.day : null));
     };
     for (const input of [newCat, title]) input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } });
 
+    const actions = h('div', { class: 'pop-actions' },
+      existing && h('button', { type: 'button', class: 'btn danger', title: existing.recur ? 'Delete every day of it' : null, onclick: () => remove(false) }, icon('trash'), existing.recur ? 'Delete all' : 'Delete'),
+      existing?.recur && h('button', { type: 'button', class: 'btn', title: 'Take just this day out; the others stay', onclick: () => remove(true) }, 'Skip this day'),
+      h('div', { class: 'grow' }),
+      !into && h('button', { type: 'button', class: 'btn ghost', onclick: () => done() }, 'Cancel'), // the sheet has its own close
+      h('button', { type: 'button', class: 'btn primary', onclick: save }, existing ? 'Save' : 'Add chunk'));
+    if (into) {
+      // In the sheet: each part under its name, the day on a line of its own and then the hours.
+      const field = (name, ...kids) => h('div', { class: 'mg-field' }, h('span', { class: 'mg-label' }, name), ...kids);
+      title.classList.remove('pop-title');
+      into.body.replaceChildren(
+        field('Category', h('div', { class: 'tc-cats' }, chips, newCat)),
+        field('Colour', h('div', { class: 'row color-row' }, colorPick.el)),
+        field('Name', title),
+        field('When', h('div', { class: 'row mg-when-date' }, date), h('div', { class: 'row mg-when-time' }, startTime, h('span', { class: 'dash' }, '–'), endTime)),
+        field('Repeat', h('div', { class: 'row top recur-row' }, repeatField.el), untilRow));
+      for (const input of into.body.querySelectorAll('input[type=time], input[type=date]')) scrubbable(input);
+      into.foot.replaceChildren(actions);
+      return { suggestName: (v) => { if (!title.value.trim()) title.value = v; } };
+    }
     const nodes = [
       h('div', { class: 'tc-head' }, icon('tag'), h('b', null, existing ? 'Time chunk' : 'New time chunk'),
         h('small', null, 'Time set aside for one category. Its blocks and tasks go inside it.')),
@@ -3532,17 +3554,13 @@
       h('div', { class: 'row' }, icon('clock'), date, startTime, h('span', { class: 'dash' }, '–'), endTime),
       h('div', { class: 'row top recur-row' }, icon('repeat'), repeatField.el),
       untilRow,
-      h('div', { class: 'pop-actions' },
-        existing && h('button', { type: 'button', class: 'btn danger', title: existing.recur ? 'Delete every day of it' : null, onclick: () => remove(false) }, icon('trash'), existing.recur ? 'Delete all' : 'Delete'),
-        existing?.recur && h('button', { type: 'button', class: 'btn', title: 'Take just this day out; the others stay', onclick: () => remove(true) }, 'Skip this day'),
-        h('div', { class: 'grow' }),
-        h('button', { type: 'button', class: 'btn ghost', onclick: () => closePopover() }, 'Cancel'),
-        h('button', { type: 'button', class: 'btn primary', onclick: save }, existing ? 'Save' : 'Add chunk')),
+      actions,
     ];
     chunkOpen = !existing;
     if (!existing) document.body.classList.add('making-chunk');
     showPopover(anchor, nodes, () => { chunkOpen = false; document.body.classList.remove('making-chunk'); });
     if (!existing && !tag) setTimeout(() => newCat.focus(), 30);
+    return null;
   }
 
   /** Saves a chunk; the list shown follows (on a phone with the PC out of reach, from the change itself). */
@@ -4462,8 +4480,8 @@
   }
 
   function openEditor(model, anchor) {
-    // In the + sheet (openMagic's add), the editor draws into it: `into` = { body, foot, close }, its name typed in the
-    // sheet's own box (setTitle), and closing it closes the sheet. Otherwise it is a popover of its own.
+    // In the + sheet (openMagic's add), the editor draws into it: `into` = { body, more, foot, close }, its name typed in
+    // the sheet's own box (setTitle), and closing it closes the sheet. Otherwise it is a popover of its own.
     const into = model.into || null;
     const done = () => (into ? into.close() : closePopover());
     const src = model.src;
@@ -4750,12 +4768,14 @@
       }
     };
 
+    const timeRow = h('div', { class: 'row' }, icon('clock'), date, startTime, dash, endTime);
+    const calRow = h('div', { class: 'row' }, icon('calendar'), calendarPick, h('label', { class: 'check' }, allDay, 'All day'));
     const nodes = [
       title,
       src && originRow(src),
-      h('div', { class: 'row' }, icon('clock'), date, startTime, dash, endTime),
+      timeRow,
       untilRow,
-      h('div', { class: 'row' }, icon('calendar'), calendarPick, h('label', { class: 'check' }, allDay, 'All day')),
+      calRow,
       h('div', { class: 'row aware-row' }, icon('bell-off'),
         h('label', { class: 'check', title: 'For things to be aware of, like meal hours or a time frame: it stays on the calendar, with no tick, and is never shown as next or reminded' }, aware, 'Just to keep in mind'),
         h('small', { class: 'aware-hint' }, 'No tick · not in Next')),
@@ -4803,14 +4823,27 @@
         !src && h('button', { class: 'btn focus-btn', title: 'Add this block and start Hyperfocus on it',
           onclick: () => save((made) => openFocusSetup(focusEntry(made))) }, icon('target'), 'Hyperfocus'),
         h('div', { class: 'grow' }),
-        h('button', { class: 'btn ghost', onclick: () => done() }, 'Cancel'),
+        !into && h('button', { class: 'btn ghost', onclick: () => done() }, 'Cancel'), // the sheet has its own close
         h('button', { class: 'btn primary', onclick: () => save() }, src ? 'Save' : 'Add block')),
     ];
     if (into) {
+      // In the sheet: When and Calendar first, each under its name (the day on a line of its own, then the hours,
+      // so nothing wraps on a phone with big text); everything else goes in More options (into.more).
       const actions = nodes.find((n) => n?.classList?.contains('pop-actions'));
-      into.body.replaceChildren(...nodes.filter((n) => n && n.nodeType && n !== title && n !== actions));
-      addLinkButtons(into.body);
-      for (const input of into.body.querySelectorAll('input[type=time], input[type=date]')) scrubbable(input);
+      const field = (name, ...kids) => h('div', { class: 'mg-field' }, h('span', { class: 'mg-label' }, name), ...kids);
+      const first = [
+        field('When', h('div', { class: 'row mg-when-date' }, date, h('label', { class: 'check' }, allDay, 'All day')),
+          h('div', { class: 'row mg-when-time' }, startTime, dash, endTime), untilRow),
+        field('Calendar', h('div', { class: 'row' }, calendarPick)),
+      ];
+      const rest = nodes.filter((n) => n && n.nodeType && ![title, actions, timeRow, untilRow, calRow].includes(n));
+      into.body.replaceChildren(...first, ...(into.more ? [] : rest));
+      into.more?.replaceChildren(...rest);
+      for (const box of [into.body, into.more]) {
+        if (!box) continue;
+        addLinkButtons(box);
+        for (const input of box.querySelectorAll('input[type=time], input[type=date]')) scrubbable(input);
+      }
       into.foot.replaceChildren(...(actions ? [actions] : []));
     } else showPopover(anchor, nodes);
     sync();
@@ -11273,28 +11306,60 @@
     const goCount = h('span', { class: 'mg-num' });
     const go = h('button', { class: 'btn primary mg-go', onclick: () => run() }, icon('sparkles'),
       h('span', { class: 'mg-go-t' }, adding ? 'Find time' : 'Plan my day'), goCount);
-    // Adding (the + button): the two ways are tabs under what is typed, and each brings all it had. Choose a time
-    // is the block's own editor, in the sheet (openEditor's into): its day and times, calendar, all day, colour,
-    // repeat, tasks, links, notes, tags, breakdown, pomodoro, travel and reminders, Hyperfocus and Add block.
-    // Find time is Magic add: pictures and links to read, the tasks waiting, the day, the hours, the plan.
-    let wayNow = preset.way || (picked.size ? 'find' : (() => { try { return localStorage.getItem('onyx.addWay') || 'time'; } catch { return 'time'; } })());
+    // Adding (the + button): first, what is being added, as three big choices; then only what that needs, each part
+    // under its name, in one column that scrolls; and one button at the foot to add it.
+    // - Block: the block's own editor, in the sheet (openEditor's into): When and Calendar, and the rest of what it
+    //   has (colour, repeat, tasks, links, notes, tags, breakdown, pomodoro, travel, reminders) under More options.
+    // - Find time: Magic add: what is typed, pictures and links to read, the day and hours, the tasks waiting.
+    // - Time chunk: the chunk window (openChunkEditor's into): its category, name, day and hours, and Repeat.
+    const WAYS = [
+      { key: 'time', ico: 'clock', name: 'Block', sub: 'You pick the time', hint: 'A block on your calendar, on the day and at the time you choose.' },
+      { key: 'find', ico: 'sparkles', name: 'Find time', sub: 'Onyx fits it in', hint: 'Type one or more things to do. Onyx finds free time for them in your day.' },
+      { key: 'chunk', ico: 'tag', name: 'Time chunk', sub: 'Time for a category', hint: 'Time set aside for one category, like #work. Blocks and tasks with its tag go inside it.' },
+    ];
+    const isWay = (k) => WAYS.some((w) => w.key === k);
+    let wayNow = preset.way || (picked.size ? 'find' : (() => { try { const k = localStorage.getItem('onyx.addWay'); return isWay(k) ? k : 'time'; } catch { return 'time'; } })());
     const firstLine = () => text.value.split('\n').map((l) => l.trim()).find(Boolean) || '';
     const lines = () => text.value.split('\n').filter((l) => l.trim()).length;
     const editorBody = h('div', { class: 'mg-editor' }), editorFoot = h('div', { class: 'mg-editor-foot' });
+    const moreBody = h('div', { class: 'mg-editor mg-more-body' });
+    const moreBox = h('details', { class: 'mg-more-opts' },
+      h('summary', null, h('span', { class: 'mg-more-t' }, h('b', null, 'More options'), h('small', null, 'Colour, repeat, tasks, notes, tags, travel, reminders'))),
+      moreBody);
     let editor = null;
-    /** The block's editor, made once (what is set in it is kept while the tabs change), on the day picked. */
+    /** The block's editor, made once (what is set in it is kept while the ways change), on the day picked. */
     function ensureEditor() {
       if (editor || !adding) return;
       const now = new Date(), d = fromYmd(date.value || ymd(now));
       const begin = new Date(d.getFullYear(), d.getMonth(), d.getDate(), date.value === ymd(now) ? Math.min(23, now.getHours() + 1) : 9, 0);
-      editor = openEditor({ start: begin, end: new Date(begin.getTime() + 3600000), allDay: false, into: { body: editorBody, foot: editorFoot, close: () => closeSettings() } }, null);
+      editor = openEditor({ start: begin, end: new Date(begin.getTime() + 3600000), allDay: false, into: { body: editorBody, more: moreBody, foot: editorFoot, close: () => closeSettings() } }, null);
       editor.setTitle(firstLine());
     }
-    const wayTab = (key, ico, t, sub) => h('button', { type: 'button', role: 'tab', class: `mg-way mg-tab${wayNow === key ? ' on' : ''}`, 'aria-selected': String(wayNow === key),
-      onclick: () => setWay(key) }, icon(ico), h('span', { class: 'mg-way-t' }, h('b', null, t), h('small', null, sub)));
-    const wayTabs = h('div', { class: 'mg-ways mg-tabs', role: 'tablist', 'aria-label': 'How to add it' });
-    const paintTabs = () => wayTabs.replaceChildren(wayTab('time', 'clock', 'Choose a time', 'You pick when'), wayTab('find', 'sparkles', 'Find time', 'Onyx fits it in'));
-    // Several lines on Choose a time: the first is this block; Find time plans them all.
+    const chunkBody = h('div', { class: 'mg-editor mg-chunk' }), chunkFoot = h('div', { class: 'mg-editor-foot' });
+    let chunker = null;
+    /** The time chunk's window, made once, on the day picked: the next two hours (from 9 on another day). */
+    function ensureChunk() {
+      if (chunker || !adding) return;
+      const now = new Date(), d = fromYmd(date.value || ymd(now));
+      const begin = new Date(d.getFullYear(), d.getMonth(), d.getDate(), date.value === ymd(now) ? Math.min(22, now.getHours() + 1) : 9, 0);
+      const cat = tagFilter.size === 1 ? [...tagFilter][0] : '';
+      chunker = openChunkEditor({ ...OnyxChunks.fromDrag(begin, new Date(begin.getTime() + 2 * 3600000)), tag: cat ? (tagInfo(cat)?.name || cat) : '', title: firstLine() },
+        null, null, { body: chunkBody, foot: chunkFoot, close: () => closeSettings() });
+    }
+    const wayTab = (w) => h('button', { type: 'button', role: 'tab', class: `mg-kind${wayNow === w.key ? ' on' : ''}`, 'aria-selected': String(wayNow === w.key),
+      onclick: () => setWay(w.key) }, icon(w.ico), h('b', null, w.name), h('small', null, w.sub));
+    const wayTabs = h('div', { class: 'mg-kinds', role: 'tablist', 'aria-label': 'What are you adding?' });
+    const wayHint = h('p', { class: 'mg-kind-hint' });
+    const paintTabs = () => {
+      wayTabs.replaceChildren(...WAYS.map(wayTab));
+      wayHint.textContent = WAYS.find((w) => w.key === wayNow).hint;
+    };
+    // What is typed, under its name: a block's name, or the things to fit in.
+    const whatLabel = h('span', { class: 'mg-label' }, 'What');
+    const whatField = adding ? h('div', { class: 'mg-field' }, whatLabel, text) : null;
+    // The day and the hours to look in, for Find time: in the column, under When.
+    const whenField = adding ? h('div', { class: 'mg-field mg-find-when' }, h('span', { class: 'mg-label' }, 'When'), dayChips) : null;
+    // Several lines on a block: the first is this block; Find time plans them all.
     const timeNote = h('p', { class: 'mg-time-note' });
     const paintTimeNote = () => {
       const n = lines();
@@ -11304,9 +11369,15 @@
     };
     function setWay(key) {
       if (wayNow === key) return;
+      // The day carries over from one way to the next.
+      const from = { time: editorBody, chunk: chunkBody }[wayNow];
+      const d = from ? from.querySelector('input[type=date]')?.value : date.value;
       wayNow = key;
       try { localStorage.setItem('onyx.addWay', key); } catch { /* this visit only */ }
-      if (key === 'find' && editor) { const d = editorBody.querySelector('input[type=date]')?.value; if (d) { date.value = d; paintDay(); } } // the day carries over
+      if (d) { date.value = d; paintDay(); }
+      const to = { time: editorBody, chunk: chunkBody }[key]?.querySelector('input[type=date]');
+      if (to && d && to.value !== d) { to.value = d; to.dispatchEvent(new Event('input')); to.dispatchEvent(new Event('change')); }
+      if (key === 'chunk') chunker?.suggestName(firstLine());
       paintTabs();
       show('compose');
     }
@@ -11618,26 +11689,34 @@
         h('small', null, claude ? 'Claude estimates how long each takes. It is sent these tasks and the day\'s entries.' : 'Lengths are guessed from the words. Add a Claude key in Settings for better estimates.'),
         h('button', { type: 'button', class: 'btn', onclick: () => toggleOpts(false) }, 'Done')));
     const optsWrap = h('div', { class: 'mg-opts-wrap' }, optsPop, optsBtn);
+    whenField?.append(optsWrap); // adding: the hours open in the column, under the day
     // Adding: the tasks waiting to be planned get a heading of their own, under what is typed.
     const waitHead = h('h4', { class: 'mg-wait-h' }, 'Or tick tasks that are waiting');
     function show(next) {
       stage = next;
       toggleOpts(false);
       if (next === 'compose' && adding && wayNow === 'time') ensureEditor();
+      if (next === 'compose' && adding && wayNow === 'chunk') ensureChunk();
+      if (adding) {
+        whatLabel.textContent = wayNow === 'find' ? 'What to fit in' : 'What';
+        text.placeholder = wayNow === 'find' ? 'What do you need to do?\nOne per line to add a few at once' : 'What is this time for?';
+      }
       body.replaceChildren(...(next !== 'compose' ? [out]
         : !adding ? [text, src.el, pickBox, msg]
-          : wayNow === 'time' ? [text, wayTabs, timeNote, editorBody]
-            : [text, wayTabs, src.el, waitHead, pickBox, msg]));
+          : [wayTabs, wayHint, ...(wayNow === 'chunk' ? [chunkBody]
+            : wayNow === 'time' ? [whatField, timeNote, editorBody, moreBox]
+              : [whatField, src.el, whenField, waitHead, pickBox, msg])]));
       body.scrollTop = 0;
       paintFoot();
     }
     function paintFoot() {
       if (stage === 'compose' && adding) {
-        foot.classList.toggle('mg-foot-editor', wayNow === 'time');
-        if (wayNow === 'time') foot.replaceChildren(editorFoot);
-        else foot.replaceChildren(h('div', { class: 'mg-foot-row' }, dayChips), h('div', { class: 'mg-foot-row' }, go), optsWrap);
+        // One button to add it: the editor's own (Add block, or Add chunk), or Find time.
+        foot.classList.add('mg-foot-editor');
+        foot.replaceChildren(wayNow === 'time' ? editorFoot : wayNow === 'chunk' ? chunkFoot : h('div', { class: 'mg-foot-row' }, go));
         return;
       }
+      foot.classList.remove('mg-foot-editor');
       if (stage === 'compose') { foot.replaceChildren(optsWrap, h('div', { class: 'mg-foot-row' }, dayChips, go)); return; }
       const n = view?.result.blocks.length || 0;
       foot.replaceChildren(h('div', { class: 'mg-foot-row' },
@@ -11652,7 +11731,7 @@
       h('header', { class: 'mg-head' },
         h('span', { class: `mg-badge${adding ? ' plain' : ''}` }, icon(adding ? 'plus' : 'sparkles')),
         h('div', null, h('h3', { class: 'mg-h' }, adding ? 'Add to your day' : 'Magic add'),
-          h('p', { class: 'mg-sub' }, adding ? 'Type what you need to do. Then choose the time yourself, or let Onyx find free time for it.' : 'Onyx fits them into the free time in your day.'))),
+          !adding && h('p', { class: 'mg-sub' }, 'Onyx fits them into the free time in your day.'))),
       body,
       foot));
     // A click anywhere else closes the settings panel.
@@ -11661,7 +11740,8 @@
     show('compose');
     $('#modal').replaceChildren(sheet);
     $('#modal').hidden = false;
-    setTimeout(() => (picked.size ? go : text).focus({ preventScroll: true }), 50);
+    // On a phone the + sheet waits for a tap: the keyboard coming up at once would cover half of it.
+    if (!(adding && MOBILE)) setTimeout(() => (picked.size ? go : text).focus({ preventScroll: true }), 50);
     if (preset.text || (preset.auto && picked.size)) run();
   }
 

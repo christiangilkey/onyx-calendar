@@ -40,27 +40,54 @@ test('the phone keeps the whole date: the buttons after it scroll in a strip, an
   assert.match(css, /html\.offline:not\(\[data-offline-label\]\) #titlebar::after, html\.syncing:not\(\[data-offline-label\]\) #titlebar::after \{ content:/);
 });
 
-test('one + button on the phone: type it, then Choose a time or Find time', () => {
+test('one + button on the phone: what you are adding first (a block, Find time or a time chunk), then only what it needs', () => {
   assert.doesNotMatch(html, /id="magic-fab"/, 'no second round button');
   assert.doesNotMatch(app + css, /magic-fab/);
   assert.match(app, /if \(!graph\.on\) return MOBILE \? openMagic\(\{ add: true, date: ymd\(newBlockDay\(\)\) \}\) : newBlock\(\);/);
   const magic = between('function openMagic(', '// ------------------------------------------------------------ globe view');
   assert.match(magic, /'Add to your day'/);
-  // The two ways are tabs, and each keeps all it had: the block's own editor, drawn in the sheet, and Magic add.
-  assert.match(magic, /wayTab\('time', 'clock', 'Choose a time', 'You pick when'\), wayTab\('find', 'sparkles', 'Find time', 'Onyx fits it in'\)/);
-  assert.match(magic, /editor = openEditor\(\{ start: begin, end: new Date\(begin\.getTime\(\) \+ 3600000\), allDay: false, into: \{ body: editorBody, foot: editorFoot, close: \(\) => closeSettings\(\) \} \}, null\);/);
-  assert.match(magic, /wayNow === 'time' \? \[text, wayTabs, timeNote, editorBody\]\s*: \[text, wayTabs, src\.el, waitHead, pickBox, msg\]/);
+  // Three big choices at the top, each saying what it does.
+  assert.match(magic, /\{ key: 'time', ico: 'clock', name: 'Block', sub: 'You pick the time', hint: /);
+  assert.match(magic, /\{ key: 'find', ico: 'sparkles', name: 'Find time', sub: 'Onyx fits it in', hint: /);
+  assert.match(magic, /\{ key: 'chunk', ico: 'tag', name: 'Time chunk', sub: 'Time for a category', hint: /);
+  assert.match(magic, /wayTabs = h\('div', \{ class: 'mg-kinds', role: 'tablist', 'aria-label': 'What are you adding\?' \}\)/);
+  // Each keeps all it had: the block's own editor (its extras under More options), Magic add, and the chunk window.
+  assert.match(magic, /editor = openEditor\(\{ start: begin, end: new Date\(begin\.getTime\(\) \+ 3600000\), allDay: false, into: \{ body: editorBody, more: moreBody, foot: editorFoot, close: \(\) => closeSettings\(\) \} \}, null\);/);
+  assert.match(magic, /h\('b', null, 'More options'\)/);
+  assert.match(magic, /chunker = openChunkEditor\(\{ \.\.\.OnyxChunks\.fromDrag\(begin, new Date\(begin\.getTime\(\) \+ 2 \* 3600000\)\), tag: cat \? \(tagInfo\(cat\)\?\.name \|\| cat\) : '', title: firstLine\(\) \},\s*null, null, \{ body: chunkBody, foot: chunkFoot, close: \(\) => closeSettings\(\) \}\);/);
+  assert.match(magic, /\[wayTabs, wayHint, \.\.\.\(wayNow === 'chunk' \? \[chunkBody\]\s*: wayNow === 'time' \? \[whatField, timeNote, editorBody, moreBox\]\s*: \[whatField, src\.el, whenField, waitHead, pickBox, msg\]\)\]/);
+  // One button at the foot to add it.
+  assert.match(magic, /foot\.replaceChildren\(wayNow === 'time' \? editorFoot : wayNow === 'chunk' \? chunkFoot : h\('div', \{ class: 'mg-foot-row' \}, go\)\);/);
   assert.match(magic, /editor\?\.setTitle\(firstLine\(\)\);/, 'named as typed');
   assert.match(magic, /`Only the first line becomes this block\. `/);
   assert.match(magic, /go\.disabled = !count;/);
   assert.match(magic, /'Or tick tasks that are waiting'/);
+  assert.match(magic, /if \(!\(adding && MOBILE\)\) setTimeout\(/, 'no keyboard over half the sheet as it opens');
   // The editor in the sheet is the same editor: everything it shows, its actions in the sheet's foot, closing the sheet.
   const ed = between('function openEditor(model, anchor)', '// ------------------------------------------------------------ tasks');
   assert.match(ed, /const done = \(\) => \(into \? into\.close\(\) : closePopover\(\)\);/);
   assert.doesNotMatch(ed, /closePopover\(\);/, 'every way out closes the sheet when it is in one');
-  assert.match(ed, /into\.body\.replaceChildren\(\.\.\.nodes\.filter\(\(n\) => n && n\.nodeType && n !== title && n !== actions\)\);/);
+  assert.match(ed, /field\('When', h\('div', \{ class: 'row mg-when-date' \}, date, h\('label', \{ class: 'check' \}, allDay, 'All day'\)\),\s*h\('div', \{ class: 'row mg-when-time' \}, startTime, dash, endTime\), untilRow\)/, 'the day on a line of its own, then the hours');
+  assert.match(ed, /field\('Calendar', h\('div', \{ class: 'row' \}, calendarPick\)\)/);
+  assert.match(ed, /const rest = nodes\.filter\(\(n\) => n && n\.nodeType && !\[title, actions, timeRow, untilRow, calRow\]\.includes\(n\)\);/);
+  assert.match(ed, /into\.more\?\.replaceChildren\(\.\.\.rest\);/);
   assert.match(ed, /into\.foot\.replaceChildren\(\.\.\.\(actions \? \[actions\] : \[\]\)\);/);
+  assert.match(ed, /!into && h\('button', \{ class: 'btn ghost', onclick: \(\) => done\(\) \}, 'Cancel'\)/, 'the sheet has its own close');
   assert.match(app, /value: src \? src\.title : \(model\.title \|\| ''\)/);
+  // The chunk window draws into the sheet the same way: its own fields and save, no copy of them.
+  const ch = between('function openChunkEditor(base, anchor, occ = null, into = null)', 'async function putChunk(chunk)');
+  assert.match(ch, /const done = \(\) => \(into \? into\.close\(\) : closePopover\(\)\);/);
+  assert.doesNotMatch(ch, /closePopover\(\);/, 'saving in the sheet closes the sheet');
+  assert.match(ch, /field\('Category', h\('div', \{ class: 'tc-cats' \}, chips, newCat\)\),\s*field\('Colour', h\('div', \{ class: 'row color-row' \}, colorPick\.el\)\),\s*field\('Name', title\),\s*field\('When', /);
+  assert.match(ch, /into\.foot\.replaceChildren\(actions\);/);
+  assert.match(ch, /showPopover\(anchor, nodes, /, 'still its own window on the calendar');
+  // On a phone with big system text (it scales the fonts, not the boxes): nothing wider than the screen.
+  assert.match(css, /\.mg-kinds \{ display: grid; grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/);
+  assert.match(css, /\.mg-field > \.row \{ flex-wrap: nowrap; min-width: 0; \}/);
+  assert.match(css, /\.mg-field > \.row > input, \.mg-field > \.row > select \{ flex: 1 1 0; min-width: 0; width: 100%; \}/);
+  assert.match(css, /body\.mobile \.sheet\.magic\.adding input, body\.mobile \.sheet\.magic\.adding select, body\.mobile \.sheet\.magic\.adding textarea \{ font-size: 16px; \}/);
+  assert.match(css, /\.mg-more-body > \.row > \.ico:first-child \{ position: absolute;/, 'an icon never alone on a line');
+  assert.doesNotMatch(css, /\.mg-editor input\[type=time\] \{ min-width: 112px; \}/, 'no fixed widths that push the end time onto a line of its own');
   // The waiting count moved to the + button.
   assert.match(app, /for \(const el of \[\$\('#magic-add'\), MOBILE \? \$\('#fab'\) : null, \$\('#task-magic'\)\]\)/);
   assert.match(css, /body\.mobile #fab \.magic-count \{ position: absolute;/);

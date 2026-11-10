@@ -115,7 +115,7 @@ test('magic_add is listed next to the tools that were already there', async () =
   assert.deepEqual(schema.required, ['date', 'items']);
 });
 
-test('by default they wait in Magic add for review, with their lengths and times, and are planned around the day', async () => {
+test('by default they wait in Adaptive Add for review, with their lengths and times, and are planned around the day', async () => {
   reset();
   await hub.getTasks({ force: true }); // the list has been read once before
   const date = ymd(day(1));
@@ -126,7 +126,7 @@ test('by default they wait in Magic add for review, with their lengths and times
   ] });
   assert.equal(r.mode, 'review');
   assert.equal(r.queued.length, 2);
-  assert.match(r.message, /Magic add/);
+  assert.match(r.message, /Waiting in Adaptive Add/);
   assert.equal(fake.events.size, 1, 'nothing is put in the calendar yet');
 
   const { tasks, inbox } = await hub.getTasks({ force: true });

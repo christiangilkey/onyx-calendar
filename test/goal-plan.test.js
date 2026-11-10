@@ -152,14 +152,40 @@ test('a repeating step stops after its last day, and the next task keeps its len
   assert.equal(repeat.ruleOf(a.next.id), null);
 });
 
-test('the window has the Magic add button, the hammers, and keeps the plan\'s details when saving', () => {
+test('the window has the Adaptive Add button, the hammers (with a Claude key), and keeps the plan\'s details when saving', () => {
   const app = require('fs').readFileSync(require('path').join(__dirname, '../src/renderer/app.js'), 'utf8');
-  assert.match(app, /class: 'magic-goal'.*openGoalMagic\(null,.*'Magic add goal'\)/);
+  assert.match(app, /class: 'magic-goal'.*openGoalMagic\(null,.*icon\('fit'\), 'Adaptive Add goal'\)/);
+  assert.match(app, /S\.ai\?\.ready && h\('div', \{ class: 'row gm-meter' \}/, 'without a key the steps are the ones listed: no hammers to set');
   assert.match(app, /onyx\.planGoal\(\{ title: title\.value\.trim\(\), start: start\.value, end: end\.value, outline: outline\.value, sources: src\.ready\(\), level, fit: fit\.checked, goalId: g\?\.id \|\| null \}\)/);
   assert.match(app, /openGoalMagic\(g, r, gLevel\)/);
   assert.match(app, /\['biweekly', 'Every 2 weeks'\], \['monthly', 'Monthly'\]\]/);
   const remote = require('fs').readFileSync(require('path').join(__dirname, '../src/renderer/remote.js'), 'utf8');
   assert.match(remote, /'goal:plan': 330000/);
+});
+
+test('a goal without a Claude key: the outline\'s own lines are the steps, spread out until the target date', async () => {
+  const goals = require('../src/main/goal-magic');
+  const a = goals.outlineGoal({ title: 'Learn Spanish', start: '2026-11-09', end: '2026-12-09', today: '2026-11-09',
+    outline: '- Pick a course\n- [x] Buy the book\n2. Practise verbs for 30 min\n- Book a tutor call\n\n- Mock exam (2 hours)' });
+  const { steps } = plan.normalize(a, { start: '2026-11-09', end: '2026-12-09', today: '2026-11-09' });
+  assert.deepEqual(steps.map((s) => s.title), ['Pick a course', 'Buy the book', 'Practise verbs', 'Book a tutor call', 'Mock exam']);
+  assert.equal(steps[1].done, true, 'marked [x]: already done');
+  assert.deepEqual(steps.filter((s) => !s.done).map((s) => s.due), ['2026-11-09', '2026-11-16', '2026-11-24', '2026-12-02'], 'in order, evenly until the target date');
+  assert.deepEqual(steps.map((s) => s.minutes), [30, 30, 30, 15, 120], 'lengths from their words');
+  // A page's list of steps counts too; with nothing listed it says what to do, plainly.
+  const b = goals.outlineGoal({ title: 'Desk', start: '2026-11-09', end: '2026-11-12', today: '2026-11-09', outline: '', material: [{ title: 'Guide', text: '- Unbox\n- Attach the legs' }] });
+  assert.deepEqual(b.tasks.map((t) => t.title), ['Unbox', 'Attach the legs']);
+  assert.throws(() => goals.outlineGoal({ title: 'x', start: '2026-11-09', end: '2026-12-09', today: '2026-11-09', outline: ' ' }),
+    /List the steps, one per line, and Onyx spreads them out until the target date/);
+  // planGoal with no key uses it, and says the plan is its own.
+  const store = require('../src/main/store');
+  const key = store.data.secrets.anthropicKey;
+  store.data.secrets.anthropicKey = '';
+  try {
+    const r = await goals.planGoal({ title: 'Learn Spanish', start: '2026-11-09', end: '2099-12-09', outline: 'Pick a course\nBook a tutor call', fit: false });
+    assert.equal(r.local, true);
+    assert.deepEqual(r.steps.map((s) => s.title), ['Pick a course', 'Book a tutor call']);
+  } finally { store.data.secrets.anthropicKey = key; }
 });
 
 test('a planned task name longer than 30 characters is cut at a word and said in full as its measure', () => {

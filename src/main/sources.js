@@ -20,6 +20,8 @@ const API = 'https://api.anthropic.com/v1/messages';
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
 
 const keyOf = () => String(store.data.secrets.anthropicKey || '');
+// The one thing here that can't work without AI: reading what a picture says.
+const PICTURE_NEEDS_KEY = 'Reading a picture takes a Claude key (Settings → AI). Without one, type or paste what it says into the box.';
 const words = (s) => (String(s).match(/\S+/g) || []).length;
 
 // ---------------------------------------------------------------- webpages
@@ -151,7 +153,7 @@ const IMAGE_PROMPT = [
 ].join(' ');
 
 async function readImage({ data, type }) {
-  if (!keyOf()) throw new Error('Reading pictures needs your Claude key: add it in Settings → AI.');
+  if (!keyOf()) throw new Error(PICTURE_NEEDS_KEY);
   const media = String(type || '').toLowerCase();
   if (!IMAGE_TYPES.has(media)) throw new Error('Use a JPEG, PNG, WebP or GIF picture.');
   const b64 = String(data || '');

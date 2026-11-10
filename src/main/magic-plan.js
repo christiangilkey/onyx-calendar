@@ -126,6 +126,59 @@ function clampMinutes(n) {
   return Number.isFinite(m) ? Math.min(MAX_MINUTES, Math.max(5, m)) : 30;
 }
 
+// ---------------------------------------------------------------- without Claude: what you did before, and a page's own steps
+
+const SMALL_WORDS = new Set(['a', 'an', 'the', 'to', 'my', 'for', 'with', 'and', 'of', 'in', 'on', 'at', 'up', 'some', 'do', 'go', 'get']);
+/** The words of a name that say what it is: lower case, no numbers or small words ("Go to the gym 2" → gym). */
+const nameWords = (s) => new Set(String(s || '').toLowerCase().replace(/[^\p{L}\s]+/gu, ' ').split(/\s+/).filter((w) => w.length > 1 && !SMALL_WORDS.has(w)));
+
+/**
+ * How long something like `title` took before: `history` is [{ title, minutes }] (past blocks, tasks with a
+ * length). A name with the same words counts, one sharing most of them (at least 2 of 3), and one that has
+ * all of the other's words and one more ("Gym" and "Gym session"); the typical length of the closest is the
+ * answer. { minutes, like (one of their names), n } or null.
+ */
+function pastLength(title, history) {
+  const a = nameWords(title);
+  if (!a.size) return null;
+  const close = [];
+  for (const h of Array.isArray(history) ? history : []) {
+    const m = Number(h?.minutes);
+    if (!Number.isFinite(m) || m < 5 || m > MAX_MINUTES) continue;
+    const b = nameWords(h.title);
+    if (!b.size) continue;
+    let both = 0;
+    for (const w of a) if (b.has(w)) both += 1;
+    const score = both / (a.size + b.size - both);
+    const within = both === Math.min(a.size, b.size) && Math.abs(a.size - b.size) <= 1;
+    if (score >= 0.66 || within) close.push({ m, title: String(h.title).trim(), score });
+  }
+  if (!close.length) return null;
+  const best = Math.max(...close.map((c) => c.score));
+  const same = close.filter((c) => c.score === best).map((c) => c.m).sort((x, y) => x - y); // the closest names only
+  const mid = same[Math.floor((same.length - 1) / 2)];
+  return { minutes: clampMinutes(mid), like: close.find((c) => c.score === best).title, n: same.length };
+}
+
+/**
+ * A page's own steps, read without Claude: its list items ("- …", "1. …", "Step 2: …") in order, or its
+ * headings when it has no list, or else its short lines. At most `max`. Each a task read like a typed line,
+ * its name cut at a word when long (60 characters), with the whole line in its notes then.
+ */
+function stepsFromText(text, max = 12) {
+  const lines = String(text || '').split('\n').map((l) => l.trim()).filter(Boolean);
+  const item = /^(?:[-*•]\s+|\d{1,3}[.)]\s+|step\s+\d{1,3}\s*[:.)-]\s*)/i;
+  let picked = lines.filter((l) => item.test(l)).map((l) => l.replace(item, ''));
+  if (picked.length < 2) picked = lines.filter((l) => /^#{2,6}\s/.test(l)).map((l) => l.replace(/^#+\s*/, ''));
+  if (picked.length < 2) picked = lines.filter((l) => !/^#/.test(l) && l.length >= 6 && l.length <= 140);
+  return picked.map((l) => l.replace(/\s+/g, ' ').trim()).filter((l) => l.length >= 3).slice(0, max).map((l) => {
+    const t = readLine(l);
+    if (t.title.length <= 60) return t;
+    const short = (t.title.slice(0, 61).replace(/\s+\S*$/, '') || t.title.slice(0, 60)).replace(/[\s,;:–-]+$/, '');
+    return { ...t, title: short, notes: l.slice(0, 400) };
+  });
+}
+
 /** Tasks as the planner needs them, from anything an estimator (Claude or the offline one) produced. */
 function normalizeTasks(list) {
   const kinds = new Set(KINDS);
@@ -356,6 +409,6 @@ function schedule(busy, tasks, opts) {
   return { blocks, unplaced };
 }
 
-const api = { estimateLocal, readLine, normalizeTasks, travelBetween, schedule, gapsOf, anchorSpan, clampMinutes, placeKey, PARTS, KINDS };
+const api = { estimateLocal, readLine, normalizeTasks, travelBetween, schedule, gapsOf, anchorSpan, clampMinutes, placeKey, pastLength, stepsFromText, PARTS, KINDS };
 if (typeof module !== 'undefined' && module.exports) module.exports = api;
 else globalThis.OnyxMagicPlan = api;

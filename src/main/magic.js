@@ -1,8 +1,9 @@
-// Magic add: describe what you need to get done and it lands in the day's free time. Claude
-// (with the user's own API key, like Breakdown) estimates each task's length, where it is done and
-// the best time of day for it; magic-plan.js then places them around what is already in the
-// calendar. Without a key the estimate is a guess from the words. Travel and lunch are not added:
-// the person puts those in their calendar themselves.
+// Adaptive Add (called Magic add in the code): describe what you need to get done and it lands in the day's
+// free time. It works fully without AI: each task's length comes from what it says ("45 min"), how long the
+// same kind of thing took before (past blocks, tasks with a length) or a guess from its words, and a page's
+// own list of steps becomes tasks. With the user's own Claude key, Claude estimates instead and reads
+// pictures. magic-plan.js then places them around what is already in the calendar. Travel and lunch are not
+// added: the person puts those in their calendar themselves.
 
 const store = require('./store');
 const hub = require('./hub');
@@ -155,12 +156,40 @@ async function planDay(text, date, o, inboxIds = [], material = []) {
 /** The times a sender gave a task ({ preferred, after, before } as "HH:MM"), on the planner's task. */
 const asAnchors = (a) => ({ ref: a.id, minutes: a.minutes || 30, ...(a.limits || {}) });
 
+/** A page's own steps (its list, or its headings), each a task tied to the page, in its order: no Claude needed. */
+const localMaterial = (read) => read.flatMap((m, i) => plan.stepsFromText(m.text)
+  .map((t, k) => ({ ...t, chain: `m${i + 1}`, step: k + 1, from: { title: m.title, url: m.url } })));
+
+/** What things took before, for lengths nobody gave: the last four weeks' blocks and the tasks with a length. Quick, or not at all. */
+async function historyOf(day) {
+  const within = (p, ms) => Promise.race([p.catch(() => null), new Promise((ok) => setTimeout(() => ok(null), ms))]);
+  const [ev, tk] = await Promise.all([
+    within(hub.getEvents(new Date(day.getTime() - 28 * 86400000).toISOString(), day.toISOString()), 2500),
+    within(hub.getTasks(), 2500),
+  ]);
+  return [
+    ...(ev?.events || []).filter((e) => e.kind === 'event' && !e.allDay && e.start && e.end)
+      .map((e) => ({ title: e.title, minutes: Math.round((new Date(e.end) - new Date(e.start)) / 60000) })),
+    ...(tk?.tasks || []).filter((t) => Number(t.minutes) > 0).map((t) => ({ title: t.label || t.title, minutes: Number(t.minutes) })),
+  ];
+}
+
+/** Lengths guessed from the words alone give way to how long the same kind of thing took before. */
+async function usePastLengths(tasks, day) {
+  const open = tasks.filter((t) => !t.why);
+  if (!open.length) return;
+  const history = await historyOf(day);
+  for (const t of open) {
+    const p = plan.pastLength(t.title, history);
+    if (p) Object.assign(t, { minutes: p.minutes, why: p.n > 1 ? `About as long as "${p.like}" usually takes` : `As long as "${p.like}" took before` });
+  }
+}
+
 /** planDay's work: `arrived` is [{ id, title, label?, minutes?, notes?, from?, limits? }], each planned as exactly one task. */
 async function planWith(text, date, o, arrived, material = []) {
   const body = String(text || '').trim();
   const read = sources.forPrompt(material);
   if (!body && !arrived.length && !read.length) throw new Error('Describe what you need to get done first.');
-  if (read.length && !keyOf()) throw new Error('Turning pages and pictures into tasks needs your Claude key: add it in Settings → AI.');
   const opts = optsOf(o);
   const { day, from, to, core } = windowOf(date, opts, arrived.map(asAnchors));
   const busy = await busyOf(day);
@@ -178,11 +207,19 @@ async function planWith(text, date, o, arrived, material = []) {
       source = 'claude';
       if (!tasks.length) throw new Error('Claude found no tasks in that.');
     } catch (err) {
-      if (read.length) throw err; // a page or a picture can't be planned from guesses
-      warning = `${err.message} Planned from the words alone instead.`;
+      warning = `${err.message} Planned without Claude instead.`;
     }
   }
-  if (!tasks) tasks = plan.normalizeTasks(plan.estimateLocal(body));
+  if (!tasks) {
+    // Without Claude: a task per typed line, and a page's own list of steps.
+    const steps = localMaterial(read);
+    tasks = plan.normalizeTasks([...plan.estimateLocal(body), ...steps]);
+    if (read.length && !steps.length) {
+      const what = read.length > 1 ? 'those pages' : `"${read[0].title}"`;
+      if (!tasks.length && !arrived.length) throw new Error(`Onyx found no list of steps in ${what}. Paste the steps you need into the box, one per line.`);
+      warning = `${warning ? `${warning} ` : ''}No list of steps was found in ${what}: paste the ones you need into the box.`;
+    }
+  }
   // Every arrived task is in the plan, even when Claude merged or dropped it: a guess from its name stands in.
   const have = new Set(tasks.map((t) => t.ref).filter(Boolean));
   for (const a of arrived) {
@@ -200,6 +237,7 @@ async function planWith(text, date, o, arrived, material = []) {
     for (const k of ['preferred', 'after', 'before']) if (a.limits?.[k]) t[k] = a.limits[k];
   }
   if (!tasks.length) throw new Error('No tasks found in that. Put one on each line.');
+  if (source === 'local') await usePastLengths(tasks, day);
   const result = plan.schedule(busy, tasks, { day, from, to, core, ...LAYOUT, focusPart: require('./focus').bestFocusPart() });
   return present(result, { tasks, travel, source, warning });
 }
@@ -283,7 +321,7 @@ async function receive({ date, items, source } = {}) {
       (r.planned ? kept : queued).push({ title: it.title, id: r.taskId, ...(r.planned ? { start: r.start } : {}) });
     }
     return { mode: 'review', date: day, queued, ...(kept.length ? { already_planned: kept } : {}),
-      message: `Waiting in Magic add for ${day}: the user sees where they would fit and adds them.` };
+      message: `Waiting in Adaptive Add for ${day}: the user sees where they would fit and adds them.` };
   }
 
   // Placed right away. Ones sent before (same id) that are still in the calendar stay where they are.

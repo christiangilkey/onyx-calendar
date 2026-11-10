@@ -26,6 +26,8 @@
     inbox: '<path d="M4 13.5l2.3-6.9A2.3 2.3 0 0 1 8.5 5h7a2.3 2.3 0 0 1 2.2 1.6l2.3 6.9V17.7A2.3 2.3 0 0 1 17.7 20H6.3A2.3 2.3 0 0 1 4 17.7z"/><path d="M4 13.5h4.6l1.3 2.2h4.2l1.3-2.2H20"/>',
     undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
     sparkles: '<path d="M10 3l1.7 4.6L16.5 9.3l-4.8 1.7L10 15.6 8.3 11 3.5 9.3l4.8-1.7z"/><path d="M18 14l.9 2.1 2.1.9-2.1.9L18 20l-.9-2.1-2.1-.9 2.1-.9z"/>',
+    // Adaptive Add: a day with blocks fitted into its free time.
+    fit: '<rect x="3.5" y="3.5" width="17" height="17" rx="3"/><path d="M7.5 8h5"/><path d="M7.5 12h9"/><path d="M7.5 16h3"/><path d="M14 16h2.5"/>',
     car: '<path d="M5 16.5V12l1.8-4.6A1.5 1.5 0 0 1 8.2 6.5h7.6a1.5 1.5 0 0 1 1.4.9L19 12v4.5"/><path d="M4 16.5h16M5 12h14"/><circle cx="8" cy="16.5" r="1.7"/><circle cx="16" cy="16.5" r="1.7"/>',
     flag: '<path d="M5.5 21V4"/><path d="M5.5 4.5h11.5l-2.4 3.8 2.4 3.8H5.5"/>',
     stove: '<rect x="3.5" y="9" width="17" height="11.5" rx="2"/><circle cx="8.5" cy="14.5" r="2.2"/><circle cx="15.5" cy="14.5" r="2.2"/><path d="M8 3.5c-.8 1 .8 1.8 0 3M12 3c-.8 1 .8 1.8 0 3M16 3.5c-.8 1 .8 1.8 0 3"/>',
@@ -4964,7 +4966,7 @@
       onkeydown: (e) => { if ((e.key === 'Enter' || e.key === ' ') && !e.target.closest('.carry')) { e.preventDefault(); toggle(); } },
     },
       icon('inbox'), h('span', null, 'Inbox'), h('span', { class: 'sec-count' }, items.length), h('span', { class: 'grow' }),
-      items.length > 1 && h('button', { class: 'carry', title: 'Fit them all into a day with Magic add', onclick: (e) => { e.stopPropagation(); openMagic({ pick: items.map((t) => t.id), tab: 'apps' }); } }, 'Plan all'));
+      items.length > 1 && h('button', { class: 'carry', title: 'Fit them all into a day with Adaptive Add', onclick: (e) => { e.stopPropagation(); openMagic({ pick: items.map((t) => t.id), tab: 'apps' }); } }, 'Plan all'));
     return h('section', { class: 'task-group inbox-group' }, head,
       !closed && h('div', { class: 'task-cards' }, items.map(inboxRow)));
   }
@@ -4984,7 +4986,7 @@
     } }, 'Clear');
     row.querySelector('.task-body')?.append(h('div', { class: 'inbox-acts' },
       h('span', { class: 'inbox-from' }, t.from === 'lock' ? 'From your lock screen' : `From ${sourceName(t)}`),
-      h('button', { type: 'button', class: 'inbox-act primary', title: 'Fit it into a day with Magic add', onclick: (e) => { e.stopPropagation(); openMagic({ pick: [t.id], tab: 'apps' }); } }, icon('sparkles'), 'Plan'),
+      h('button', { type: 'button', class: 'inbox-act primary', title: 'Fit it into a day with Adaptive Add', onclick: (e) => { e.stopPropagation(); openMagic({ pick: [t.id], tab: 'apps' }); } }, icon('fit'), 'Plan'),
       clear));
     return row;
   }
@@ -6290,7 +6292,7 @@
           h('b', null, `Your deepest focus: ${hr(ins.best.from)} to ${hr(ins.best.to)}`),
           ` (${ins.best.avg.toFixed(1)} out of 5, ${ins.best.count} sessions).`,
           inside ? ' That is now.' : ins.now ? ` Sessions around now average ${ins.now.avg.toFixed(1)}.` : '',
-          ' Magic add plans focus work into those hours.'));
+          ' Adaptive Add plans focus work into those hours.'));
       } else {
         const left = Math.max(1, ins.needed - ins.rated);
         bestLine.replaceChildren(icon('sparkles'), h('span', null, `Rate how deep each session went at the end: after ${left} more, Onyx shows the hours you focus best and plans focus work into them.`));
@@ -6917,7 +6919,7 @@
       try {
         await onyx.createTask({ title, inbox: 'hyperfocus' });
         s.captured++;
-        p.parked.textContent = `${s.captured} parked in Magic add for later`;
+        p.parked.textContent = `${s.captured} parked in Adaptive Add for later`;
         loadTasks(true);
       } catch (err) {
         capture.value = title;
@@ -7994,7 +7996,7 @@
     const add = (e) => openGoal(null, e.currentTarget.getBoundingClientRect());
     box.replaceChildren(
       h('div', { class: 'group-head' }, h('span', null, 'Goals'), h('button', { class: 'link-btn', onclick: add }, '+ New goal')),
-      h('button', { class: 'magic-goal', title: 'Paste an outline and Claude turns it into measurable steps, timed into your calendar', onclick: (e) => openGoalMagic(null, e.currentTarget.getBoundingClientRect()) }, icon('sparkles'), 'Magic add goal'),
+      h('button', { class: 'magic-goal', title: 'Paste an outline or a list of steps: they become measurable steps, timed into your calendar', onclick: (e) => openGoalMagic(null, e.currentTarget.getBoundingClientRect()) }, icon('fit'), 'Adaptive Add goal'),
       ...goals.length
         ? goals.map((g) => {
           const p = g.progress;
@@ -8244,14 +8246,19 @@
       if (e.key === 'Escape') { e.stopPropagation(); linkRow.hidden = true; }
     });
     const takeLink = () => { if (addLink(url.value)) { url.value = ''; linkRow.hidden = true; } };
+    // Pages need no AI (their own list of steps is used); reading a picture does: without a key, it says so
+    // when one is picked, pasted or dropped, and what to do instead.
+    const pictures = !!S.ai?.ready;
+    const needKey = h('p', { class: 'src-need', hidden: true }, 'Reading a picture takes a Claude key (Settings → AI). Without one, type or paste what it says into the box.');
     const el = h('div', { class: 'src-box' },
       h('div', { class: 'src-bar' },
         h('span', { class: 'src-lead' }, 'Read from'),
-        h('button', { type: 'button', class: 'src-add', title: 'A screenshot or photo of instructions, a list or notes', onclick: () => file.click() }, icon('camera'), 'Picture'),
+        h('button', { type: 'button', class: 'src-add', title: pictures ? 'A screenshot or photo of instructions, a list or notes' : 'Reading a picture takes a Claude key (Settings → AI)',
+          onclick: () => { if (pictures) file.click(); else needKey.hidden = false; } }, icon('camera'), 'Picture'),
         h('button', { type: 'button', class: 'src-add', title: 'A webpage or a Notion page', onclick: () => { linkRow.hidden = !linkRow.hidden; if (!linkRow.hidden) url.focus(); } }, icon('link'), 'Link'),
-        !MOBILE && h('span', { class: 'src-tip' }, 'or Ctrl+V a screenshot'),
+        !MOBILE && pictures && h('span', { class: 'src-tip' }, 'or Ctrl+V a screenshot'),
         file),
-      linkRow, list);
+      needKey, linkRow, list);
 
     const status = (s) => (s.state === 'reading' ? (s.kind === 'image' ? 'Reading the picture…' : 'Reading…')
       : s.state === 'error' ? s.error
@@ -8292,6 +8299,7 @@
       return add({ kind: 'link', url: u.href }, { kind: notion ? 'notion' : 'web', title: u.hostname.replace(/^www\./, ''), url: u.href });
     }
     async function addFiles(files) {
+      if (!pictures) { needKey.hidden = false; return; }
       for (const f of [...(files || [])]) {
         if (!/^image\//.test(f.type)) { toast(`${f.name || 'That file'} is not a picture.`, 'warn'); continue; }
         try {
@@ -8362,7 +8370,10 @@
     const end = h('input', { type: 'date', value: g ? g.end : ymd(addDays(new Date(), 90)), title: 'Target date', disabled: !!g });
     const outline = h('textarea', {
       class: 'gm-outline', rows: MOBILE ? 6 : 8, spellcheck: true,
-      placeholder: `Paste everything about it: an outline of what it involves, notes, links${MOBILE ? '' : ', screenshots'}, how much time you have, and the steps you already have. Mark the ones you have finished with [x] or "done".`,
+      // Without a Claude key the steps are the lines written here (goal-magic.js outlineGoal): it asks for them.
+      placeholder: S.ai?.ready
+        ? `Paste everything about it: an outline of what it involves, notes, links${MOBILE ? '' : ', screenshots'}, how much time you have, and the steps you already have. Mark the ones you have finished with [x] or "done".`
+        : 'List the steps, one per line (an outline or a pasted list works). Onyx spreads them out until the target date, each at a free time. Mark the ones you have finished with [x] or "done".',
     });
     let level = startLevel || goalLevel();
     const hammers = h('div', { class: 'hammers', role: 'radiogroup', 'aria-label': 'How finely to break it down' });
@@ -8376,7 +8387,7 @@
     };
     drawHammers();
     const fit = h('input', { type: 'checkbox', checked: true });
-    const go = h('button', { class: 'btn primary gm-go', onclick: () => run() }, icon('sparkles'), g ? 'Break it down' : 'Plan it');
+    const go = h('button', { class: 'btn primary gm-go', onclick: () => run() }, icon('fit'), g ? 'Break it down' : 'Plan it');
     const out = h('div', { class: 'gm-out' });
     const make = h('button', { class: 'btn primary', hidden: true, onclick: () => create() }, g ? 'Add steps' : 'Set goal');
     let plan = null, busy = false;
@@ -8390,12 +8401,12 @@
       if (!title.value.trim()) { title.focus(); return toast('Give the goal a name first.', 'warn'); }
       busy = true;
       go.disabled = true;
-      go.replaceChildren(icon('sparkles'), 'Planning…');
+      go.replaceChildren(icon('fit'), 'Planning…');
       make.hidden = true;
       const waiting = (t) => out.replaceChildren(h('div', { class: 'gm-wait' }, h('span', { class: 'spinner' }), h('span', null, t)));
       if (src.reading()) waiting('Reading…');
       await src.settle();
-      waiting(level >= 4 ? 'Claude is writing a day-by-day plan. A big one takes a minute or two.' : 'Claude is breaking it down…');
+      waiting(!S.ai?.ready ? 'Spreading the steps out…' : level >= 4 ? 'Claude is writing a day-by-day plan. A big one takes a minute or two.' : 'Claude is breaking it down…');
       try {
         plan = await onyx.planGoal({ title: title.value.trim(), start: start.value, end: end.value, outline: outline.value, sources: src.ready(), level, fit: fit.checked, goalId: g?.id || null });
         for (const s of plan.steps) s.on = true;
@@ -8406,7 +8417,7 @@
       } finally {
         busy = false;
         go.disabled = false;
-        go.replaceChildren(icon('sparkles'), plan ? 'Plan again' : g ? 'Break it down' : 'Plan it');
+        go.replaceChildren(icon('fit'), plan ? 'Plan again' : g ? 'Break it down' : 'Plan it');
       }
     };
 
@@ -8533,12 +8544,13 @@
     };
 
     showPopover(anchor, [
-      h('div', { class: 'gm-head' }, icon('sparkles'), h('b', null, g ? 'Break down this goal' : 'Magic add goal')),
+      h('div', { class: 'gm-head' }, icon('fit'), h('b', null, g ? 'Break down this goal' : 'Adaptive Add goal')),
       title,
       h('div', { class: 'row' }, icon('calendar'), start, h('span', { class: 'dash' }, 'to'), end),
       h('div', { class: 'row top' }, icon('note'), outline),
       h('div', { class: 'row gm-src' }, src.el),
-      h('div', { class: 'row gm-meter' }, icon('hammer'), h('div', { class: 'txt' }, h('div', { class: 'breakdown-head' }, h('b', null, 'Breakdown'), hammers), levelName)),
+      // How finely Claude writes the steps: without a key the steps are the ones listed, so there is nothing to set.
+      S.ai?.ready && h('div', { class: 'row gm-meter' }, icon('hammer'), h('div', { class: 'txt' }, h('div', { class: 'breakdown-head' }, h('b', null, 'Breakdown'), hammers), levelName)),
       h('label', { class: 'row gm-fit' }, fit, h('span', null, 'Give every session a free time in my calendar')),
       h('div', { class: 'row gm-go-row' }, go),
       out,
@@ -9760,6 +9772,7 @@
     return h('div', { class: 'card' },
       h('h4', null, 'AI for Breakdown', ready && h('span', { class: 'badge ok' }, 'Key saved')),
       h('p', null, 'Breakdown (the hammer in a task\'s window) splits a task into steps with Claude, using your own API key. Get one at console.anthropic.com → API keys. Only the task\'s name and notes are sent.'),
+      h('p', null, 'Adaptive Add works without a key. With one, Claude also estimates how long things take, reads pictures, and writes a goal\'s steps for you.'),
       h('div', { class: 'row' }, key,
         h('button', { class: 'btn', onclick: () => onyx.open('https://console.anthropic.com/settings/keys') }, 'Get a key'),
         h('button', { class: 'btn primary', onclick: () => act(() => onyx.setAiKey(key.value), 'Key saved') }, 'Save'),
@@ -10501,7 +10514,7 @@
           h('h4', null, 'How to say it'),
           h('ul', null,
             h('li', null, h('b', null, `“${phrase}, buy milk.”`), h('small', null, 'In one go. A chime, then another once it\'s in your inbox.')),
-            h('li', null, h('b', null, `“${phrase}, call the dentist tomorrow at three.”`), h('small', null, 'The day and time are read out of it, for Magic add to plan.')),
+            h('li', null, h('b', null, `“${phrase}, call the dentist tomorrow at three.”`), h('small', null, 'The day and time are read out of it, for Adaptive Add to plan.')),
             h('li', null, h('b', null, `“${phrase}” … chime … “finish the report Friday, for two hours.”`), h('small', null, 'Or wait for the chime. Say "cancel" to stop.'))),
           h('small', null, 'Each lands in your inbox, from Hey Claude. Undo is on the notification.'));
         const privacy = h('div', { class: 'privacy-card' },
@@ -11234,7 +11247,7 @@
           h('span', { class: 'mg-title' }, t.label || t.title),
           h('span', { class: 'mg-meta' }, pickMeta(t, key) || null,
             t.date ? h('span', { class: `mg-due${late ? ' late' : ''}` }, `${late ? 'Was due' : 'Due'} ${dayName(t.date)}`) : null)),
-        key === 'apps' && h('button', { type: 'button', class: 'mg-dismiss', title: 'Not now: leave it out of Magic add', 'aria-label': `Leave "${t.label || t.title}" out`, onclick: async (e) => {
+        key === 'apps' && h('button', { type: 'button', class: 'mg-dismiss', title: 'Not now: leave it out of Adaptive Add', 'aria-label': `Leave "${t.label || t.title}" out`, onclick: async (e) => {
           e.preventDefault();
           picked.delete(t.id);
           try { await onyx.dismissInbox(t.id); } catch (err) { fail(err); return; }
@@ -11304,7 +11317,7 @@
     }
     paintDay();
     const goCount = h('span', { class: 'mg-num' });
-    const go = h('button', { class: 'btn primary mg-go', onclick: () => run() }, icon('sparkles'),
+    const go = h('button', { class: 'btn primary mg-go', onclick: () => run() }, icon('fit'),
       h('span', { class: 'mg-go-t' }, adding ? 'Find time' : 'Plan my day'), goCount);
     // Adding (the + button): first, what is being added, as three big choices; then only what that needs, each part
     // under its name, in one column that scrolls; and one button at the foot to add it.
@@ -11314,7 +11327,7 @@
     // - Time chunk: the chunk window (openChunkEditor's into): its category, name, day and hours, and Repeat.
     const WAYS = [
       { key: 'time', ico: 'clock', name: 'Block', sub: 'You pick the time', hint: 'A block on your calendar, on the day and at the time you choose.' },
-      { key: 'find', ico: 'sparkles', name: 'Find time', sub: 'Onyx fits it in', hint: 'Type one or more things to do. Onyx finds free time for them in your day.' },
+      { key: 'find', ico: 'fit', name: 'Find time', sub: 'Onyx fits it in', hint: 'Type one or more things to do. Onyx finds free time for them in your day.' },
       { key: 'chunk', ico: 'tag', name: 'Time chunk', sub: 'Time for a category', hint: 'Time set aside for one category, like #work. Blocks and tasks with its tag go inside it.' },
     ];
     const isWay = (k) => WAYS.some((w) => w.key === k);
@@ -11419,10 +11432,11 @@
       const { result } = view;
       const kids = [];
       if (result.warning) kids.push(h('p', { class: 'magic-warn' }, result.warning));
-      kids.push(h('p', { class: 'magic-source' }, icon(result.source === 'claude' ? 'sparkles' : 'clock'),
+      kids.push(h('p', { class: 'magic-source' }, icon('clock'),
         result.source === 'claude' ? `Estimated by Claude for ${dayName(view.date)}`
           : result.source === 'edited' ? `Laid out again for ${dayName(view.date)}`
-            : `Estimated from your words for ${dayName(view.date)}${claude ? '' : '. Add a Claude key in Settings for smarter estimates'}`));
+            : view.result.blocks.some((b) => b.from) ? `Steps from the page, lengths from their words, for ${dayName(view.date)}`
+              : `Lengths from your words and what you did before, for ${dayName(view.date)}`));
       if (result.blocks.length) kids.push(dayPreview());
       if (result.unplaced.length) {
         kids.push(h('div', { class: 'magic-left' },
@@ -11562,11 +11576,11 @@
       if (!text.value.trim() && !picked.size && !src.count()) { text.focus(); return; }
       working = true;
       go.disabled = true;
-      go.replaceChildren(icon('sparkles'), claude ? 'Estimating…' : 'Planning…');
+      go.replaceChildren(icon('fit'), claude ? 'Estimating…' : 'Planning…');
       msg.replaceChildren();
       view = null;
       show('plan');
-      const progress = (t) => out.replaceChildren(h('p', { class: 'magic-source' }, icon('sparkles'), t));
+      const progress = (t) => out.replaceChildren(h('p', { class: 'magic-source' }, icon('fit'), t));
       const fromRead = 'Turning what was read into tasks and fitting them in…';
       progress(src.reading() ? 'Reading…' : src.count() ? fromRead : claude ? 'Estimating how long each takes…' : 'Fitting them in…');
       try {
@@ -11590,7 +11604,7 @@
       }
       working = false;
       go.disabled = false;
-      go.replaceChildren(icon('sparkles'), h('span', { class: 'mg-go-t' }, view ? 'Plan again' : 'Plan my day'), goCount);
+      go.replaceChildren(icon('fit'), h('span', { class: 'mg-go-t' }, view ? 'Plan again' : 'Plan my day'), goCount);
       paintGo();
     }
 
@@ -11649,7 +11663,7 @@
       calendar.gotoDate(fromYmd(view.date));
       refetch(true);
       loadTasks(true);
-      const label = `Magic add: ${made.length} block${made.length > 1 ? 's' : ''} for ${dayName(view.date)}`;
+      const label = `Adaptive Add: ${made.length} block${made.length > 1 ? 's' : ''} for ${dayName(view.date)}`;
       recordAction(label,
         async () => { for (const m of made) { if (m.task) await onyx.unplanTask(m.task, m.prev); else await onyx.deleteEvent(m.event.id); } },
         async () => { for (const m of made) { if (m.task) m.prev = (await onyx.planTask(m.task, m.spec)).prev; else m.event = await onyx.createEvent(m.fields); } });
@@ -11686,7 +11700,7 @@
         writable.length > 1 ? row('Add to', calendarPick) : null,
         row('Tasks from other apps', incoming)),
       h('div', { class: 'mg-pop-foot' },
-        h('small', null, claude ? 'Claude estimates how long each takes. It is sent these tasks and the day\'s entries.' : 'Lengths are guessed from the words. Add a Claude key in Settings for better estimates.'),
+        h('small', null, claude ? 'Claude estimates how long each takes. It is sent these tasks and the day\'s entries.' : 'Lengths come from what you write ("45 min"), how long the same kind of thing took before, or the words. Change any of them before adding.'),
         h('button', { type: 'button', class: 'btn', onclick: () => toggleOpts(false) }, 'Done')));
     const optsWrap = h('div', { class: 'mg-opts-wrap' }, optsPop, optsBtn);
     whenField?.append(optsWrap); // adding: the hours open in the column, under the day
@@ -11729,8 +11743,8 @@
     const sheet = h('div', { class: `sheet magic${adding ? ' adding' : ''}` }, h('div', { class: 'pane mg-pane' },
       h('button', { class: 'icon-btn close', onclick: closeSettings, 'aria-label': 'Close' }, icon('x')),
       h('header', { class: 'mg-head' },
-        h('span', { class: `mg-badge${adding ? ' plain' : ''}` }, icon(adding ? 'plus' : 'sparkles')),
-        h('div', null, h('h3', { class: 'mg-h' }, adding ? 'Add to your day' : 'Magic add'),
+        h('span', { class: `mg-badge${adding ? ' plain' : ''}` }, icon(adding ? 'plus' : 'fit')),
+        h('div', null, h('h3', { class: 'mg-h' }, adding ? 'Add to your day' : 'Adaptive Add'),
           !adding && h('p', { class: 'mg-sub' }, 'Onyx fits them into the free time in your day.'))),
       body,
       foot));
@@ -13414,7 +13428,7 @@
     const paint = () => { const s = startOf(); until.textContent = Number.isNaN(+s) ? '' : `to ${fmtTime(new Date(+s + mins * 60000))}`; };
     date.oninput = time.oninput = paint;
     const add = h('button', { type: 'button', class: 'btn primary mg-way' }, icon('clock'), h('span', { class: 'mg-way-t' }, h('b', null, 'Add it'), h('small', null, 'At the day and time above')));
-    const find = h('button', { type: 'button', class: 'btn mg-way mg-choose' }, icon('sparkles'), h('span', { class: 'mg-way-t' }, h('b', null, 'Find time'), h('small', null, 'Magic add fits it in')));
+    const find = h('button', { type: 'button', class: 'btn mg-way mg-choose' }, icon('fit'), h('span', { class: 'mg-way-t' }, h('b', null, 'Find time'), h('small', null, 'Adaptive Add fits it in')));
     add.onclick = async () => {
       const start = startOf();
       if (Number.isNaN(+start)) { toast('Pick a day and a time.', 'error'); return; }
@@ -13454,7 +13468,7 @@
     const chosen = () => steps.filter((n) => pick.has(n.id));
     const total = h('span', { class: 'wb-total' });
     const goBack = h('button', { type: 'button', class: 'btn primary mg-way' }, icon('clock'), h('span', { class: 'mg-way-t' }, h('b', null, 'One after another'), h('small', null, 'From the day and time above')));
-    const goMagic = h('button', { type: 'button', class: 'btn mg-way mg-choose' }, icon('sparkles'), h('span', { class: 'mg-way-t' }, h('b', null, 'Find time'), h('small', null, 'Magic add fits them in')));
+    const goMagic = h('button', { type: 'button', class: 'btn mg-way mg-choose' }, icon('fit'), h('span', { class: 'mg-way-t' }, h('b', null, 'Find time'), h('small', null, 'Adaptive Add fits them in')));
     const paint = () => {
       const list = chosen();
       const mins = list.reduce((t, n) => t + (Number(n.minutes) || 30), 0);
@@ -13897,9 +13911,9 @@
     $('#refresh').onclick = refreshAll;
     $('#new-block').onclick = () => { if (graph.on) closeGraph(); newBlock(); };
     $('#fab').onclick = addNew;
-    $('#magic-add').append(icon('sparkles'), 'Magic add');
+    $('#magic-add').append(icon('fit'), 'Adaptive Add');
     $('#magic-add').onclick = () => openMagic();
-    $('#task-magic').append(icon('sparkles'), 'Magic add tasks'); // the Tasks panel's own way in, styled as Magic add goal
+    $('#task-magic').append(icon('fit'), 'Adaptive Add tasks'); // the Tasks panel's own way in, styled as Magic add goal
     $('#task-magic').onclick = () => openMagic();
     $('#add-calendar').onclick = () => openSettings(onyx.isPhone ? 'connection' : 'calendars');
     $('#open-settings').onclick = () => openSettings();

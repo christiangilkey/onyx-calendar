@@ -98,3 +98,25 @@ test('lunch is kept free when there is somewhere else to go', () => {
   const overlap = Math.min(b.end, at(13, 15)) - Math.max(b.start, at(12, 30));
   assert.ok(overlap <= 0, `${hm(b.start)}-${hm(b.end)} sits on lunch`);
 });
+
+test('without Claude: how long the same kind of thing took before', () => {
+  const history = [
+    { title: 'Gym session', minutes: 90 }, { title: 'Gym session', minutes: 80 }, { title: 'Gym session', minutes: 95 },
+    { title: 'Call the bank', minutes: 20 }, { title: 'Weekly review', minutes: 45 }, { title: 'All-day thing', minutes: 600 },
+  ];
+  assert.deepEqual(plan.pastLength('Gym', history), { minutes: 90, like: 'Gym session', n: 3 }, 'the typical one of the closest names');
+  assert.equal(plan.pastLength('Go to the gym session', history).minutes, 90, 'small words do not count');
+  assert.equal(plan.pastLength('Call mom', history), null, 'one word in common out of three is not the same thing');
+  assert.equal(plan.pastLength('Weekly review 2', history).minutes, 45);
+  assert.equal(plan.pastLength('All-day thing', history), null, 'nothing longer than a block can be');
+  assert.equal(plan.pastLength('', history), null);
+});
+
+test('without Claude: a page becomes its own list of steps, or its headings, or its short lines', () => {
+  const steps = plan.stepsFromText('# Assemble the desk\nYou will need a screwdriver.\n1. Unbox and check the parts list\n2. Attach the legs (20 min)\nStep 3: Fix the top with the 8 long bolts, finger-tight first, then tighten in a cross pattern so it sits flat');
+  assert.deepEqual(steps.map((s) => s.title.slice(0, 20)), ['Unbox and check the ', 'Attach the legs', 'Fix the top with the']);
+  assert.equal(steps[1].minutes, 20, 'a length written in the step');
+  assert.match(steps[2].notes, /cross pattern/, 'a long step keeps all of it in its notes');
+  assert.deepEqual(plan.stepsFromText('# Plan\n## Warm up\ntext\n## Main set\nmore').map((s) => s.title), ['Warm up', 'Main set']);
+  assert.deepEqual(plan.stepsFromText('# Title\nOk'), [], 'nothing that reads as a step');
+});

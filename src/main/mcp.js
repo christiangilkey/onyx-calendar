@@ -234,9 +234,9 @@ const TOOLS = [
   },
   {
     name: 'magic_add',
-    description: 'Hand tasks for one day to Magic add, which fits them into the free time around what is already in the calendar '
+    description: 'Hand tasks for one day to Adaptive Add, which fits them into the free time around what is already in the calendar '
       + '(lengths, time of day, travel between places, deadlines; long ones may be split). The user chooses in Onyx what happens next: '
-      + 'by default they wait in Magic add for the user to review and add (mode "review"); with "place them right away" they are '
+      + 'by default they wait in Adaptive Add for the user to review and add (mode "review"); with "place them right away" they are '
       + `added at once as time blocks the user can undo (mode "placed"). At most ${require('./magic').MAX_ITEMS} items per call; one call per day.`,
     inputSchema: {
       type: 'object',

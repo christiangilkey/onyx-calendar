@@ -1,7 +1,7 @@
-// Magic add for goals: a goal, its time frame and whatever the person pastes about it (an outline, notes,
+// Adaptive Add for goals (Magic add in the code): a goal, its time frame and whatever the person pastes about it (an outline, notes,
 // the steps they already have) become phases of actionable, measurable steps, one-off or repeating, as
-// finely as the hammers say. Claude (with the user's own API key, like Breakdown and Magic add) writes the
-// plan; goal-plan.js reads it back and gives every session a time that is free in the calendar. Nothing is
+// finely as the hammers say. Claude (with the user's own API key, like Breakdown) writes the plan; without a
+// key the outline's own lines are the steps (outlineGoal); goal-plan.js reads it back and gives every session a time that is free in the calendar. Nothing is
 // saved here: the window shows the plan, and the goal is made (or added to) when the person says so.
 
 const store = require('./store');
@@ -47,10 +47,36 @@ async function busyFrom(today, end) {
  * Plans a goal. o: { title, start, end, outline, sources (pages and pictures read for it), level (1-5), fit (give sessions free times), goalId (add to
  * that goal: its steps are sent so none are repeated) }. Returns { phases, steps, summary }.
  */
+/**
+ * A goal's plan without Claude: the outline's own lines (and the steps listed on a page read for it) are the
+ * steps, in their order, spread evenly from the start (today, if later) to the target date, each with a
+ * length read from its words. Lines marked [x], ✓ or "done" are steps already done. Same shape as Claude's.
+ */
+function outlineGoal({ title, start, end, today, outline, material = [] }) {
+  const lines = String(outline || '').split(/\r?\n/).map((l) => l.replace(/^\s*(?:[-*•]|\d{1,3}[.)])\s*/, '').trim());
+  for (const m of material) for (const t of require('./magic-plan').stepsFromText(m.text, 60)) lines.push(t.notes || t.title);
+  const isDone = (l) => /\[x\]|✓|\(?\bdone\b\)?/i.test(l);
+  const rows = lines.filter((l) => l.replace(/\[[ x]\]|✓/gi, '').trim().length >= 2).slice(0, 120);
+  if (!rows.length) throw new Error('List the steps, one per line, and Onyx spreads them out until the target date. (Having the steps written for you takes a Claude key, in Settings → AI.)');
+  const from = start > today ? start : today;
+  const t0 = new Date(`${from}T00:00`);
+  const span = Math.max(0, Math.round((new Date(`${end}T00:00`) - t0) / 86400000));
+  const at = (d) => ymd(new Date(t0.getFullYear(), t0.getMonth(), t0.getDate() + Math.floor(d)));
+  const open = rows.filter((l) => !isDone(l)).length;
+  let k = 0;
+  const readLine = require('./magic-plan').readLine;
+  const tasks = rows.map((l) => {
+    const done = isDone(l);
+    const name = l.replace(/\[[ x]\]|✓|\(?\bdone\b\)?/gi, '').replace(/\s{2,}/g, ' ').trim();
+    const r = readLine(name);
+    return { title: r.title, measure: name, phase: 1, start: done ? from : at((k++ * (span + 1)) / Math.max(1, open)), minutes: r.minutes, when: r.when, done };
+  });
+  return { phases: [{ name: 'Steps', start, end, milestone: title }], tasks };
+}
+
 async function planGoal(o = {}) {
   const title = String(o.title || '').trim();
   if (!title) throw new Error('Give the goal a name first.');
-  if (!keyOf()) throw new Error('Add your Claude API key in Settings → AI to use Magic add for goals.');
   const today = ymd(new Date());
   const start = isDate(o.start) ? o.start : today;
   const end = isDate(o.end) ? o.end : null;
@@ -62,15 +88,17 @@ async function planGoal(o = {}) {
   const existing = goal ? goal.steps.map((s) => ({ title: s.title, done: s.done, repeat: s.repeat })) : [];
 
   const material = require('./sources').forPrompt(o.sources);
-  const answer = await askClaude(plan.userMessage({ title, start, end, today, outline: o.outline, level, existing, material }), level);
+  const local = !keyOf(); // without a Claude key: the steps listed, spread out until the target date
+  const answer = local ? outlineGoal({ title, start, end, today, outline: o.outline, material })
+    : await askClaude(plan.userMessage({ title, start, end, today, outline: o.outline, level, existing, material }), level);
   const { phases, steps } = plan.normalize(answer, { start, end, today });
-  if (!steps.length) throw new Error('Claude gave no steps. Add a little more about the goal and try again.');
+  if (!steps.length) throw new Error(local ? 'No steps found in that. Put one on each line.' : 'Claude gave no steps. Add a little more about the goal and try again.');
   if (o.fit !== false) {
     const magic = store.data.settings.magic || {};
     plan.fitTimes(steps, await busyFrom(today, end), { today, dayStart: magic.start || '08:00', dayEnd: magic.end || '21:00', end });
   }
   for (const s of steps) s.sessions = plan.timesIn(s.repeat, s.due, s.until || s.due);
-  return { phases, steps, summary: plan.summary(steps, { start: start > today ? start : today, end }), level };
+  return { phases, steps, summary: plan.summary(steps, { start: start > today ? start : today, end }), level, local };
 }
 
-module.exports = { planGoal };
+module.exports = { planGoal, outlineGoal };

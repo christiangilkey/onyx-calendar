@@ -48,7 +48,7 @@ test('one + button on the phone: what you are adding first (a block, Find time o
   assert.match(magic, /'Add to your day'/);
   // Three big choices at the top, each saying what it does.
   assert.match(magic, /\{ key: 'time', ico: 'clock', name: 'Block', sub: 'You pick the time', hint: /);
-  assert.match(magic, /\{ key: 'find', ico: 'sparkles', name: 'Find time', sub: 'Onyx fits it in', hint: /);
+  assert.match(magic, /\{ key: 'find', ico: 'fit', name: 'Find time', sub: 'Onyx fits it in', hint: /);
   assert.match(magic, /\{ key: 'chunk', ico: 'tag', name: 'Time chunk', sub: 'Time for a category', hint: /);
   assert.match(magic, /wayTabs = h\('div', \{ class: 'mg-kinds', role: 'tablist', 'aria-label': 'What are you adding\?' \}\)/);
   // Each keeps all it had: the block's own editor (its extras under More options), Magic add, and the chunk window.
@@ -98,4 +98,27 @@ test('the column of hours keeps the width its hours need, and goes back to it af
   // the column itself, so a column drawn too wide once stayed that way, the days squeezed into half the phone.
   assert.match(css, /\.fc \.fc-timegrid-slot-label-cushion \{[^}]*display: inline-block; \}/);
   assert.doesNotMatch(css, /\.fc \.fc-timegrid-slot-label-cushion \{[^}]*display: block;/);
+});
+
+test('Adaptive Add: the name everywhere it is shown, no sparkles on it, and no nag for a key', () => {
+  // What people see says Adaptive Add; the code keeps its names (magic_add, magic:*, openMagic).
+  const shown = app.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*\*)/.test(l)).join('\n');
+  assert.doesNotMatch(shown.replace(/\/\/.*$/gm, ''), /Magic add/, 'no "Magic add" left on screen');
+  assert.match(app, /\$\('#magic-add'\)\.append\(icon\('fit'\), 'Adaptive Add'\);/);
+  assert.match(app, /\$\('#task-magic'\)\.append\(icon\('fit'\), 'Adaptive Add tasks'\);/);
+  const magic = between('function openMagic(', '// ------------------------------------------------------------ globe view');
+  assert.doesNotMatch(magic, /'sparkles'/, 'its sheet has no sparkles');
+  const goalWin = between('function openGoalMagic(', '// ------------------------------------------------------------ sidebar');
+  assert.doesNotMatch(goalWin, /'sparkles'/, 'nor its goal window');
+  assert.match(app, /'Fit it into a day with Adaptive Add', onclick: [^\n]*icon\('fit'\), 'Plan'/);
+  assert.match(app, /h\('small', null, 'Adaptive Add fits it in'\)/);
+  // No nag: without a key it plans from the words and what was done before, and says only that.
+  assert.doesNotMatch(app, /Add a Claude key in Settings for (smarter|better) estimates/);
+  assert.match(app, /`Lengths from your words and what you did before, for \$\{dayName\(view\.date\)\}`/);
+  // A picture is the one thing that needs Claude: it says so when one is picked, and what to do instead.
+  assert.match(app, /'Reading a picture takes a Claude key \(Settings → AI\)\. Without one, type or paste what it says into the box\.'/);
+  assert.match(app, /if \(!pictures\) \{ needKey\.hidden = false; return; \}/);
+  const mcp = require('fs').readFileSync(require('path').join(__dirname, '../src/main/mcp.js'), 'utf8');
+  assert.match(mcp, /name: 'magic_add',/, 'the tool other apps call keeps its name');
+  assert.match(mcp, /'Hand tasks for one day to Adaptive Add,/);
 });

@@ -2,9 +2,20 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.128.0 · A clearer + sheet: choose a block, Find time or a time chunk, and it fits the phone at any text size
+## 1.129.0 · Magic add is now Adaptive Add, and it works fully without AI or an API key
 
 _2026-11-10_
+
+- Magic add is called Adaptive Add everywhere: the sidebar button, Adaptive Add tasks and Adaptive Add goal, the Plan buttons, the board's Find time, tooltips, undo and the tool other apps use. Its sparkles are gone; it has an icon of its own, a day with blocks fitted in.
+- Without a Claude key it plans just as well from what you type. A length written in the line ("45 min", "an hour and a half") stands. Otherwise it is how long the same kind of thing took before (your blocks of the last four weeks and tasks with a length, so "Gym" takes as long as your "Gym session" blocks), or else a guess from the words. Then everything is fitted into your free time.
+- The "add a Claude key for better estimates" lines are gone.
+- A webpage or Notion page read into it no longer needs a key: its own list of steps (or its headings) become the tasks, in order, each linked back to the page.
+- Adaptive Add goal works without a key too: list the steps (an outline or a pasted list) and Onyx spreads them out until the target date, each at a free time, with lengths from their words. The Breakdown hammers only show when Claude writes the steps.
+- Reading a picture is the one thing that needs Claude. Without a key, Picture says so plainly and offers to type or paste what it says instead.
+
+## 1.128.0 · A clearer + sheet: choose a block, Find time or a time chunk, and it fits the phone at any text size
+
+_2026-11-09_
 
 - The + button opens with three big choices at the top: Block (you pick the time), Find time (Onyx fits it into your free time) and Time chunk (time set aside for one category). A line under them says what the one you picked does.
 - Time chunks can be added from the + button now, with their category, colour, name, day and hours, and Repeat, the same as the chunk window on the calendar.

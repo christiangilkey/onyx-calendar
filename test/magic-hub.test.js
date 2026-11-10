@@ -84,11 +84,11 @@ test('Magic add: lunchtime is not held free, so the first free time is used', wi
   assert.equal(r.blocks[0].travel, 0);
 }));
 
-test('Magic add: when Claude fails it plans from the words and says so', withFetch(async () => ({ ok: false, status: 500, json: async () => ({ error: { message: 'overloaded' } }) }), async () => {
+test('Adaptive Add: when Claude fails it plans without it and says so', withFetch(async () => ({ ok: false, status: 500, json: async () => ({ error: { message: 'overloaded' } }) }), async () => {
   reset({ key: 'sk-ant-test-key-0000000000000000' });
   const r = await magic.planDay('Groceries\nStudy 1h', ymd(day(1)));
   assert.equal(r.source, 'local');
-  assert.match(r.warning, /overloaded.*from the words/);
+  assert.match(r.warning, /overloaded.*without Claude/);
   assert.equal(r.blocks.length, 2);
 }));
 
@@ -165,13 +165,41 @@ test('Magic add: a page that was read becomes its steps, in order, each with its
   assert.deepEqual(again.blocks.filter((b) => b.from).map((b) => b.notes), ['Check the parts list', '4 bolts each, finger-tight', 'Plug in the controller after']);
 }));
 
-test('Magic add: what was read needs Claude, and is never guessed from its words', async () => {
+test('Adaptive Add without Claude: a page that was read becomes its own list of steps, in order', async () => {
   reset({ key: '' });
-  await assert.rejects(magic.planDay('', ymd(day(1)), {}, [], MATERIAL), /Claude key/);
-  reset({ key: 'sk-ant-test-key-0000000000000000' });
+  let called = false;
   const real = global.fetch;
-  global.fetch = async () => ({ ok: false, status: 529, json: async () => ({ error: { message: 'Overloaded' } }) });
+  global.fetch = async () => { called = true; return { ok: false, status: 500, json: async () => ({}) }; };
   try {
-    await assert.rejects(magic.planDay('Groceries', ymd(day(1)), {}, [], MATERIAL), /Overloaded/);
+    const r = await magic.planDay('Groceries', ymd(day(1)), {}, [], MATERIAL);
+    assert.equal(called, false, 'nothing is sent anywhere');
+    assert.equal(r.source, 'local');
+    assert.deepEqual(r.blocks.filter((b) => b.from).map((b) => b.title), ['Unbox', 'Attach the legs', 'Fix the top']);
+    assert.deepEqual(r.blocks.find((b) => b.from).from, { title: 'Desk guide', url: 'https://example.com/desk' });
+    assert.ok(r.blocks.some((b) => b.title === 'Groceries'), 'and what was typed');
+    // A page with no list of steps: said plainly, with what to do instead.
+    const blog = [{ title: 'Our story', url: 'https://example.com/about', kind: 'web', text: '# About us\nHi' }];
+    await assert.rejects(magic.planDay('', ymd(day(1)), {}, [], blog), /no list of steps in "Our story"\. Paste the steps you need into the box/);
+    const mixed = await magic.planDay('Groceries', ymd(day(1)), {}, [], blog);
+    assert.match(mixed.warning, /No list of steps was found in "Our story": paste the ones you need into the box\./);
+    // With a key and Claude down: the same, and it says so.
+    reset({ key: 'sk-ant-test-key-0000000000000000' });
+    global.fetch = async () => ({ ok: false, status: 529, json: async () => ({ error: { message: 'Overloaded' } }) });
+    const down = await magic.planDay('', ymd(day(1)), {}, [], MATERIAL);
+    assert.equal(down.source, 'local');
+    assert.match(down.warning, /Overloaded.*without Claude/);
+    assert.equal(down.blocks.length, 3);
   } finally { global.fetch = real; }
+});
+
+test('Adaptive Add without Claude: a length nobody gave is how long the same kind of thing took before', async () => {
+  reset({ key: '' });
+  fake.events.set('g1', { rawId: 'g1', cal: 'primary', title: 'Gym session', start: day(-3, 18).toISOString(), end: day(-3, 19, 30).toISOString(), allDay: false, location: '', notes: '' });
+  fake.events.set('g2', { rawId: 'g2', cal: 'primary', title: 'Gym session', start: day(-1, 18).toISOString(), end: day(-1, 19, 30).toISOString(), allDay: false, location: '', notes: '' });
+  const r = await magic.planDay('Gym\nCall mom 10 min\nWater the plants', ymd(day(1)));
+  const gym = r.tasks.find((t) => t.title === 'Gym');
+  assert.equal(gym.minutes, 90, 'the gym takes as long as it did before');
+  assert.match(gym.why, /About as long as "Gym session" usually takes/);
+  assert.equal(r.tasks.find((t) => t.title === 'Call mom').minutes, 10, 'a length written in the line stands');
+  assert.equal(r.tasks.find((t) => t.title === 'Water the plants').minutes, 30, 'nothing like it before: the guess from its words');
 });

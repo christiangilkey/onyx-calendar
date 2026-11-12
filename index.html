@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://i.ytimg.com; font-src 'self' data:; connect-src 'self' https:; frame-src 'self' https://www.youtube-nocookie.com http://127.0.0.1:*">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>Onyx Calendar</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <meta name="theme-color" content="#000000">
+</head>
+<body>
+  <header id="titlebar">
+    <button id="menu" class="icon-btn mobile-only" title="Calendars and tags"></button>
+    <div class="brand"><span class="mark"></span>Onyx</div>
+    <div class="nav">
+      <button id="today" class="btn">Today</button>
+      <button id="prev" class="icon-btn" title="Previous (←)"></button>
+      <button id="next" class="icon-btn" title="Next (→)"></button>
+      <h1 id="range"></h1>
+    </div>
+    <div class="grow"></div>
+    <div id="pomo-timer" hidden></div>
+    <div id="views" class="segmented">
+      <button data-view="timeGridDay">Day</button>
+      <button data-view="timeGridWeek">Week</button>
+      <button data-view="dayGridMonth">Month</button>
+      <button data-view="listWeek">Agenda</button>
+    </div>
+    <!-- The noise machine: Hyperfocus's sounds on their own (app.js, openNoise) -->
+    <button id="noise-btn" class="icon-btn noise-btn" title="Noise machine"></button>
+    <button id="globe-toggle" class="icon-btn globe-btn" title="Globe view (G)"></button>
+    <button id="board-toggle" class="icon-btn board-btn" title="Boards (B)"></button>
+    <button id="undo-btn" class="icon-btn" title="Nothing to undo" disabled></button>
+    <button id="update-btn" class="icon-btn" title="Check for updates"></button>
+    <button id="refresh" class="icon-btn" title="Refresh (R)"></button>
+    <button id="toggle-tasks" class="icon-btn" title="Tasks"></button>
+    <button id="open-settings" class="icon-btn" title="Settings"></button>
+  </header>
+  <!-- Now / Next: how much time is left before the next obligation (app.js, tickNext) -->
+  <div id="next-bar" hidden></div>
+
+  <div id="layout">
+    <aside id="sidebar">
+      <button id="new-block" class="btn primary wide"></button>
+      <button id="magic-add" class="btn wide magic-btn" title="Describe your tasks and have them fitted into the day (P)"></button>
+      <div id="views-mobile" class="segmented mobile-only">
+        <button data-view="timeGridDay">Day</button>
+        <button data-view="timeGrid3">3 days</button>
+        <button data-view="dayGridMonth">Month</button>
+        <button data-view="listWeek">Agenda</button>
+      </div>
+      <div id="mini"></div>
+      <div id="calendars"></div>
+      <div id="goal-list"></div>
+      <div id="tag-list"></div>
+      <button id="add-calendar" class="btn ghost wide"></button>
+    </aside>
+
+    <main id="stage">
+      <div id="calendar"></div>
+      <section id="graph" hidden>
+        <canvas id="graph-canvas"></canvas>
+        <div id="graph-bar"></div>
+        <div id="graph-clusters"></div>
+        <!-- Inbox: what has no tag and no date, kept off the globe (app.js, renderInbox) -->
+        <div id="graph-inbox" hidden></div>
+        <div id="graph-empty" hidden>Nothing here yet. Add a note, pin a Notion page or Drive file, or try a longer range.</div>
+        <div id="graph-hint">Drag to spin · click a cluster to open it and see its names · click an item to open it · drag an item onto a cluster to move it · double-click to reset</div>
+        <div id="graph-foot"><span id="graph-stats"></span><button id="graph-reset" class="icon-btn" title="Reset the view (or double-click the graph)"></button></div>
+      </section>
+      <!-- Boards: whiteboards for long workflows, their steps planned into the calendar (boards.js; app.js, openBoards) -->
+      <section id="board" hidden>
+        <div id="board-bar"></div>
+        <div id="board-main">
+          <div id="board-space"></div>
+          <aside id="board-panel" class="wb-panel" hidden aria-label="The card picked"></aside>
+        </div>
+        <div id="board-empty" hidden></div>
+      </section>
+    </main>
+
+    <aside id="tasks">
+      <div class="panel-head">
+        <h2>Tasks</h2>
+        <span id="task-count" class="count"></span>
+        <div class="grow"></div>
+        <div id="task-tabs" class="segmented">
+          <button data-tab="open" class="on">Open</button>
+          <button data-tab="archived">Archived</button>
+        </div>
+      </div>
+      <div id="archive-bar" hidden>
+        <button id="archive-prev" class="icon-btn" title="Previous day"></button>
+        <input id="archive-date" type="date" title="Show tasks completed on this day">
+        <button id="archive-next" class="icon-btn" title="Next day"></button>
+        <button id="archive-today" class="btn">Today</button>
+      </div>
+      <form id="task-add">
+        <div class="task-add-row">
+          <input id="task-title" type="text" maxlength="30" placeholder="Add a task…  e.g. Dentist 3pm" autocomplete="off" spellcheck="false">
+          <select id="task-list" title="Task list"></select>
+          <button type="submit" class="btn primary" id="task-submit">Add</button>
+        </div>
+        <div class="task-add-row">
+          <input id="task-date" type="date" title="Due date (optional)">
+          <button type="button" class="btn quick-date" data-days="0">Today</button>
+          <button type="button" class="btn quick-date" data-days="1">Tomorrow</button>
+        </div>
+      </form>
+      <button id="task-magic" type="button" class="magic-goal" title="Tick tasks from your lists or type new ones, and have them fitted into the day (P)"></button>
+      <div id="task-items"></div>
+    </aside>
+
+    <aside id="news">
+      <button id="news-tab" title="News: the latest stories from YouTube news channels"><span class="news-tab-label">News</span></button>
+      <div id="news-body">
+        <div class="panel-head">
+          <h2>News</h2>
+          <span id="news-updated" class="count"></span>
+          <div class="grow"></div>
+          <button id="news-tamkeen" class="tamkeen-toggle" aria-pressed="false" hidden>Tamkeen</button>
+          <button id="news-channels" class="icon-btn" title="Pick news channels"></button>
+          <button id="news-refresh" class="icon-btn" title="Check for new stories"></button>
+          <button id="news-close" class="icon-btn" title="Collapse the News tab"></button>
+        </div>
+        <div id="news-player"></div>
+        <div id="news-filter"></div>
+        <div id="news-list"></div>
+      </div>
+    </aside>
+  </div>
+
+  <div id="scrim"></div>
+  <button id="fab" class="mobile-only" title="New block"></button>
+  <div id="popover" hidden></div>
+  <div id="modal" hidden></div>
+  <div id="connect" hidden></div>
+  <div id="update-dialog" hidden></div>
+  <div id="toasts"></div>
+
+  <script src="boot.js"></script>
+  <script src="vendor/fullcalendar.js"></script>
+  <script src="web.js"></script>
+  <script src="engine.js"></script>
+  <script src="remote.js"></script>
+  <script src="graph.js"></script>
+  <script src="boards.js"></script>
+  <script src="changelog.js"></script>
+  <script src="focus-plan.js"></script>
+  <script src="block-rules.js"></script>
+  <script src="time-chunks.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

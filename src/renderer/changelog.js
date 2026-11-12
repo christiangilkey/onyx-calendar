@@ -2,8 +2,16 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.129.1",
+  "date": "2026-11-12",
+  "title": "Boards: picking a way at a decision no longer moves the view",
+  "items": [
+   "With a card picked and its panel open, picking a way at a decision (on the card or in the panel) or ticking a box used to pull the view back to the picked card, away from where you had moved it. The view now stays where you left it. Picking a card still brings it into view when part of it is out of sight."
+  ]
+ },
+ {
   "version": "1.129.0",
-  "date": "2026-11-10",
+  "date": "2026-11-09",
   "title": "Magic add is now Adaptive Add, and it works fully without AI or an API key",
   "items": [
    "Magic add is called Adaptive Add everywhere: the sidebar button, Adaptive Add tasks and Adaptive Add goal, the Plan buttons, the board's Find time, tooltips, undo and the tool other apps use. Its sparkles are gone; it has an icon of its own, a day with blocks fitted in.",

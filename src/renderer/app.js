@@ -13188,10 +13188,14 @@
       if (mode === 'edit') { board.panel = { id: n.id, mode: 'view' }; showCardPanel(n); } else board.view?.select(null);
     };
     const opening = p.hidden;
+    // Shown again for the same card (the board drawn again: a way picked, a box ticked): the view stays where it is.
+    const fresh = opening || p.dataset.card !== n.id || p.dataset.mode !== mode;
+    p.dataset.card = n.id;
+    p.dataset.mode = mode;
     p.hidden = false;
     document.body.classList.add('wb-panel-on');
-    // The card stays in sight beside it (or above the phone's sheet).
-    requestAnimationFrame(() => board.view?.reveal?.(n.id, { bottom: MOBILE ? p.offsetHeight : 0 }));
+    // The card stays in sight beside it (or above the phone's sheet), when the panel opens on it.
+    if (fresh) requestAnimationFrame(() => board.view?.reveal?.(n.id, { bottom: MOBILE ? p.offsetHeight : 0 }));
     if (opening) p.scrollTop = 0;
   }
 

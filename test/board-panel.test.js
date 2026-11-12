@@ -31,7 +31,10 @@ test('picked: the panel beside the board, in place of the quick toolbar', () => 
   const view = between('function showCardPanel(', 'function openBoardCard(');
   assert.match(view, /const parts = cardSections\(n\.notes\);/);
   assert.match(view, /panelFrame\(n, chips, body, boardQuick\(n\), 'view'\);/, 'its options at the foot');
-  assert.match(app, /requestAnimationFrame\(\(\) => board\.view\?\.reveal\?\.\(n\.id, \{ bottom: MOBILE \? p\.offsetHeight : 0 \}\)\);/, 'the card stays in sight');
+  assert.match(app, /if \(fresh\) requestAnimationFrame\(\(\) => board\.view\?\.reveal\?\.\(n\.id, \{ bottom: MOBILE \? p\.offsetHeight : 0 \}\)\);/, 'the card stays in sight');
+  // Every draw shows the panel again (a way picked, a box ticked): only a panel opening, or on another card or mode,
+  // moves the view. Each redraw pulled the view back to the picked card, away from where it had been moved to.
+  assert.match(app, /const fresh = opening \|\| p\.dataset\.card !== n\.id \|\| p\.dataset\.mode !== mode;\s*p\.dataset\.card = n\.id;\s*p\.dataset\.mode = mode;/);
   assert.match(app, /board\.on = false;\s*hideCardPanel\(\);/, 'leaving the boards puts it away');
 });
 

@@ -2,9 +2,15 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
+## 1.129.1 · Boards: picking a way at a decision no longer moves the view
+
+_2026-11-12_
+
+- With a card picked and its panel open, picking a way at a decision (on the card or in the panel) or ticking a box used to pull the view back to the picked card, away from where you had moved it. The view now stays where you left it. Picking a card still brings it into view when part of it is out of sight.
+
 ## 1.129.0 · Magic add is now Adaptive Add, and it works fully without AI or an API key
 
-_2026-11-10_
+_2026-11-09_
 
 - Magic add is called Adaptive Add everywhere: the sidebar button, Adaptive Add tasks and Adaptive Add goal, the Plan buttons, the board's Find time, tooltips, undo and the tool other apps use. Its sparkles are gone; it has an icon of its own, a day with blocks fitted in.
 - Without a Claude key it plans just as well from what you type. A length written in the line ("45 min", "an hour and a half") stands. Otherwise it is how long the same kind of thing took before (your blocks of the last four weeks and tasks with a length, so "Gym" takes as long as your "Gym session" blocks), or else a guess from the words. Then everything is fitted into your free time.

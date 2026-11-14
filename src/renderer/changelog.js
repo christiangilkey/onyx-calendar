@@ -2,6 +2,14 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.130.1",
+  "date": "2026-11-14",
+  "title": "Boards: an optional step made from a pasted list no longer overlaps the card below it",
+  "items": [
+   "On a board made from a list, an optional step's Run / Skip / Drop buttons wrapped onto a second line, and the card ran over the next one. The question now sits on its own line with the three buttons under it, and the list leaves room for them."
+  ]
+ },
+ {
   "version": "1.130.0",
   "date": "2026-11-14",
   "title": "Boards: optional steps, and room for long details on every card",

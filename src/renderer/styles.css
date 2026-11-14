@@ -3313,6 +3313,9 @@ body.board-on #prev, body.board-on #next, body.board-on #today { visibility: hid
 .wb-card.opt-skip:not(.off), .wb-card.opt-drop:not(.off) { opacity: .55; }
 .wb-card.opt-drop .wb-title { text-decoration: line-through; color: var(--muted); }
 .wb-opts { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 2px; }
+/* The question on a line of its own, the three calls on the next: the card is the same height whatever is picked. */
+.wb-opts .wb-way-q { flex: 0 0 100%; }
+.wb-opt { white-space: nowrap; }
 .wb-opt { height: 26px; padding: 0 10px; border-radius: 99px; border: 1px solid rgba(255, 255, 255, .2); background: none; color: var(--text); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
 .wb-opt.o-run.on { background: #c3a6ff; border-color: #c3a6ff; color: #160f24; }
 .wb-opt.o-skip.on { background: #5c5c68; border-color: #5c5c68; color: #fff; }

@@ -356,7 +356,7 @@
    * below what the board already has. Returns { nodes, links }.
    */
   function fromList(text, { x0 = 40, y0 = 40 } = {}) {
-    const COL_X = 260, GAP_Y = 40, PER_COL = 10;
+    const COL_X = 260, GAP_Y = 40, PER_COL = 10, OPT_ROWS = 56;
     const nodes = [], links = [];
     let header = null, col = -1, inCol = 0, y = y0, prev = null, cut = 0;
     // A card's height on the board, near enough: about 20 letters a line of its name, and the rest of the card.
@@ -371,7 +371,7 @@
       if (prev) links.push({ id: newId('l'), from: prev.id, to: n.id, label: '' });
       prev = n;
       inCol += 1;
-      y += tall(n.title) + GAP_Y;
+      y += tall(n.title) + (kind === 'optional' ? OPT_ROWS : 0) + GAP_Y; // its Run / Skip / Drop rows
       return n;
     };
     const rows = rowsOf(text);

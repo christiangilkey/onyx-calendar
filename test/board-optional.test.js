@@ -105,3 +105,10 @@ test('an optional step on the board: its own look, Run / Skip / Drop on the card
   assert.match(css, /\.wb-card\.k-optional \{ --k: #c3a6ff;[^}]*border: 1px dashed/);
   assert.match(css, /\.wb-card\.opt-drop \.wb-title \{ text-decoration: line-through;/);
 });
+
+test('a pasted list leaves room for an optional step\'s Run / Skip / Drop rows, so it never overlaps the next card', () => {
+  const made = B.fromList('Wake up\nOptional: Stretch\nBreakfast');
+  const [a, o, b] = made.nodes;
+  assert.equal(b.y - o.y, (o.y - a.y) + 56, 'the optional card is given 56 more than a step with the same name length');
+  assert.match(css, /\.wb-opts \.wb-way-q \{ flex: 0 0 100%; \}/, 'the question on its own line: the same height whatever is picked');
+});

@@ -2,6 +2,12 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
+## 1.130.1 · Boards: an optional step made from a pasted list no longer overlaps the card below it
+
+_2026-11-14_
+
+- On a board made from a list, an optional step's Run / Skip / Drop buttons wrapped onto a second line, and the card ran over the next one. The question now sits on its own line with the three buttons under it, and the list leaves room for them.
+
 ## 1.130.0 · Boards: optional steps, and room for long details on every card
 
 _2026-11-14_

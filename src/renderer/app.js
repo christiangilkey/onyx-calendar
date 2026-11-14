@@ -12842,8 +12842,11 @@
     if (fresh) showBoard(b); else { board.view.draw(); }
     requestAnimationFrame(() => board.view?.fit());
     const ids = new Set(made.nodes.map((n) => n.id));
-    const steps = made.nodes.filter((n) => n.kind === 'step').length;
-    toast(`Added ${steps} step${steps === 1 ? '' : 's'}${made.nodes.length > steps ? ` under ${made.nodes.length - steps} heading${made.nodes.length - steps === 1 ? '' : 's'}` : ''} to "${b.title}"`, '', { label: 'Undo', run: async () => {
+    const steps = made.nodes.filter(doableCard).length;
+    const opts = made.nodes.filter((n) => n.kind === 'optional').length;
+    // A row with more details than a card keeps is said, not cut without a word.
+    const long = made.cut ? ` ${made.cut} row${made.cut === 1 ? ' had' : 's had'} more than ${OnyxBoards.MAX_NOTES.toLocaleString()} characters of details: only that much is on ${made.cut === 1 ? 'its card' : 'their cards'}.` : '';
+    toast(`Added ${steps} step${steps === 1 ? '' : 's'}${opts ? ` (${opts} optional)` : ''}${made.nodes.length > steps ? ` under ${made.nodes.length - steps} heading${made.nodes.length - steps === 1 ? '' : 's'}` : ''} to "${b.title}".${long}`, long ? 'warn' : '', { label: 'Undo', run: async () => {
       if (fresh) {
         try { await onyx.deleteBoard(b.id); } catch (err) { fail(err); return; }
         board.all = board.all.filter((x) => x.id !== b.id);
@@ -13009,14 +13012,22 @@
     paint();
   }
 
+  // The kinds of card, in the order they are offered (the bar's buttons, the Add menu).
+  const BOARD_KINDS = ['step', 'optional', 'decision', 'goal', 'note'];
+  // A card that has a length and can go to the calendar: a step, or an optional step (once it is to be run).
+  const doableCard = (n) => n?.kind === 'step' || n?.kind === 'optional';
+
   /** The bar over the board: which board, adding cards, the route, and Plan it. */
   function paintBoardBar(full) {
     const bar = $('#board-bar'), b = board.cur;
     if (!b || !board.view) return;
     const steps = OnyxBoards.planSteps(b).filter((n) => !n.done);
     const mins = steps.reduce((t, n) => t + (Number(n.minutes) || 30), 0);
-    const open = board.lastRoute?.open.length || 0;
-    const sum = [steps.length ? `${steps.length} step${steps.length > 1 ? 's' : ''} on the route · ${OnyxBoards.lengthText(mins)}` : 'No steps on the route yet', open ? `${open} decision${open > 1 ? 's' : ''} to make` : ''].filter(Boolean).join(' · ');
+    const asks = board.lastRoute?.pending?.length || 0; // optional steps not yet run, skipped or dropped
+    const open = (board.lastRoute?.open.length || 0) + asks;
+    const decide = board.lastRoute?.open.length || 0;
+    const sum = [steps.length ? `${steps.length} step${steps.length > 1 ? 's' : ''} on the route · ${OnyxBoards.lengthText(mins)}` : 'No steps on the route yet',
+      decide ? `${decide} decision${decide > 1 ? 's' : ''} to make` : '', asks ? `${asks} optional step${asks > 1 ? 's' : ''} to decide on` : ''].filter(Boolean).join(' · ');
     if (!full && bar.querySelector('.wb-sum')) {
       bar.querySelector('.wb-sum').textContent = sum;
       bar.querySelector('.wb-sum').classList.toggle('warn', !!open);
@@ -13027,7 +13038,7 @@
       onclick: () => { const n = board.view.add(kind); openBoardCard(n); } }, h('span', { class: 'wb-add-ico', 'aria-hidden': 'true' }, OnyxBoards.KINDS[kind].icon), OnyxBoards.KINDS[kind].label);
     bar.replaceChildren(
       h('button', { type: 'button', class: 'btn wb-name', title: 'Your boards', onclick: (e) => openBoardsMenu(e.currentTarget) }, icon('board'), h('span', { class: 'wb-name-t' }, b.title), icon('down')),
-      h('div', { class: 'wb-adds' }, ...['step', 'decision', 'goal', 'note'].map(addBtn)),
+      h('div', { class: 'wb-adds' }, ...BOARD_KINDS.map(addBtn)),
       boardTools(),
       h('button', { type: 'button', class: 'btn wb-add-menu', onclick: (e) => openBoardAdd(e.currentTarget) }, icon('plus'), 'Add'),
       h('span', { class: `wb-sum${open ? ' warn' : ''}` }, sum),
@@ -13051,7 +13062,7 @@
       typeof ico === 'string' ? icon(ico) : ico, h('span', null, label));
     const kids = [];
     // A step's first option: just this one block into the calendar (in it already: when, and again if wanted).
-    if (n.kind === 'step') {
+    if (doableCard(n)) {
       kids.push(btn('calendar', n.placed ? 'In calendar' : 'Add to calendar', () => planStep(n, cardOf(n)), n.placed ? 'cal booked' : 'cal'));
     }
     kids.push(btn('pencil', 'Edit', () => openBoardCard(n)));
@@ -13070,6 +13081,7 @@
       const copy = { ...structuredClone(n), id: OnyxBoards.newId('n'), x: n.x + 30, y: n.y + 30 };
       delete copy.placed;
       delete copy.chosen; // its ways are the original's
+      delete copy.choice; // an optional step's copy waits for its own call
       b.nodes.push(copy);
       boardChanged();
       board.view.select(copy.id);
@@ -13082,7 +13094,7 @@
   function openBoardAdd(anchor, at = null) {
     showPopover(anchor.getBoundingClientRect(), [h('div', { class: 'wb-menu' },
       h('h4', null, at ? 'Add here' : 'Add to the board'),
-      ...['step', 'decision', 'goal', 'note'].map((k) => h('button', { type: 'button', class: `wb-menu-row k-${k}`, onclick: () => {
+      ...BOARD_KINDS.map((k) => h('button', { type: 'button', class: `wb-menu-row k-${k}`, onclick: () => {
         closePopover();
         const n = board.view.add(k, at && { x: at.x - OnyxBoards.KINDS[k].w / 2, y: at.y - 30 });
         openBoardCard(n);
@@ -13090,6 +13102,7 @@
         h('span', { class: 'wb-add-ico', 'aria-hidden': 'true' }, OnyxBoards.KINDS[k].icon),
         h('span', null, h('b', null, OnyxBoards.KINDS[k].label), h('small', null, {
           step: 'Something to do, with how long it takes',
+          optional: 'A step you might do: run it, skip it this time, or drop it',
           decision: 'A question with more than one way to go',
           goal: 'Where it is all heading, or a milestone',
           note: 'A sticky note, never planned',
@@ -13175,7 +13188,7 @@
       });
     }
     p.className = `wb-panel k-${n.kind} ${mode}`;
-    p.style.setProperty('--k', { step: '#9fb6ff', decision: '#f5b83d', goal: '#6fdc8c', note: n.color || OnyxBoards.NOTE_COLORS[0] }[n.kind] || '#9fb6ff');
+    p.style.setProperty('--k', { step: '#9fb6ff', optional: '#c3a6ff', decision: '#f5b83d', goal: '#6fdc8c', note: n.color || OnyxBoards.NOTE_COLORS[0] }[n.kind] || '#9fb6ff');
     if (!MOBILE) { const w = Number(readLocal('onyx.boardPanelW', 0)); if (w >= 300) p.style.width = `${Math.min(w, Math.round(innerWidth * 0.7))}px`; }
     p.replaceChildren(...[grip,
       h('div', { class: 'wb-p-head' }, h('span', { class: 'wb-p-kind' }, `${k.icon} ${k.label}`), ...head, h('div', { class: 'grow' }), close),
@@ -13199,16 +13212,33 @@
     if (opening) p.scrollTop = 0;
   }
 
+  /**
+   * An optional step's call, in its panel: run it (it goes to the calendar with Plan it), skip it this time, or
+   * drop it. The one picked, again: no call yet. `after` keeps and draws it.
+   */
+  function optionalCall(n, after) {
+    const hint = { run: 'It is on the route, and Plan it puts it in your calendar.', skip: 'Left out this time. The route goes on past it.', drop: 'Dropped: left out. The route goes on past it.' };
+    return h('div', { class: 'wb-p-ways wb-p-opts' },
+      h('div', { class: 'wb-p-label' }, n.choice ? 'This time' : 'Run it this time?'),
+      h('div', { class: 'wb-p-opt-row' }, Object.entries(OnyxBoards.CHOICES).map(([key, label]) => h('button', {
+        type: 'button', class: `wb-p-opt o-${key}${n.choice === key ? ' on' : ''}`, 'aria-pressed': String(n.choice === key),
+        title: n.choice === key ? 'Tap again to undecide' : label,
+        onclick: () => { if (n.choice === key) delete n.choice; else n.choice = key; after(); },
+      }, label))),
+      h('small', { class: 'wb-p-opt-hint' }, n.choice ? hint[n.choice] : 'Not decided yet: Plan it leaves it out until you pick Run it.'));
+  }
+
   /** All of a card, to read: its name in full, its chips, a decision's ways, and its details under their headings. */
   function showCardPanel(n) {
     board.panel = { id: n.id, mode: 'view' };
     const b = board.cur;
     const k = OnyxBoards.KINDS[n.kind] || OnyxBoards.KINDS.step;
     const chips = [];
-    if (n.kind === 'step' && n.minutes) chips.push(h('span', { class: 'wb-p-chip' }, icon('clock'), OnyxBoards.lengthText(n.minutes)));
+    if (doableCard(n) && n.minutes) chips.push(h('span', { class: 'wb-p-chip' }, icon('clock'), OnyxBoards.lengthText(n.minutes)));
     if (n.done) chips.push(h('span', { class: 'wb-p-chip ok' }, icon('check'), n.kind === 'goal' ? 'Reached' : 'Done'));
     const body = [h('h3', { class: `wb-p-title${n.title ? '' : ' empty'}` }, n.title || k.empty)];
     if (n.placed) body.push(h('p', { class: 'wb-placed' }, icon('calendar'), `In your calendar: ${placedText(n.placed)}`));
+    if (n.kind === 'optional') body.push(optionalCall(n, () => { boardChanged(); board.view.draw(); }));
     if (n.kind === 'decision') {
       const outs = b.links.filter((l) => l.from === n.id);
       body.push(h('div', { class: 'wb-p-ways' }, h('div', { class: 'wb-p-label' }, outs.length ? (n.chosen ? 'Taking' : 'Which way?') : 'The ways it can go'),
@@ -13245,10 +13275,11 @@
         onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); notes.focus(); } } });
       const kinds = h('div', { class: 'le-kinds', role: 'radiogroup', 'aria-label': 'What it is' }, Object.entries(OnyxBoards.KINDS).map(([key, v]) => h('button', {
         type: 'button', role: 'radio', 'aria-checked': String(n.kind === key), class: `le-kind${n.kind === key ? ' on' : ''}`,
-        onclick: () => { if (n.kind === key) return; n.kind = key; if (key === 'step' && !n.minutes) n.minutes = 30; if (key === 'note' && !n.color) n.color = OnyxBoards.NOTE_COLORS[0]; redraw(); draw(); },
+        onclick: () => { if (n.kind === key) return; n.kind = key; if (doableCard(n) && !n.minutes) n.minutes = 30; if (key === 'note' && !n.color) n.color = OnyxBoards.NOTE_COLORS[0]; redraw(); draw(); },
       }, `${v.icon} ${v.label}`)));
       const parts = [kinds, title];
-      if (n.kind === 'step') {
+      if (n.kind === 'optional') parts.push(optionalCall(n, () => { redraw(); draw(); }));
+      if (doableCard(n)) {
         const custom = h('input', { type: 'number', min: 5, max: 720, step: 5, value: n.minutes || 30, class: 'wb-mins', 'aria-label': 'Minutes',
           onchange: (e) => { n.minutes = Math.max(5, Math.min(720, Math.round(+e.target.value || 30))); redraw(); draw(); } });
         parts.push(h('div', { class: 'wb-field' }, h('span', null, 'How long'),
@@ -13279,15 +13310,26 @@
           onclick: () => { n.color = c; redraw(); draw(); } }))));
       }
       // The details: room to write. A blank line between parts keeps each under its own heading when read.
-      const notes = h('textarea', { class: 'wb-notes', placeholder: n.kind === 'note' ? 'Write the note' : 'Details, links, what done looks like.\n\nWho: …\n\nWhat to do: …', value: n.notes || '', spellcheck: true, 'aria-label': 'Details',
-        oninput: (e) => { n.notes = e.target.value; redraw(); } });
-      parts.push(h('label', { class: 'wb-field wb-notes-f' }, h('span', null, n.kind === 'note' ? 'The note' : 'Details'), notes));
+      // How much is written, once it is long: past the most a card keeps, the board is not saved (nothing is cut).
+      const count = h('small', { class: 'wb-notes-count', 'aria-live': 'polite' });
+      const counted = () => {
+        const len = (n.notes || '').length, max = OnyxBoards.MAX_NOTES;
+        count.hidden = len < max * 0.8;
+        count.classList.toggle('warn', len > max);
+        count.textContent = len > max
+          ? `${(len - max).toLocaleString()} characters too many: a card keeps up to ${max.toLocaleString()}. The board is not saved until it is shorter.`
+          : `${len.toLocaleString()} of ${max.toLocaleString()} characters`;
+      };
+      const notes = h('textarea', { class: 'wb-notes', placeholder: n.kind === 'note' ? 'Write the note' : 'Details, links, what done looks like.\n\nWho: …\n\nWhat to do: …', value: n.notes || '', spellcheck: (n.notes || '').length < 20000, 'aria-label': 'Details',
+        oninput: (e) => { n.notes = e.target.value; counted(); redraw(); } });
+      counted();
+      parts.push(h('label', { class: 'wb-field wb-notes-f' }, h('span', null, n.kind === 'note' ? 'The note' : 'Details'), notes, count));
       parts.push(h('label', { class: 'wb-done' }, toggle(!!n.done, (v) => { n.done = v; redraw(); }), h('span', null, n.kind === 'goal' ? 'Reached' : 'Done')));
       if (n.placed) parts.push(h('p', { class: 'wb-placed' }, `In your calendar: ${placedText(n.placed)}`));
       const foot = h('div', { class: 'pop-actions' },
         h('button', { type: 'button', class: 'btn ghost danger', onclick: () => { hideCardPanel(); deleteBoardCard(n); } }, icon('trash'), 'Delete'),
         h('div', { class: 'grow' }),
-        n.kind === 'step' && h('button', { type: 'button', class: 'btn', title: 'Put just this step in your calendar', onclick: () => {
+        doableCard(n) && h('button', { type: 'button', class: 'btn', title: 'Put just this step in your calendar', onclick: () => {
           planStep(n, cardOf(n));
         } }, icon('calendar'), 'Add to calendar'),
         h('button', { type: 'button', class: 'btn primary', onclick: () => { board.panel = { id: n.id, mode: 'view' }; showCardPanel(n); } }, 'Save'));
@@ -13480,9 +13522,12 @@
       goBack.disabled = goMagic.disabled = !list.length;
     };
     const openNames = r.open.map((id) => b.nodes.find((n) => n.id === id)?.title || 'a decision');
+    const askNames = (r.pending || []).map((id) => b.nodes.find((n) => n.id === id)?.title || 'an optional step');
+    const quoted = (list) => list.map((t) => `"${t}"`).join(', ');
     box.append(
       h('div', { class: 'linbox-head' }, h('h3', null, icon('calendar'), 'Plan it'), h('span', { class: 'linbox-n' }, b.title)),
-      openNames.length ? h('p', { class: 'wb-warn' }, `Pick a way at ${openNames.map((t) => `"${t}"`).join(', ')} first: the steps after ${openNames.length > 1 ? 'them' : 'it'} are not on the route yet.`) : null,
+      openNames.length ? h('p', { class: 'wb-warn' }, `Pick a way at ${quoted(openNames)} first: the steps after ${openNames.length > 1 ? 'them' : 'it'} are not on the route yet.`) : null,
+      askNames.length ? h('p', { class: 'wb-warn' }, `Not decided yet: ${quoted(askNames)}. ${askNames.length > 1 ? 'They are' : 'It is'} left out until you pick Run it on ${askNames.length > 1 ? 'them' : 'it'}.`) : null,
       steps.length
         ? h('div', { class: 'wb-plan-list' }, steps.map((n) => h('label', { class: `mg-row${pick.has(n.id) ? ' on' : ''}${n.done ? ' done' : ''}` },
           h('input', { type: 'checkbox', class: 'mg-check', checked: pick.has(n.id), onchange: (e) => { if (e.target.checked) pick.add(n.id); else pick.delete(n.id); e.target.closest('.mg-row').classList.toggle('on', e.target.checked); paint(); } }),

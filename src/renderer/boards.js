@@ -9,10 +9,17 @@
 (function () {
   const KINDS = {
     step: { label: 'Step', icon: '▭', w: 200, empty: 'Untitled step' },
+    optional: { label: 'Optional', icon: '◌', w: 200, empty: 'An optional step' },
     decision: { label: 'Decision', icon: '◆', w: 220, empty: 'What is the question?' },
     goal: { label: 'Goal', icon: '⚑', w: 200, empty: 'What is the goal?' },
     note: { label: 'Note', icon: '✎', w: 180, empty: 'A note' },
   };
+  // An optional step, each time: run it (it is planned like a step), skip it this time, or drop it. Skipped or
+  // dropped, the route still goes on through it to what comes after. Not picked yet: it waits for a call.
+  const CHOICES = { run: 'Run it', skip: 'Skip this time', drop: 'Drop it' };
+  const CHOICE_SHORT = { run: 'Run', skip: 'Skip', drop: 'Drop' };
+  // The most a card's details hold (src/main/boards.js refuses a save with more, so nothing is cut quietly).
+  const MAX_NOTES = 100000;
   const MIN = 60000;
   const NOTE_COLORS = ['#f7d774', '#9fe3a8', '#8fd3ff', '#f4a6c8', '#c9b8ff'];
   const routed = (n) => n && n.kind !== 'note';
@@ -33,8 +40,9 @@
   /**
    * The route through a board: from each card nothing leads to, along every arrow, except that at a decision
    * only the branch picked is taken (none picked: the route stops there, and the decision is `open`).
-   * { order: the cards on it, each after all that lead to it; open: decisions still to pick; off: the cards
-   * not on it; links: the arrows it takes }. Sticky notes are never on it.
+   * { order: the cards on it, each after all that lead to it; open: decisions still to pick; pending: optional
+   * steps on it not yet run, skipped or dropped; off: the cards not on it; links: the arrows it takes }. Sticky
+   * notes are never on it. The route goes on through an optional step whatever its call.
    */
   function route(board) {
     const g = graphOf(board);
@@ -79,13 +87,23 @@
       for (const l of taken) if (l.from === n.id) { need.set(l.to, need.get(l.to) - 1); if (!need.get(l.to)) ready.push(g.byId.get(l.to)); }
     }
     for (const n of [...on].map((id) => g.byId.get(id)).sort(byPlace)) if (!order.includes(n.id)) order.push(n.id); // a loop on it
-    return { order, open, off: new Set(g.nodes.filter((n) => !on.has(n.id)).map((n) => n.id)), links: new Set(taken.map((l) => l.id)) };
+    const pending = order.filter((id) => { const n = g.byId.get(id); return n.kind === 'optional' && !CHOICES[n.choice]; });
+    return { order, open, pending, off: new Set(g.nodes.filter((n) => !on.has(n.id)).map((n) => n.id)), links: new Set(taken.map((l) => l.id)) };
   }
 
-  /** The steps on the route, in order: what goes to the calendar. */
+  /** The steps on the route, in order: what goes to the calendar (an optional step only once it is to be run). */
   function planSteps(board) {
     const byId = new Map((board.nodes || []).map((n) => [n.id, n]));
-    return route(board).order.map((id) => byId.get(id)).filter((n) => n.kind === 'step');
+    return route(board).order.map((id) => byId.get(id)).filter((n) => n.kind === 'step' || (n.kind === 'optional' && n.choice === 'run'));
+  }
+
+  /** "Optional: test a hook", "(Optional) …", "Optional - …": the rest of it, or null when it is not one. */
+  function optionalText(s) {
+    const m = /^\(?\s*optional\b\s*\)?\s*(?:[:.\-–—]\s*)?(.*)$/is.exec(String(s || '').trim());
+    if (!m) return null;
+    let rest = m[1].trim();
+    if (/^\(.*\)$/s.test(rest)) rest = rest.slice(1, -1).trim(); // "Optional (non-core ideas to test)"
+    return rest || null;
   }
 
   /** Steps one after another from `start` (ms), each its own length (30 min when it has none): [{ id, start, end }]. */
@@ -340,14 +358,15 @@
   function fromList(text, { x0 = 40, y0 = 40 } = {}) {
     const COL_X = 260, GAP_Y = 40, PER_COL = 10;
     const nodes = [], links = [];
-    let header = null, col = -1, inCol = 0, y = y0, prev = null;
+    let header = null, col = -1, inCol = 0, y = y0, prev = null, cut = 0;
     // A card's height on the board, near enough: about 20 letters a line of its name, and the rest of the card.
     const tall = (title) => 64 + 20 * Math.min(6, Math.max(1, Math.ceil(title.length / 20)));
     const newCol = () => { col += 1; inCol = 0; y = y0; };
     const place = (kind, title, notes) => {
       if (col < 0 || inCol >= PER_COL) newCol(); // a long column goes on in the next one
-      const n = { id: newId('n'), kind, x: x0 + col * COL_X, y, title: title.slice(0, 300), notes: notes.slice(0, 4000) };
-      if (kind === 'step') n.minutes = 30;
+      if (notes.length > MAX_NOTES) cut += 1; // said when they are added (app.js: addFromList)
+      const n = { id: newId('n'), kind, x: x0 + col * COL_X, y, title: title.slice(0, 300), notes: notes.slice(0, MAX_NOTES) };
+      if (kind === 'step' || kind === 'optional') n.minutes = 30;
       nodes.push(n);
       if (prev) links.push({ id: newId('l'), from: prev.id, to: n.id, label: '' });
       prev = n;
@@ -377,13 +396,16 @@
       let num = '', at = first;
       const no = STEP_NO.exec(cells[first]);
       if (no && filled.length > 1) { num = no[1]; at = cells.findIndex((c, i) => i > first && c); }
-      const name = cells[at].replace(BULLET, '').replace(/\s*\n\s*/g, ' ');
-      const { title, cut } = shorten(name);
+      const full = cells[at].replace(BULLET, '').replace(/\s*\n\s*/g, ' ');
+      // "Optional: …" makes an optional step, named for the rest.
+      const opt = optionalText(full);
+      const name = opt || full;
+      const { title, cut: short } = shorten(name);
       const details = cells.map((c, i) => (i > at && c ? (header?.[i] ? `${header[i]}: ${c}` : c) : null)).filter(Boolean);
-      if (cut) details.unshift(name);
-      place('step', num ? `${num}${/[.]|^[a-z]/i.test(num) ? '' : '.'} ${title}` : title, details.join('\n\n'));
+      if (short) details.unshift(name);
+      place(opt ? 'optional' : 'step', num ? `${num}${/[.]|^[a-z]/i.test(num) ? '' : '.'} ${title}` : title, details.join('\n\n'));
     }
-    return { nodes, links };
+    return { nodes, links, cut };
   }
 
   // ------------------------------------------------------------ the canvas (browser only)
@@ -488,8 +510,9 @@
 
     function cardEl(n, r) {
       const k = KINDS[n.kind] || KINDS.step;
-      const off = showRoute && r.off.has(n.id), open = r.open.includes(n.id);
-      const c = el('div', `wb-card k-${n.kind}${n.done ? ' done' : ''}${sel === n.id ? ' sel' : ''}${multi.has(n.id) ? ' multi' : ''}${off ? ' off' : ''}${open ? ' open' : ''}${showRoute && r.order.includes(n.id) ? ' on' : ''}`);
+      const off = showRoute && r.off.has(n.id), open = r.open.includes(n.id) || (r.pending || []).includes(n.id);
+      const call = n.kind === 'optional' && CHOICES[n.choice] ? n.choice : '';
+      const c = el('div', `wb-card k-${n.kind}${call ? ` opt-${call}` : ''}${n.done ? ' done' : ''}${sel === n.id ? ' sel' : ''}${multi.has(n.id) ? ' multi' : ''}${off ? ' off' : ''}${open ? ' open' : ''}${showRoute && r.order.includes(n.id) ? ' on' : ''}`);
       c.dataset.id = n.id;
       c.tabIndex = 0;
       c.style.left = `${n.x}px`;
@@ -498,11 +521,14 @@
       if (n.kind === 'note') c.style.setProperty('--note', n.color || NOTE_COLORS[0]);
       c.setAttribute('role', 'group');
       c.setAttribute('aria-label', `${k.label}: ${n.title || k.empty}`);
-      if (n.kind !== 'note') c.append(el('div', 'wb-kind', `${k.icon} ${k.label}${n.kind === 'step' && n.done ? ' · done' : ''}`));
+      const doable = n.kind === 'step' || n.kind === 'optional';
+      const state = n.done ? ' · done' : call === 'skip' ? ' · skipped' : call === 'drop' ? ' · dropped' : '';
+      if (n.kind !== 'note') c.append(el('div', 'wb-kind', `${k.icon} ${k.label}${doable ? state : ''}`));
       c.append(el('div', `wb-title${n.title ? '' : ' empty'}`, n.title || k.empty));
-      if (n.kind === 'note' && n.notes) c.append(el('div', 'wb-body', n.notes));
+      // A sticky note shows the start of what it says (all of it is in the panel): a long one stays a card.
+      if (n.kind === 'note' && n.notes) c.append(el('div', 'wb-body', n.notes.length > 1200 ? `${n.notes.slice(0, 1200).trimEnd()}…` : n.notes));
       const meta = [];
-      if (n.kind === 'step' && n.minutes) meta.push(el('span', 'wb-chip', lengthText(n.minutes)));
+      if (doable && n.minutes) meta.push(el('span', 'wb-chip', lengthText(n.minutes)));
       if (n.placed && o.when) meta.push(el('span', 'wb-chip cal', `📅 ${o.when(n.placed)}`));
       if (n.kind !== 'note' && n.notes) meta.push(el('span', 'wb-chip', '📝'));
       if (meta.length) { const m = el('div', 'wb-meta'); m.append(...meta); c.append(m); }
@@ -522,6 +548,21 @@
           }
         }
         c.append(ways);
+      }
+      // An optional step's call this time: run it, skip it, or drop it (tap the one picked again to undecide).
+      if (n.kind === 'optional') {
+        const row = el('div', 'wb-opts');
+        row.append(el('span', 'wb-way-q', call ? 'This time:' : 'Run it?'));
+        for (const key of Object.keys(CHOICES)) {
+          const b = el('button', `wb-opt o-${key}${call === key ? ' on' : ''}`, CHOICE_SHORT[key]);
+          b.type = 'button';
+          b.dataset.node = n.id;
+          b.dataset.choice = key;
+          b.title = call === key ? `${CHOICES[key]} (tap again to undecide)` : CHOICES[key];
+          b.setAttribute('aria-pressed', String(call === key));
+          row.append(b);
+        }
+        c.append(row);
       }
       // Ticked off or not: the box at the top right of every card.
       const check = el('button', `wb-check${n.done ? ' on' : ''}`);
@@ -607,7 +648,7 @@
       const r = space.getBoundingClientRect();
       const c = at || toWorld(r.left + r.width / 2, r.top + r.height / 2);
       const p = at ? { x: Math.round(c.x), y: Math.round(c.y) } : free(Math.round(c.x - KINDS[k].w / 2), Math.round(c.y - 35));
-      const n = { id: newId('n'), kind: k, x: p.x, y: p.y, title: '', notes: '', ...(k === 'step' ? { minutes: 30 } : {}), ...(k === 'note' ? { color: NOTE_COLORS[board.nodes.filter((x) => x.kind === 'note').length % NOTE_COLORS.length] } : {}), ...extra };
+      const n = { id: newId('n'), kind: k, x: p.x, y: p.y, title: '', notes: '', ...(k === 'step' || k === 'optional' ? { minutes: 30 } : {}), ...(k === 'note' ? { color: NOTE_COLORS[board.nodes.filter((x) => x.kind === 'note').length % NOTE_COLORS.length] } : {}), ...extra };
       board.nodes.push(n);
       sel = n.id;
       changed();
@@ -713,6 +754,7 @@
       }
       if (t.closest('.wb-check') && card) { const id = card.dataset.id; act = { ...base, type: 'tap', run: () => { const n = node(id); if (!n) return; n.done = !n.done; changed(); draw(); } }; }
       else if (t.closest('.wb-way')) { const w = t.closest('.wb-way'); act = { ...base, type: 'tap', run: () => choose(w.dataset.node, w.dataset.link) }; }
+      else if (t.closest('.wb-opt')) { const w = t.closest('.wb-opt'); act = { ...base, type: 'tap', run: () => decide(w.dataset.node, w.dataset.choice) }; }
       else if (t.closest('.wb-plus') && card) act = { ...base, type: 'link', from: card.dataset.id };
       else if (card) {
         const n = node(card.dataset.id);
@@ -896,7 +938,7 @@
     space.addEventListener('dblclick', (e) => {
       if (tool !== 'move') return;
       const card = e.target.closest('.wb-card');
-      if (card && !e.target.closest('.wb-plus, .wb-way, .wb-check')) o.onOpen?.(node(card.dataset.id));
+      if (card && !e.target.closest('.wb-plus, .wb-way, .wb-opt, .wb-check')) o.onOpen?.(node(card.dataset.id));
       else if (!card && !e.target.closest('.wb-label')) { const w = toWorld(e.clientX, e.clientY); add('step', { x: w.x - KINDS.step.w / 2, y: w.y - 30 }); o.onOpen?.(node(sel)); }
     });
     // The browser scrolls the board itself to show a card that takes the focus (a click, Tab) when it is partly out of
@@ -929,6 +971,15 @@
       const n = node(nodeId);
       if (!n) return;
       n.chosen = n.chosen === linkId ? null : linkId;
+      changed();
+      draw();
+    }
+
+    /** An optional step's call: run, skip or drop; the one it has already, again: none. */
+    function decide(nodeId, choice) {
+      const n = node(nodeId);
+      if (!n || !CHOICES[choice]) return;
+      if (n.choice === choice) delete n.choice; else n.choice = choice;
       changed();
       draw();
     }
@@ -997,7 +1048,7 @@
     return api;
   }
 
-  const api = { KINDS, NOTE_COLORS, route, planSteps, backToBack, branchName, linkPath, lengthText, newBoard, newId, fromList, rowsOf, mount, inkPath, simplifyInk, eraseInk, hsvToHex, hexToHsv, GRID, snap, inBand };
+  const api = { KINDS, CHOICES, MAX_NOTES, NOTE_COLORS, route, planSteps, optionalText, backToBack, branchName, linkPath, lengthText, newBoard, newId, fromList, rowsOf, mount, inkPath, simplifyInk, eraseInk, hsvToHex, hexToHsv, GRID, snap, inBand };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else globalThis.OnyxBoards = api;
 })();

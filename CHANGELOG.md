@@ -2,6 +2,15 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
+## 1.130.0 · Boards: optional steps, and room for long details on every card
+
+_2026-11-14_
+
+- New card: Optional. It is a step you might do, with a dashed edge so it stands out. On the card (and in its panel) pick Run, Skip or Drop: Run puts it on the plan like any step, Skip leaves it out this time, and Drop leaves it out for good. Either way the route goes on past it. Until you pick, it glows like a decision still to make, the bar counts it, and Plan it says it is left out.
+- Pasting a list: a line that starts with "Optional" (like "Optional: hook test") becomes an optional step.
+- A card's details now hold up to 100,000 characters (it was 4,000). Past 80,000, the editor shows how much is written. If a card ever has more than a card keeps, the board is not saved and you are told which card, instead of the end being cut off.
+- A long sticky note shows its first lines on the board; all of it is in its panel.
+
 ## 1.129.1 · Boards: picking a way at a decision no longer moves the view
 
 _2026-11-12_

@@ -58,7 +58,7 @@ test('opened: changed in the same panel, with room to write, kept as it is typed
   assert.doesNotMatch(card, /showPopover\(/, 'no popover any more');
   assert.match(card, /board\.panel = \{ id: n\.id, mode: 'edit' \};/);
   assert.match(card, /panelFrame\(n, \[h\('span', \{ class: 'wb-p-editing' \}, 'Changing it'\)\], \[h\('div', \{ class: `wb-edit k-\$\{n\.kind\}` \}, \.\.\.parts\)\], foot, 'edit'\);/);
-  assert.match(card, /oninput: \(e\) => \{ n\.notes = e\.target\.value; redraw\(\); \}/);
+  assert.match(card, /oninput: \(e\) => \{ n\.notes = e\.target\.value; counted\(\); redraw\(\); \}/);
   assert.match(css, /\.wb-panel \.wb-notes \{ flex: 1; min-height: 260px;/, 'the details get the room left');
   assert.match(css, /body\.mobile \.wb-panel\.edit \{ height: 88%; max-height: 88%; \}/, 'a tall sheet on the phone');
   // Escape (or the phone's back): out of changing it, then the card put down, and only then off the board.

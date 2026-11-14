@@ -1,13 +1,18 @@
 // Boards (whiteboards for long workflows; the canvas is src/renderer/boards.js): each a list of cards (steps,
-// decisions, goals and sticky notes, where they sit, and which way each decision goes) and the arrows between
+// optional steps, decisions, goals and sticky notes, where they sit, which way each decision goes, and each
+// optional step's call) and the arrows between
 // them. Kept with the rest of Onyx's data and synced between PCs and the phone, one board at a time (sync.js:
 // boards), the newest copy of a board winning. The app makes the ids, so a board saved offline is the same
 // board once it reaches the PC.
 
 const store = require('./store');
 
-const KINDS = new Set(['step', 'decision', 'goal', 'note']);
+// An optional step is a step you might do: each time, you run it, skip it this time, or drop it (`choice`).
+const KINDS = new Set(['step', 'optional', 'decision', 'goal', 'note']);
+const CHOICES = new Set(['run', 'skip', 'drop']);
 const MAX_BOARDS = 200, MAX_NODES = 500, MAX_LINKS = 1000;
+// A card's details: room for a long how-to. A save with more than this is refused (see save), never cut.
+const MAX_NOTES = 100000, MAX_TITLE = 300;
 // Drawing on the board (the pencil): strokes of points in the board's own units, each with its colour and width.
 const MAX_STROKES = 1500, MAX_STROKE_PTS = 4000, MAX_INK_PTS = 60000;
 const text = (v, max) => String(v ?? '').slice(0, max);
@@ -28,13 +33,15 @@ function clean(b) {
     if (!n || !ID.test(String(n.id)) || seen.has(n.id) || nodes.length >= MAX_NODES) continue;
     seen.add(n.id);
     const kind = KINDS.has(n.kind) ? n.kind : 'step';
-    const out = { id: n.id, kind, x: num(n.x, -1e6, 1e6), y: num(n.y, -1e6, 1e6), title: text(n.title, 300), notes: text(n.notes, 4000) };
+    const out = { id: n.id, kind, x: num(n.x, -1e6, 1e6), y: num(n.y, -1e6, 1e6), title: text(n.title, MAX_TITLE), notes: text(n.notes, MAX_NOTES) };
+    const doable = kind === 'step' || kind === 'optional'; // has a length, and can go to the calendar
     if (n.w) out.w = num(n.w, 120, 600, 200);
-    if (kind === 'step') out.minutes = num(n.minutes, 0, 12 * 60, 30);
+    if (doable) out.minutes = num(n.minutes, 0, 12 * 60, 30);
     if (n.done) out.done = true; // every card can be ticked off (its box at the top right)
     if (kind === 'note' && COLOR.test(String(n.color || ''))) out.color = n.color;
     if (kind === 'decision' && n.chosen) out.chosen = text(n.chosen, 64);
-    if (kind === 'step' && n.placed && typeof n.placed === 'object' && n.placed.start) {
+    if (kind === 'optional' && CHOICES.has(n.choice)) out.choice = n.choice;
+    if (doable && n.placed && typeof n.placed === 'object' && n.placed.start) {
       out.placed = { start: text(n.placed.start, 40), ...(n.placed.id ? { id: text(n.placed.id, 300) } : {}) };
     }
     nodes.push(out);
@@ -84,6 +91,12 @@ function boards() {
 /** Saves a board (made or changed in the app, whose id it keeps). */
 function save(board) {
   if (!board || !/^board\/[A-Za-z0-9_-]{4,60}$/.test(String(board.id))) throw new Error('That is not a board.');
+  // Too much to keep on a card: the save is refused, so nothing is cut off without a word.
+  const long = (Array.isArray(board.nodes) ? board.nodes : []).find((n) => n && String(n.notes ?? '').length > MAX_NOTES);
+  if (long) {
+    const name = String(long.title || '').trim().slice(0, 60) || 'A card';
+    throw new Error(`"${name}" has ${String(long.notes).length.toLocaleString('en-US')} characters of details, more than a card keeps (${MAX_NOTES.toLocaleString('en-US')}). Shorten them, or split them over two cards, and the board saves again.`);
+  }
   const all = list();
   const i = all.findIndex((b) => b.id === board.id);
   if (i < 0 && all.length >= MAX_BOARDS) throw new Error(`That's the most boards (${MAX_BOARDS}). Delete one to make another.`);
@@ -102,4 +115,4 @@ function remove(id) {
   return { ok: true };
 }
 
-module.exports = { boards, save, remove, clean, cleanStrokes, MAX_NODES, MAX_LINKS, MAX_STROKES, MAX_INK_PTS };
+module.exports = { boards, save, remove, clean, cleanStrokes, KINDS, CHOICES, MAX_NODES, MAX_LINKS, MAX_STROKES, MAX_INK_PTS, MAX_NOTES, MAX_TITLE };

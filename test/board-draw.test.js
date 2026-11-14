@@ -90,7 +90,7 @@ test('the canvas: a drawing layer under the cards; the pencil and eraser take th
 test('every card has a tick box at its top right, which ticks it off or not and opens nothing', () => {
   assert.match(js, /const check = el\('button', `wb-check\$\{n\.done \? ' on' : ''\}`\);/);
   assert.match(js, /if \(t\.closest\('\.wb-check'\) && card\) \{ const id = card\.dataset\.id; act = \{ \.\.\.base, type: 'tap', run: \(\) => \{ const n = node\(id\); if \(!n\) return; n\.done = !n\.done; changed\(\); draw\(\); \} \}; \}/);
-  assert.match(js, /if \(card && !e\.target\.closest\('\.wb-plus, \.wb-way, \.wb-check'\)\) o\.onOpen/, 'a double-click on it does not open the card');
+  assert.match(js, /if \(card && !e\.target\.closest\('\.wb-plus, \.wb-way, \.wb-opt, \.wb-check'\)\) o\.onOpen/, 'a double-click on it does not open the card');
   assert.match(css, /\.wb-check \{ position: absolute; top: 8px; right: 8px;/);
   // Done for every kind, in its options and its panel too.
   const q = app.slice(app.indexOf('function boardQuick('), app.indexOf('function openBoardAdd('));
@@ -102,7 +102,7 @@ test('every card has a tick box at its top right, which ticks it off or not and 
 });
 
 test('the bar: Move, Pencil, Eraser, the colour wheel and undo; Escape puts the pencil down first', () => {
-  assert.match(app, /h\('div', \{ class: 'wb-adds' \}, \.\.\.\['step', 'decision', 'goal', 'note'\]\.map\(addBtn\)\),\s*boardTools\(\),/);
+  assert.match(app, /h\('div', \{ class: 'wb-adds' \}, \.\.\.BOARD_KINDS\.map\(addBtn\)\),\s*boardTools\(\),/);
   const tools = app.slice(app.indexOf('function boardTools('), app.indexOf('function openInkColor('));
   for (const t of ["tool('move', 'hand', 'Move'", "tool('pen', 'pencil', 'Pencil'", "tool('eraser', 'eraser', 'Eraser'", "class: 'wb-ink-color'", "class: 'icon-btn wb-ink-undo'"]) assert.ok(tools.includes(t), t);
   const wheel = app.slice(app.indexOf('function openInkColor('), app.indexOf('/** The bar over the board'));

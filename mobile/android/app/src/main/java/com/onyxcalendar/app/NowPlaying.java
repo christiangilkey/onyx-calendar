@@ -20,6 +20,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.SeekBar;
 import android.widget.TextView;
 
 import java.util.ArrayList;
@@ -28,8 +29,9 @@ import java.util.function.Consumer;
 
 /**
  * What is playing (Spotify, YouTube Music, a podcast app...) for the Onyx panel over the lock screen:
- * the art, the song and artist, and previous / play-pause / next, as Android's own lock screen shows
- * it, under the Onyx panel and above the notifications. Reads the media sessions through Notification
+ * the art, the song and artist, a bar to drag through the song (with the time played and its length),
+ * and back 15 s / previous / play-pause / next / forward 15 s, under the Onyx panel and above the
+ * notifications. Reads the media sessions through Notification
  * access, which the notification list already needs. A tap on the card unlocks and opens the app.
  */
 final class NowPlaying {
@@ -94,6 +96,8 @@ final class NowPlaying {
     /** Stops following them (the panel is hidden). */
     void stop() {
         started = false;
+        dragging = false;
+        ui.removeCallbacks(tick);
         try {
             if (sessions != null) sessions.removeOnActiveSessionsChangedListener(sessionsChanged);
         } catch (Exception ignored) {
@@ -148,6 +152,10 @@ final class NowPlaying {
     }
 
     void render() {
+        if (dragging) { wanted = true; return; } // not under the finger: drawn again when it lets go
+        ui.removeCallbacks(tick);
+        shown = null;
+        bar = null;
         root.removeAllViews();
         if (!started) return;
         MediaController c = pick();
@@ -157,10 +165,10 @@ final class NowPlaying {
         boolean isPlaying = playing(s);
         long actions = s == null ? 0 : s.getActions();
 
+        // The card: the art and the words on top, the song's place under them (drag to seek), then the buttons.
         LinearLayout card = new LinearLayout(a);
-        card.setOrientation(LinearLayout.HORIZONTAL);
-        card.setGravity(Gravity.CENTER_VERTICAL);
-        card.setPadding(dp(12), dp(12), dp(10), dp(12));
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(12), dp(12), dp(12), dp(8));
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(0x26FFFFFF);
         bg.setCornerRadius(dp(18));
@@ -181,13 +189,17 @@ final class NowPlaying {
         pic.setBackground(round);
         if (art != null) pic.setImageBitmap(art);
         else pic.setImageDrawable(appIcon(c.getPackageName()));
+        LinearLayout top = new LinearLayout(a);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        card.addView(top, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(dp(54), dp(54));
         pp.rightMargin = dp(12);
-        card.addView(pic, pp);
+        top.addView(pic, pp);
 
         LinearLayout words = new LinearLayout(a);
         words.setOrientation(LinearLayout.VERTICAL);
-        card.addView(words, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        top.addView(words, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         TextView app = text(appName(c.getPackageName()).toUpperCase(), 10.5f, 0x99FFFFFF, false);
         app.setLetterSpacing(0.08f);
         words.addView(app);
@@ -198,13 +210,128 @@ final class NowPlaying {
         if (!TextUtils.isEmpty(who)) words.addView(text(who, 13, 0xC0FFFFFF, false));
 
         MediaController.TransportControls t = c.getTransportControls();
-        if ((actions & PlaybackState.ACTION_SKIP_TO_PREVIOUS) != 0) card.addView(control(android.R.drawable.ic_media_previous, "Previous", t::skipToPrevious, false));
-        card.addView(control(isPlaying ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play, isPlaying ? "Pause" : "Play",
+        long length = m.getLong(MediaMetadata.METADATA_KEY_DURATION);
+        // Seeking: when the app takes it (Spotify does), or always shown when it doesn't say (some apps leave their actions blank).
+        boolean canSeek = length > 0 && (actions == 0 || (actions & PlaybackState.ACTION_SEEK_TO) != 0);
+        if (length > 0) card.addView(seekRow(c, t, length, canSeek), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        // The buttons: back 15 s, previous song, play / pause, next song, forward 15 s (the jumps only when it can seek).
+        LinearLayout keys = new LinearLayout(a);
+        keys.setOrientation(LinearLayout.HORIZONTAL);
+        keys.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams kp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        kp.topMargin = dp(length > 0 ? 2 : 8);
+        card.addView(keys, kp);
+        if (canSeek) keys.addView(control(android.R.drawable.ic_media_rew, "Back 15 seconds", () -> jump(c, t, length, -JUMP_MS), false));
+        keys.addView(control(android.R.drawable.ic_media_previous, "Previous song", t::skipToPrevious, false));
+        keys.addView(control(isPlaying ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play, isPlaying ? "Pause" : "Play",
             isPlaying ? t::pause : t::play, true));
-        if ((actions & PlaybackState.ACTION_SKIP_TO_NEXT) != 0) card.addView(control(android.R.drawable.ic_media_next, "Next", t::skipToNext, false));
+        keys.addView(control(android.R.drawable.ic_media_next, "Next song", t::skipToNext, false));
+        if (canSeek) keys.addView(control(android.R.drawable.ic_media_ff, "Forward 15 seconds", () -> jump(c, t, length, JUMP_MS), false));
 
         PendingIntent go = c.getSessionActivity();
-        if (go != null) card.setOnClickListener(v -> open.accept(go));
+        if (go != null) top.setOnClickListener(v -> open.accept(go)); // the art and the name open the app; the bar and buttons don't
+        if (isPlaying && canSeek) ui.postDelayed(tick, 1000);
+    }
+
+    // ---- the song's place: a bar to drag, the time played and its length, moving on each second while it plays
+    private static final long JUMP_MS = 15000;
+    private SeekBar bar;
+    private TextView played, total;
+    private MediaController shown;
+    private long shownLength;
+    private boolean dragging, wanted; // dragging the bar; a redraw came while dragging (done when let go)
+
+    /** Where the song is now: its last known place, moved on by the time since (at its speed) while it plays. */
+    private static long now(PlaybackState s, long length) {
+        if (s == null) return 0;
+        long pos = s.getPosition();
+        if (playing(s) && s.getState() == PlaybackState.STATE_PLAYING && s.getLastPositionUpdateTime() > 0) {
+            pos += (long) ((android.os.SystemClock.elapsedRealtime() - s.getLastPositionUpdateTime()) * s.getPlaybackSpeed());
+        }
+        return Math.max(0, Math.min(length, pos));
+    }
+
+    private static String clock(long ms) {
+        long sec = Math.max(0, ms / 1000);
+        long h = sec / 3600, mm = (sec % 3600) / 60, ss = sec % 60;
+        return h > 0 ? String.format(java.util.Locale.US, "%d:%02d:%02d", h, mm, ss) : String.format(java.util.Locale.US, "%d:%02d", mm, ss);
+    }
+
+    private final Runnable tick = new Runnable() {
+        @Override
+        public void run() {
+            ui.removeCallbacks(this);
+            if (!started || shown == null || bar == null) return;
+            PlaybackState s;
+            try {
+                s = shown.getPlaybackState();
+            } catch (Exception e) {
+                return;
+            }
+            if (!dragging) {
+                long pos = now(s, shownLength);
+                bar.setProgress((int) (pos / 1000));
+                played.setText(clock(pos));
+            }
+            if (playing(s)) ui.postDelayed(this, 1000);
+        }
+    };
+
+    private View seekRow(MediaController c, MediaController.TransportControls t, long length, boolean canSeek) {
+        shown = c;
+        shownLength = length;
+        LinearLayout row = new LinearLayout(a);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(8), 0, 0);
+        long pos = now(c.getPlaybackState(), length);
+        played = text(clock(pos), 11.5f, 0xB3FFFFFF, false);
+        total = text(clock(length), 11.5f, 0xB3FFFFFF, false);
+        bar = new SeekBar(a);
+        bar.setMax((int) Math.max(1, length / 1000));
+        bar.setProgress((int) (pos / 1000));
+        bar.setEnabled(canSeek);
+        bar.setContentDescription("Where the song is. Drag to move through it.");
+        android.content.res.ColorStateList white = android.content.res.ColorStateList.valueOf(Color.WHITE);
+        bar.setProgressTintList(white);
+        bar.setThumbTintList(white);
+        bar.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(0x55FFFFFF));
+        bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                if (fromUser) played.setText(clock(progress * 1000L));
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar sb) {
+                dragging = true;
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar sb) {
+                dragging = false;
+                try {
+                    t.seekTo(sb.getProgress() * 1000L);
+                } catch (Exception ignored) {
+                    // the app stopped meanwhile
+                }
+                if (wanted) {
+                    wanted = false;
+                    ui.post(NowPlaying.this::render);
+                }
+            }
+        });
+        row.addView(played);
+        row.addView(bar, new LinearLayout.LayoutParams(0, dp(36), 1));
+        row.addView(total);
+        return row;
+    }
+
+    /** Back or forward a few seconds, within the song. */
+    private void jump(MediaController c, MediaController.TransportControls t, long length, long by) {
+        long to = Math.max(0, Math.min(length - 1000, now(c.getPlaybackState(), length) + by));
+        t.seekTo(to);
     }
 
     private TextView text(String s, float sp, int color, boolean bold) {

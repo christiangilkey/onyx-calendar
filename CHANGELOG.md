@@ -2,6 +2,14 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
+## 1.131.0 · The music on the lock screen: drag through the song, and jump back or forward
+
+_2026-11-16_
+
+- The music card on Onyx's lock screen has a bar to drag through the song, with the time played and how long it is. It moves along as the song plays.
+- Its buttons: back 15 seconds, previous song, play or pause, next song, and forward 15 seconds. Previous and next are always there now (before, some apps did not get them).
+- A tap on the picture or the song's name still unlocks and opens the app; the bar and the buttons work without unlocking.
+
 ## 1.130.1 · Boards: an optional step made from a pasted list no longer overlaps the card below it
 
 _2026-11-14_

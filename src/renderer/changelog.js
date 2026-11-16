@@ -2,6 +2,16 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.131.0",
+  "date": "2026-11-16",
+  "title": "The music on the lock screen: drag through the song, and jump back or forward",
+  "items": [
+   "The music card on Onyx's lock screen has a bar to drag through the song, with the time played and how long it is. It moves along as the song plays.",
+   "Its buttons: back 15 seconds, previous song, play or pause, next song, and forward 15 seconds. Previous and next are always there now (before, some apps did not get them).",
+   "A tap on the picture or the song's name still unlocks and opens the app; the bar and the buttons work without unlocking."
+  ]
+ },
+ {
   "version": "1.130.1",
   "date": "2026-11-14",
   "title": "Boards: an optional step made from a pasted list no longer overlaps the card below it",

@@ -189,6 +189,12 @@ const handlers = {
   'news:set': (id, on) => news.setChannel(id, on),
   'news:remove': (id) => news.removeChannel(id),
   'news:reset': () => news.resetChannels(),
+  // Your own YouTube in the panel: your playlists, read with YouTube's read-only permission (youtube.js).
+  'youtube:status': () => require('./youtube').status(),
+  'youtube:connect': (label) => require('./youtube').connect(label),
+  'youtube:disconnect': () => require('./youtube').disconnect(),
+  'youtube:playlists': () => require('./youtube').playlists(),
+  'youtube:items': (id) => require('./youtube').items(id),
   // Keys and links, from either the PC or the phone; they are stored once, on the PC.
   'google:credentials': withState((text) => setGoogleClient(text)),
   'microsoft:client': withState((id) => { store.data.microsoft.clientId = String(id || '').trim(); store.save(); }),

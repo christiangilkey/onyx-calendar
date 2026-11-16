@@ -2,9 +2,17 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.131.0 · The music on the lock screen: drag through the song, and jump back or forward
+## 1.132.0 · My YouTube in the News panel: your playlists, and YouTube itself to browse
 
 _2026-11-16_
+
+- The News panel has two views now: News, and My YouTube. My YouTube shows your YouTube playlists (and your liked videos). Pick one and it plays in the panel, one video after another, with its videos listed under the player.
+- To see them, press Connect YouTube once on the PC. You sign in in your browser and allow YouTube (read only). It is added to a Google account you already have in Onyx, and your calendar stays connected as it is. The phone shows the same playlists, read through the PC.
+- Browse YouTube opens YouTube itself in a window of Onyx's own: search, your subscriptions, everything. Sign in there once and it stays signed in. On the phone it opens the YouTube app.
+
+## 1.131.0 · The music on the lock screen: drag through the song, and jump back or forward
+
+_2026-11-15_
 
 - The music card on Onyx's lock screen has a bar to drag through the song, with the time played and how long it is. It moves along as the song plays.
 - Its buttons: back 15 seconds, previous song, play or pause, next song, and forward 15 seconds. Previous and next are always there now (before, some apps did not get them).

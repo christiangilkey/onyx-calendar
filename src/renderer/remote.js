@@ -1004,6 +1004,10 @@
     news: (force, mode) => call('news', force, mode),
     addNewsChannel: (input) => call('news:add', input),
     setNewsChannel: (id, on) => call('news:set', id, on),
+    // Your YouTube, read by the PC (connecting is done there: it signs in in the PC's browser).
+    youtubeStatus: () => call('youtube:status'),
+    youtubePlaylists: () => call('youtube:playlists'),
+    youtubeItems: (id) => call('youtube:items', id),
     removeNewsChannel: (id) => call('news:remove', id),
     resetNewsChannels: () => call('news:reset'),
     globe: () => call('globe'),

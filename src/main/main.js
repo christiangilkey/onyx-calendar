@@ -223,6 +223,58 @@ function allowYouTubeEmbeds() {
   );
 }
 
+// YouTube itself, to browse as on youtube.com (signed in there once, kept in its own corner: persist:youtube),
+// in a window of Onyx's own. Only YouTube and Google's sign-in pages open in it; other links go to the browser.
+// It says it is plain Chrome, or Google refuses to sign in inside an app's window.
+let youtubeWin = null;
+const YOUTUBE_HOSTS = /^https:\/\/([\w-]+\.)*(youtube\.com|youtu\.be|google\.com|googleusercontent\.com|gstatic\.com|youtube-nocookie\.com)(\/|$)/i;
+function youtubeUrl(u) {
+  const s = String(u || '');
+  if (/^https:\/\/(www\.|m\.|music\.)?youtube\.com\//i.test(s) || /^https:\/\/youtu\.be\//i.test(s)) return s;
+  return 'https://www.youtube.com/';
+}
+function openYouTube(url) {
+  const to = youtubeUrl(url);
+  if (youtubeWin && !youtubeWin.isDestroyed()) {
+    if (url) youtubeWin.loadURL(to);
+    if (youtubeWin.isMinimized()) youtubeWin.restore();
+    youtubeWin.show();
+    youtubeWin.focus();
+    return true;
+  }
+  const yt = session.fromPartition('persist:youtube');
+  const chrome = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${process.versions.chrome} Safari/537.36`;
+  yt.setUserAgent(chrome);
+  const saved = store.data.youtubeWindow || {};
+  youtubeWin = new BrowserWindow({
+    width: saved.width || 1180, height: saved.height || 800, x: saved.x, y: saved.y, minWidth: 480, minHeight: 360,
+    title: 'YouTube · Onyx', icon: ICON, backgroundColor: '#0f0f0f', autoHideMenuBar: true,
+    webPreferences: { partition: 'persist:youtube', contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  youtubeWin.setMenu(null);
+  youtubeWin.webContents.setUserAgent(chrome);
+  youtubeWin.webContents.setWindowOpenHandler(({ url: u }) => {
+    if (YOUTUBE_HOSTS.test(u)) youtubeWin.loadURL(u); // a sign-in or a video in a new tab: here instead
+    else if (/^https:\/\//i.test(u)) shell.openExternal(u);
+    return { action: 'deny' };
+  });
+  youtubeWin.webContents.on('will-navigate', (e, u) => {
+    if (YOUTUBE_HOSTS.test(u)) return;
+    e.preventDefault();
+    if (/^https:\/\//i.test(u)) shell.openExternal(u);
+  });
+  const keep = () => {
+    if (!youtubeWin || youtubeWin.isDestroyed() || youtubeWin.isMinimized() || youtubeWin.isMaximized()) return;
+    store.data.youtubeWindow = youtubeWin.getBounds();
+    store.save();
+  };
+  youtubeWin.on('resized', keep);
+  youtubeWin.on('moved', keep);
+  youtubeWin.on('closed', () => { youtubeWin = null; });
+  youtubeWin.loadURL(to);
+  return true;
+}
+
 async function boot() {
   store.load();
   Menu.setApplicationMenu(null);
@@ -238,6 +290,7 @@ async function boot() {
   if (app.isPackaged) app.setAsDefaultProtocolClient('onyx');
   ipcMain.handle('magic-link:take', () => { const d = pendingLink; pendingLink = null; return d; });
   ipcMain.handle('board-link:take', () => { const d = pendingBoard; pendingBoard = null; return d; });
+  ipcMain.handle('youtube:browse', (e, url) => openYouTube(url));
   // Another app (Hermes, through the MCP server) asks for a Hyperfocus session: the setup opens here.
   const focus = require('./focus');
   focus.setRequestHandler(() => { showWindow(); win?.webContents.send('focus-request'); });

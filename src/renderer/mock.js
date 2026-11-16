@@ -676,6 +676,20 @@
     setNewsChannel: async (id, on) => { newsChannels.find((c) => c.id === id).on = on; return structuredClone(newsChannels); },
     removeNewsChannel: async (id) => { newsChannels = newsChannels.filter((c) => c.id !== id); return structuredClone(newsChannels); },
     resetNewsChannels: async () => structuredClone(newsChannels),
+    // Your YouTube (youtube.js on the PC): a pretend account and two playlists.
+    youtubeStatus: async () => ({ connected: !!window.__ytOn, account: window.__ytOn ? 'you@gmail.com' : null, google: ['you@gmail.com'] }),
+    connectYouTube: async () => { window.__ytOn = true; return { connected: true, account: 'you@gmail.com', google: ['you@gmail.com'] }; },
+    disconnectYouTube: async () => { window.__ytOn = false; return { connected: false, account: null, google: ['you@gmail.com'] }; },
+    youtubePlaylists: async () => {
+      if (!window.__ytOn) { const err = new Error('Connect your YouTube first.'); throw err; }
+      return [{ id: 'LL', title: 'Liked videos', count: null, thumb: '', liked: true },
+        { id: 'PLdemo_focus', title: 'Focus music', count: 3, thumb: 'https://i.ytimg.com/vi/jfKfPfyJRdk/mqdefault.jpg' },
+        { id: 'PLdemo_arabic', title: 'Arabic listening', count: 2, thumb: 'https://i.ytimg.com/vi/uo819k4cjhs/mqdefault.jpg' }];
+    },
+    youtubeItems: async (id) => (id === 'PLdemo_arabic'
+      ? [{ id: 'uo819k4cjhs', title: 'Global news podcast', channel: 'BBC', thumb: 'https://i.ytimg.com/vi/uo819k4cjhs/mqdefault.jpg' }, { id: 'jfKfPfyJRdk', title: 'lofi hip hop radio', channel: 'Lofi Girl', thumb: 'https://i.ytimg.com/vi/jfKfPfyJRdk/mqdefault.jpg' }]
+      : [{ id: 'jfKfPfyJRdk', title: 'lofi hip hop radio', channel: 'Lofi Girl', thumb: 'https://i.ytimg.com/vi/jfKfPfyJRdk/mqdefault.jpg' }, { id: 'uo819k4cjhs', title: 'Global news podcast', channel: 'BBC', thumb: 'https://i.ytimg.com/vi/uo819k4cjhs/mqdefault.jpg' }]),
+    browseYouTube: async () => { window.__ytBrowsed = (window.__ytBrowsed || 0) + 1; return true; },
     addNewsChannel: async (input) => {
       const handle = String(input).replace(/^.*@/, '').trim();
       if (!/^[\w.-]{3,30}$/.test(handle)) throw new Error('Paste a YouTube channel link or its @handle.');

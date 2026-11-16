@@ -7690,6 +7690,7 @@
       requestAnimationFrame(() => calendar.updateSize());
     }
     if (!open) return stopNews();
+    if (news.view === 'mine') { if (!news.mine.status || !news.mine.lists) loadMine(); else renderNews(); return; }
     if (Date.now() - news.at > 5 * 60 * 1000) loadNews(); else renderNews();
   }
 
@@ -7730,7 +7731,7 @@
     // The panel opens on the newest story that has been watched at all: a stream that is
     // only scheduled (no views yet) would just say "Live in 2 hours".
     const first = news.stories.find((s) => s.views !== 0) || news.stories[0];
-    if (!news.current && first) news.current = { kind: 'video', ...first };
+    if (news.view === 'news' && !news.current && first) news.current = { kind: 'video', ...first };
     renderNews();
   }
 
@@ -7743,12 +7744,131 @@
   };
   const okVideo = (id) => /^[\w-]{11}$/.test(id || '');
   const okChannel = (id) => /^UC[\w-]{22}$/.test(id || '');
-  const shownStories = () => news.stories.filter((s) => news.filter === 'all' || s.channelId === news.filter);
-  const watchUrl = (c) => (c.kind === 'live' ? `https://www.youtube.com/channel/${c.channelId}/live` : `https://www.youtube.com/watch?v=${c.id}`);
+  const okList = (id) => /^[\w-]{2,64}$/.test(id || '');
+  // What the list shows: the news, or (My YouTube) the videos of the playlist picked.
+  const shownStories = () => (news.view === 'mine'
+    ? news.mine.items.map((v) => ({ ...v, list: news.mine.list }))
+    : news.stories.filter((s) => news.filter === 'all' || s.channelId === news.filter));
+  const watchUrl = (c) => (c.kind === 'live' ? `https://www.youtube.com/channel/${c.channelId}/live`
+    : `https://www.youtube.com/watch?v=${c.id}${c.list && okList(c.list) ? `&list=${c.list}` : ''}`);
 
   function embedUrl(c) {
     const q = 'autoplay=1&rel=0&playsinline=1&enablejsapi=1';
-    return c.kind === 'live' ? `${YT}/embed/live_stream?channel=${c.channelId}&${q}` : `${YT}/embed/${c.id}?${q}`;
+    if (c.kind === 'live') return `${YT}/embed/live_stream?channel=${c.channelId}&${q}`;
+    return `${YT}/embed/${c.id}?${c.list && okList(c.list) ? `list=${c.list}&` : ''}${q}`;
+  }
+
+  // ---- My YouTube: your playlists (read by the PC with YouTube's read-only permission, youtube.js), played here,
+  // and YouTube itself to browse (a window of its own on the PC; the YouTube app on the phone).
+  news.view = (() => { try { return localStorage.getItem('onyx.news-view') === 'mine' ? 'mine' : 'news'; } catch { return 'news'; } })();
+  news.mine = { status: null, lists: null, list: (() => { try { return localStorage.getItem('onyx.news-list') || null; } catch { return null; } })(), items: [], loading: false, error: '' };
+
+  function browseYouTube(url) {
+    if (onyx.browseYouTube) onyx.browseYouTube(url).catch(fail);
+    else onyx.open(url || 'https://www.youtube.com/'); // the phone: the YouTube app, or the browser
+  }
+
+  function setNewsView(view) {
+    if (news.view === view) return;
+    news.view = view;
+    try { localStorage.setItem('onyx.news-view', view); } catch { /* this visit only */ }
+    news.playing = false;
+    news.current = null;
+    if (view === 'mine') loadMine(); else if (news.stories.length) { const first = news.stories.find((s) => s.views !== 0) || news.stories[0]; news.current = { kind: 'video', ...first }; }
+    renderNews();
+    if (view === 'news' && Date.now() - news.at > 5 * 60 * 1000) loadNews();
+  }
+
+  async function loadMine(force) {
+    const m = news.mine;
+    if (m.loading || !onyx.youtubeStatus) return;
+    m.loading = true;
+    m.error = '';
+    renderNews();
+    try {
+      m.status = await onyx.youtubeStatus();
+      if (m.status.connected) {
+        if (force || !m.lists) m.lists = await onyx.youtubePlaylists();
+        if (!m.list || !m.lists.some((p) => p.id === m.list)) m.list = (m.lists.find((p) => !p.liked) || m.lists[0])?.id || null;
+        await loadItems(m.list, false);
+      }
+    } catch (err) {
+      m.error = err.message;
+    } finally {
+      m.loading = false;
+      renderNews();
+    }
+  }
+
+  async function loadItems(id, draw = true) {
+    const m = news.mine;
+    m.list = id;
+    try { localStorage.setItem('onyx.news-list', id || ''); } catch { /* this visit only */ }
+    m.items = [];
+    if (!id) return;
+    if (draw) { m.loading = true; renderNews(); }
+    try {
+      m.items = await onyx.youtubeItems(id);
+      if (news.view === 'mine' && m.list === id) {
+        const first = m.items[0];
+        if (first && (!news.current || news.current.list !== id)) { news.current = { kind: 'video', ...first, list: id }; news.playing = false; }
+        if (!first) { news.current = null; news.playing = false; }
+      }
+    } catch (err) {
+      m.error = err.message;
+    } finally {
+      if (draw) { m.loading = false; renderNews(); }
+    }
+  }
+
+  async function connectYouTube(label) {
+    if (!onyx.connectYouTube) { toast('Connect your YouTube on your PC: News panel → My YouTube. Then it shows here too.'); return; }
+    toast('Sign in in your browser and allow YouTube (read only). Your calendar sign-in stays as it is.');
+    try {
+      news.mine.status = await onyx.connectYouTube(label);
+      news.mine.lists = null;
+      await loadMine(true);
+      toast('Your YouTube is connected.');
+    } catch (err) { fail(err); }
+  }
+
+  function renderViews() {
+    const box = $('#news-views');
+    const tab = (id, label) => h('button', { type: 'button', role: 'tab', class: `news-view${news.view === id ? ' on' : ''}`, 'aria-selected': String(news.view === id), onclick: () => setNewsView(id) }, label);
+    box.replaceChildren(tab('news', 'News'), tab('mine', 'My YouTube'),
+      h('span', { class: 'grow' }),
+      h('button', { type: 'button', class: 'btn news-browse', title: onyx.browseYouTube ? 'YouTube itself, in a window of its own: search, your subscriptions, everything' : 'Open YouTube', onclick: () => browseYouTube() }, icon('globe'), 'Browse YouTube'));
+    const mine = news.view === 'mine';
+    $('#news-channels').hidden = mine;
+    $('#news-tamkeen').hidden = mine || !tamkeen.installed;
+    $('#news-refresh').title = mine ? 'Load your playlists again' : 'Check for new stories';
+    $('#news-body').classList.toggle('mine', mine);
+  }
+
+  /** My YouTube's row of playlists (or how to connect), where the news has its channel chips. */
+  function renderMineFilter() {
+    const m = news.mine;
+    const box = $('#news-filter');
+    if (!m.status) { box.replaceChildren(h('div', { class: 'news-mine-note' }, m.error || 'Looking for your YouTube…')); return; }
+    if (!m.status.connected) {
+      const pc = !!onyx.connectYouTube;
+      box.replaceChildren(h('div', { class: 'news-mine-connect' },
+        h('b', null, 'Your playlists, here'),
+        h('p', null, pc
+          ? (m.status.google.length ? `Onyx asks Google to let it read your YouTube (read only) through ${m.status.google[0]}. Your calendar stays connected as it is.` : 'Connect a Google account in Settings first; YouTube is added to it.')
+          : 'Connect your YouTube on your PC (News panel → My YouTube), and your playlists show here too.'),
+        pc && m.status.google.length > 0 && h('div', { class: 'row' },
+          m.status.google.map((g, i) => h('button', { type: 'button', class: `btn${i ? '' : ' primary'}`, onclick: () => connectYouTube(g) }, m.status.google.length > 1 ? `Connect ${g}` : 'Connect YouTube'))),
+        h('small', null, 'Or browse YouTube itself with the button above, signed in there like in a browser.')));
+      return;
+    }
+    const chip = (p) => h('button', { type: 'button', class: `news-chip${m.list === p.id ? ' on' : ''}`, title: p.count != null ? `${p.title} · ${p.count} video${p.count === 1 ? '' : 's'}` : p.title,
+      onclick: () => { news.playing = false; news.current = null; loadItems(p.id); } }, p.liked ? '♥ ' : '', p.title);
+    box.replaceChildren(
+      h('div', { class: 'news-mine-who' }, h('span', null, `Your playlists · ${m.status.account}`),
+        onyx.disconnectYouTube && h('button', { type: 'button', class: 'link-btn', title: 'Stop showing your YouTube here', onclick: async () => { try { m.status = await onyx.disconnectYouTube(); m.lists = null; m.items = []; news.current = null; news.playing = false; renderNews(); } catch (err) { fail(err); } } }, 'Disconnect')),
+      h('div', { class: 'news-chips news-lists' }, (m.lists || []).map(chip)),
+      m.error ? h('div', { class: 'news-mine-note warn' }, m.error) : '');
   }
 
   // Tamkeen, the Arabic study app: when it is installed on this device, a toggle in the
@@ -7758,7 +7878,7 @@
 
   function renderTamkeen() {
     const b = $('#news-tamkeen');
-    b.hidden = !tamkeen.installed;
+    b.hidden = !tamkeen.installed || news.view === 'mine';
     b.classList.toggle('on', tamkeen.on);
     b.setAttribute('aria-pressed', String(tamkeen.on));
     b.title = tamkeen.on
@@ -7795,7 +7915,7 @@
 
   function play(c) {
     if (c.kind === 'live' ? !okChannel(c.channelId) : !okVideo(c.id)) return;
-    if (tamkeen.on && tamkeen.installed && c.kind === 'video') {
+    if (tamkeen.on && tamkeen.installed && c.kind === 'video' && !c.list) {
       news.current = c;
       if (!onyx.tamkeen?.embed) { renderNews(); openInTamkeen(c); return; } // the phone: Tamkeen's own app
       // Tamkeen's player and clickable captions, here in the panel (Tamkeen starts hidden if it isn't running).
@@ -7842,14 +7962,16 @@
   function renderPlayer() {
     const c = news.current;
     const tk = c && news.tamkeen?.id === c.id ? news.tamkeen : null;
-    const key = c ? `${c.kind}:${c.id || c.channelId}:${news.playing}:${tk ? tk.url || tk.note : ''}` : `none:${news.loading}`;
+    const key = c ? `${c.kind}:${c.id || c.channelId}:${c.list || ''}:${news.playing}:${tk ? tk.url || tk.note : ''}` : `none:${news.view}:${news.loading}:${news.mine.loading}:${!!news.mine.status?.connected}`;
     const box = $('#news-player');
     // Re-rendering must not reload a video that is already playing.
     if (key !== news.shown || !box.firstChild) {
       news.shown = key;
       const screen = h('div', { class: 'news-screen' });
       if (!c) {
-        screen.append(h('div', { class: 'news-empty-screen' }, news.loading ? 'Loading the news…' : 'No stories yet. Pick some channels with the button above.'));
+        screen.append(h('div', { class: 'news-empty-screen' }, news.view === 'mine'
+          ? (news.mine.loading ? 'Loading your YouTube…' : news.mine.status?.connected ? 'Pick a playlist below.' : 'Your playlists play here once your YouTube is connected.')
+          : news.loading ? 'Loading the news…' : 'No stories yet. Pick some channels with the button above.'));
       } else if (tk) {
         // Tamkeen's player: the video with its clickable captions under it, and room for a word's popup.
         screen.classList.add('tamkeen');
@@ -7875,14 +7997,15 @@
     now.replaceChildren(
       h('div', { class: 'title', dir: 'auto' }, c.kind === 'live' ? h('span', { class: 'badge-live' }, 'LIVE') : null, c.kind === 'live' ? ` ${c.channel}` : c.title),
       h('div', { class: 'meta' },
-        h('span', null, c.kind === 'live' ? '24/7 stream' : `${c.channel} · ${ago(c.published)}`),
+        h('span', null, c.kind === 'live' ? '24/7 stream' : c.list ? [c.channel, news.mine.lists?.find((p) => p.id === c.list)?.title].filter(Boolean).join(' · ') : `${c.channel} · ${ago(c.published)}`),
         h('span', { class: 'grow' }),
-        c.kind === 'video' && shownStories().length > 1 && h('button', { class: 'btn', title: 'Play the next story', onclick: playNext }, icon('next'), 'Next'),
-        c.kind === 'video' && tamkeen.installed && h('button', { class: 'btn', title: 'Open it in Tamkeen\'s player', onclick: () => openInTamkeen(c) }, 'Tamkeen'),
-        h('button', { class: 'btn', title: 'Open it on YouTube', onclick: () => onyx.open(watchUrl(c)) }, icon('link'), 'YouTube')));
+        c.kind === 'video' && shownStories().length > 1 && h('button', { class: 'btn', title: c.list ? 'Play the next video' : 'Play the next story', onclick: playNext }, icon('next'), 'Next'),
+        c.kind === 'video' && !c.list && tamkeen.installed && h('button', { class: 'btn', title: 'Open it in Tamkeen\'s player', onclick: () => openInTamkeen(c) }, 'Tamkeen'),
+        h('button', { class: 'btn', title: 'Open it on YouTube', onclick: () => (c.list ? browseYouTube(watchUrl(c)) : onyx.open(watchUrl(c))) }, icon('link'), 'YouTube')));
   }
 
   function renderFilter() {
+    if (news.view === 'mine') { renderMineFilter(); return; }
     const on = news.channels.filter((c) => c.on);
     if (news.filter !== 'all' && !on.some((c) => c.id === news.filter)) news.filter = 'all';
     const chip = (label, active, onclick, cls = '') => h('button', { class: `news-chip ${cls}${active ? ' on' : ''}`, onclick }, cls === 'live' && h('i'), label);
@@ -7905,6 +8028,18 @@
     const box = $('#news-list');
     const list = shownStories();
     $('#news-updated').textContent = list.length || '';
+    if (news.view === 'mine') {
+      const m = news.mine;
+      if (!m.status?.connected) { box.replaceChildren(); return; }
+      if (!list.length) { box.replaceChildren(h('div', { class: 'empty' }, m.loading ? 'Loading…' : m.list ? 'Nothing to play in this playlist.' : 'Pick a playlist above.')); return; }
+      box.replaceChildren(...list.map((v, i) => {
+        const thumb = h('div', { class: 'news-thumb' });
+        if (okVideo(v.id)) thumb.style.backgroundImage = `url("https://i.ytimg.com/vi/${v.id}/mqdefault.jpg")`;
+        return h('button', { class: `news-row${news.current?.id === v.id && news.current?.list === v.list && news.playing ? ' playing' : ''}`, title: v.title, onclick: () => play({ kind: 'video', ...v }) },
+          thumb, h('div', null, h('div', { class: 't', dir: 'auto' }, v.title), h('div', { class: 'm' }, h('b', null, v.channel || `Video ${i + 1}`))));
+      }));
+      return;
+    }
     if (!list.length) {
       box.replaceChildren(h('div', { class: 'empty' }, news.loading ? 'Loading…'
         : news.channels.some((c) => c.on) ? 'No new stories right now.' : 'No channels are switched on. Pick some with the button above.'));
@@ -7919,6 +8054,7 @@
   }
 
   function renderNews() {
+    renderViews();
     renderPlayer();
     renderFilter();
     renderList();
@@ -7979,7 +8115,7 @@
     $('#news-close').append(icon(MOBILE ? 'x' : 'right'));
     $('#news-close').onclick = () => setNewsOpen(false);
     $('#news-refresh').append(icon('refresh'));
-    $('#news-refresh').onclick = () => loadNews(true);
+    $('#news-refresh').onclick = () => (news.view === 'mine' ? loadMine(true) : loadNews(true));
     $('#news-channels').append(icon('sliders'));
     $('#news-channels').onclick = (e) => openNewsChannels(e.currentTarget.getBoundingClientRect());
     setInterval(() => { if (newsOpen()) loadNews(); }, NEWS_REFRESH_MS);

@@ -64,6 +64,13 @@ contextBridge.exposeInMainWorld('onyx', {
   setNewsChannel: (id, on) => call('news:set', id, on),
   removeNewsChannel: (id) => call('news:remove', id),
   resetNewsChannels: () => call('news:reset'),
+  youtubeStatus: () => call('youtube:status'),
+  connectYouTube: (label) => call('youtube:connect', label),
+  disconnectYouTube: () => call('youtube:disconnect'),
+  youtubePlaylists: () => call('youtube:playlists'),
+  youtubeItems: (id) => call('youtube:items', id),
+  // YouTube itself, in a window of its own (signed in there like a browser).
+  browseYouTube: (url) => ipcRenderer.invoke('youtube:browse', url),
   setTagColor: (tag, color) => call('tag:color', tag, color),
   renameTag: (from, to) => call('tag:rename', from, to),
   deleteTag: (tag) => call('tag:delete', tag),

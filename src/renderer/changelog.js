@@ -2,8 +2,18 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
-  "version": "1.131.0",
+  "version": "1.132.0",
   "date": "2026-11-16",
+  "title": "My YouTube in the News panel: your playlists, and YouTube itself to browse",
+  "items": [
+   "The News panel has two views now: News, and My YouTube. My YouTube shows your YouTube playlists (and your liked videos). Pick one and it plays in the panel, one video after another, with its videos listed under the player.",
+   "To see them, press Connect YouTube once on the PC. You sign in in your browser and allow YouTube (read only). It is added to a Google account you already have in Onyx, and your calendar stays connected as it is. The phone shows the same playlists, read through the PC.",
+   "Browse YouTube opens YouTube itself in a window of Onyx's own: search, your subscriptions, everything. Sign in there once and it stays signed in. On the phone it opens the YouTube app."
+  ]
+ },
+ {
+  "version": "1.131.0",
+  "date": "2026-11-15",
   "title": "The music on the lock screen: drag through the song, and jump back or forward",
   "items": [
    "The music card on Onyx's lock screen has a bar to drag through the song, with the time played and how long it is. It moves along as the song plays.",

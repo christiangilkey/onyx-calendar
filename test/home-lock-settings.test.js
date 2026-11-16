@@ -24,7 +24,7 @@ test('the lock screen editor is part of Home & lock screen, and its old names st
 test('each screen keeps its own layout and shortcuts on the phone, and Onyx Home follows its own', () => {
   const layout = read(`${J}LockLayout.java`);
   assert.match(layout, /HOME_PARTS = Arrays\.asList\("clock", "onyx", "shortcuts", "widgets", "apps", "noise"\)/);
-  assert.match(layout, /static final List<String> PARTS = Arrays\.asList\("clock", "onyx", "shortcuts", "music", "notifications", "noise"\)/, 'the lock screen\'s list keeps its name');
+  assert.match(layout, /static final List<String> PARTS = Arrays\.asList\("clock", "now", "goals", "quick", "day", "shortcuts", "music", "notifications", "noise"\)/, 'the lock screen\'s list keeps its name');
   assert.match(layout, /"homeLayout" : "lockLayout"/, 'the lock screen keeps its saved layout');
   assert.match(layout, /home \? "left" : "center"/, 'Onyx Home starts as it always looked');
   assert.match(read(`${J}LockShortcuts.java`), /HOME_KEY = "homeShortcuts"/);

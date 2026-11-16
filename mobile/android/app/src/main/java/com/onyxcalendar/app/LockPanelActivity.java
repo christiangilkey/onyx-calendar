@@ -221,8 +221,6 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
         scene = new FocusScene(this, true, v -> openOnyx(null));
         clockPart.addView(scene.root); // Hyperfocus takes the clock's place
 
-        LinearLayout onyxPart = section();
-        onyxPart.addView(panel.root);
 
         LinearLayout shortcutsPart = section();
         View row = LockShortcuts.row(this, (s) -> {
@@ -266,7 +264,11 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
 
         java.util.Map<String, View> parts = new java.util.HashMap<>();
         parts.put("clock", clockPart);
-        parts.put("onyx", onyxPart);
+        for (String p : OnyxPanel.PARTS) {
+            LinearLayout s = section();
+            s.addView(panel.part(p));
+            parts.put(p, s);
+        }
         parts.put("shortcuts", shortcutsPart);
         parts.put("music", musicPart);
         parts.put("notifications", notifsPart);
@@ -278,7 +280,7 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
         }
         showDate = layout.optBoolean("date", true);
         if (!LockLayout.shows(layout, "clock")) { clockOff = true; }
-        if (!LockLayout.shows(layout, "onyx")) onyxPart.setVisibility(View.GONE);
+        for (String p : OnyxPanel.PARTS) if (!LockLayout.shows(layout, p)) parts.get(p).setVisibility(View.GONE);
         if (!LockLayout.shows(layout, "shortcuts")) shortcutsPart.setVisibility(View.GONE);
         if (!LockLayout.shows(layout, "music")) { musicPart.setVisibility(View.GONE); music = null; }
         if (!LockLayout.shows(layout, "notifications")) { notifsPart.setVisibility(View.GONE); notifs = null; }

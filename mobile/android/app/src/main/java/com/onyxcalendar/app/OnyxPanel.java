@@ -12,6 +12,7 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.text.InputType;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
@@ -47,6 +48,14 @@ final class OnyxPanel {
     static final int WORK = 0xFFFF6B5B, BREAK = 0xFF4FD1A5; // pomodoro: work and break
 
     final LinearLayout root;
+    /**
+     * The cards, each in a box of its own: now and next, the goals, the box to add a task, and the rest of
+     * today (with when it was updated). On Onyx Home they stay together in root; the lock screen takes them
+     * out (part) to place each where its editor puts it.
+     */
+    static final java.util.List<String> PARTS = java.util.Arrays.asList("now", "goals", "quick", "day");
+    private final java.util.Map<String, LinearLayout> boxes = new java.util.HashMap<>();
+    private final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
     /** The Pi's call as it rings: placed above everything (above the Hyperfocus scene too). */
     final LinearLayout top;
     private final Context ctx;
@@ -74,6 +83,19 @@ final class OnyxPanel {
         root.setOrientation(LinearLayout.VERTICAL);
         top = new LinearLayout(ctx);
         top.setOrientation(LinearLayout.VERTICAL);
+        for (String p : PARTS) {
+            LinearLayout b = new LinearLayout(ctx);
+            b.setOrientation(LinearLayout.VERTICAL);
+            boxes.put(p, b);
+            root.addView(b, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+    }
+
+    /** One of the boxes (PARTS), taken out of root to be placed on its own. */
+    LinearLayout part(String name) {
+        LinearLayout b = boxes.get(name);
+        if (b != null && b.getParent() == root) root.removeView(b);
+        return b;
     }
 
     int dp(float v) {
@@ -177,8 +199,9 @@ final class OnyxPanel {
         long t = System.currentTimeMillis();
         renderedFor = t / LauncherData.MIN;
         boolean typing = quickText != null && quickText.hasFocus();
-        root.removeAllViews();
+        for (LinearLayout b : boxes.values()) b.removeAllViews();
         top.removeAllViews();
+        LinearLayout nowBox = boxes.get("now"), goalsBox = boxes.get("goals"), quickBox = boxes.get("quick"), dayBox = boxes.get("day");
         nowLeft = nextIn = leaveIn = callIn = null;
         nowBar = null;
         focus = LauncherData.focus(ctx);
@@ -193,15 +216,15 @@ final class OnyxPanel {
             // Under the Hyperfocus scene: the rest of the day, quieter (what is on now is the scene itself).
             TextView rest = label("Rest of today", FAINT);
             rest.setPadding(dp(4), dp(6), 0, dp(8));
-            root.addView(rest);
+            nowBox.addView(rest);
         }
-        root.addView(nowNextCard(items, t));
+        nowBox.addView(nowNextCard(items, t));
         List<LauncherData.Goal> goals = LauncherData.goals(ctx);
-        if (!goals.isEmpty()) root.addView(goalsCard(goals));
-        if (big) root.addView(quickCard()); // the lock screen's panel (Onyx Home keeps the keyboard from moving it)
-        if (big && WidgetData.quickWaiting(ctx) > 0) new Thread(() -> { if (WidgetData.flushQuick(ctx)) root.post(() -> paintQuickNote(null)); }, "onyx-quick-add").start();
+        if (!goals.isEmpty()) goalsBox.addView(goalsCard(goals));
+        if (big) quickBox.addView(quickCard()); // the lock screen's panel (Onyx Home keeps the keyboard from moving it)
+        if (big && WidgetData.quickWaiting(ctx) > 0) new Thread(() -> { if (WidgetData.flushQuick(ctx)) main.post(() -> paintQuickNote(null)); }, "onyx-quick-add").start();
         if (big && typing) quickText.requestFocus();
-        root.addView(dayCard(items, t));
+        dayBox.addView(dayCard(items, t));
 
         String error = LauncherData.error(ctx);
         long updated = LauncherData.updated(ctx);
@@ -211,7 +234,7 @@ final class OnyxPanel {
         f.setGravity(Gravity.CENTER);
         f.setPadding(0, 0, 0, dp(6));
         f.setOnClickListener(v -> host.openOnyx(null));
-        root.addView(f);
+        dayBox.addView(f);
         tick();
     }
 
@@ -372,7 +395,7 @@ final class OnyxPanel {
         paintQuickNote("Adding \u201c" + title + "\u201d…");
         new Thread(() -> {
             boolean sent = WidgetData.quickTask(ctx, title);
-            root.post(() -> paintQuickNote(sent ? "Added \u201c" + title + "\u201d to Onyx's inbox (the tray by the date)"
+            main.post(() -> paintQuickNote(sent ? "Added \u201c" + title + "\u201d to Onyx's inbox (the tray by the date)"
                 : "Saved \u201c" + title + "\u201d: it goes to Onyx's inbox once your PC is in reach"));
         }, "onyx-quick-add").start();
     }

@@ -19,7 +19,9 @@ import java.util.List;
 final class LockLayout {
     static final String LOCK = "lock", HOME = "home";
     /** The lock screen's parts. */
-    static final List<String> PARTS = Arrays.asList("clock", "onyx", "shortcuts", "music", "notifications", "noise");
+    static final List<String> PARTS = Arrays.asList("clock", "now", "goals", "quick", "day", "shortcuts", "music", "notifications", "noise");
+    /** The lock screen's calendar parts, one part ("onyx") until 1.133.0: a layout saved then is split where it was. */
+    static final List<String> ONYX = Arrays.asList("now", "goals", "quick", "day");
     /** The home screen's: the apps are the ones kept on it, the widgets the ones added to it. */
     static final List<String> HOME_PARTS = Arrays.asList("clock", "onyx", "shortcuts", "widgets", "apps", "noise");
     /** Parts that start hidden, until switched on in the app: the noise machine (NoisePart). */
@@ -77,13 +79,19 @@ final class LockLayout {
         List<String> all = parts(screen);
         List<String> order = new ArrayList<>();
         JSONArray o = in.optJSONArray("order");
+        boolean split = !home;
         for (int i = 0; o != null && i < o.length(); i++) {
             String p = o.optString(i);
+            if (split && "onyx".equals(p)) { for (String q : ONYX) if (!order.contains(q)) order.add(q); continue; }
             if (all.contains(p) && !order.contains(p)) order.add(p);
         }
         JSONArray hidden = new JSONArray();
         JSONArray h = in.optJSONArray("hidden");
-        for (int i = 0; h != null && i < h.length(); i++) if (all.contains(h.optString(i))) hidden.put(h.optString(i));
+        for (int i = 0; h != null && i < h.length(); i++) {
+            String p = h.optString(i);
+            if (split && "onyx".equals(p)) { for (String q : ONYX) if (!has(hidden, q)) hidden.put(q); }
+            else if (all.contains(p) && !has(hidden, p)) hidden.put(p);
+        }
         // A part added in a later version goes last; one that is added by choice (ADDED) starts hidden there.
         for (String p : all) {
             if (order.contains(p)) continue;

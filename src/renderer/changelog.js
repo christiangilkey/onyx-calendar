@@ -2,8 +2,17 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
-  "version": "1.132.0",
+  "version": "1.133.0",
   "date": "2026-11-16",
+  "title": "The lock screen's calendar in four parts you move apart, and a Calendar button on the phone",
+  "items": [
+   "Lock screen: Now and next, Goals, Add a task and Today are now separate parts. Drag each one, or move it up or down, in Settings → Home & lock screen, and switch each on or off on its own. Your layout keeps its place: the four start where the calendar was, and stay hidden if it was hidden.",
+   "Phone: a Calendar button in the top bar takes you back to the calendar from the globe, a board or a drawer, and is lit while the calendar shows."
+  ]
+ },
+ {
+  "version": "1.132.0",
+  "date": "2026-11-15",
   "title": "My YouTube in the News panel: your playlists, and YouTube itself to browse",
   "items": [
    "The News panel has two views now: News, and My YouTube. My YouTube shows your YouTube playlists (and your liked videos). Pick one and it plays in the panel, one video after another, with its videos listed under the player.",

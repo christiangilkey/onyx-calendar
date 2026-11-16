@@ -9215,7 +9215,8 @@
     const box = h('div', { class: 'le', 'data-screen': screen }, h('div', { class: 'card' }, h('p', null, 'Checking…')));
     const PARTS = home
       ? { clock: 'Clock and date', onyx: 'Now and next', shortcuts: 'Shortcuts', widgets: 'Widgets', apps: 'Your apps', noise: 'Noise machine' }
-      : { clock: 'Clock and date', onyx: 'Now and next', shortcuts: 'Shortcuts', music: 'Now playing', notifications: 'Notifications', noise: 'Noise machine' };
+      // The lock screen's calendar cards, each a part of its own (OnyxPanel.PARTS); onyx is all four as one, from a phone app before 1.133.0.
+      : { clock: 'Clock and date', now: 'Now and next', goals: 'Goals', quick: 'Add a task', day: 'Today', onyx: 'Calendar', shortcuts: 'Shortcuts', music: 'Now playing', notifications: 'Notifications', noise: 'Noise machine' };
     const KINDS = { link: 'Link', app: 'App', file: 'File' };
     let setup = null, apps = null;
     // D.editing: the shortcut in the form (a copy), its place (-1: new) and its screen. It is kept outside this
@@ -9326,6 +9327,10 @@
           h('div', { class: 'lx-time', css: { 'font-size': `${CLOCK_SP[l.clockSize] || 76}px` } }, clock(t).replace(/\s?[AP]M$/i, '')),
           l.date && h('div', { class: 'lx-date' }, new Date(t).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }))),
         onyx: h('div', { class: 'lx-panel' }, nowNext, goals, quick, dayCard, foot),
+        now: h('div', { class: 'lx-panel' }, nowNext.cloneNode(true)),
+        goals: h('div', { class: 'lx-panel' }, goals ? goals.cloneNode(true) : h('div', { class: 'lx-ghost lx-note' }, txt('Your goals show here', 14, C.muted))),
+        quick: h('div', { class: 'lx-panel' }, quick && quick.cloneNode(true)),
+        day: h('div', { class: 'lx-panel' }, dayCard.cloneNode(true), foot.cloneNode(true)),
         shortcuts: h('div', { class: 'lx-shortcuts' }, shortcuts),
         music: h('div', { class: 'lx-music' }, h('div', { class: 'lx-ghost' }, h('span', { class: 'lx-art' }),
           h('div', null, txt('NOW PLAYING', 10.5, C.dim, 'lx-caps'), txt('Shows here while music plays', 15, C.text, 'lx-b')))),
@@ -12784,6 +12789,7 @@
     for (const b of document.querySelectorAll('[data-view]')) b.classList.remove('on');
     $('#globe-toggle').classList.add('on');
     $('#globe-toggle').title = 'Back to the calendar (G)';
+    paintCalHome();
     $('#fab').title = 'New: a task, a note, a goal or a pin';
     renderGraphBar();
     loadGraph();
@@ -12794,10 +12800,24 @@
     $('#graph').hidden = true;
     $('#globe-toggle').classList.remove('on');
     $('#globe-toggle').title = 'Globe view (G)';
+    paintCalHome();
     $('#fab').title = 'Add to your day';
     $('#range').textContent = calendar.view.title;
     for (const b of document.querySelectorAll('[data-view]')) b.classList.toggle('on', b.dataset.view === calendar.view.type);
     calendar.updateSize();
+  }
+
+  /** The Calendar button: back to the calendar from the globe, a board or a drawer. */
+  function showCalendar() {
+    closePopover();
+    closeDrawers();
+    if (board.on) closeBoards();
+    if (graph.on) closeGraph();
+    paintCalHome();
+  }
+  /** Lit while the calendar is what shows. */
+  function paintCalHome() {
+    $('#cal-home')?.classList.toggle('on', !graph.on && !board.on);
   }
 
   /** The globe button: flips between the globe and the calendar. */
@@ -12833,6 +12853,7 @@
     $('#board').hidden = false;
     $('#board-toggle').classList.add('on');
     $('#board-toggle').title = 'Back to the calendar (B)';
+    paintCalHome();
     $('#fab').title = 'Add a step';
     try { board.all = await onyx.boards(); } catch (err) { fail(err); }
     if (!board.on) return; // closed while they loaded
@@ -12849,6 +12870,7 @@
     $('#board').hidden = true;
     $('#board-toggle').classList.remove('on');
     $('#board-toggle').title = 'Boards (B)';
+    paintCalHome();
     $('#fab').title = 'Add to your day';
     $('#range').textContent = rangeTitle();
     calendar.updateSize();
@@ -14023,7 +14045,7 @@
     const bar = $('#titlebar');
     const strip = h('div', { id: 'top-tools', class: 'top-tools', role: 'toolbar', 'aria-label': 'Onyx' });
     $('.nav', bar).after(strip);
-    strip.append(...['pomo-timer', 'noise-btn', 'globe-toggle', 'board-toggle', 'undo-btn', 'update-btn', 'refresh', 'toggle-tasks', 'open-settings']
+    strip.append(...['pomo-timer', 'noise-btn', 'cal-home', 'globe-toggle', 'board-toggle', 'undo-btn', 'update-btn', 'refresh', 'toggle-tasks', 'open-settings']
       .map((id) => document.getElementById(id)).filter(Boolean));
     const edges = () => {
       const max = strip.scrollWidth - strip.clientWidth;
@@ -14065,6 +14087,9 @@
     $('#add-calendar').append(icon('plus'), onyx.isPhone ? 'Settings' : 'Add calendar');
     $('#globe-toggle').append(icon('globe'));
     $('#globe-toggle').onclick = toggleGlobe;
+    $('#cal-home').append(icon('calendar'));
+    $('#cal-home').setAttribute('aria-label', 'Calendar');
+    $('#cal-home').onclick = showCalendar;
     $('#board-toggle').append(icon('board'));
     $('#board-toggle').onclick = toggleBoards;
     $('#noise-btn').append(icon('waves'));

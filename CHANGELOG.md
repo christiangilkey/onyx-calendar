@@ -2,9 +2,16 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.132.0 · My YouTube in the News panel: your playlists, and YouTube itself to browse
+## 1.133.0 · The lock screen's calendar in four parts you move apart, and a Calendar button on the phone
 
 _2026-11-16_
+
+- Lock screen: Now and next, Goals, Add a task and Today are now separate parts. Drag each one, or move it up or down, in Settings → Home & lock screen, and switch each on or off on its own. Your layout keeps its place: the four start where the calendar was, and stay hidden if it was hidden.
+- Phone: a Calendar button in the top bar takes you back to the calendar from the globe, a board or a drawer, and is lit while the calendar shows.
+
+## 1.132.0 · My YouTube in the News panel: your playlists, and YouTube itself to browse
+
+_2026-11-15_
 
 - The News panel has two views now: News, and My YouTube. My YouTube shows your YouTube playlists (and your liked videos). Pick one and it plays in the panel, one video after another, with its videos listed under the player.
 - To see them, press Connect YouTube once on the PC. You sign in in your browser and allow YouTube (read only). It is added to a Google account you already have in Onyx, and your calendar stays connected as it is. The phone shows the same playlists, read through the PC.

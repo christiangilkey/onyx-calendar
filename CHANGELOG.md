@@ -2,9 +2,16 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.134.0 · Hey Claude talks with you, and adds a task only when you ask
+## 1.134.1 · Hey Claude never makes small talk a task, and speaks in English
 
 _2026-11-18_
+
+- Fixed: with Onyx on the PC older than 1.134, the phone took "Hey Claude, what's up" as a task. Now only a plain request ("remind me to…", "add…") becomes a task there, and anything else gets "update Onyx on your PC to talk with me".
+- Fixed: Hey Claude's answers could be read in another language's voice. They're now spoken in English, in the best English voice on the phone that works offline.
+
+## 1.134.0 · Hey Claude talks with you, and adds a task only when you ask
+
+_2026-11-17_
 
 - Hey Claude is now a voice assistant. Talk with it as you would with Siri: ask a question, ask what's on your day, ask for the news or the weather. It answers out loud, and doesn't turn everything you say into a task.
 - It adds a task only when you ask: "Hey Claude, remind me to call the dentist tomorrow at three". It tells you what it added, and Undo is on the notification. If it isn't sure you wanted a task, it asks.

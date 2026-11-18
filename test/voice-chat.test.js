@@ -129,7 +129,7 @@ test('the phone asks Claude, speaks the answer, and listens for a reply without 
   const data = java('WidgetData.java');
   assert.match(data, /rpc\(ctx, "voice:ask", new JSONArray\(\)\.put\(text\)\.put\(new JSONObject\(\)\.put\("convo", convo\)\.put\("claude", claude\)\), op\)/);
   assert.match(data, /READ_MS\.set\(45000\)/, 'waits long enough for Claude');
-  assert.match(data, /catch \(Unknown older\) \{\s*JSONObject r = voiceTask\(ctx, text, claude\);/, 'an older PC: a task, as before');
+  assert.match(data, /catch \(Unknown older\) \{[\s\S]{0,700}JSONObject r = voiceTask\(ctx, text, claude\);/, 'an older PC: a plain task, as before');
   assert.match(data, /if \(away && VoiceWake\.asksForTask\(text\)\)/, 'out of reach: only a plain task waits');
   const svc = java('VoiceService.java');
   assert.match(svc, /JSONObject r = WidgetData\.voiceAsk\(c, cmd, id, useClaude\);/);
@@ -143,4 +143,13 @@ test('the phone asks Claude, speaks the answer, and listens for a reply without 
   const app = read('src/renderer/app.js');
   assert.match(app, /field\('Speak answers', /);
   assert.match(app, /toggle\(v\.talk !== false, \(talk\) => set\(\{ talk \}\)\)/);
+});
+
+test('1.134.1: a PC too old to talk never makes a question a task, and answers are spoken in English', () => {
+  const data = java('WidgetData.java');
+  assert.match(data, /catch \(Unknown older\) \{[\s\S]{0,300}if \(!VoiceWake\.asksForTask\(text\)\) \{[\s\S]{0,200}out\.put\("state", "old"\)/);
+  const svc = java('VoiceService.java');
+  assert.match(svc, /english\(\);/);
+  assert.match(svc, /tts\.setLanguage\(want\)/);
+  assert.match(svc, /\("old"\.equals\(state\)\) \{\s*b\.setContentTitle\("Update Onyx on your PC"\)/);
 });

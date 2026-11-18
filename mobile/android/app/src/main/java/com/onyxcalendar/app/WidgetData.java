@@ -279,6 +279,14 @@ final class WidgetData {
             }
             return out;
         } catch (Unknown older) {
+            // An Onyx on the PC from before 1.134.0 can't talk: a plain task is still added, anything else
+            // is never made a task (1.134.1: "what's up" was added as one).
+            if (!VoiceWake.asksForTask(text)) {
+                try {
+                    out.put("state", "old").put("error", "Update Onyx on your PC").put("reply", "To talk with me, update Onyx on your PC to the newest version.");
+                } catch (Exception ignored) { /* plain answer */ }
+                return out;
+            }
             JSONObject r = voiceTask(ctx, text, claude);
             try { if ("added".equals(r.optString("state"))) r.put("reply", "Added " + r.optString("title", text) + "."); } catch (Exception ignored) { /* no reply */ }
             return r;

@@ -332,7 +332,7 @@ public class VoiceService extends Service {
                 // not kept
             }
             if (running) status = "listening";
-            boolean bad = "failed".equals(state) || "offline".equals(state);
+            boolean bad = "failed".equals(state) || "offline".equals(state) || "old".equals(state);
             String reply = r.optString("reply", "");
             boolean spoke = !reply.isEmpty() && speak(reply);
             if (!spoke) tone(bad ? ToneGenerator.TONE_PROP_NACK : ToneGenerator.TONE_PROP_ACK, 200);
@@ -349,6 +349,7 @@ public class VoiceService extends Service {
             if (!ttsReady || tts == null) return;
             tts.setAudioAttributes(new AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());
+            english();
             tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
                 @Override public void onStart(String u) { speaking = true; }
                 @Override public void onDone(String u) { spoken(); }
@@ -356,6 +357,31 @@ public class VoiceService extends Service {
                 @Override public void onStop(String u, boolean interrupted) { spoken(); }
             });
         });
+    }
+
+    /**
+     * The answers are in English (the speech model hears English), so they are spoken in English, whatever
+     * the engine's own default (1.134.1: it read them in another language's voice). The phone's own English
+     * when it is set to one, else US English; of those voices, the best one that works offline.
+     */
+    private void english() {
+        Locale want = "en".equals(Locale.getDefault().getLanguage()) ? Locale.getDefault() : Locale.US;
+        int r = tts.setLanguage(want);
+        if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) r = tts.setLanguage(Locale.US);
+        if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) tts.setLanguage(Locale.ENGLISH);
+        try {
+            android.speech.tts.Voice best = null;
+            for (android.speech.tts.Voice v : tts.getVoices()) {
+                if (!"en".equals(v.getLocale().getLanguage()) || v.isNetworkConnectionRequired()) continue;
+                if (v.getFeatures() != null && v.getFeatures().contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED)) continue;
+                boolean sameCountry = v.getLocale().getCountry().equals(want.getCountry());
+                boolean bestSame = best != null && best.getLocale().getCountry().equals(want.getCountry());
+                if (best == null || (sameCountry && !bestSame) || (sameCountry == bestSame && v.getQuality() > best.getQuality())) best = v;
+            }
+            if (best != null) tts.setVoice(best);
+        } catch (Exception ignored) {
+            // the language set above is enough
+        }
     }
 
     /** Says the answer out loud, when that is on and the phone can. False when it wasn't spoken. */
@@ -501,6 +527,8 @@ public class VoiceService extends Service {
                 b.addAction(new Notification.Action.Builder(null, "Undo",
                     PendingIntent.getService(this, 13, undo, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE)).build());
             }
+        } else if ("old".equals(state)) {
+            b.setContentTitle("Update Onyx on your PC").setContentText("Talking with Hey Claude needs Onyx 1.134 or newer on your PC. Nothing was added.");
         } else if ("offline".equals(state)) {
             b.setContentTitle("Can't reach your PC").setContentText("Hey Claude answers through Onyx on your PC. Try again when it's on.");
         } else if ("waiting".equals(state)) {

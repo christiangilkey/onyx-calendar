@@ -2,8 +2,17 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
-  "version": "1.134.0",
+  "version": "1.134.1",
   "date": "2026-11-18",
+  "title": "Hey Claude never makes small talk a task, and speaks in English",
+  "items": [
+   "Fixed: with Onyx on the PC older than 1.134, the phone took \"Hey Claude, what's up\" as a task. Now only a plain request (\"remind me to…\", \"add…\") becomes a task there, and anything else gets \"update Onyx on your PC to talk with me\".",
+   "Fixed: Hey Claude's answers could be read in another language's voice. They're now spoken in English, in the best English voice on the phone that works offline."
+  ]
+ },
+ {
+  "version": "1.134.0",
+  "date": "2026-11-17",
   "title": "Hey Claude talks with you, and adds a task only when you ask",
   "items": [
    "Hey Claude is now a voice assistant. Talk with it as you would with Siri: ask a question, ask what's on your day, ask for the news or the weather. It answers out loud, and doesn't turn everything you say into a task.",

@@ -2,8 +2,20 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
-  "version": "1.135.0",
+  "version": "1.136.0",
   "date": "2026-11-18",
+  "title": "Hemingway bridges on your tasks",
+  "items": [
+   "A task's window has a new Bridge row: the next small step to pick up with, so starting again is easy. Type your own, or tap Think of one and Claude writes one from the task, its notes and its checklist (Another gives a different one).",
+   "A task with a bridge shows it under its name in your task list.",
+   "Hyperfocus on that task starts from its bridge as the first step.",
+   "When a Hyperfocus session on a task ends, the Next step you write becomes that task's bridge.",
+   "Bridges are kept in Onyx and follow your linked desktops and your phone. A bridge goes away when its task is deleted, and you can clear one by emptying the box."
+  ]
+ },
+ {
+  "version": "1.135.0",
+  "date": "2026-11-17",
   "title": "The board's bar folds away on the phone, so you can read your board",
   "items": [
    "Phone: the bar over a board folds into one slim row, with the board's name, the hand, pencil and eraser, and a button to unfold it. Folded, the To do today and Next strips are hidden too, so the board fills the screen.",

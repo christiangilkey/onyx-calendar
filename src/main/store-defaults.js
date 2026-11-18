@@ -45,6 +45,7 @@ const DEFAULTS = {
   repeats: {},           // task id -> { rule, day } for tasks that repeat; Onyx adds the next one when it is done (repeat.js)
   repeatSpawned: {},
   pomodoro: {},          // event or task id -> { work, rest, minutes? }: split into work and rest chunks (hub.js)
+  bridges: {},           // task id -> { text, by: 'you' | 'claude', at }: its Hemingway bridge, where to pick up next time (hub.js, 1.136.0)
   blockLinks: {},        // event id (a repeat's: the series') -> [{ url, title, source, kind, icon }]: a website, Drive file or Notion page it is about (hub.js)
   blockTasks: {},        // event id (a repeat's: the series') -> [{ id, text }]: what to get done within the block (hub.js)
   awareEvents: {},       // event id (a repeat's: the series') -> true: just to keep in mind (no tick, never "next")

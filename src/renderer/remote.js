@@ -50,7 +50,7 @@
   const CACHE = 'onyx.cache.';
   const TIMEOUT_MS = 7000;
   // Commands that think or make a lot on the PC: Claude planning a day or a goal, a goal making its many tasks.
-  const SLOW_MS = { 'magic:plan': 180000, 'source:read': 130000, 'magic:replan': 60000, 'ai:breakdown': 45000, 'ai:breakdownPlan': 120000, 'goal:plan': 330000, 'goal:create': 300000, 'goal:update': 300000 };
+  const SLOW_MS = { 'magic:plan': 180000, 'source:read': 130000, 'magic:replan': 60000, 'ai:breakdown': 45000, 'ai:bridge': 45000, 'ai:breakdownPlan': 120000, 'goal:plan': 330000, 'goal:create': 300000, 'goal:update': 300000 };
   // Settings that belong to this phone rather than to the shared calendar.
   const PHONE_ONLY = ['view', 'tasksPanel', 'newsPanel', 'nextBar', 'popups', 'doneSound'];
 
@@ -842,6 +842,7 @@
     },
     syncDesktops: () => call('desktops:sync'),
     breakdown: (title, opts) => call('ai:breakdown', title, opts),
+    suggestBridge: (title, opts) => call('ai:bridge', title, opts),
     breakdownPlan: (o) => call('ai:breakdownPlan', o),
     logFocus: (session) => call('focus:log', session),
     focusSessions: (range) => call('focus:sessions', range),
@@ -996,6 +997,7 @@
     setPomodoro: (id, cfg) => call('pomodoro:set', id, cfg),
     setBlockTasks: (key, items) => call('blockTasks:set', key, items),
     setBlockLinks: (key, items) => call('blockLinks:set', key, items),
+    setBridge: (id, text, by) => call('bridge:set', id, text, by),
     tickBlockTask: (id, taskId, done) => call('blockTasks:tick', id, taskId, done),
     setEventColor: (key, color) => call('eventColor:set', key, color),
     setAware: (key, on) => call('aware:set', key, on),

@@ -2,9 +2,19 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.135.0 · The board's bar folds away on the phone, so you can read your board
+## 1.136.0 · Hemingway bridges on your tasks
 
 _2026-11-18_
+
+- A task's window has a new Bridge row: the next small step to pick up with, so starting again is easy. Type your own, or tap Think of one and Claude writes one from the task, its notes and its checklist (Another gives a different one).
+- A task with a bridge shows it under its name in your task list.
+- Hyperfocus on that task starts from its bridge as the first step.
+- When a Hyperfocus session on a task ends, the Next step you write becomes that task's bridge.
+- Bridges are kept in Onyx and follow your linked desktops and your phone. A bridge goes away when its task is deleted, and you can clear one by emptying the box.
+
+## 1.135.0 · The board's bar folds away on the phone, so you can read your board
+
+_2026-11-17_
 
 - Phone: the bar over a board folds into one slim row, with the board's name, the hand, pencil and eraser, and a button to unfold it. Folded, the To do today and Next strips are hidden too, so the board fills the screen.
 - Tap the arrow at the right of the row to get Add, Plan it, the route summary, Route and zoom back. Onyx remembers whether you left it folded. It starts folded.

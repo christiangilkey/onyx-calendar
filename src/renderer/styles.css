@@ -3395,6 +3395,15 @@ body.mobile #board-bar .grow { display: none; }
 body.mobile .wb-sum { order: 10; flex: 1 1 auto; min-width: 0; white-space: normal; }
 body.mobile .wb-route { order: 11; }
 body.mobile .wb-zoom { order: 12; }
+/* Hemingway bridges (app.js, bridgeField / bridgeLine, 1.136.0) */
+.bridge-row .bridge-box { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.bridge-row .bridge-in { width: 100%; flex: none; resize: none; min-height: 34px; font: inherit; line-height: 1.35; }
+.bridge-foot { display: flex; align-items: center; gap: 8px; }
+.bridge-foot small { flex: 1; min-width: 0; }
+.bridge-ai { flex: none; }
+.task-bridge { display: flex; align-items: flex-start; gap: 5px; margin-top: 3px; font-size: 12px; color: var(--accent); opacity: .9; }
+.task-bridge .ico { width: 13px; height: 13px; flex: none; margin-top: 1px; }
+.task-bridge span { min-width: 0; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 /* Folding the phone's board bar away (app.js, foldBoardBar): one slim row, the board gets the rest. */
 .wb-fold { width: 34px; height: 34px; flex: none; }
 .wb-fold .ico { transition: transform .15s; transform: rotate(180deg); }

@@ -6,6 +6,7 @@
   // ever written with text nodes (h() below), never as HTML.
 
   const ICONS = {
+    bridge: '<path d="M2 17h20"/><path d="M4 17v-2.5a8 6 0 0 1 16 0V17"/><path d="M8 17v-4.5M12 17v-5.5M16 17v-4.5"/>',
     pencil: '<path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/>',
     eraser: '<path d="M9 20h11"/><path d="M4.7 14.7l9-9a2 2 0 0 1 2.8 0l3 3a2 2 0 0 1 0 2.8L12.2 18.8H8.8l-4.1-4.1a.6.6 0 0 1 0-.9z"/><path d="M9.6 9.8l5 5"/>',
     hand: '<path d="M8 13V6.5a1.5 1.5 0 0 1 3 0V12"/><path d="M11 11.5V5a1.5 1.5 0 0 1 3 0v6.5"/><path d="M14 11.5V7a1.5 1.5 0 0 1 3 0v7a6 6 0 0 1-6 6h-.6a6 6 0 0 1-4.6-2.2L4 14.6a1.5 1.5 0 0 1 2.3-1.9L8 14.5"/>',
@@ -5027,8 +5028,49 @@
           h('span', null, t.listName),
           (t.tags || []).map((tag) => h('span', { class: 'mini-tag', css: { '--t': tagColor(tag) } }, `#${tag}`)),
           dateBubble(t), carryChips(t)),
+        bridgeLine(t),
         notePreview(notesOf(t))));
     return row;
+  }
+
+  // ---- Hemingway bridges (1.136.0): stop while you still know what comes next, and leave yourself that step
+
+  /** The bridge under a task's name in the list, when it has one. */
+  const bridgeLine = (t) => t.bridge?.text && h('div', { class: 'task-bridge', title: 'Your Hemingway bridge: where to pick up next time' },
+    icon('bridge'), h('span', null, t.bridge.text));
+
+  /**
+   * The Bridge row in a task's window: where to pick up next time, typed in, or thought of by Claude
+   * from the task, its notes and its checklist. `about()` gives { title, notes, steps } as they are now.
+   */
+  function bridgeField(t, about) {
+    const had = t.bridge?.text || '';
+    let by = t.bridge?.by || 'you';
+    const input = h('textarea', { class: 'bridge-in', rows: 1, maxlength: 300, spellcheck: true, value: had,
+      placeholder: 'Hemingway bridge: the next small step, so picking it up again is easy' });
+    const grow = () => { input.style.height = 'auto'; input.style.height = `${Math.min(input.scrollHeight, 120)}px`; };
+    input.addEventListener('input', () => { by = 'you'; grow(); });
+    setTimeout(grow, 0);
+    const think = S.ai?.ready && h('button', { type: 'button', class: 'btn bridge-ai', title: 'Claude thinks of a bridge from the task, its notes and its checklist',
+      onclick: async () => {
+        think.disabled = true;
+        think.replaceChildren(icon('sparkles'), 'Thinking…');
+        try {
+          input.value = await onyx.suggestBridge(about().title, { notes: about().notes, steps: about().steps });
+          by = 'claude';
+          grow();
+        } catch (err) {
+          fail(err);
+        } finally {
+          think.disabled = false;
+          think.replaceChildren(icon('sparkles'), 'Another');
+        }
+      } }, icon('sparkles'), had ? 'Another' : 'Think of one');
+    const el = h('div', { class: 'row top bridge-row' }, icon('bridge'),
+      h('div', { class: 'bridge-box' }, input, h('div', { class: 'bridge-foot' },
+        h('small', { class: 'pop-meta' }, S.ai?.ready ? 'Type your own, or let Claude think of one.' : 'Type the step you will start with next time.'),
+        think)));
+    return { el, value: () => input.value.trim(), by: () => by, changed: () => input.value.trim() !== had };
   }
 
   /** Moves a task to another day, keeping its time of day. */
@@ -5624,7 +5666,11 @@
       onTick: (taskId, done) => onyx.tickBlockTask(t.id, taskId, done).then(() => refetch()).catch((err) => fail(err)),
     });
     const linksField = blockish && blockLinkField(t.links || []);
+    const bridge = !t.mirror && t.provider && bridgeField(t, () => ({
+      title: name.value.trim() || t.label || t.title, notes: cleanNote(notes.value), steps: tasksField ? tasksField.get().items : t.taskList || [],
+    }));
     const save = () => run(async () => {
+      if (bridge && bridge.changed()) await onyx.setBridge(t.id, bridge.value(), bridge.by());
       if (tasksField) {
         const list = tasksField.get(), had = t.taskList || [];
         const shape = (items) => items.map((x) => `${x.id}\t${x.text}`).join('\n');
@@ -5709,6 +5755,7 @@
       t.series && !t.series.managed && h('div', { class: 'row series-stop-row' },
         h('button', { class: 'btn danger', title: 'End this repeat: every open copy deleted, and the ones Google Tasks still adds', onclick: () => stopSeries(t.series) }, icon('x'), 'Stop all')),
       h('div', { class: 'row top' }, icon('note'), notes),
+      bridge && bridge.el,
       tasksField && h('div', { class: 'row top btask-row' }, icon('tasks'), tasksField.el),
       linksField && h('div', { class: 'row top blink-row' }, icon('link'), linksField.el),
       h('div', { class: 'row' }, icon('tag'), tags.el),
@@ -6245,7 +6292,7 @@
 
     const goal = h('input', { type: 'text', class: 'fs-in big', value: entry.title, spellcheck: true, placeholder: 'What this session is for' });
     const first = h('input', { type: 'text', class: 'fs-in', spellcheck: true, placeholder: 'The smallest thing that starts it (open the file, write one line…)',
-      value: lastTime?.next || F.currentStep(steps)?.text || '' });
+      value: entry.task?.bridge?.text || lastTime?.next || F.currentStep(steps)?.text || '' });
     const ifThen = h('input', { type: 'text', class: 'fs-in', value: F.IF_THEN, spellcheck: true });
     // Typing straight into the blank: the ___ is picked when the box is clicked.
     ifThen.addEventListener('focus', () => { const i = ifThen.value.indexOf('___'); if (i >= 0) setTimeout(() => ifThen.setSelectionRange(i, i + 3), 0); });
@@ -7410,6 +7457,10 @@
     const where = String(note.where || '').trim(), next = String(note.next || '').trim();
     if (where || next) {
       try { await saveLeftOff(s.entry, { where, next }); } catch (err) { toast(`The note could not be saved: ${err.message}`, 'error'); }
+    }
+    // The next step is a Hemingway bridge: kept on the task, shown in the list and where the next session starts.
+    if (next && s.entry.kind === 'task' && onyx.setBridge) {
+      try { await onyx.setBridge(s.entry.id, next, 'you'); await loadTasks(true); } catch (err) { console.warn('onyx: the bridge was not kept:', err.message); }
     }
     logFocusSession(s, { where, next, rating: note.rating || null });
     windDown(where || next, { rating: note.rating || null, minutes: (s.endedAt - s.startedAt) / 60000 });

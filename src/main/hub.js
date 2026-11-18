@@ -206,6 +206,22 @@ function setBlockLinks(key, items) {
   return clean;
 }
 
+// ---- a task's Hemingway bridge (1.136.0): stop knowing what comes next, and leave yourself that step
+const MAX_BRIDGE = 300;
+/** The bridge of a task, or null for none. */
+const bridgeOf = (id) => (store.data.bridges?.[id]?.text ? { ...store.data.bridges[id] } : null);
+
+/** Sets (or, with no words, takes off) a task's bridge. `by` is who wrote it: 'you' or 'claude'. */
+function setBridge(id, text, by = 'you') {
+  if (!id) throw new Error('Nothing to put the bridge on.');
+  store.data.bridges ??= {};
+  const words = String(text || '').replace(/\s+/g, ' ').trim().slice(0, MAX_BRIDGE);
+  if (words) store.data.bridges[id] = { text: words, by: by === 'claude' ? 'claude' : 'you', at: new Date().toISOString() };
+  else delete store.data.bridges[id];
+  store.save();
+  return bridgeOf(id);
+}
+
 /** A block's tasks as the window and the calendar show them: [{ id, text, done }], or null for none. */
 function taskListOf(e) {
   const items = store.data.blockTasks[keyOf(e)];
@@ -745,7 +761,7 @@ async function getTasks({ force = false } = {}) {
   }
   series.annotate(tasks); // copies of a task that repeats in Google are marked as one series
   // Its checklist and links, as its block on the calendar has them (read fresh: they change without a refetch).
-  tasks = tasks.map((t) => ({ ...t, taskList: taskListOf(t), links: linksOf(t) }));
+  tasks = tasks.map((t) => ({ ...t, taskList: taskListOf(t), links: linksOf(t), bridge: bridgeOf(t.id) }));
   return { tasks, errors: [...errors], failed: [...failed], inbox: inbox.pendingIds(tasks) };
 }
 
@@ -1043,6 +1059,7 @@ async function deleteTask(id) {
   delete store.data.pomodoro[id];
   delete store.data.taskMinutes?.[id];
   delete store.data.leaveBy?.[id];
+  delete store.data.bridges?.[id];
   inbox.forget(id);
   for (const g of store.data.goals) for (const s of g.steps) if (s.taskId === id) s.taskId = null;
   store.save();
@@ -1394,7 +1411,7 @@ function removeLocalCalendar(id) {
 
 module.exports = {
   calendars, refreshCalendars, invalidate, getEvents, setBackburner, setEventDone, createEvent, updateEvent, deleteEvent, setLeaveBy, ackPiCall, piAlerts,
-  getTasks, archivedTasks, fetchTask, createTask, updateTask, moveTask, resizeTask, receiveTask, queueTask, planTask, unplanTask, dismissInbox, deleteTask, setRepeat, setPomodoro, setBlockTasks, setBlockLinks, tickBlockTask, setEventColor, setAware, setPiCall, freeTime, setTaskMinutes, addLocalCalendar, removeLocalCalendar,
+  getTasks, archivedTasks, fetchTask, createTask, updateTask, moveTask, resizeTask, receiveTask, queueTask, planTask, unplanTask, dismissInbox, deleteTask, setRepeat, setPomodoro, setBlockTasks, setBlockLinks, setBridge, bridgeOf, tickBlockTask, setEventColor, setAware, setPiCall, freeTime, setTaskMinutes, addLocalCalendar, removeLocalCalendar,
   setTags, allTags, setTagColor, renameTag, deleteTag, setMemo, MAX_NOTE, cleanTags, ensureColor,
   callNotes, piTaskList, // Hyperfocus gives the Pi its stop the same way (focus.js)
 };

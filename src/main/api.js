@@ -141,6 +141,7 @@ const handlers = {
   'pomodoro:set': (id, cfg) => hub.setPomodoro(id, cfg),
   'blockTasks:set': (key, items) => hub.setBlockTasks(key, items),
   'blockLinks:set': (key, items) => hub.setBlockLinks(key, items),
+  'bridge:set': (id, text, by) => hub.setBridge(id, text, by),
   'blockTasks:tick': (id, taskId, done) => hub.tickBlockTask(id, taskId, done),
   'eventColor:set': (key, color) => hub.setEventColor(key, color),
   'aware:set': (key, on) => hub.setAware(key, !!on),
@@ -230,6 +231,7 @@ const handlers = {
   'phone:setup': (req) => require('./phone-setup').request(req),
   // Breakdown (the hammer): a task split into steps, 1 (broad) to 5 (micro-steps).
   'ai:breakdown': (title, opts) => ai.breakdown(title, opts),
+  'ai:bridge': (title, opts) => ai.bridge(title, opts),
   // The same with lengths, laid out in the time it has (and a realistic timeline when that is too little).
   'ai:breakdownPlan': (o) => require('./breakdown-plan').planBreakdown(o),
   'ai:key': withState((key) => ai.setKey(key)),

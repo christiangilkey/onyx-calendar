@@ -66,4 +66,48 @@ async function breakdown(title, { level = 3, notes = '' } = {}) {
   return steps;
 }
 
-module.exports = { breakdown, setKey, info, parseSteps, LEVELS };
+// ---- a Hemingway bridge (1.136.0): stop while you still know what comes next, and write that down
+const BRIDGE_SYSTEM = [
+  'You help someone with ADHD use a Hemingway bridge: they stop work while they still know exactly what comes next,',
+  'and leave themselves that next move so starting again is easy.',
+  'Given a task (and maybe its notes, steps done and where they stopped), write the one next move to pick up with:',
+  'concrete, tiny and obvious, something they can start in under two minutes without deciding anything,',
+  'ideally finishing something half-done ("Finish the sentence that starts...", "Open the doc and fill in the third row").',
+  'One sentence, at most 140 characters, starting with a verb, in the same language as the task.',
+  'Reply with only that sentence, no quotes and nothing else.',
+].join(' ');
+
+/** One Hemingway bridge for `title`: the next tiny move to pick up with next time. Returns a string. */
+async function bridge(title, { notes = '', steps = [], where = '' } = {}) {
+  const task = String(title || '').trim();
+  if (!task) throw new Error('Give it a task to make a bridge for.');
+  const key = keyOf();
+  if (!key) throw new Error('Add your Claude API key in Settings → AI to have Claude think of a bridge.');
+  const done = (Array.isArray(steps) ? steps : []).slice(0, 20).map((s) => `${s.done ? '[x]' : '[ ]'} ${String(s.text || s).slice(0, 120)}`).join('\n');
+  const res = await fetch(API, {
+    method: 'POST',
+    signal: AbortSignal.timeout(30000),
+    headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({
+      model: MODEL, max_tokens: 300, system: BRIDGE_SYSTEM,
+      messages: [{ role: 'user', content: [
+        `Task: ${task.slice(0, 500)}`,
+        notes && `Notes: ${String(notes).slice(0, 1500)}`,
+        done && `Steps:\n${done}`,
+        where && `Where they stopped: ${String(where).slice(0, 500)}`,
+        'Write the bridge.',
+      ].filter(Boolean).join('\n') }],
+    }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    if (res.status === 401) throw new Error('Claude did not accept the API key. Check it in Settings → AI.');
+    throw new Error(body?.error?.message || `Claude answered ${res.status}`);
+  }
+  const text = (body.content || []).filter((c) => c.type === 'text').map((c) => c.text).join(' ')
+    .replace(/\s+/g, ' ').trim().replace(/^["“']+|["”']+$/g, '').slice(0, 300);
+  if (!text) throw new Error('Claude gave no bridge. Try again.');
+  return text;
+}
+
+module.exports = { breakdown, bridge, BRIDGE_SYSTEM, setKey, info, parseSteps, LEVELS };

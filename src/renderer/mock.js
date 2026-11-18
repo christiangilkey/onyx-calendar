@@ -882,6 +882,8 @@
       for (const s of plan.steps) s.sessions = P.timesIn(s.repeat, s.due, s.until || s.due);
       return { ...plan, summary: P.summary(plan.steps, { start: start > today ? start : today, end }), level };
     },
+    suggestBridge: async (title) => { await new Promise((r) => setTimeout(r, 400)); return `Open "${title}" and finish the half-written first line.`; },
+    setBridge: async (id, text, by = 'you') => { const t = tasks.find((x) => x.id === id); const words = String(text || '').trim(); if (t) t.bridge = words ? { text: words, by, at: new Date().toISOString() } : null; return t?.bridge || null; },
     breakdown: async (title, opts = {}) => {
       const all = ['Clear a space to work', 'Gather what you need', `Open what "${title}" needs`, 'Do the first small part', 'Take a short look at it', 'Do the next part', 'Check it over', 'Tidy up', 'Tick it off', 'Take a breath', 'Tell someone it is done', 'Plan what comes next'];
       return all.slice(0, [3, 4, 6, 9, 12][(opts.level || 3) - 1]);

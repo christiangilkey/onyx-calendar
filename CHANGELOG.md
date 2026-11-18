@@ -2,9 +2,17 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.134.1 · Hey Claude never makes small talk a task, and speaks in English
+## 1.135.0 · The board's bar folds away on the phone, so you can read your board
 
 _2026-11-18_
+
+- Phone: the bar over a board folds into one slim row, with the board's name, the hand, pencil and eraser, and a button to unfold it. Folded, the To do today and Next strips are hidden too, so the board fills the screen.
+- Tap the arrow at the right of the row to get Add, Plan it, the route summary, Route and zoom back. Onyx remembers whether you left it folded. It starts folded.
+- On the PC the board's bar is as it was.
+
+## 1.134.1 · Hey Claude never makes small talk a task, and speaks in English
+
+_2026-11-17_
 
 - Fixed: with Onyx on the PC older than 1.134, the phone took "Hey Claude, what's up" as a task. Now only a plain request ("remind me to…", "add…") becomes a task there, and anything else gets "update Onyx on your PC to talk with me".
 - Fixed: Hey Claude's answers could be read in another language's voice. They're now spoken in English, in the best English voice on the phone that works offline.

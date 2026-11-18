@@ -2,8 +2,18 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
-  "version": "1.134.1",
+  "version": "1.135.0",
   "date": "2026-11-18",
+  "title": "The board's bar folds away on the phone, so you can read your board",
+  "items": [
+   "Phone: the bar over a board folds into one slim row, with the board's name, the hand, pencil and eraser, and a button to unfold it. Folded, the To do today and Next strips are hidden too, so the board fills the screen.",
+   "Tap the arrow at the right of the row to get Add, Plan it, the route summary, Route and zoom back. Onyx remembers whether you left it folded. It starts folded.",
+   "On the PC the board's bar is as it was."
+  ]
+ },
+ {
+  "version": "1.134.1",
+  "date": "2026-11-17",
   "title": "Hey Claude never makes small talk a task, and speaks in English",
   "items": [
    "Fixed: with Onyx on the PC older than 1.134, the phone took \"Hey Claude, what's up\" as a task. Now only a plain request (\"remind me to…\", \"add…\") becomes a task there, and anything else gets \"update Onyx on your PC to talk with me\".",

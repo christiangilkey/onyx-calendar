@@ -3395,6 +3395,16 @@ body.mobile #board-bar .grow { display: none; }
 body.mobile .wb-sum { order: 10; flex: 1 1 auto; min-width: 0; white-space: normal; }
 body.mobile .wb-route { order: 11; }
 body.mobile .wb-zoom { order: 12; }
+/* Folding the phone's board bar away (app.js, foldBoardBar): one slim row, the board gets the rest. */
+.wb-fold { width: 34px; height: 34px; flex: none; }
+.wb-fold .ico { transition: transform .15s; transform: rotate(180deg); }
+.wb-fold.folded .ico { transform: none; }
+body.mobile .wb-fold { order: 2; }
+body.mobile.board-on.wb-folded #next-bar { display: none; }
+body.mobile.wb-folded #board-bar { flex-wrap: nowrap; padding: 4px 8px; }
+body.mobile.wb-folded #board-bar > :not(.wb-name):not(.wb-tools):not(.wb-fold) { display: none; }
+body.mobile.wb-folded .wb-name { height: 32px; min-width: 0; flex: 0 1 auto; }
+body.mobile.wb-folded .wb-fold { margin-left: auto; }
 /* On a board the + adds a step: the count of tasks waiting for Magic add is for the calendar. */
 body.board-on #fab .magic-count { display: none; }
 

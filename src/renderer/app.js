@@ -12856,6 +12856,7 @@
     board.tool = 'move';
     { const p = readLocal('onyx.boardPen', null); if (p && /^#[0-9a-f]{6}$/i.test(p.color || '')) board.pen = { color: p.color.toLowerCase(), size: Math.max(1, Math.min(24, +p.size || 3)) }; }
     document.body.classList.add('board-on');
+    document.body.classList.toggle('wb-folded', boardFolded());
     $('#board').hidden = false;
     $('#board-toggle').classList.add('on');
     $('#board-toggle').title = 'Back to the calendar (B)';
@@ -12872,7 +12873,7 @@
     board.on = false;
     hideCardPanel();
     paintMultiBar([]);
-    document.body.classList.remove('board-on');
+    document.body.classList.remove('board-on', 'wb-folded');
     $('#board').hidden = true;
     $('#board-toggle').classList.remove('on');
     $('#board-toggle').title = 'Boards (B)';
@@ -13181,6 +13182,18 @@
   // A card that has a length and can go to the calendar: a step, or an optional step (once it is to be run).
   const doableCard = (n) => n?.kind === 'step' || n?.kind === 'optional';
 
+  /**
+   * The phone's board bar folded away (1.135.0): only the board's name, the tools and a button to unfold it,
+   * one slim row, with the Now / Next strip hidden too, so the board has the screen. Folded unless unfolded
+   * before (kept on this phone).
+   */
+  const boardFolded = () => readLocal('onyx.boardFolded', true) !== false;
+  function foldBoardBar(v) {
+    writeLocal('onyx.boardFolded', !!v);
+    document.body.classList.toggle('wb-folded', !!v);
+    paintBoardBar(true);
+  }
+
   /** The bar over the board: which board, adding cards, the route, and Plan it. */
   function paintBoardBar(full) {
     const bar = $('#board-bar'), b = board.cur;
@@ -13212,7 +13225,10 @@
         h('button', { type: 'button', class: 'icon-btn', title: 'Zoom out', 'aria-label': 'Zoom out', onclick: () => board.view.zoom(1 / 1.25) }, '−'),
         h('button', { type: 'button', class: 'icon-btn', title: 'See all of it', 'aria-label': 'See all of it', onclick: () => board.view.fit() }, icon('target')),
         h('button', { type: 'button', class: 'icon-btn', title: 'Zoom in', 'aria-label': 'Zoom in', onclick: () => board.view.zoom(1.25) }, '+')),
-      h('button', { type: 'button', class: 'btn primary wb-plan', onclick: (e) => planBoard(e.currentTarget) }, icon('calendar'), 'Plan it'));
+      h('button', { type: 'button', class: 'btn primary wb-plan', onclick: (e) => planBoard(e.currentTarget) }, icon('calendar'), 'Plan it'),
+      h('button', { type: 'button', class: `icon-btn wb-fold mobile-only${boardFolded() ? ' folded' : ''}`,
+        title: boardFolded() ? 'Show the bar' : 'Hide the bar', 'aria-label': boardFolded() ? 'Show the bar' : 'Hide the bar', 'aria-expanded': String(!boardFolded()),
+        onclick: () => foldBoardBar(!boardFolded()) }, icon('down')));
   }
 
   /**

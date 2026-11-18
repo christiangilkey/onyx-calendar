@@ -122,6 +122,8 @@ const handlers = {
   'link:task': (link) => hub.receiveTask(link),
   // "Hey Claude" on the phone (VoiceService): what was said after it, made into a task in the inbox (voice-task.js).
   'voice:task': (text, o) => require('./voice-task').add(text, o),
+  // Talking with Hey Claude (1.134.0): Claude answers what was said, and adds a task only when asked (voice-chat.js).
+  'voice:ask': (text, o) => require('./voice-chat').ask(text, o),
   'tasks:archived': (from, to) => hub.archivedTasks(from, to),
   'task:delete': (id) => hub.deleteTask(id),
   'task:repeat': (id, rule) => hub.setRepeat(id, rule),

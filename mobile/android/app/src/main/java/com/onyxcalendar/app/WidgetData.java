@@ -71,11 +71,14 @@ final class WidgetData {
         return out;
     }
 
+    /** How long to wait for the PC's answer, on this thread: longer while Claude answers (voiceAsk). */
+    private static final ThreadLocal<Integer> READ_MS = ThreadLocal.withInitial(() -> 8000);
+
     private static String request(String address, String token, String method, String path, String body) throws Exception {
         HttpURLConnection c = (HttpURLConnection) new URL("http://" + address + path).openConnection();
         try {
             c.setConnectTimeout(4000);
-            c.setReadTimeout(8000);
+            c.setReadTimeout(READ_MS.get());
             c.setRequestMethod(method);
             c.setRequestProperty("Authorization", "Bearer " + token);
             if (body != null) {
@@ -240,6 +243,60 @@ final class WidgetData {
                     out.put("state", "waiting").put("title", text);
                 } else {
                     out.put("state", "failed").put("title", text).put("error", m.isEmpty() ? "The PC couldn't add it." : m);
+                }
+            } catch (Exception ignored) {
+                // plain answer
+            }
+            return out;
+        }
+    }
+
+    /**
+     * Talking with Hey Claude (1.134.0): what was said goes to Claude on the PC ('voice:ask'), which answers
+     * and adds a task only when asked. { state: answered | added | waiting | offline | failed, reply, and for a
+     * task taskId, title, date, time }. An older Onyx on the PC: a task, as before. Out of reach: what plainly
+     * asks for a task waits for the PC, as before; anything else gets "can't reach your PC".
+     */
+    static JSONObject voiceAsk(Context ctx, String text, String convo, boolean claude) {
+        String op = "ask-" + java.util.UUID.randomUUID();
+        JSONObject out = new JSONObject();
+        try {
+            if (quickWaiting(ctx) > 0) flushQuick(ctx);
+            READ_MS.set(45000); // Claude may look at the day or search the web first
+            Object v;
+            try {
+                v = rpc(ctx, "voice:ask", new JSONArray().put(text).put(new JSONObject().put("convo", convo).put("claude", claude)), op);
+            } finally {
+                READ_MS.remove();
+            }
+            JSONObject r = v instanceof JSONObject ? (JSONObject) v : new JSONObject();
+            out.put("state", "answered").put("reply", r.optString("reply", ""));
+            JSONArray tasks = r.optJSONArray("tasks");
+            if (tasks != null && tasks.length() > 0) {
+                JSONObject t = tasks.optJSONObject(tasks.length() - 1);
+                out.put("state", "added").put("count", tasks.length());
+                if (t != null) for (String k : new String[] { "taskId", "title", "date", "time" }) if (t.has(k) && !t.isNull(k)) out.put(k, t.opt(k));
+            }
+            return out;
+        } catch (Unknown older) {
+            JSONObject r = voiceTask(ctx, text, claude);
+            try { if ("added".equals(r.optString("state"))) r.put("reply", "Added " + r.optString("title", text) + "."); } catch (Exception ignored) { /* no reply */ }
+            return r;
+        } catch (Exception e) {
+            String m = e.getMessage() == null ? "" : e.getMessage();
+            boolean away = e instanceof IllegalStateException || m.startsWith("Can't reach") || m.startsWith("Not paired");
+            try {
+                if (away && VoiceWake.asksForTask(text)) {
+                    synchronized (WidgetData.class) {
+                        JSONArray q = new JSONArray(prefs(ctx).getString(QUICK, "[]"));
+                        q.put(new JSONObject().put("op", op).put("title", text).put("voice", true).put("claude", claude));
+                        prefs(ctx).edit().putString(QUICK, q.toString()).apply();
+                    }
+                    out.put("state", "waiting").put("title", text).put("reply", "I can't reach your PC, so I saved that. It goes into Onyx when your PC is back.");
+                } else if (away) {
+                    out.put("state", "offline").put("error", m).put("reply", "I can't reach your PC right now, so I can't answer. Try again when it's on.");
+                } else {
+                    out.put("state", "failed").put("error", m.isEmpty() ? "No answer came back." : m).put("reply", "Sorry, I couldn't get an answer just then.");
                 }
             } catch (Exception ignored) {
                 // plain answer

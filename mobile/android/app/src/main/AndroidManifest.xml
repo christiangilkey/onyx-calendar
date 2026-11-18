@@ -197,6 +197,10 @@
     <!-- Tamkeen, the Arabic study app: Onyx checks whether it is installed and opens news videos in it. -->
     <queries>
         <package android:name="io.github.christiangilkey.arabicpodcaststudio" />
+        <!-- Hey Claude speaks its answers with the phone's text to speech engine (VoiceService). -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
     </queries>
 
     <uses-permission android:name="android.permission.INTERNET" />

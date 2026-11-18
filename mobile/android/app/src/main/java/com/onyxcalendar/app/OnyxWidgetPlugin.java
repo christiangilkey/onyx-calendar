@@ -460,7 +460,7 @@ public class OnyxWidgetPlugin extends Plugin {
 
     /**
      * { on } turns listening on or off (asking for the microphone first), { download } fetches the speech model,
-     * { cancel } stops that, { remove } takes it off the phone; { phrase, claude, chime } change its settings;
+     * { cancel } stops that, { remove } takes it off the phone; { phrase, claude, chime, talk } change its settings;
      * { take } lists the tasks said aloud that wait, on a phone with no PC ({ items }), and { done: [op] } drops
      * the ones the app made. Each answers with how it is now (VoiceService.state).
      */
@@ -486,6 +486,7 @@ public class OnyxWidgetPlugin extends Plugin {
         if (call.hasOption("phrase")) VoiceService.setPhrase(c, call.getString("phrase", VoiceWake.DEFAULT));
         if (call.hasOption("claude")) VoiceService.setClaude(c, call.getBoolean("claude", true));
         if (call.hasOption("chime")) VoiceService.setChime(c, call.getBoolean("chime", true));
+        if (call.hasOption("talk")) VoiceService.setTalk(c, call.getBoolean("talk", true));
         if (call.getBoolean("download", false)) VoiceModel.download(c);
         if (call.getBoolean("cancel", false)) VoiceModel.cancel();
         if (call.getBoolean("remove", false)) {

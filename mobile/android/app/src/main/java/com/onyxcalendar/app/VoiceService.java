@@ -11,6 +11,8 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
 import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioRecord;
@@ -21,6 +23,8 @@ import android.os.IBinder;
 import android.os.PowerManager;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
+import android.speech.tts.TextToSpeech;
+import android.speech.tts.UtteranceProgressListener;
 
 import org.json.JSONObject;
 import org.vosk.LibVosk;
@@ -43,6 +47,11 @@ import java.util.Locale;
  *
  * Both ways of saying it work: "Hey Claude, buy milk tomorrow" in one breath, or "Hey Claude", a chime,
  * then the task. A second chime says it was added; the notification shows what, with Undo.
+ *
+ * Since 1.134.0 it is a conversation (WidgetData.voiceAsk): Claude, on the PC, answers what was said and
+ * adds a task only when asked. The answer is spoken (Android's own text to speech) and shown in the
+ * notification; then, for a few seconds, what is said next goes on with the conversation without the
+ * phrase. The microphone is not heard while the answer is spoken.
  */
 public class VoiceService extends Service {
     private static final String PREFS = "onyx_voice";
@@ -53,6 +62,8 @@ public class VoiceService extends Service {
     static final String UNDO = "com.onyxcalendar.app.voice.UNDO";
     private static final int RATE = 16000;
     private static final long WAIT_MS = 7000; // after the phrase alone: how long to wait for the task
+    private static final long FOLLOW_MS = 8000; // after an answer is spoken: how long to listen for a reply
+    private static final long CONVO_MS = 3 * 60 * 1000; // a conversation is a new one after this long quiet
 
     private static volatile VoiceService instance;
     private static volatile String status = "off"; // off | starting | listening | heard | sending | error
@@ -63,6 +74,15 @@ public class VoiceService extends Service {
     private Thread worker;
     private PowerManager.WakeLock wake;
     private ToneGenerator tones;
+    private TextToSpeech tts;
+    private volatile boolean ttsReady;
+    private volatile boolean speaking;   // the answer is being spoken: the microphone is not listened to
+    private volatile boolean resetRec;   // what was heard while it spoke is thrown away
+    private volatile long waitUntil;     // listening for what is said next, without the phrase, until then
+    private volatile boolean followUp;   // that wait is after an answer (no low chime if nothing is said)
+    private String convo;                // the conversation going on, for Claude to remember it
+    private long convoAt;
+    private Object focus;                // the audio focus held while speaking (music ducks)
 
     // ------------------------------------------------------------ settings (kept on the phone)
 
@@ -71,6 +91,7 @@ public class VoiceService extends Service {
     static String phrase(Context c) { return prefs(c).getString("phrase", VoiceWake.DEFAULT); }
     static boolean claude(Context c) { return prefs(c).getBoolean("claude", true); }
     static boolean chime(Context c) { return prefs(c).getBoolean("chime", true); }
+    static boolean talk(Context c) { return prefs(c).getBoolean("talk", true); }
 
     static void setPhrase(Context c, String p) {
         String clean = String.join(" ", VoiceWake.words(p));
@@ -79,6 +100,7 @@ public class VoiceService extends Service {
     }
     static void setClaude(Context c, boolean v) { prefs(c).edit().putBoolean("claude", v).apply(); }
     static void setChime(Context c, boolean v) { prefs(c).edit().putBoolean("chime", v).apply(); }
+    static void setTalk(Context c, boolean v) { prefs(c).edit().putBoolean("talk", v).apply(); }
 
     static boolean micAllowed(Context c) {
         return c.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
@@ -128,6 +150,7 @@ public class VoiceService extends Service {
             o.put("phrase", phrase(c));
             o.put("claude", claude(c));
             o.put("chime", chime(c));
+            o.put("talk", talk(c));
             o.put("mic", micAllowed(c));
             o.put("waiting", WidgetData.voiceWaiting(c));
             if (problem != null) o.put("problem", problem);
@@ -172,6 +195,7 @@ public class VoiceService extends Service {
             return START_NOT_STICKY;
         }
         instance = this;
+        startVoice();
         if (!running) {
             running = true;
             status = "starting";
@@ -188,6 +212,8 @@ public class VoiceService extends Service {
         if (!"error".equals(status)) status = "off";
         releaseWake();
         if (tones != null) { tones.release(); tones = null; }
+        if (tts != null) { tts.shutdown(); tts = null; ttsReady = false; }
+        dropFocus();
         super.onDestroy();
     }
 
@@ -226,15 +252,18 @@ public class VoiceService extends Service {
             status = "listening";
             short[] buf = new short[RATE / 10]; // a tenth of a second at a time
             boolean heard = false;  // the phrase is in what is being said now (chimed already)
-            long waitUntil = 0;     // the phrase was said alone: the task is the next thing said, until then
+            waitUntil = 0;          // the phrase said alone, or an answer spoken: the next thing said, until then
             while (running) {
                 int n = mic.read(buf, 0, buf.length);
                 if (n <= 0) { Thread.sleep(50); continue; }
+                if (speaking) continue; // its own voice: not heard
+                if (resetRec) { resetRec = false; rec.reset(); heard = false; }
                 long now = System.currentTimeMillis();
                 if (waitUntil > 0 && now > waitUntil) { // nothing said after it
                     waitUntil = 0;
                     status = "listening";
-                    tone(ToneGenerator.TONE_PROP_NACK, 120);
+                    if (!followUp) tone(ToneGenerator.TONE_PROP_NACK, 120);
+                    followUp = false;
                 }
                 if (rec.acceptWaveForm(buf, n)) {
                     String text = new JSONObject(rec.getResult()).optString("text", "").trim();
@@ -245,13 +274,16 @@ public class VoiceService extends Service {
                     if (cmd.isEmpty()) { // the phrase alone: chime (if not yet) and wait for the task
                         if (!heard) tone(ToneGenerator.TONE_PROP_BEEP, 150);
                         heard = false;
+                        followUp = false;
                         waitUntil = now + WAIT_MS;
                         status = "heard";
                         continue;
                     }
                     heard = false;
                     waitUntil = 0;
-                    if (VoiceWake.cancels(cmd)) { status = "listening"; tone(ToneGenerator.TONE_PROP_NACK, 120); continue; }
+                    boolean wasFollow = followUp;
+                    followUp = false;
+                    if (VoiceWake.cancels(cmd)) { status = "listening"; if (!wasFollow) tone(ToneGenerator.TONE_PROP_NACK, 120); continue; }
                     deliver(cmd);
                 } else if (!heard && waitUntil == 0) {
                     String partial = new JSONObject(rec.getPartialResult()).optString("partial", "");
@@ -279,13 +311,18 @@ public class VoiceService extends Service {
         }
     }
 
-    /** Sends a task (in the background, so listening goes on) and says how it went. */
+    /** Sends what was said to Claude (in the background, so listening goes on), then speaks the answer. */
     private void deliver(String cmd) {
         status = "sending";
         final Context c = getApplicationContext();
         final boolean useClaude = claude(c);
+        long t = System.currentTimeMillis();
+        if (convo == null || t - convoAt > CONVO_MS) convo = java.util.UUID.randomUUID().toString();
+        convoAt = t;
+        final String id = convo;
         new Thread(() -> {
-            JSONObject r = WidgetData.voiceTask(c, cmd, useClaude);
+            JSONObject r = WidgetData.voiceAsk(c, cmd, id, useClaude);
+            convoAt = System.currentTimeMillis();
             String state = r.optString("state", "failed");
             try {
                 r.put("said", cmd);
@@ -295,9 +332,70 @@ public class VoiceService extends Service {
                 // not kept
             }
             if (running) status = "listening";
-            tone("failed".equals(state) ? ToneGenerator.TONE_PROP_NACK : ToneGenerator.TONE_PROP_ACK, 200);
+            boolean bad = "failed".equals(state) || "offline".equals(state);
+            String reply = r.optString("reply", "");
+            boolean spoke = !reply.isEmpty() && speak(reply);
+            if (!spoke) tone(bad ? ToneGenerator.TONE_PROP_NACK : ToneGenerator.TONE_PROP_ACK, 200);
             showAdded(r);
         }, "onyx-voice-send").start();
+    }
+
+    // ------------------------------------------------------------ speaking the answer
+
+    private void startVoice() {
+        if (tts != null) return;
+        tts = new TextToSpeech(getApplicationContext(), (st) -> {
+            ttsReady = st == TextToSpeech.SUCCESS;
+            if (!ttsReady || tts == null) return;
+            tts.setAudioAttributes(new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());
+            tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
+                @Override public void onStart(String u) { speaking = true; }
+                @Override public void onDone(String u) { spoken(); }
+                @Override public void onError(String u) { spoken(); }
+                @Override public void onStop(String u, boolean interrupted) { spoken(); }
+            });
+        });
+    }
+
+    /** Says the answer out loud, when that is on and the phone can. False when it wasn't spoken. */
+    private boolean speak(String text) {
+        if (!talk(this) || !ttsReady || tts == null || !running) return false;
+        holdFocus();
+        speaking = true;
+        resetRec = true;
+        int r = tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "onyx-answer-" + System.currentTimeMillis());
+        if (r != TextToSpeech.SUCCESS) { spoken(); return false; }
+        return true;
+    }
+
+    /** Done speaking: listen for a reply, without the phrase, for a few seconds. */
+    private void spoken() {
+        if (!speaking) return;
+        speaking = false;
+        resetRec = true;
+        dropFocus();
+        if (!running) return;
+        followUp = true;
+        waitUntil = System.currentTimeMillis() + FOLLOW_MS;
+        status = "heard";
+        tone(ToneGenerator.TONE_PROP_BEEP, 80);
+    }
+
+    private void holdFocus() {
+        AudioManager am = getSystemService(AudioManager.class);
+        if (am == null || Build.VERSION.SDK_INT < 26) return;
+        AudioFocusRequest req = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+            .setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+            .build();
+        am.requestAudioFocus(req);
+        focus = req;
+    }
+
+    private void dropFocus() {
+        AudioManager am = getSystemService(AudioManager.class);
+        if (am != null && focus != null && Build.VERSION.SDK_INT >= 26) am.abandonAudioFocusRequest((AudioFocusRequest) focus);
+        focus = null;
     }
 
     private void undo(String id, String title) {
@@ -365,7 +463,7 @@ public class VoiceService extends Service {
         int im = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
         Notification n = builder(CH_LISTEN)
             .setContentTitle("Listening for “" + cap(phrase(this)) + "”")
-            .setContentText("Say it, then a task for Onyx. Heard on this phone only.")
+            .setContentText("Say it, then talk, or ask for a task. Heard on this phone only.")
             .setOngoing(true)
             .setShowWhen(false)
             .addAction(new Notification.Action.Builder(null, "Turn off",
@@ -388,22 +486,29 @@ public class VoiceService extends Service {
         if (nm == null) return;
         String state = r.optString("state", "failed");
         String title = r.optString("title", r.optString("said", ""));
+        String reply = r.optString("reply", "");
         Notification.Builder b = builder(CH_ADDED).setAutoCancel(true).setShowWhen(false);
-        if ("added".equals(state)) {
+        if ("answered".equals(state)) {
+            b.setContentTitle("Claude").setContentText(reply).setStyle(new Notification.BigTextStyle().bigText(reply));
+        } else if ("added".equals(state)) {
             String when = whenText(r.optString("date", ""), r.optString("time", ""));
-            b.setContentTitle("Added to Onyx").setContentText(title + (when.isEmpty() ? "" : " · " + when));
+            String line = title + (when.isEmpty() ? "" : " · " + when);
+            b.setContentTitle("Added to Onyx").setContentText(line);
+            if (!reply.isEmpty()) b.setStyle(new Notification.BigTextStyle().bigText(line + "\n" + reply));
             String id = r.optString("taskId", "");
             if (!id.isEmpty()) {
                 Intent undo = new Intent(this, VoiceService.class).setAction(UNDO).putExtra("task", id).putExtra("title", title);
                 b.addAction(new Notification.Action.Builder(null, "Undo",
                     PendingIntent.getService(this, 13, undo, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE)).build());
             }
+        } else if ("offline".equals(state)) {
+            b.setContentTitle("Can't reach your PC").setContentText("Hey Claude answers through Onyx on your PC. Try again when it's on.");
         } else if ("waiting".equals(state)) {
             b.setContentTitle("Saved for Onyx").setContentText(title + " · goes to your PC when it's in reach");
         } else {
             b.setContentTitle("Couldn't add that").setContentText(r.optString("error", "Try again, or add it in Onyx."));
         }
-        if (Build.VERSION.SDK_INT >= 26) b.setTimeoutAfter("added".equals(state) ? 12000 : 20000);
+        if (Build.VERSION.SDK_INT >= 26) b.setTimeoutAfter("added".equals(state) ? 12000 : "answered".equals(state) ? 60000 : 20000);
         nm.notify(NOTE_ADDED, b.build());
     }
 

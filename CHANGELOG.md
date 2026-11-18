@@ -2,7 +2,18 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.133.0 · The lock screen's calendar in four parts you move apart, and a Calendar button on the phone
+## 1.134.0 · Hey Claude talks with you, and adds a task only when you ask
+
+_2026-11-18_
+
+- Hey Claude is now a voice assistant. Talk with it as you would with Siri: ask a question, ask what's on your day, ask for the news or the weather. It answers out loud, and doesn't turn everything you say into a task.
+- It adds a task only when you ask: "Hey Claude, remind me to call the dentist tomorrow at three". It tells you what it added, and Undo is on the notification. If it isn't sure you wanted a task, it asks.
+- After it answers, just reply. It listens a few more seconds, with no need to say "Hey Claude" again, and remembers what you said until the conversation has been quiet for a few minutes. It doesn't hear itself while it speaks, and music dips under its voice.
+- It can look at your calendar ("what have I got on Friday?") and search the web for things that change.
+- New switch, in Settings → Hey Claude: Speak answers. Turn it off to get the answers only as a notification.
+- Talking needs your Claude key (Keys & accounts on your PC), and "Talk with Claude" turned on. Without the key it still adds tasks, as before. With your PC out of reach, a plain task waits on the phone as before, and other questions get "I can't reach your PC".
+
+## 1.133.0 · The lock screen's calendar in four parts you move apart, and a Calendar button on the phone - Lock screen: Now and next, Goals, Add a task and Today are now separate parts. Drag each one, or move it up or down, in Settings → Home & lock screen, and switch each on or off on its own. Your layout keeps its place: the four start where the calendar was, and stay hidden if it was hidden. - Phone: a Calendar button in the top bar takes you back to the calendar from the globe, a board or a drawer, and is lit while the calendar shows.
 
 _2026-11-16_
 

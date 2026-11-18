@@ -10592,7 +10592,8 @@
     },
 
     // "Hey Claude" (the Android app only: VoiceService, VoiceModel): the phone listens for the phrase, offline, and
-    // what is said after it goes to the inbox as a task (voice-task.js reads the day and time out of it).
+    // what is said after it goes to Claude on the PC, who answers out loud and adds a task only when asked
+    // (voice-chat.js, 1.134.0).
     voice() {
       const box = h('div', { class: 'vc' }, h('div', { class: 'card' }, h('p', null, 'Checking…')));
       let timer = 0;
@@ -10600,7 +10601,7 @@
       const words = (p) => String(p || 'hey claude').replace(/\b\w/g, (c) => c.toUpperCase());
       const set = (o) => onyx.voice.set(o).then(draw).catch((err) => fail(err));
       const look = () => { if (box.isConnected) onyx.voice.state().then(draw).catch(() => {}); };
-      const STATUS = { listening: 'Listening now', heard: 'Heard you: say the task', sending: 'Adding a task…', starting: 'Starting…' };
+      const STATUS = { listening: 'Listening now', heard: 'Listening: go ahead', sending: 'Asking Claude…', starting: 'Starting…' };
       const draw = (v) => {
         clearTimeout(timer);
         if (!v?.available) { box.replaceChildren(h('div', { class: 'card' }, h('p', null, 'Update the Onyx app to use this.'))); return; }
@@ -10638,33 +10639,38 @@
           field('Wake phrase', 'What you say first. Two or three words that don\'t come up in talk work best.',
             h('input', { type: 'text', value: phrase, maxLength: 40, spellcheck: false, 'aria-label': 'Wake phrase', class: 'vc-phrase',
               onchange: (e) => set({ phrase: e.target.value.trim() || 'hey claude' }) })),
-          field('Claude reads it', S.ai?.ready
-            ? 'Claude, with your key, understands the day, the time and a misheard word. Off: Onyx reads them itself. Only the task is sent, never sound.'
-            : 'With a Claude key (Keys & accounts), Claude understands the day, the time and a misheard word. Without one, Onyx reads them itself.',
+          field('Talk with Claude', S.ai?.ready
+            ? 'Claude, with your key, answers what you say: questions, your day, the news. It adds a task only when you ask. Off: only tasks, read by Onyx. Only your words are sent, never sound.'
+            : 'With a Claude key (Keys & accounts on your PC), Claude answers what you say and adds a task only when you ask. Without one, Hey Claude only adds tasks.',
           toggle(v.claude !== false, (claude) => set({ claude }))),
+          field('Speak answers', 'Claude\'s answer is read out loud, then Onyx listens a few seconds for your reply, no wake phrase needed. Off: the answer shows in the notification only.',
+            toggle(v.talk !== false, (talk) => set({ talk }))),
           field('Chimes', 'One when it hears the phrase, one when the task is added (a low one if it couldn\'t be).', toggle(v.chime !== false, (chime) => set({ chime }))));
         const last = v.last && h('div', { class: 'card vc-last' },
           h('h4', null, 'Last heard'),
           h('p', { class: 'vc-said' }, `“${v.last.said || ''}”`),
           h('p', { class: `vc-made ${v.last.state || ''}` },
-            v.last.state === 'added' ? `Added: ${v.last.title}${v.last.date ? ` · ${v.last.date === ymd(new Date()) ? 'today' : v.last.date === ymd(addDays(new Date(), 1)) ? 'tomorrow' : fmtDay(fromYmd(v.last.date))}` : ''}${v.last.time ? ` ${fmtTime(at(v.last.date || ymd(new Date()), v.last.time))}` : ''}`
+            v.last.state === 'answered' ? `Claude: ${v.last.reply || ''}`
+              : v.last.state === 'offline' ? 'Your PC was out of reach'
+              : v.last.state === 'added' ? `Added: ${v.last.title}${v.last.date ? ` · ${v.last.date === ymd(new Date()) ? 'today' : v.last.date === ymd(addDays(new Date(), 1)) ? 'tomorrow' : fmtDay(fromYmd(v.last.date))}` : ''}${v.last.time ? ` ${fmtTime(at(v.last.date || ymd(new Date()), v.last.time))}` : ''}`
               : v.last.state === 'waiting' ? 'Saved on the phone: it goes to your PC when it\'s in reach'
               : `Not added: ${v.last.error || 'something went wrong'}`),
           v.waiting > 0 && h('small', null, `${v.waiting} said aloud ${v.waiting === 1 ? 'waits' : 'wait'} for your PC.`));
         const tips = h('div', { class: 'card vc-tips' },
           h('h4', null, 'How to say it'),
           h('ul', null,
-            h('li', null, h('b', null, `“${phrase}, buy milk.”`), h('small', null, 'In one go. A chime, then another once it\'s in your inbox.')),
-            h('li', null, h('b', null, `“${phrase}, call the dentist tomorrow at three.”`), h('small', null, 'The day and time are read out of it, for Adaptive Add to plan.')),
-            h('li', null, h('b', null, `“${phrase}” … chime … “finish the report Friday, for two hours.”`), h('small', null, 'Or wait for the chime. Say "cancel" to stop.'))),
-          h('small', null, 'Each lands in your inbox, from Hey Claude. Undo is on the notification.'));
+            h('li', null, h('b', null, `“${phrase}, what's on tomorrow?”`), h('small', null, 'Claude looks at your calendar and tells you.')),
+            h('li', null, h('b', null, `“${phrase}, how long do I boil an egg?”`), h('small', null, 'Ask anything, like any voice assistant. It searches the web for the news, weather and scores.')),
+            h('li', null, h('b', null, `“${phrase}, remind me to call the dentist tomorrow at three.”`), h('small', null, 'Ask for a task and it goes into your inbox, with the day and time.')),
+            h('li', null, h('b', null, `“${phrase}” … chime … talk.`), h('small', null, 'After it answers, just reply: it listens a few seconds more. Say "cancel" to stop.'))),
+          h('small', null, 'Tasks land in your inbox, from Hey Claude. Undo is on the notification.'));
         const privacy = h('div', { class: 'privacy-card' },
           h('div', { class: 'pc-main' }, h('div', { class: 'pc-text' },
             h('div', { class: 'pc-badge' }, icon('shield'), 'Heard on this phone'),
             h('b', { class: 'pc-title' }, 'Only the task leaves the phone'),
             h('ul', { class: 'pc-points' }, [
               ['Listening is offline', 'The phone listens for the phrase with its own speech model. No sound is sent, kept or recorded.'],
-              ['Only the words after it are sent', `To your PC, which makes the task${v.claude !== false ? ', and to Claude with your key to read it' : ''}.`],
+              ['Only the words after it are sent', `To your PC${v.claude !== false ? ', and to Claude with your key, to answer them' : ', which makes the task'}. Claude forgets the conversation after a few quiet minutes.`],
               ['You can always see it', 'While it listens, Android shows the microphone dot and Onyx\'s notification, with Turn off. It uses some battery.'],
             ].map(([t, d]) => h('li', null, icon('check'), h('span', null, h('b', null, t), h('small', null, d))))))));
         box.replaceChildren(...[model, main, last, tips, privacy,
@@ -11138,7 +11144,7 @@
       items: ['Doomscroll saver', 'Show it after', 'Accessibility access', 'See the card', 'Apps it watches', 'Daily limits', 'Add your own', 'Blocker', 'On this PC', 'On this phone', 'Websites on this PC', 'Make your first list', 'Websites', 'Quick add', 'Apps on the phone', 'Apps on the PC', "When it's on", 'Also during Hyperfocus'],
       words: 'social media instagram tiktok youtube minutes apps choose pick add games which apps daily limit limits time limit maximum max screen time your own website websites site sites app '
         + 'block blocker blocked block list web apps focus distraction distractions schedule scheduled lock out keep closed timer until switch off proxy work hours wind down' },
-    voice: { name: 'Hey Claude', icon: 'mic', c: '#e08a5f', items: ['Listen for “Hey Claude”', 'Speech model', 'Wake phrase', 'Claude reads it', 'Chimes', 'How to say it'], words: 'voice speak talk say dictate microphone mic wake word phrase assistant hands free add a task by voice claude listening' },
+    voice: { name: 'Hey Claude', icon: 'mic', c: '#e08a5f', items: ['Listen for “Hey Claude”', 'Speech model', 'Wake phrase', 'Talk with Claude', 'Speak answers', 'Chimes', 'How to say it'], words: 'voice speak talk say dictate microphone mic wake word phrase assistant hands free add a task by voice claude listening siri chat conversation ask questions answer out loud' },
     general: { name: 'General', icon: 'sliders', c: '#b9b9c2', items: ['New blocks go to', 'Updates', 'Now / Next bar', 'Popups', 'Tick-off sound', '24-hour time', 'Week starts on', 'Keep running when closed', 'Start with Windows'], words: 'default calendar chime clock tray' },
     changelog: { name: 'Changelog', icon: 'note', c: '#5fd38d', items: [], words: 'versions changes new what\'s new' },
     calendars: { name: 'Calendars', icon: 'calendar', c: '#4aa8ff', items: ['Connected', 'Google Calendar and Tasks', 'Outlook (Microsoft account)', 'Calendar link (read-only)', 'Excel sheet (live)', 'On this PC'], words: 'sign in accounts ics feed local excel spreadsheet google sheets onedrive xlsx csv rows' },
@@ -11174,7 +11180,7 @@
       case 'pi': return { alarm: 'Alarm on this phone', ntfy: 'Push notifications', twilio: 'Phone calls', pi: 'Raspberry Pi calls' }[method] || 'How Onyx reaches you';
       case 'general': return `${S.settings.hour12 ? '12' : '24'}-hour time · week starts ${['Sunday', 'Monday', '', '', '', '', 'Saturday'][S.settings.weekStart] || 'Sunday'}`;
       case 'changelog': return window.OnyxChangelog?.[0] ? `Newest: ${window.OnyxChangelog[0].version}` : 'What came with each version';
-      default: return settingsSums[id] || { launcher: 'Onyx on your lock and home screens', doomscroll: onyx.launcher ? 'Nudges, daily limits and the blocker' : 'Block apps and sites', voice: 'Add tasks by saying them' }[id] || '';
+      default: return settingsSums[id] || { launcher: 'Onyx on your lock and home screens', doomscroll: onyx.launcher ? 'Nudges, daily limits and the blocker' : 'Block apps and sites', voice: 'Talk with Claude, hands free' }[id] || '';
     }
   }
   /** Asks the phone how its own sections are set, and writes it into the list. */
@@ -11212,7 +11218,7 @@
     onyx.voice?.state().then((v) => {
       if (!v?.available) return;
       const phrase = String(v.phrase || 'hey claude').replace(/\b\w/g, (c) => c.toUpperCase());
-      put('voice', !v.on ? (v.model === 'ready' ? 'Off' : 'Add tasks by saying them') : v.listening ? `Listening for “${phrase}”` : 'On · starts when you open Onyx');
+      put('voice', !v.on ? (v.model === 'ready' ? 'Off' : 'Talk with Claude, hands free') : v.listening ? `Listening for “${phrase}”` : 'On · starts when you open Onyx');
     }).catch(() => {});
   }
 

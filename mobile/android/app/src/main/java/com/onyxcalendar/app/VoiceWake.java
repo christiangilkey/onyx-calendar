@@ -74,6 +74,17 @@ final class VoiceWake {
         return command(words(text));
     }
 
+    // Plainly asking for a task, at the start (past "um", "please", "can you"): for when the PC is out of reach.
+    private static final java.util.regex.Pattern TASKY = java.util.regex.Pattern.compile(
+        "^(?:(?:okay|ok|so|um|uh|please|can you|could you|would you|will you)\\s+)*"
+        + "(?:remind me|add|create|make a (?:task|reminder|note)|put|schedule|set (?:a|an) (?:reminder|alarm)|new task|"
+        + "i need to|i have to|i must|i should|i gotta|don'?t forget|do not forget|remember to|note to self)\\b");
+
+    /** "Remind me to…", "add…", "I need to…": a task, not a question. */
+    static boolean asksForTask(String said) {
+        return said != null && TASKY.matcher(String.join(" ", words(said))).find();
+    }
+
     /** "Cancel", "never mind": nothing to add after all. */
     static boolean cancels(String command) {
         return command != null && CANCEL.contains(command.trim().toLowerCase(Locale.ROOT));

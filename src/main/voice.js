@@ -195,4 +195,4 @@ function parseSpoken(text, now = new Date()) {
   return { title, date: date ? ymd(date) : null, time, minutes };
 }
 
-module.exports = { parseSpoken, normal, num, ord };
+module.exports = { parseSpoken, normal, num, ord, LEAD };

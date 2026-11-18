@@ -121,7 +121,7 @@ test('the phone: offline listening in a microphone service, its model fetched on
   const svc = java('VoiceService.java');
   assert.match(svc, /new AudioRecord\(MediaRecorder\.AudioSource\.VOICE_RECOGNITION, RATE/);
   assert.match(svc, /startForeground\(NOTE_LISTEN, n, ServiceInfo\.FOREGROUND_SERVICE_TYPE_MICROPHONE\)/);
-  assert.match(svc, /JSONObject r = WidgetData\.voiceTask\(c, cmd, useClaude\);/);
+  assert.match(svc, /JSONObject r = WidgetData\.voiceAsk\(c, cmd, id, useClaude\);/, '1.134.0: a conversation, which adds a task when asked');
   assert.doesNotMatch(svc, /HttpURLConnection|new URL\(/, 'the service sends no sound anywhere');
   // The buttons on its notification don't start the microphone; a start to listen shows the notification first.
   assert.ok(svc.indexOf('if (TURN_OFF.equals(action))') < svc.indexOf('if (!showListening())'));

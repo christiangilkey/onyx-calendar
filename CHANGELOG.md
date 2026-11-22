@@ -2,9 +2,18 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.137.0 · The bridge screen, where you left off over the whole screen
+## 1.138.0 · Sign in again from the top of Settings, and the bridge screen covers every screen
 
 _2026-11-22_
+
+- An expired Google or Outlook sign-in now shows a "Sign in again" card at the very top of Settings, on the PC and the phone. On the PC it has the button that signs you in; the phone says where to do it on the PC.
+- The "sign-in expired" error now has a Sign in button that opens it.
+- On the phone, Sync & accounts is the first group in Settings.
+- The Hemingway bridge screen now covers every screen of your PC, not just the one Onyx is on. "I'm back" on any of them ends it everywhere.
+
+## 1.137.0 · The bridge screen, where you left off over the whole screen
+
+_2026-11-21_
 
 - A new bridge button in the top bar (on the phone, in the strip of buttons) opens "Leave a bridge". Write what is half done and exactly what to do next, pick the task it is about if you like, and press Cover my screen. With a task picked and your Claude key set, Think of one writes it for you.
 - The message then fills the whole screen in large type, with the task and when you left. On the PC, Onyx comes to the front and goes full screen.

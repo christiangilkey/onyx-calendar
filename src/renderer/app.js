@@ -1589,10 +1589,36 @@
   }
 
   let lastProblems = '';
+  // Accounts whose sign-in has expired (accounts.js: "<label>: the sign-in expired…"), told by the PC with
+  // the events. They get a card at the top of Settings (signInCard), and the error a button that opens it.
+  const expiredSignIns = new Set();
+  const EXPIRED_RE = /^(.+?): the sign-in expired/;
   function showProblems(errors) {
-    const text = (errors || []).join('  ·  ');
-    if (text && text !== lastProblems) toast(text, 'error');
+    const list = errors || [];
+    const was = [...expiredSignIns].join('|');
+    expiredSignIns.clear();
+    for (const e of list) { const m = EXPIRED_RE.exec(String(e)); if (m) expiredSignIns.add(m[1]); }
+    const text = list.join('  ·  ');
+    if (text && text !== lastProblems) toast(text, 'error', expiredSignIns.size ? { label: 'Sign in', run: () => openSettings(MOBILE ? SET_HOME : 'calendars') } : undefined);
     lastProblems = text;
+    // An open Settings shows the card (or loses it) at once.
+    if ([...expiredSignIns].join('|') !== was && !$('#modal').hidden && $('.sheet.settings', $('#modal'))) openSettings(settingsTab);
+  }
+  /** At the top of Settings while a sign-in has expired: who, and the way to sign in again. */
+  function signInCard() {
+    if (!expiredSignIns.size) return null;
+    const who = [...expiredSignIns];
+    const providerOf = (label) => S.accounts.find((a) => a.label === label)?.provider || 'google';
+    const google = who.filter((l) => providerOf(l) === 'google');
+    const ms = who.filter((l) => providerOf(l) === 'microsoft');
+    return h('div', { class: 'card signin-card' },
+      h('h4', null, icon('shield'), 'Sign in again', h('span', { class: 'badge warn' }, 'Expired')),
+      h('p', null, `The sign-in for ${who.join(', ')} expired, so its calendars and tasks can't load until you sign in again.`),
+      onyx.isPhone
+        ? h('p', { class: 'hint' }, 'Signing in happens on your PC, in its browser: open Settings in Onyx on the PC, and press Sign in again at the top.')
+        : h('div', { class: 'row' },
+          google.length > 0 && h('button', { class: 'btn primary', onclick: () => act(() => onyx.connectGoogle(), 'Google signed in again') }, 'Sign in with Google again'),
+          ms.length > 0 && h('button', { class: 'btn primary', onclick: () => act(() => onyx.connectMicrosoft(S.microsoft.clientId), 'Outlook signed in again') }, 'Sign in with Microsoft again')));
   }
 
   // ------------------------------------------------------------ Pi call timing
@@ -5168,23 +5194,26 @@
         h('div', { class: 'grow' }),
         s.taskId && h('button', { type: 'button', class: 'btn', title: 'Back, and straight into a Hyperfocus session on it',
           onclick: () => back(() => { const t = task(); if (t) openFocusSetup(focusEntry(t)); else toast('That task is not in your open tasks any more.'); }) }, icon('target'), 'Hyperfocus on it'),
-        h('button', { type: 'button', class: 'btn primary bs-back', onclick: () => back() }, icon('check'), 'I\u2019m back'))), true);
+        h('button', { type: 'button', class: 'btn primary bs-back', onclick: () => back() }, icon('check'), 'I\u2019m back'))), { text: s.text, title: s.title, since: since.textContent });
+    bridgeScreen.back = () => back();
     bridgeScreen.timer = setInterval(tick, 30000);
   }
 
   /** Puts the layer over everything (the PC's window full screen for the cover). */
   function showBridgeLayer(card, cover = false) {
-    closeBridgeLayer(cover);
+    closeBridgeLayer(!!cover);
     closePopover();
     bridgeScreen.el = h('div', { class: `bridge-screen${cover ? ' covering' : ''}`, role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Hemingway bridge' }, card);
     document.body.append(bridgeScreen.el);
     if (cover) {
-      if (onyx.coverScreen) onyx.coverScreen(true).catch(() => {});
+      // The message goes along, for the PC's other screens (main.js coverOthers).
+      if (onyx.coverScreen) onyx.coverScreen(true, typeof cover === 'object' ? cover : null).catch(() => {});
       else { try { document.documentElement.requestFullscreen?.().catch(() => {}); } catch { /* the layer still covers the app */ } }
     }
   }
 
   function closeBridgeLayer(keepFull = false) {
+    bridgeScreen.back = null;
     clearInterval(bridgeScreen.timer);
     bridgeScreen.timer = null;
     const was = bridgeScreen.el?.classList.contains('covering');
@@ -11336,7 +11365,7 @@
   const SET_HOME = 'home'; // the phone's list of sections
   /** The groups of sections, in order, for this device. */
   const settingsGroups = () => (onyx.isPhone
-    ? [['This phone', [...(onyx.launcher ? ['launcher'] : []), ...(onyx.voice ? ['voice'] : [])]], ['Focus', ['doomscroll']], ['Alerts', ['pi']], ['Sync & accounts', ['connection', 'keys']], ['App', ['general', 'changelog']]]
+    ? [['Sync & accounts', ['connection', 'keys']], ['This phone', [...(onyx.launcher ? ['launcher'] : []), ...(onyx.voice ? ['voice'] : [])]], ['Focus', ['doomscroll']], ['Alerts', ['pi']], ['App', ['general', 'changelog']]]
     : [['Calendar', ['calendars', 'general']], ['Focus', ['doomscroll']], ['Connected', ['connections', 'phone', 'desktops']], ['Alerts', ['pi']], ['Advanced', ['mcp']], ['About', ['changelog']]])
     .filter(([, ids]) => ids.length);
 
@@ -11486,6 +11515,7 @@
       sheet = h('div', { class: `sheet settings set-at-home${back ? ' set-back' : ''}`, 'data-tab': tab },
         h('div', { class: 'set-home' },
           h('header', { class: 'set-head' }, h('h2', null, 'Settings'), h('button', { class: 'icon-btn', 'aria-label': 'Close settings', onclick: closeSettings }, icon('x'))),
+          signInCard(),
           h('label', { class: 'set-find' }, icon('search'), search),
           list,
           h('p', { class: 'set-ver' }, `Onyx Calendar${onyx.isPhone ? ' for Android' : ` ${S.version}`}`)));
@@ -11499,7 +11529,7 @@
           h('button', { class: 'icon-btn', 'aria-label': 'Close settings', onclick: closeSettings }, icon('x'))),
         pane);
     } else {
-      pane = h('div', { class: 'pane' }, h('button', { class: 'icon-btn close', onclick: closeSettings }, icon('x')), PANES[tab]());
+      pane = h('div', { class: 'pane' }, h('button', { class: 'icon-btn close', onclick: closeSettings }, icon('x')), signInCard(), PANES[tab]());
       sheet = h('div', { class: 'sheet settings', 'data-tab': tab },
         h('nav', null, h('h2', null, 'Settings'), h('label', { class: 'set-find' }, icon('search'), search), list,
           h('div', { class: 'ver' }, `Onyx Calendar ${S.version}`)),
@@ -14662,6 +14692,7 @@
     stage('calendar');
     buildChrome();
     restoreBridgeScreen(); // left up when Onyx closed: it is still there on coming back
+    onyx.onBridgeBack?.(() => bridgeScreen.back?.()); // I'm back pressed on another screen
     $('#layout').classList.remove('no-tasks');
     applyPanelWidths();
     buildCalendar();

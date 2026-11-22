@@ -574,6 +574,7 @@ input[type=date]::-webkit-calendar-picker-indicator { opacity: .5; cursor: point
 .card ol { margin: 6px 0 10px; padding-left: 18px; color: var(--muted); line-height: 1.7; }
 .badge { font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 10px; background: var(--raise-2); color: var(--muted); }
 .badge.ok { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
+.badge.warn { background: color-mix(in srgb, #f5b83d 18%, transparent); color: #f5b83d; }
 .badge.bad { background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--danger); }
 .field { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); }
 .field:last-child { border-bottom: 0; }
@@ -3194,6 +3195,9 @@ body.mobile .set-head { display: flex; align-items: center; justify-content: spa
 body.mobile .set-head h2 { font-size: 30px; font-weight: 700; letter-spacing: -.02em; }
 body.mobile .set-head .icon-btn { width: 40px; height: 40px; border-radius: 50%; background: var(--raise-2); }
 body.mobile .set-home .set-find { margin-bottom: 20px; }
+.signin-card { border-color: color-mix(in srgb, #f5b83d 55%, transparent); background: color-mix(in srgb, #f5b83d 8%, var(--card, transparent)); margin-bottom: 16px; }
+.signin-card h4 { display: flex; align-items: center; gap: 8px; }
+.signin-card h4 .ico { width: 16px; height: 16px; color: #f5b83d; }
 body.mobile .set-home .set-search { height: 46px; border-radius: 14px; font-size: 16px; padding-left: 40px; background: #141418; border-color: transparent; }
 body.mobile .set-home .set-find > .ico { left: 14px; width: 18px; height: 18px; }
 body.mobile .set-groups { gap: 22px; }

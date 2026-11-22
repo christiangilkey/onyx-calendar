@@ -21,13 +21,13 @@ test('the message covers the screen until "I am back", and is still up after a r
   assert.match(app, /restoreBridgeScreen\(\); \/\/ left up when Onyx closed/);
   assert.match(app, /if \(s\?\.on && s\.text\) coverWithBridge\(s\);/);
   assert.match(app, /writeLocal\(BRIDGE_SCREEN, \{ \.\.\.s, on: false \}\);\s*closeBridgeLayer\(\);/, 'I am back takes it down');
-  assert.match(app, /onyx\.coverScreen\(true\)/);
+  assert.match(app, /onyx\.coverScreen\(true, /);
   assert.match(app, /'Cover screen'\);/, 'the task window covers with its bridge too');
   assert.match(read('src/renderer/styles.css'), /\.bridge-screen \{ position: fixed; inset: 0; z-index: 9000;/);
 });
 
 test('the PC window goes full screen for it, and only the PC can ask', () => {
-  assert.match(read('src/main/main.js'), /'window:cover': \(on\) => \{[\s\S]{0,200}win\.setFullScreen\(true\)/);
-  assert.match(read('src/preload.js'), /coverScreen: \(on\) => call\('window:cover', on\),/);
+  assert.match(read('src/main/main.js'), /'window:cover': \(on, card\) => \{[\s\S]{0,200}win\.setFullScreen\(true\)/);
+  assert.match(read('src/preload.js'), /coverScreen: \(on, card\) => call\('window:cover', on, card\),/);
   assert.doesNotMatch(read('src/renderer/remote.js'), /window:cover/);
 });

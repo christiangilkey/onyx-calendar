@@ -410,6 +410,53 @@ async function tamkeenEmbed(id, seconds) {
   return { url: `http://127.0.0.1:${at.port}/embed?v=${id}${t}&from=onyx` };
 }
 
+// ------------------------------------------------------------ the bridge screen on the other screens
+// One frameless, full-screen window on each screen but Onyx's own, showing where you left off. Its
+// I'm back ends the cover everywhere: the page sets its title to 'onyx:back', which is heard here.
+let coverWins = [];
+const esc = (s) => String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function coverPage(card = {}) {
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Where you left off</title><style>
+html,body{margin:0;height:100%;background:#050507;color:#f2f2f5;font-family:"Segoe UI",system-ui,sans-serif;cursor:default;user-select:none}
+body{display:flex;align-items:center;justify-content:center}
+.c{max-width:min(900px,86vw);text-align:center}
+.k{letter-spacing:.18em;text-transform:uppercase;font-size:13px;color:#8b7cff;font-weight:700;margin-bottom:22px}
+.t{font-size:20px;color:#b9b9c2;margin-bottom:14px}
+.m{font-size:clamp(28px,4.2vw,54px);line-height:1.25;font-weight:600;white-space:pre-wrap;overflow-wrap:anywhere}
+.s{margin-top:22px;font-size:15px;color:#8a8a96}
+button{margin-top:40px;font:inherit;font-size:16px;font-weight:600;padding:12px 26px;border-radius:12px;border:0;background:#8b7cff;color:#0b0b10;cursor:pointer}
+</style></head><body><div class="c"><div class="k">Where you left off</div>${card.title ? `<div class="t">${esc(card.title)}</div>` : ''}
+<div class="m">${esc(card.text)}</div>${card.since ? `<div class="s">${esc(card.since)}</div>` : ''}
+<button onclick="document.title='onyx:back'">I’m back</button></div></body></html>`;
+}
+function uncoverOthers() {
+  const wins = coverWins;
+  coverWins = [];
+  for (const w of wins) if (!w.isDestroyed()) w.destroy();
+}
+function coverOthers(card) {
+  uncoverOthers();
+  if (!card || !win || win.isDestroyed()) return;
+  const mine = screen.getDisplayMatching(win.getBounds()).id;
+  for (const d of screen.getAllDisplays()) {
+    if (d.id === mine) continue;
+    const w = new BrowserWindow({ ...d.bounds, frame: false, show: false, fullscreen: true, skipTaskbar: true, alwaysOnTop: true,
+      backgroundColor: '#050507', autoHideMenuBar: true, webPreferences: { sandbox: true, contextIsolation: true, javascript: true } });
+    w.setAlwaysOnTop(true, 'screen-saver');
+    w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    w.webContents.on('will-navigate', (e) => e.preventDefault());
+    w.on('page-title-updated', (e, title) => {
+      if (title !== 'onyx:back') return;
+      e.preventDefault();
+      uncoverOthers();
+      if (win && !win.isDestroyed()) { win.setFullScreen(false); win.webContents.send('bridge-back'); }
+    });
+    w.once('ready-to-show', () => { w.setBounds(d.bounds); w.showInactive(); w.setFullScreen(true); });
+    w.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(coverPage(card))}`);
+    coverWins.push(w);
+  }
+}
+
 // The shared commands (api.js), plus the ones only the desktop can do.
 const HANDLERS = {
   ...api.handlers,
@@ -469,9 +516,10 @@ const HANDLERS = {
   // Tamkeen on this PC (not offered to the phone, which opens its own Tamkeen).
   'tamkeen:info': () => ({ installed: tamkeenInstalled() }),
   // The bridge screen (1.137.0): Onyx shown and full screen while it is up, back to a window after.
-  'window:cover': (on) => {
+  // Since 1.138.0 every other screen is covered too, by a plain window with the same message (coverOthers).
+  'window:cover': (on, card) => {
     if (!win || win.isDestroyed()) return false;
-    if (on) { if (win.isMinimized()) win.restore(); win.show(); win.setFullScreen(true); win.focus(); } else win.setFullScreen(false);
+    if (on) { if (win.isMinimized()) win.restore(); win.show(); win.setFullScreen(true); win.focus(); coverOthers(card); } else { win.setFullScreen(false); uncoverOthers(); }
     return !!on;
   },
   // The blocker on this PC (blocker.js): how it is doing, Websites on this PC on or off, and the programs to pick from.

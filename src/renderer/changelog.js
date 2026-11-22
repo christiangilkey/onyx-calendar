@@ -2,8 +2,20 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.137.0",
+  "date": "2026-11-22",
+  "title": "The bridge screen, where you left off over the whole screen",
+  "items": [
+   "A new bridge button in the top bar (on the phone, in the strip of buttons) opens \"Leave a bridge\". Write what is half done and exactly what to do next, pick the task it is about if you like, and press Cover my screen. With a task picked and your Claude key set, Think of one writes it for you.",
+   "The message then fills the whole screen in large type, with the task and when you left. On the PC, Onyx comes to the front and goes full screen.",
+   "It stays up until you press I'm back, even if Onyx or the PC restarts in between. Hyperfocus on it takes you straight into a session on that task, and Edit changes the message.",
+   "A task's Bridge row has a Cover screen button too, which puts that bridge over the screen at once.",
+   "With a task picked, the message is also kept as that task's bridge, so it shows under the task in your list."
+  ]
+ },
+ {
   "version": "1.136.0",
-  "date": "2026-11-18",
+  "date": "2026-11-17",
   "title": "Hemingway bridges on your tasks",
   "items": [
    "A task's window has a new Bridge row: the next small step to pick up with, so starting again is easy. Type your own, or tap Think of one and Claude writes one from the task, its notes and its checklist (Another gives a different one).",

@@ -468,6 +468,12 @@ const HANDLERS = {
   'alert:closeAll': () => { let n = 0; for (const w of [...alerts]) if (!w.isDestroyed()) { w.close(); n++; } return n; },
   // Tamkeen on this PC (not offered to the phone, which opens its own Tamkeen).
   'tamkeen:info': () => ({ installed: tamkeenInstalled() }),
+  // The bridge screen (1.137.0): Onyx shown and full screen while it is up, back to a window after.
+  'window:cover': (on) => {
+    if (!win || win.isDestroyed()) return false;
+    if (on) { if (win.isMinimized()) win.restore(); win.show(); win.setFullScreen(true); win.focus(); } else win.setFullScreen(false);
+    return !!on;
+  },
   // The blocker on this PC (blocker.js): how it is doing, Websites on this PC on or off, and the programs to pick from.
   'blocker:pc': () => require('./blocker').status(),
   'blocker:pcSet': (o) => require('./blocker').set(o),

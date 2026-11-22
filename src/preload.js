@@ -56,6 +56,7 @@ contextBridge.exposeInMainWorld('onyx', {
   setBlockTasks: (key, items) => call('blockTasks:set', key, items),
   setBlockLinks: (key, items) => call('blockLinks:set', key, items),
   setBridge: (id, text, by) => call('bridge:set', id, text, by),
+  coverScreen: (on) => call('window:cover', on),
   tickBlockTask: (id, taskId, done) => call('blockTasks:tick', id, taskId, done),
   setEventColor: (key, color) => call('eventColor:set', key, color),
   setAware: (key, on) => call('aware:set', key, on),

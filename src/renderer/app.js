@@ -5066,11 +5066,140 @@
           think.replaceChildren(icon('sparkles'), 'Another');
         }
       } }, icon('sparkles'), had ? 'Another' : 'Think of one');
+    const cover = h('button', { type: 'button', class: 'btn bridge-cover', title: 'Cover the whole screen with this bridge until you are back',
+      onclick: async () => {
+        const text = input.value.trim();
+        if (!text) { input.focus(); toast('Write the bridge first: what is half done, and the next step.'); return; }
+        try { if (text !== had) await onyx.setBridge(t.id, text, by); } catch (err) { fail(err); return; }
+        closePopover();
+        coverWithBridge({ text, taskId: t.id, title: about().title });
+        loadTasks(true).catch(() => {});
+      } }, icon('bridge'), 'Cover screen');
     const el = h('div', { class: 'row top bridge-row' }, icon('bridge'),
       h('div', { class: 'bridge-box' }, input, h('div', { class: 'bridge-foot' },
         h('small', { class: 'pop-meta' }, S.ai?.ready ? 'Type your own, or let Claude think of one.' : 'Type the step you will start with next time.'),
-        think)));
+        think, cover)));
     return { el, value: () => input.value.trim(), by: () => by, changed: () => input.value.trim() !== had };
+  }
+
+  // ---- The bridge screen (1.137.0): the message you leave yourself, over the whole screen, until you are back.
+  // Kept on this device (onyx.bridgeScreen), so it is still up after Onyx or the PC restarts.
+
+  const BRIDGE_SCREEN = 'onyx.bridgeScreen';
+  const bridgeScreen = { el: null, timer: null };
+  const openTasks = () => tasks.filter((x) => !x.done && !x.mirror && x.provider);
+
+  /** The full-screen page: write the message (and pick the task it is about), then cover the screen with it. */
+  function openBridgeScreen() {
+    const saved = readLocal(BRIDGE_SCREEN, null);
+    if (saved?.on) { coverWithBridge(saved); return; }
+    const list = openTasks();
+    let taskId = saved?.taskId && list.some((x) => x.id === saved.taskId) ? saved.taskId : '';
+    const text = h('textarea', { class: 'bs-text', rows: 4, maxlength: 600, spellcheck: true, value: saved?.text || '',
+      placeholder: 'What is half done, and exactly what to do next. Like: "Halfway through the intro: finish the sentence about funding, then write paragraph 2."' });
+    const pick = h('select', { class: 'bs-task', 'aria-label': 'The task it is about' },
+      h('option', { value: '' }, 'No task: just the message'),
+      list.map((x) => h('option', { value: x.id }, x.label || x.title)));
+    pick.value = taskId;
+    pick.addEventListener('change', () => {
+      taskId = pick.value;
+      const t = list.find((x) => x.id === taskId);
+      if (t?.bridge?.text && !text.value.trim()) text.value = t.bridge.text;
+      paintThink();
+    });
+    const think = h('button', { type: 'button', class: 'btn', title: 'Claude writes a bridge from the task, its notes and its checklist', onclick: async () => {
+      const t = list.find((x) => x.id === taskId);
+      think.disabled = true;
+      think.replaceChildren(icon('sparkles'), 'Thinking…');
+      try {
+        text.value = await onyx.suggestBridge(t.label || t.title, { notes: t.notes || '', steps: t.taskList || [], where: text.value.trim() });
+      } catch (err) { fail(err); } finally { think.disabled = false; think.replaceChildren(icon('sparkles'), 'Another'); }
+    } }, icon('sparkles'), 'Think of one');
+    const paintThink = () => { think.hidden = !(S.ai?.ready && taskId && onyx.suggestBridge); };
+    paintThink();
+    const go = async () => {
+      const words = text.value.trim();
+      if (!words) { text.focus(); toast('Write what is half done first.'); return; }
+      const t = list.find((x) => x.id === taskId);
+      if (t && onyx.setBridge && words !== (t.bridge?.text || '')) {
+        try { await onyx.setBridge(t.id, words, 'you'); loadTasks(true).catch(() => {}); } catch (err) { console.warn('onyx: the bridge was not kept on the task:', err.message); }
+      }
+      coverWithBridge({ text: words, taskId: t?.id || '', title: t ? t.label || t.title : '' });
+    };
+    text.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) go(); });
+    showBridgeLayer(h('div', { class: 'bs-card bs-edit' },
+      h('div', { class: 'bs-kicker' }, icon('bridge'), 'Leave a bridge'),
+      h('h2', null, 'Where are you leaving off?'),
+      h('p', { class: 'bs-sub' }, 'Stop while you still know what comes next, and write it here. It covers the screen until you are back.'),
+      h('label', { class: 'bs-field' }, h('span', null, 'Task'), pick),
+      h('label', { class: 'bs-field' }, h('span', null, 'Message'), text),
+      h('div', { class: 'bs-actions' },
+        think,
+        h('div', { class: 'grow' }),
+        h('button', { type: 'button', class: 'btn', onclick: () => closeBridgeLayer() }, 'Cancel'),
+        h('button', { type: 'button', class: 'btn primary', onclick: go }, icon('bridge'), 'Cover my screen'))));
+    setTimeout(() => text.focus(), 60);
+  }
+
+  /** The cover itself: the message, large, until "I'm back". */
+  function coverWithBridge({ text, taskId = '', title = '', at = null }) {
+    const s = { on: true, text, taskId, title, at: at || new Date().toISOString() };
+    writeLocal(BRIDGE_SCREEN, s);
+    const since = h('div', { class: 'bs-since' });
+    const tick = () => {
+      const left = new Date(s.at), mins = Math.round((Date.now() - left) / 60000);
+      const ago = mins < 1 ? 'just now' : mins < 60 ? `${mins} min ago` : mins < 60 * 24 ? `${Math.floor(mins / 60)} h ${mins % 60} min ago` : `${Math.floor(mins / 1440)} days ago`;
+      since.textContent = `Left ${left.toDateString() === new Date().toDateString() ? 'at' : `on ${fmtDay(left)},`} ${fmtTime(left)} · ${ago}`;
+    };
+    tick();
+    const task = () => (s.taskId ? tasks.find((x) => x.id === s.taskId) : null);
+    const back = (then) => {
+      writeLocal(BRIDGE_SCREEN, { ...s, on: false });
+      closeBridgeLayer();
+      then?.();
+    };
+    showBridgeLayer(h('div', { class: 'bs-card bs-cover' },
+      h('div', { class: 'bs-kicker' }, icon('bridge'), 'Where you left off'),
+      s.title && h('div', { class: 'bs-title' }, s.title),
+      h('div', { class: 'bs-message' }, s.text),
+      since,
+      h('div', { class: 'bs-actions' },
+        h('button', { type: 'button', class: 'btn', title: 'Change the message', onclick: () => { writeLocal(BRIDGE_SCREEN, { ...s, on: false }); openBridgeScreen(); } }, icon('pencil'), 'Edit'),
+        h('div', { class: 'grow' }),
+        s.taskId && h('button', { type: 'button', class: 'btn', title: 'Back, and straight into a Hyperfocus session on it',
+          onclick: () => back(() => { const t = task(); if (t) openFocusSetup(focusEntry(t)); else toast('That task is not in your open tasks any more.'); }) }, icon('target'), 'Hyperfocus on it'),
+        h('button', { type: 'button', class: 'btn primary bs-back', onclick: () => back() }, icon('check'), 'I\u2019m back'))), true);
+    bridgeScreen.timer = setInterval(tick, 30000);
+  }
+
+  /** Puts the layer over everything (the PC's window full screen for the cover). */
+  function showBridgeLayer(card, cover = false) {
+    closeBridgeLayer(cover);
+    closePopover();
+    bridgeScreen.el = h('div', { class: `bridge-screen${cover ? ' covering' : ''}`, role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Hemingway bridge' }, card);
+    document.body.append(bridgeScreen.el);
+    if (cover) {
+      if (onyx.coverScreen) onyx.coverScreen(true).catch(() => {});
+      else { try { document.documentElement.requestFullscreen?.().catch(() => {}); } catch { /* the layer still covers the app */ } }
+    }
+  }
+
+  function closeBridgeLayer(keepFull = false) {
+    clearInterval(bridgeScreen.timer);
+    bridgeScreen.timer = null;
+    const was = bridgeScreen.el?.classList.contains('covering');
+    bridgeScreen.el?.remove();
+    bridgeScreen.el = null;
+    if (was && !keepFull) {
+      if (onyx.coverScreen) onyx.coverScreen(false).catch(() => {});
+      else if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+    }
+  }
+
+  /** Up when Onyx last closed: up again now. */
+  function restoreBridgeScreen() {
+    const s = readLocal(BRIDGE_SCREEN, null);
+    if (s?.on && s.text) coverWithBridge(s);
   }
 
   /** Moves a task to another day, keeping its time of day. */
@@ -14118,7 +14247,7 @@
     const bar = $('#titlebar');
     const strip = h('div', { id: 'top-tools', class: 'top-tools', role: 'toolbar', 'aria-label': 'Onyx' });
     $('.nav', bar).after(strip);
-    strip.append(...['pomo-timer', 'noise-btn', 'cal-home', 'globe-toggle', 'board-toggle', 'undo-btn', 'update-btn', 'refresh', 'toggle-tasks', 'open-settings']
+    strip.append(...['pomo-timer', 'noise-btn', 'cal-home', 'globe-toggle', 'board-toggle', 'bridge-btn', 'undo-btn', 'update-btn', 'refresh', 'toggle-tasks', 'open-settings']
       .map((id) => document.getElementById(id)).filter(Boolean));
     const edges = () => {
       const max = strip.scrollWidth - strip.clientWidth;
@@ -14165,6 +14294,9 @@
     $('#cal-home').onclick = showCalendar;
     $('#board-toggle').append(icon('board'));
     $('#board-toggle').onclick = toggleBoards;
+    $('#bridge-btn').append(icon('bridge'));
+    $('#bridge-btn').setAttribute('aria-label', 'Hemingway bridge');
+    $('#bridge-btn').onclick = () => openBridgeScreen();
     $('#noise-btn').append(icon('waves'));
     $('#noise-btn').onclick = (e) => { e.stopPropagation(); openNoise(); };
     refreshNoise();
@@ -14529,6 +14661,7 @@
     }
     stage('calendar');
     buildChrome();
+    restoreBridgeScreen(); // left up when Onyx closed: it is still there on coming back
     $('#layout').classList.remove('no-tasks');
     applyPanelWidths();
     buildCalendar();

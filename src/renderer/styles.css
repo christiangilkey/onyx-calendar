@@ -3400,7 +3400,30 @@ body.mobile .wb-zoom { order: 12; }
 .bridge-row .bridge-in { width: 100%; flex: none; resize: none; min-height: 34px; font: inherit; line-height: 1.35; }
 .bridge-foot { display: flex; align-items: center; gap: 8px; }
 .bridge-foot small { flex: 1; min-width: 0; }
-.bridge-ai { flex: none; }
+.bridge-ai, .bridge-cover { flex: none; }
+.bridge-foot { flex-wrap: wrap; }
+/* The bridge screen (app.js, openBridgeScreen / coverWithBridge, 1.137.0): over everything, the whole window. */
+.bridge-screen { position: fixed; inset: 0; z-index: 9000; display: flex; align-items: center; justify-content: center; padding: 24px;
+  background: radial-gradient(ellipse at 50% 30%, color-mix(in srgb, var(--accent) 16%, var(--bg)), var(--bg) 70%); overflow-y: auto; animation: bs-in .2s ease-out; }
+@keyframes bs-in { from { opacity: 0; } to { opacity: 1; } }
+.bs-card { width: min(760px, 100%); display: flex; flex-direction: column; gap: 14px; }
+.bs-kicker { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+.bs-kicker .ico { width: 18px; height: 18px; }
+.bs-edit h2 { margin: 0; font-size: 26px; }
+.bs-sub { margin: 0; color: var(--muted); }
+.bs-field { display: flex; flex-direction: column; gap: 6px; }
+.bs-field > span { font-size: 12px; color: var(--muted); }
+.bs-field select { width: 100%; }
+.bridge-screen .bs-text { width: 100%; min-height: 130px; font-size: 18px; line-height: 1.45; resize: vertical; }
+.bs-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.bs-actions .grow { flex: 1; }
+.bs-cover { gap: 18px; }
+.bs-title { font-size: 20px; font-weight: 600; color: var(--muted); }
+.bs-message { font-size: clamp(28px, 4.6vw, 54px); line-height: 1.2; font-weight: 700; white-space: pre-wrap; overflow-wrap: anywhere; }
+.bs-since { color: var(--muted); font-size: 14px; }
+.bs-back { padding: 0 22px; height: 44px; font-size: 16px; }
+body.mobile .bridge-screen { align-items: flex-start; padding: calc(env(safe-area-inset-top, 0px) + 28px) 18px 24px; }
+body.mobile .bs-message { font-size: 30px; }
 .task-bridge { display: flex; align-items: flex-start; gap: 5px; margin-top: 3px; font-size: 12px; color: var(--accent); opacity: .9; }
 .task-bridge .ico { width: 13px; height: 13px; flex: none; margin-top: 1px; }
 .task-bridge span { min-width: 0; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }

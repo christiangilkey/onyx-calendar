@@ -2,9 +2,19 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
+## 1.137.0 · The bridge screen, where you left off over the whole screen
+
+_2026-11-22_
+
+- A new bridge button in the top bar (on the phone, in the strip of buttons) opens "Leave a bridge". Write what is half done and exactly what to do next, pick the task it is about if you like, and press Cover my screen. With a task picked and your Claude key set, Think of one writes it for you.
+- The message then fills the whole screen in large type, with the task and when you left. On the PC, Onyx comes to the front and goes full screen.
+- It stays up until you press I'm back, even if Onyx or the PC restarts in between. Hyperfocus on it takes you straight into a session on that task, and Edit changes the message.
+- A task's Bridge row has a Cover screen button too, which puts that bridge over the screen at once.
+- With a task picked, the message is also kept as that task's bridge, so it shows under the task in your list.
+
 ## 1.136.0 · Hemingway bridges on your tasks
 
-_2026-11-18_
+_2026-11-17_
 
 - A task's window has a new Bridge row: the next small step to pick up with, so starting again is easy. Type your own, or tap Think of one and Claude writes one from the task, its notes and its checklist (Another gives a different one).
 - A task with a bridge shows it under its name in your task list.

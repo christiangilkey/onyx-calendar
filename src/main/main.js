@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Notification, Tray, clipboard, dialog, ipcMain, nativeImage, screen, session, shell } = require('electron');
+const { app, BrowserWindow, Menu, Notification, Tray, clipboard, dialog, globalShortcut, ipcMain, nativeImage, screen, session, shell } = require('electron');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const path = require('path');
@@ -112,7 +112,8 @@ function createWindow() {
       win.hide();
     }
   });
-  win.on('closed', () => { win = null; });
+  // Sticky notes are windows too, so with nothing kept in the tray, closing Onyx's window quits.
+  win.on('closed', () => { win = null; if (!quitting && !store.data.settings.closeToTray) { quitting = true; app.quit(); } });
 
   // With background throttling off (so chimes keep time in the tray), the page cannot tell it
   // is hidden by itself: it is told, so the globe stops drawing while nobody can see it.
@@ -198,11 +199,16 @@ ipcMain.on('alert:act', (e, action) => {
   w.close();
 });
 
+// Sticky notes (stickies.js): a new one from anywhere with this, as well as from the tray and Onyx's window.
+const STICKY_KEY = 'CommandOrControl+Alt+N';
+
 function createTray() {
   tray = new Tray(nativeImage.createFromPath(ICON).resize({ width: 16, height: 16 }));
   tray.setToolTip('Onyx Calendar');
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Open Onyx Calendar', click: showWindow },
+    { label: 'New sticky note', accelerator: STICKY_KEY, click: () => require('./stickies').create() },
+    { label: 'Show sticky notes', click: () => require('./stickies').showAll() },
     { type: 'separator' },
     { label: 'Quit', click: () => { quitting = true; app.quit(); } },
   ]));
@@ -324,6 +330,10 @@ async function boot() {
   updater.start((s) => win?.webContents.send('update', s));
   require('./caller').start(hub); // reminders by push (ntfy) or call (Twilio), when set up
   require('./focus').start(hub); // a Hyperfocus stop left unanswered reaches the phone
+  if (!SMOKE_SHOT) {
+    require('./stickies').start({ hub, onChanged: () => win?.webContents.send('changed') });
+    try { globalShortcut.register(STICKY_KEY, () => require('./stickies').create()); } catch { /* taken by another app: the tray still has it */ }
+  }
   if (!SMOKE_SHOT) require('./eyes').start(store); // eye breaks: the 20-20-20 card, and a longer break each hour
   // The blocker: a block list on now closes its apps here and turns its sites away (blocker.js).
   if (!SMOKE_SHOT) {
@@ -338,6 +348,7 @@ async function boot() {
   }
 }
 
+app.on('will-quit', () => globalShortcut.unregisterAll());
 app.on('before-quit', () => { quitting = true; require('./blocker').stop(); store.flush(); });
 app.on('window-all-closed', () => { if (quitting || !store.data.settings.closeToTray) app.quit(); });
 
@@ -519,6 +530,8 @@ const HANDLERS = {
   // The bridge screen (1.137.0): Onyx shown and full screen while it is up, back to a window after.
   // Since 1.138.0 every other screen is covered too, by a plain window with the same message (coverOthers).
   'eyes:test': (kind) => require('./eyes').test(kind),
+  'stickies:new': () => require('./stickies').create(),
+  'stickies:show': () => require('./stickies').showAll(),
   'window:cover': (on, card) => {
     if (!win || win.isDestroyed()) return false;
     if (on) { if (win.isMinimized()) win.restore(); win.show(); win.setFullScreen(true); win.focus(); coverOthers(card); } else { win.setFullScreen(false); uncoverOthers(); }

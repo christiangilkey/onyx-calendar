@@ -6,6 +6,7 @@
   // ever written with text nodes (h() below), never as HTML.
 
   const ICONS = {
+    sticky: '<path d="M5 4h14a1 1 0 0 1 1 1v9l-6 6H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/><path d="M14 20v-5a1 1 0 0 1 1-1h5"/>',
     bridge: '<path d="M2 17h20"/><path d="M4 17v-2.5a8 6 0 0 1 16 0V17"/><path d="M8 17v-4.5M12 17v-5.5M16 17v-4.5"/>',
     pencil: '<path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/>',
     eraser: '<path d="M9 20h11"/><path d="M4.7 14.7l9-9a2 2 0 0 1 2.8 0l3 3a2 2 0 0 1 0 2.8L12.2 18.8H8.8l-4.1-4.1a.6.6 0 0 1 0-.9z"/><path d="M9.6 9.8l5 5"/>',
@@ -14342,6 +14343,15 @@
     $('#cal-home').onclick = showCalendar;
     $('#board-toggle').append(icon('board'));
     $('#board-toggle').onclick = toggleBoards;
+    // Sticky notes (1.140.0, stickies.js): on the PC, a note of its own on the desktop. Right-click shows them all.
+    if (onyx.newSticky) {
+      const sticky = $('#sticky-btn');
+      sticky.hidden = false;
+      sticky.append(icon('sticky'));
+      sticky.setAttribute('aria-label', 'New sticky note');
+      sticky.onclick = () => onyx.newSticky().catch(fail);
+      sticky.oncontextmenu = (e) => { e.preventDefault(); onyx.showStickies().catch(fail); };
+    }
     $('#bridge-btn').append(icon('bridge'));
     $('#bridge-btn').setAttribute('aria-label', 'Hemingway bridge');
     $('#bridge-btn').onclick = () => openBridgeScreen();

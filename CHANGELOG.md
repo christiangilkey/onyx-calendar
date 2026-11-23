@@ -2,9 +2,21 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.139.0 · Eye breaks, the 20-20-20 rule on a timer
+## 1.140.0 · Sticky notes on your desktop
 
 _2026-11-23_
+
+- Sticky notes: small notes of their own, set anywhere on the desktop, for thoughts, ideas and quick lists. Make one with the new note button in the top bar, Ctrl+Alt+N from anywhere, or the tray menu.
+- Six bright colours, picked from the dot on the note's bar. Each new note takes the next colour along, so notes side by side are easy to tell apart.
+- Notes save as you type, and come back where you left them when Onyx starts. A note on a screen that is gone comes back on the main one.
+- Lists: start a line with - (or 1., or [ ]) and Enter carries the list on. Enter on an empty item ends it.
+- Notes are not tasks, but can become them: Make task (Ctrl+Enter) turns the lines you select into one task each, or with nothing selected the whole note into one task, named by its first line with the rest as its notes.
+- The pin keeps a note on top of other windows. Show sticky notes (in the tray, or right-click the top bar button) brings them all to the front. The X deletes a note, after asking if it has anything in it.
+- Notes are kept on this PC only.
+
+## 1.139.0 · Eye breaks, the 20-20-20 rule on a timer
+
+_2026-11-22_
 
 - Eye breaks: every 20 minutes at the screen, a small card in the corner tells you to look at something 20 feet (6 m) away and blink, and counts down 20 seconds. It shows without taking the keyboard, and closes by itself.
 - Each hour, a card suggests a 5-minute break away from screens, with a 5-minute countdown when you start it.

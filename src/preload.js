@@ -58,6 +58,8 @@ contextBridge.exposeInMainWorld('onyx', {
   setBridge: (id, text, by) => call('bridge:set', id, text, by),
   coverScreen: (on, card) => call('window:cover', on, card),
   eyesTest: (kind) => call('eyes:test', kind),
+  newSticky: () => call('stickies:new'),
+  showStickies: () => call('stickies:show'),
   // "I'm back" pressed on another screen's cover (main.js coverOthers).
   onBridgeBack: (fn) => ipcRenderer.on('bridge-back', () => fn()),
   tickBlockTask: (id, taskId, done) => call('blockTasks:tick', id, taskId, done),

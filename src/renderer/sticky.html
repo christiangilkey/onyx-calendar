@@ -1,0 +1,68 @@
+<!doctype html>
+<!-- A sticky note (stickies.js): one window per note, for thoughts, ideas and quick lists.
+     The bar on top moves it; its buttons pick a colour, keep it on top, make a new note,
+     turn lines into tasks and delete it. The rest is the note. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'">
+  <title>Sticky note</title>
+  <style>
+    :root { --paper: #ffe66d; --bar: #f5d63f; --ink: #2b2410; --soft: rgba(43, 36, 16, .55); }
+    body[data-color="yellow"] { --paper: #ffe66d; --bar: #f3d23a; --ink: #2b2410; }
+    body[data-color="pink"]   { --paper: #ffb1c8; --bar: #f78fae; --ink: #3a1020; }
+    body[data-color="blue"]   { --paper: #9fd3ff; --bar: #73bdf7; --ink: #0d2536; }
+    body[data-color="green"]  { --paper: #b4eea0; --bar: #8fdc76; --ink: #15300d; }
+    body[data-color="purple"] { --paper: #d2bfff; --bar: #b49cf7; --ink: #23163f; }
+    body[data-color="orange"] { --paper: #ffc285; --bar: #f9a65a; --ink: #3a1e05; }
+    html, body { margin: 0; height: 100%; overflow: hidden; }
+    body { background: var(--paper); color: var(--ink); font: 15px/1.45 'Segoe UI', system-ui, sans-serif; display: flex; flex-direction: column;
+      box-sizing: border-box; border: 1px solid rgba(0, 0, 0, .14); }
+    .bar { flex: none; height: 32px; display: flex; align-items: center; gap: 2px; padding: 0 4px; background: var(--bar); -webkit-app-region: drag; user-select: none; }
+    .bar .grow { flex: 1; }
+    .bar button { -webkit-app-region: no-drag; border: 0; background: transparent; color: var(--ink); width: 28px; height: 26px; border-radius: 6px;
+      display: inline-flex; align-items: center; justify-content: center; cursor: pointer; opacity: .62; padding: 0; font: inherit; }
+    .bar button:hover { opacity: 1; background: rgba(0, 0, 0, .09); }
+    .bar button.on { opacity: 1; background: rgba(0, 0, 0, .14); }
+    .bar button.task { width: auto; padding: 0 8px; gap: 5px; font-size: 12px; font-weight: 650; opacity: .78; }
+    svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .colors { display: none; gap: 5px; padding: 0 2px; -webkit-app-region: no-drag; }
+    .colors.open { display: flex; }
+    /* While a colour is picked, the dots have the bar to themselves. */
+    .bar.picking #pin, .bar.picking #task, .bar.picking #new, .bar.picking #del { display: none; }
+    .bar button.task { white-space: nowrap; }
+    .colors .c { width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(0, 0, 0, .25); opacity: 1; padding: 0; }
+    .colors .c.cur { border-color: var(--ink); }
+    textarea { flex: 1; width: 100%; box-sizing: border-box; border: 0; outline: 0; resize: none; background: transparent; color: var(--ink);
+      font: inherit; padding: 12px 14px 10px; }
+    textarea::placeholder { color: var(--soft); }
+    textarea::selection { background: rgba(0, 0, 0, .18); }
+    .hint { flex: none; min-height: 20px; padding: 0 12px 6px; font-size: 12px; color: var(--soft); user-select: none; transition: opacity .3s; }
+    .hint.say { color: var(--ink); font-weight: 600; }
+    .ask { position: absolute; inset: 32px 0 0; background: var(--paper); display: none; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; padding: 16px; }
+    .ask.open { display: flex; }
+    .ask b { font-size: 15px; }
+    .ask .row { display: flex; gap: 8px; }
+    .ask button { font: inherit; font-size: 13px; font-weight: 650; border: 0; border-radius: 8px; padding: 7px 14px; cursor: pointer; background: rgba(0, 0, 0, .1); color: var(--ink); }
+    .ask button.danger { background: #b3261e; color: #fff; }
+  </style>
+</head>
+<body data-color="yellow">
+  <div class="bar" id="bar">
+    <button id="palette" title="Colour"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg></button>
+    <div class="colors" id="colors"></div>
+    <button id="pin" title="Keep on top of other windows"><svg viewBox="0 0 24 24"><path d="M9 4h6l-1 6 3 3H7l3-3z"/><path d="M12 13v7"/></svg></button>
+    <span class="grow"></span>
+    <button id="task" class="task" title="Make a task (Ctrl+Enter): the lines you select become one task each; with nothing selected, the whole note does"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8.5 12 2.5 2.5 4.5-5"/></svg><span>Make task</span></button>
+    <button id="new" title="New note (Ctrl+N)"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+    <button id="del" title="Delete this note"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+  </div>
+  <textarea id="text" spellcheck="true" placeholder="A thought, an idea, a list…&#10;&#10;Start a line with - for a list."></textarea>
+  <div class="hint" id="hint"></div>
+  <div class="ask" id="ask">
+    <b>Delete this note?</b>
+    <div class="row"><button id="keep">Keep it</button><button id="really" class="danger">Delete</button></div>
+  </div>
+  <script src="sticky.js"></script>
+</body>
+</html>

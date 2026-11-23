@@ -2,6 +2,18 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.139.0",
+  "date": "2026-11-23",
+  "title": "Eye breaks, the 20-20-20 rule on a timer",
+  "items": [
+   "Eye breaks: every 20 minutes at the screen, a small card in the corner tells you to look at something 20 feet (6 m) away and blink, and counts down 20 seconds. It shows without taking the keyboard, and closes by itself.",
+   "Each hour, a card suggests a 5-minute break away from screens, with a 5-minute countdown when you start it.",
+   "Only time at the screen counts. Being away from the mouse and keyboard for 20 seconds counts as the look-away, and 5 minutes away (or the PC locked or asleep) counts as the longer break.",
+   "Settings → General → Eye breaks: turn it on or off, choose 15 to 45 minutes and how often the longer break comes, and press Try it to see the card. Snooze brings it back in 5 minutes (the longer break in 10).",
+   "Based on the 20-20-20 rule eye doctors give (American Optometric Association), a 2023 trial where reminders cut eye strain symptoms, and NIOSH studies of short hourly breaks in screen work."
+  ]
+ },
+ {
   "version": "1.138.0",
   "date": "2026-11-22",
   "title": "Sign in again from the top of Settings, and the bridge screen covers every screen",

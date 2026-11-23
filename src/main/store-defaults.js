@@ -11,6 +11,8 @@ const DEFAULTS = {
     newsPanel: false,    // the News tab on the right is open
     closeToTray: true,
     launchAtLogin: false,
+    // Eye breaks (eyes.js): every `every` minutes at the screen, look 20 ft away for 20 s; every `long` minutes (0 = never), a 5-minute break.
+    eyeBreaks: { on: true, every: 20, long: 60 },
     defaultCalendar: '', // where new time blocks are saved
     // checkEvery: how often the Pi looks (its cron), so a call asked for at 2:15 comes at the last look before
     pi: { enabled: true, taskList: '', leadMinutes: 60, quietStart: '22:00', quietEnd: '07:00', checkEvery: 30 },

@@ -9021,6 +9021,23 @@
 
   // ------------------------------------------------------------ settings
 
+  // Eye breaks (1.139.0, src/main/eyes.js): the 20-20-20 card, and a longer screen break each hour.
+  // Only time at the screen counts; being away from the mouse and keyboard counts as the break.
+  function eyeBreaksField(s) {
+    const e = { on: true, every: 20, long: 60, ...s.eyeBreaks };
+    const save = (patch) => saveSettings({ eyeBreaks: { ...e, ...patch } }, true).then(() => Object.assign(e, patch));
+    const pick = (value, options, key) => h('select', { disabled: !e.on || undefined, onchange: (ev) => save({ [key]: Number(ev.target.value) }) },
+      options.map(([label, v]) => h('option', { value: v, selected: v === value }, label)));
+    const every = pick(e.every, [['Every 15 min', 15], ['Every 20 min', 20], ['Every 30 min', 30], ['Every 45 min', 45]], 'every');
+    const long = pick(e.long, [['No longer breaks', 0], ['5-min break each 45 min', 45], ['5-min break each hour', 60], ['5-min break each 90 min', 90], ['5-min break each 2 hours', 120]], 'long');
+    return field('Eye breaks',
+      'The 20-20-20 rule eye doctors give: every 20 minutes at the screen, look at something 20 feet (6 m) away for 20 seconds, and blink. A small card in the corner counts it down. Time away from the mouse and keyboard counts as a break.',
+      h('div', { class: 'eye-breaks' },
+        toggle(e.on, (v) => save({ on: v }).then(() => { every.disabled = long.disabled = !v; })),
+        every, long,
+        h('button', { class: 'btn', onclick: () => onyx.eyesTest('look').catch(fail) }, 'Try it')));
+  }
+
   async function saveSettings(patch, quiet) {
     try {
       const next = await onyx.settings(patch);
@@ -11012,6 +11029,7 @@
             toggle(s.nextBar !== false, (v) => saveSettings({ nextBar: v }).then(tickNext))),
           field('Popups', 'A popup over everything, ringing, when the Pi phones you about something, and another as it starts. Snooze brings it back in 5 minutes.',
             toggle(s.popups !== false, (v) => saveSettings({ popups: v }))),
+          onyx.eyesTest && eyeBreaksField(s),
           field('Tick-off sound', 'What you hear when you tick off a task or a block. Tap one to hear it.', (() => {
             const seg = h('div', { class: 'segmented' }, DONE_SOUNDS.map(([v, label]) => h('button', { type: 'button', 'data-v': v, onclick: () => {
               for (const b of seg.children) b.classList.toggle('on', b.dataset.v === v);

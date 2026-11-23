@@ -324,6 +324,7 @@ async function boot() {
   updater.start((s) => win?.webContents.send('update', s));
   require('./caller').start(hub); // reminders by push (ntfy) or call (Twilio), when set up
   require('./focus').start(hub); // a Hyperfocus stop left unanswered reaches the phone
+  if (!SMOKE_SHOT) require('./eyes').start(store); // eye breaks: the 20-20-20 card, and a longer break each hour
   // The blocker: a block list on now closes its apps here and turns its sites away (blocker.js).
   if (!SMOKE_SHOT) {
     require('./blocker').start({
@@ -517,6 +518,7 @@ const HANDLERS = {
   'tamkeen:info': () => ({ installed: tamkeenInstalled() }),
   // The bridge screen (1.137.0): Onyx shown and full screen while it is up, back to a window after.
   // Since 1.138.0 every other screen is covered too, by a plain window with the same message (coverOthers).
+  'eyes:test': (kind) => require('./eyes').test(kind),
   'window:cover': (on, card) => {
     if (!win || win.isDestroyed()) return false;
     if (on) { if (win.isMinimized()) win.restore(); win.show(); win.setFullScreen(true); win.focus(); coverOthers(card); } else { win.setFullScreen(false); uncoverOthers(); }

@@ -47,6 +47,7 @@ public class OnyxLiveService extends Service {
     private final Set<String> fired = Collections.synchronizedSet(new HashSet<>());
     private long lastFetch;
     private BroadcastReceiver screen;
+    private long screenOnAt; // the last time the screen came on (recheckPanel)
 
     /** Starts or stops the service to match "Onyx shows on". */
     static void sync(Context ctx) {
@@ -88,8 +89,15 @@ public class OnyxLiveService extends Service {
             @Override
             public void onReceive(Context ctx, Intent intent) {
                 if (Intent.ACTION_SCREEN_ON.equals(intent.getAction())) {
+                    screenOnAt = System.currentTimeMillis();
                     update();
                     showLockPanel();
+                    // 1.142.0: Android can drop that request (a copy still closing, a slow start),
+                    // which left the stock lock screen up about half the time. It is looked at
+                    // again twice in the first moments and asked for again if it isn't in front.
+                    handler.removeCallbacks(recheckPanel);
+                    handler.postDelayed(recheckPanel, 450);
+                    handler.postDelayed(recheckPanel, 1300);
                     if (System.currentTimeMillis() - lastFetch > 60_000) fetch();
                 }
             }
@@ -316,6 +324,15 @@ public class OnyxLiveService extends Service {
     private void setNextAlarm(long t) {
         AlarmActivity.planNext(this);
     }
+
+    /** Shows the panel again if the screen is on, the phone still locked, and the panel not in front. */
+    private final Runnable recheckPanel = () -> {
+        android.os.PowerManager pm = getSystemService(android.os.PowerManager.class);
+        if (pm != null && !pm.isInteractive()) return; // the screen went off again
+        // Shown since the screen came on, then put away (unlocking, back): left as it is.
+        if (LockPanelActivity.isFront() || LockPanelActivity.resumedAt() >= screenOnAt) return;
+        showLockPanel();
+    };
 
     /** The full Onyx panel over the lock screen, when the phone is locked and Android allows it. */
     private void showLockPanel() {

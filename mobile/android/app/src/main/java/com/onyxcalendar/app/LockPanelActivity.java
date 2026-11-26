@@ -64,6 +64,12 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
     private final Runnable notifsChanged = () -> ui.post(this::renderNotifs);
     private boolean resumed, unlocking;
     private GestureDetector swipe;
+    // Whether the panel is in front right now, for OnyxLiveService to check after the screen
+    // turns on (1.142.0): when it isn't, the service asks for it again.
+    private static volatile boolean front;
+    private static volatile long resumedAt; // when it last came to the front
+    static boolean isFront() { return front; }
+    static long resumedAt() { return resumedAt; }
 
     @Override
     public boolean dispatchTouchEvent(MotionEvent ev) {
@@ -108,6 +114,7 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
 
     @Override
     protected void onDestroy() {
+        front = false;
         try {
             unregisterReceiver(unlocked);
         } catch (Exception ignored) {
@@ -121,7 +128,15 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
     @Override
     protected void onResume() {
         super.onResume();
+        // Kept from an earlier screen-on (onStop): gone if the phone is unlocked now or the panel was switched off.
+        KeyguardManager lock = getSystemService(KeyguardManager.class);
+        if (!unlocking && (lock == null || !lock.isKeyguardLocked() || !LauncherData.onLock(this))) {
+            finish();
+            return;
+        }
         resumed = true;
+        front = true;
+        resumedAt = System.currentTimeMillis();
         VoiceService.ensure(this); // "Hey Claude" listening again after a restart (the microphone starts only from the front)
         render();
         if (scene != null) scene.resume();
@@ -141,6 +156,7 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
     protected void onPause() {
         super.onPause();
         resumed = false;
+        front = false;
         ui.removeCallbacks(ticker);
         OnyxNotificationListener.unwatch(notifsChanged);
         if (music != null) music.stop();
@@ -149,11 +165,26 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
         if (scene != null) scene.pause();
     }
 
-    /** The screen went off or something else came up: shown afresh next time. */
+    /**
+     * The screen went off, or something else came up. Since 1.142.0 the panel stays while the
+     * phone is still locked, so it is already there when the screen comes back on (it renders
+     * afresh in onResume). Closing it at every screen-off raced the next screen-on: the request
+     * to show it reached the copy that was closing, and the stock lock screen showed instead.
+     * It goes once the phone is unlocked (here, or ACTION_USER_PRESENT).
+     */
     @Override
     protected void onStop() {
         super.onStop();
-        if (!unlocking) finish(); // not while Android asks for the PIN on top of it
+        front = false;
+        if (unlocking) return; // Android is asking for the PIN on top of it
+        KeyguardManager km = getSystemService(KeyguardManager.class);
+        if (km == null || !km.isKeyguardLocked()) finish();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
     }
 
     @SuppressWarnings("deprecation")

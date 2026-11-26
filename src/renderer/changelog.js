@@ -2,6 +2,17 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.142.0",
+  "date": "2026-11-26",
+  "title": "The Onyx lock screen every time the phone wakes",
+  "items": [
+   "The Onyx panel now comes up every time the screen turns on while the phone is locked. Before, it showed only about half the time, and the phone's own lock screen showed instead.",
+   "The cause: the panel closed itself every time the screen went off. When you woke the phone soon after, the request to show it again reached the copy that was still closing, and it went away with it.",
+   "The panel now stays while the phone is locked, so it is already there when the screen comes back on, and it still refreshes each time. It goes as soon as the phone is unlocked, or if the lock-screen panel is switched off.",
+   "As a safety net, a moment after the screen turns on Onyx checks that the panel came up and asks for it again if it didn't. It never comes back over the PIN pad once you've swiped it away."
+  ]
+ },
+ {
   "version": "1.141.0",
   "date": "2026-11-26",
   "title": "The calendar never goes blank",

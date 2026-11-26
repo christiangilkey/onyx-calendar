@@ -4046,3 +4046,11 @@ body.mobile .wb-check { width: 24px; height: 24px; top: 7px; right: 7px; }
 .wb-multi .btn { height: 30px; font-size: 12.5px; }
 
 .eye-breaks { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: flex-end; }
+
+/* 1.141.0: a calendar shown from its saved copy, or missing (app.js, showSaved). */
+#saved-bar { display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: #3a1d12; color: #ffd9c7; border-bottom: 1px solid #6b3420; font-size: 13px; line-height: 1.35; }
+#saved-bar[hidden] { display: none; }
+#saved-bar .saved-what { flex: 1; display: flex; gap: 8px; align-items: flex-start; }
+#saved-bar svg { flex: none; width: 16px; height: 16px; margin-top: 1px; }
+#saved-bar .btn { flex: none; }
+.fc-event.saved-copy { opacity: .78; background-image: repeating-linear-gradient(135deg, transparent 0 6px, rgba(255,255,255,.07) 6px 12px); }

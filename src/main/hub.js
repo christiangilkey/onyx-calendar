@@ -307,6 +307,83 @@ function localEvents(rawCal, start, end) {
   return out;
 }
 
+// ---------------------------------------------------------------- the saved copy (1.141.0)
+// Every calendar's entries are kept as last read, from a few days back to two months ahead
+// (store.data.keptEvents, on this device only). When a calendar can't be read (a sign-in that
+// expired, no network), its saved copy shows instead of nothing, marked as a saved copy. Past
+// the last day that was read, a repeat goes on by its rule, so an every-day thing is there every day.
+const KEEP_BACK = 3 * 86400000, KEEP_AHEAD = 62 * 86400000, KEEP_MAX = 4000, KEEP_NOTES = 600;
+const slimEvent = (e) => ({
+  id: e.id, calendarId: e.calendarId, calendarName: e.calendarName, color: e.color, kind: 'event', title: e.title,
+  start: e.start, end: e.end, allDay: !!e.allDay, location: e.location || '', notes: String(e.notes || '').slice(0, KEEP_NOTES),
+  link: e.link || '', recur: e.recur || null, seriesId: e.seriesId || null,
+});
+
+function keepEvents(cal, start, end, items, now = Date.now()) {
+  const kept = (store.data.keptEvents ??= {});
+  const from = new Date(start).getTime(), to = new Date(end).getTime();
+  const was = kept[cal.id];
+  // What was just read stands for its range (so a deleted entry goes); the rest of the copy stays.
+  const outside = (was?.items || []).filter((e) => toDate(e.end).getTime() <= from || toDate(e.start).getTime() >= to);
+  const all = outside.concat(items.map(slimEvent))
+    .filter((e) => toDate(e.end).getTime() > now - KEEP_BACK && toDate(e.start).getTime() < now + KEEP_AHEAD)
+    .sort((a, b) => toDate(a.start) - toDate(b.start))
+    .slice(0, KEEP_MAX);
+  const next = { at: now, to: Math.min(Math.max(was?.to || 0, to), now + KEEP_AHEAD), items: all };
+  if (was && was.to === next.to && JSON.stringify(was.items) === JSON.stringify(all)) { was.at = now; return; }
+  kept[cal.id] = next;
+  store.save();
+}
+
+/** A calendar's saved copy for a range (null when there is none), each entry marked `saved`. */
+function keptEvents(cal, start, end) {
+  const k = store.data.keptEvents?.[cal.id];
+  if (!k?.items?.length) return null;
+  const from = new Date(start), to = new Date(end);
+  const out = k.items.filter((e) => toDate(e.end) > from && toDate(e.start) < to);
+  if (to.getTime() > k.to) {
+    // Past what was read: each repeat carries on from its last saved day, by its rule.
+    const last = new Map();
+    for (const e of k.items) if (e.seriesId && e.recur) last.set(e.seriesId, e);
+    for (const e of last.values()) {
+      const first = toDate(e.start);
+      const length = toDate(e.end) - first;
+      const begin = new Date(Math.max(from.getTime(), k.to) - Math.max(length, 86400000));
+      let days = [];
+      try { days = recur.days(e.recur, first, begin, to, []); } catch { continue; }
+      for (const day of days) {
+        const s = e.allDay ? day : new Date(day.getFullYear(), day.getMonth(), day.getDate(), first.getHours(), first.getMinutes());
+        const t = new Date(s.getTime() + length);
+        if (t <= from || s >= to || s <= first) continue;
+        const key = localDate(day);
+        if (out.some((o) => o.seriesId === e.seriesId && localDate(toDate(o.start)) === key)) continue;
+        out.push({
+          ...e, id: `${e.seriesId}~saved~${key}`,
+          start: e.allDay ? key : s.toISOString(),
+          end: e.allDay ? localDate(new Date(day.getFullYear(), day.getMonth(), day.getDate() + Math.max(1, Math.round(length / 86400000)))) : t.toISOString(),
+        });
+      }
+    }
+  }
+  if (!out.length) return null;
+  const color = calendars().find((c) => c.id === cal.id)?.color;
+  return out.map((e) => ({ ...e, ...(color ? { color } : {}), writable: false, saved: k.at }));
+}
+
+/** Reads the coming weeks in the background, so the saved copy reaches far ahead. */
+let keepTimer = null;
+function keepFresh(every = 30 * 60000) {
+  const run = () => {
+    const now = new Date();
+    const from = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 2);
+    const to = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 45);
+    getEvents(from.toISOString(), to.toISOString(), { includeHidden: true }).catch(() => {});
+  };
+  clearInterval(keepTimer);
+  setTimeout(run, 20000);
+  keepTimer = setInterval(run, every);
+}
+
 async function calendarEvents(cal, start, end, force) {
   const key = `${cal.id}|${start}|${end}`;
   const hit = eventCache.get(key);
@@ -319,6 +396,7 @@ async function calendarEvents(cal, start, end, force) {
   else raw = await PROVIDERS[acct.provider].events(req(acct), rawCal, start, end);
   const items = raw.map((e) => unify(cal, e));
   eventCache.set(key, { at: Date.now(), items });
+  if (acct.provider !== 'local') { try { keepEvents(cal, start, end, items); } catch { /* the copy is a spare: never in the way */ } }
   reconcileCalls(cal, items, start, end);
   return items;
 }
@@ -369,11 +447,23 @@ async function getEvents(start, end, { includeHidden = false, force = false } = 
   const hidden = store.data.settings.hidden;
   const shown = calendars().filter((c) => includeHidden || !hidden[c.id]);
   const errors = new Set();
+  const saved = new Map(); // account -> when its saved copy was read
+  const useSaved = (cal, at) => saved.set(cal.accountLabel, Math.min(saved.get(cal.accountLabel) || Infinity, at || Date.now()));
   const from = new Date(start), to = new Date(end);
   const lists = await Promise.all(shown.map(async (cal) => {
     try {
       if (cal.kind === 'calendar') return await calendarEvents(cal, start, end, force);
-      const open = (await listTasks(cal, force)).filter((t) => !t.mirror && !t.done);
+      let tasks;
+      try {
+        tasks = await listTasks(cal, force);
+      } catch (err) {
+        if (!err.savedTasks) throw err;
+        errors.add(err.message.includes(cal.accountLabel) ? err.message : `${cal.accountLabel}: ${err.message}`);
+        useSaved(cal, store.data.keptTasks?.[cal.id]?.at);
+        const mirrors = new Set(Object.values(store.data.piLinks).map((l) => l.task));
+        tasks = err.savedTasks.map((t) => unifyTask(cal, t, mirrors));
+      }
+      const open = tasks.filter((t) => !t.mirror && !t.done);
       // Done ones too, so the calendar shows what was ticked off where it was planned.
       const done = await doneTasks(cal, start, end, force).catch(() => []);
       return [...open, ...done.map((t) => ({ ...t, done: true }))]
@@ -381,7 +471,9 @@ async function getEvents(start, end, { includeHidden = false, force = false } = 
         .filter((e) => e && toDate(e.end) > from && toDate(e.start) < to);
     } catch (err) {
       errors.add(err.message.includes(cal.accountLabel) ? err.message : `${cal.accountLabel}: ${err.message}`);
-      return [];
+      const copy = cal.kind === 'calendar' ? keptEvents(cal, start, end) : null;
+      if (copy) useSaved(cal, store.data.keptEvents[cal.id].at);
+      return copy || [];
     }
   }));
   const events = lists.flat()
@@ -397,7 +489,8 @@ async function getEvents(start, end, { includeHidden = false, force = false } = 
     }))
     .concat(require('./goals').spans(start, end, includeHidden)) // goals.js needs this module: loaded late
     .sort((a, b) => toDate(a.start) - toDate(b.start));
-  return { events, errors: [...errors] };
+  // `saved`: the accounts shown from their saved copy, and since when (the window says so).
+  return { events, errors: [...errors], saved: [...saved].map(([account, at]) => ({ account, at })) };
 }
 
 function eventFields(d) {
@@ -712,6 +805,14 @@ function unifyTask(cal, t, mirrors) {
   return task;
 }
 
+function keepTasks(listId, raw) {
+  const kept = (store.data.keptTasks ??= {});
+  const items = raw.slice(0, 2000).map((t) => ({ ...t, notes: String(t.notes || '').slice(0, KEEP_NOTES) }));
+  if (kept[listId] && JSON.stringify(kept[listId].items) === JSON.stringify(items)) return;
+  kept[listId] = { at: Date.now(), items };
+  store.save();
+}
+
 async function listTasks(cal, force) {
   const hit = taskCache.get(cal.id);
   let raw;
@@ -719,8 +820,16 @@ async function listTasks(cal, force) {
     raw = hit.items;
   } else {
     const { acct, rawCal } = parseId(cal.id);
-    raw = await PROVIDERS[acct.provider].tasks(req(acct), rawCal);
+    try {
+      raw = await PROVIDERS[acct.provider].tasks(req(acct), rawCal);
+    } catch (err) {
+      // The list can't be read: its last good copy is worked from, and the error still says why.
+      const saved = hit?.items || store.data.keptTasks?.[cal.id]?.items;
+      if (saved) err.savedTasks = saved;
+      throw err;
+    }
     taskCache.set(cal.id, { at: Date.now(), items: raw });
+    try { keepTasks(cal.id, raw); } catch { /* a spare */ }
   }
   const mirrors = new Set(Object.values(store.data.piLinks).map((l) => l.task));
   const tasks = raw.map((t) => unifyTask(cal, t, mirrors));
@@ -1410,6 +1519,7 @@ function removeLocalCalendar(id) {
 }
 
 module.exports = {
+  keepEvents, keptEvents, keepFresh,
   calendars, refreshCalendars, invalidate, getEvents, setBackburner, setEventDone, createEvent, updateEvent, deleteEvent, setLeaveBy, ackPiCall, piAlerts,
   getTasks, archivedTasks, fetchTask, createTask, updateTask, moveTask, resizeTask, receiveTask, queueTask, planTask, unplanTask, dismissInbox, deleteTask, setRepeat, setPomodoro, setBlockTasks, setBlockLinks, setBridge, bridgeOf, tickBlockTask, setEventColor, setAware, setPiCall, freeTime, setTaskMinutes, addLocalCalendar, removeLocalCalendar,
   setTags, allTags, setTagColor, renameTag, deleteTag, setMemo, MAX_NOTE, cleanTags, ensureColor,

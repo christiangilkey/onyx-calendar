@@ -325,6 +325,8 @@ async function boot() {
     win?.webContents.send('changed');
   });
   hub.refreshCalendars().then(() => win?.webContents.send('changed')).catch(() => {});
+  // The saved copy of the coming weeks (hub.js keptEvents), read in the background so it is there when a calendar can't be.
+  if (!SMOKE_SHOT) hub.keepFresh();
   // Live Excel sheets: a row added (or changed) shows up as a block without a refresh.
   require('./providers/sheet').start(() => store.data.accounts, (acct) => { hub.invalidate(`${acct.id}/feed`); win?.webContents.send('changed'); });
   updater.start((s) => win?.webContents.send('update', s));

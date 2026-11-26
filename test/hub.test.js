@@ -208,10 +208,12 @@ test('one account failing does not hide the others', async () => {
   const real = google.events;
   google.events = async () => { throw new Error('sign in again'); };
   hub.invalidate();
-  const { events, errors } = await hub.getEvents(...week());
+  store.data.keptEvents = {}; // no saved copy (saved-copy.test.js has the one that shows instead)
+  const { events, errors, saved } = await hub.getEvents(...week());
   google.events = real;
   assert.deepEqual(events.map((e) => e.title), ['Local thing']);
   assert.deepEqual(errors, ['me@example.com: sign in again']);
+  assert.deepEqual(saved, []);
 });
 
 test('free time is what is left between the busy blocks', async () => {

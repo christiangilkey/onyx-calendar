@@ -2,6 +2,16 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
+## 1.141.0 · The calendar never goes blank
+
+_2026-11-26_
+
+- When a calendar can't be read (a sign-in that expired, no network), Onyx now shows its saved copy instead of nothing. Each calendar's entries are kept as last read, from a few days back to about two months ahead, and the coming six weeks are read in the background every half hour so the copy is always far ahead.
+- Repeats carry on: past the last day that was read, each repeating entry goes on by its own rule, so something that happens every day is there every day.
+- Task lists do the same: a list that can't be read shows as it was last read.
+- A bar under the top bar stays while this is happening. It says which account is showing a saved copy and from when, or that an account isn't showing at all, and why. It has a button to sign in again (on the phone, how to fix it). Entries from a saved copy are drawn slightly faded and striped, and can't be edited until the calendar can be read again.
+- The saved copy stays on each device and is not synced.
+
 ## 1.140.0 · Sticky notes on your desktop
 
 _2026-11-23_

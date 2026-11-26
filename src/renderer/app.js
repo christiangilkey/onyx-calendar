@@ -1605,6 +1605,26 @@
     // An open Settings shows the card (or loses it) at once.
     if ([...expiredSignIns].join('|') !== was && !$('#modal').hidden && $('.sheet.settings', $('#modal'))) openSettings(settingsTab);
   }
+  // 1.141.0: a bar that stays while a calendar can't be read, instead of a toast that goes. With a
+  // saved copy (hub.js keptEvents) it says the entries shown are that copy, and from when; without
+  // one it says plainly that the calendar is missing. Both say how to fix it.
+  function showSaved(saved) {
+    const bar = $('#saved-bar');
+    if (!bar) return;
+    const fmt = (at) => new Date(at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: S.settings.hour12 !== false });
+    const copied = new Map(saved.map((s) => [s.account, s.at]));
+    const missing = [...expiredSignIns].filter((a) => !copied.has(a));
+    if (!copied.size && !missing.length) { bar.hidden = true; bar.replaceChildren(); return; }
+    const why = expiredSignIns.size ? 'its sign-in expired' : "it can't be reached right now";
+    const lines = [
+      ...[...copied].map(([a, at]) => `Showing a saved copy of ${a} from ${fmt(at)}: ${expiredSignIns.has(a) ? 'its sign-in expired' : "it can't be reached right now"}. New changes won't show until it's fixed.`),
+      ...missing.map((a) => `${a} isn't showing: ${why}, and there is no saved copy yet.`),
+    ];
+    bar.replaceChildren(h('span', { class: 'saved-what' }, icon('shield'), h('span', null, lines.join('  '))),
+      expiredSignIns.size ? h('button', { class: 'btn', onclick: () => openSettings(MOBILE ? SET_HOME : 'calendars') }, onyx.isPhone ? 'How to fix' : 'Sign in again') : null);
+    bar.hidden = false;
+  }
+
   /** At the top of Settings while a sign-in has expired: who, and the way to sign in again. */
   function signInCard() {
     if (!expiredSignIns.size) return null;
@@ -1695,7 +1715,7 @@
       editable: e.kind === 'task' ? !!e.movable : e.writable && e.kind === 'event',
       // An entry or a timed task can be stretched by its top or bottom edge.
       durationEditable: (e.kind === 'event' && e.writable) || (e.kind === 'task' && !!e.movable && !e.allDay),
-      classNames: [e.kind === 'task' ? 'is-task' : e.kind === 'goal' ? 'is-goal' : 'is-event', e.kind === 'goal' || e.aware ? '' : 'can-tick', e.aware ? 'is-aware' : '', e.done ? 'is-done' : '', matchesFilter(e.tags) ? '' : 'is-dim', e.offline ? 'is-offline' : ''],
+      classNames: [e.kind === 'task' ? 'is-task' : e.kind === 'goal' ? 'is-goal' : 'is-event', e.kind === 'goal' || e.aware ? '' : 'can-tick', e.aware ? 'is-aware' : '', e.done ? 'is-done' : '', matchesFilter(e.tags) ? '' : 'is-dim', e.offline ? 'is-offline' : '', e.saved ? 'saved-copy' : ''],
       extendedProps: { src: e },
     };
   }
@@ -1720,8 +1740,9 @@
       const force = forceNext;
       forceNext = false;
       const began = Date.now();
-      const { events, errors } = await onyx.events(info.start.toISOString(), info.end.toISOString(), force);
+      const { events, errors, saved } = await onyx.events(info.start.toISOString(), info.end.toISOString(), force);
       showProblems(errors);
+      showSaved(saved || []);
       ok(events.filter((e) => e.kind !== 'goal' && visible(e.calendarId) && !carriedOver(e)).map(toFc));
       // A stand-in goes once a load that started after its entry was made has brought the real one.
       for (const ev of [...pending]) if (ev.extendedProps.madeAt && ev.extendedProps.madeAt <= began) dropPending(ev);

@@ -2,6 +2,17 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.143.0",
+  "date": "2026-11-27",
+  "title": "A daily after-action review, and today's progress under the pills",
+  "items": [
+   "After-action review: at the end of a day, three short answers: What did I do? What could go better? Plan for tomorrow. \"What did I do?\" starts filled in with what you ticked off, and the review lists what was planned but not done.",
+   "The next day, the top bar shows a \"Today's plan\" chip with the first line of last night's plan. Hover to read it all, and click to open the review with the plan highlighted. Today's review shows that plan at the top, so you can compare.",
+   "From 7 pm the chip turns amber and asks for today's review. You can step back and forward through earlier days, and Ctrl+Enter saves. Reviews sync between your PC and phone; on the phone, the flag in the top strip opens it.",
+   "Today's progress: a thin green bar under the Now/Next pills fills as you tick off today's blocks and tasks. Hover it for \"3 of 7 done today\". All-day calendar entries, like holidays, don't count."
+  ]
+ },
+ {
   "version": "1.142.0",
   "date": "2026-11-26",
   "title": "The Onyx lock screen every time the phone wakes",

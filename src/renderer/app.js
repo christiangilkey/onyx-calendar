@@ -298,7 +298,12 @@
       // And the open tasks due today with no time: shown when nothing timed is coming today.
       const today = ymd(now);
       nextRun.today = events.filter((e) => e.kind === 'task' && e.allDay && !e.done && !e.mirror && visible(e.calendarId) && String(e.start).slice(0, 10) === today);
+      // 1.143.0: how much of today's plan is done, for the thin bar under the pills. Blocks and
+      // tasks on today (all-day calendar entries, like holidays, are not things to do).
+      const todays = events.filter((e) => !e.aware && visible(e.calendarId) && ((e.kind === 'event' && !e.allDay) || (e.kind === 'task' && !e.mirror)) && sameDay(toDate(e.start), now));
+      nextRun.progress = { done: todays.filter((e) => e.done).length, total: todays.length };
       nextRun.loaded = true;
+      if (aarRun.day !== today) loadAar();
       handAlarms(nextRun.items);
     } catch { /* keep the last list */ }
     pomoRun.loading = false;
@@ -570,6 +575,116 @@
     box.hidden = false;
   }
 
+  // ---- the daily after-action review (1.143.0, src/main/aar.js)
+  // Three answers at the end of a day: what I did, what could go better, the plan for tomorrow.
+  // The next day the top bar shows that plan, one click from the whole review. In the evening it
+  // asks for today's. On the phone it is the flag in the top strip.
+  const aarRun = { day: '', today: null, yesterday: null };
+  const AAR_EVENING = 19; // from 7 pm the bar asks for today's review
+  async function loadAar() {
+    if (!onyx.aarGet) return;
+    const now = new Date();
+    const today = ymd(now), yday = ymd(addDays(now, -1));
+    try {
+      const [t, y] = await Promise.all([onyx.aarGet(today), onyx.aarGet(yday)]);
+      Object.assign(aarRun, { day: today, today: t, yesterday: y });
+    } catch { /* an older PC: no reviews yet */ }
+    paintAar();
+  }
+  const firstLine = (s) => String(s || '').split('\n').map((l) => l.replace(/^\s*([-*•]|\d+[.)]|\[[ xX]?\])\s*/, '').trim()).find(Boolean) || '';
+  /** What the review chip says now: [label, preview, title, which day it opens, accent]. */
+  function aarState() {
+    const now = new Date();
+    const today = ymd(now), yday = ymd(addDays(now, -1));
+    if (aarRun.day !== today) return ['Review', '', 'After-action review', today, false];
+    if (now.getHours() >= AAR_EVENING && !aarRun.today) return ['Review today', '', "Time for today's after-action review: what you did, what could go better, and tomorrow's plan", today, true];
+    if (aarRun.yesterday?.plan) return ["Today's plan", firstLine(aarRun.yesterday.plan), `Your plan for today, from last night's review:\n\n${aarRun.yesterday.plan}\n\nClick to open the whole review`, yday, false];
+    if (aarRun.today) return ["Today's review", '', "Today's after-action review", today, false];
+    return ['Review', '', 'After-action review: what you did, what could go better, and the plan for tomorrow', today, false];
+  }
+  function paintAar() {
+    const [label, preview, title, , accent] = aarState();
+    const chip = nextRun.parts?.aar;
+    if (chip) {
+      chip.replaceChildren(icon('flag'), h('b', null, label), preview ? h('span', { class: 'what' }, preview) : '');
+      chip.title = title;
+      chip.classList.toggle('accent', accent);
+    }
+    const btn = $('#aar-btn');
+    if (btn) { btn.title = title; btn.classList.toggle('accent', accent); }
+  }
+  function openAarNow() {
+    const [, , , day] = aarState();
+    openAar(day);
+  }
+
+  async function openAar(day) {
+    const date = fromYmd(day);
+    const today = ymd(new Date());
+    const prev = ymd(addDays(date, -1)), next = ymd(addDays(date, 1));
+    let saved = null, before = null;
+    try { [saved, before] = await Promise.all([onyx.aarGet(day), onyx.aarGet(prev)]); } catch (err) { fail(err); return; }
+    // What the day held: done, and planned but not done (fills "What did I do?" when it is empty).
+    let done = [], missed = [];
+    try {
+      const { events } = await onyx.events(date.toISOString(), addDays(date, 1).toISOString());
+      const mine = events.filter((e) => !e.aware && visible(e.calendarId) && ((e.kind === 'event' && !e.allDay) || (e.kind === 'task' && !e.mirror)) && sameDay(toDate(e.start), date));
+      const line = (e) => `${e.title}${e.allDay ? '' : ` (${fmtTime(toDate(e.start))})`}`;
+      done = mine.filter((e) => e.done).map(line);
+      missed = mine.filter((e) => !e.done && toDate(e.end || e.start) < new Date()).map(line);
+    } catch { /* written by hand */ }
+
+    const area = (key, label, hint, rows) => {
+      const t = h('textarea', { class: 'aar-text', rows, placeholder: hint, 'data-k': key });
+      t.value = saved?.[key] || '';
+      return { key, t, el: h('label', { class: `aar-field aar-${key}` }, h('b', null, label), t) };
+    };
+    const tomorrowName = day === today ? 'tomorrow' : fmtDay(addDays(date, 1));
+    const did = area('did', 'What did I do?', 'What got done, what happened.', 5);
+    const better = area('better', 'What could go better?', 'What got in the way, and why. Behaviour, not character.', 4);
+    const plan = area('plan', `Plan for ${tomorrowName}`, 'The first thing, and what you will do differently. Small and specific.', 4);
+    if (!saved && done.length) did.t.value = done.map((l) => `- ${l}`).join('\n');
+    const fields = [did, better, plan];
+    const startText = JSON.stringify(fields.map((f) => f.t.value));
+    const changed = () => JSON.stringify(fields.map((f) => f.t.value)) !== startText;
+
+    const when = saved ? new Date(saved.updated || saved.at) : null;
+    const status = h('small', { class: 'aar-status' }, when ? `Saved ${fmtTime(when)}${sameDay(when, new Date()) ? '' : `, ${fmtDay(when)}`}` : '');
+    const save = async (close) => {
+      try {
+        const r = await onyx.aarSet(day, Object.fromEntries(fields.map((f) => [f.key, f.t.value])));
+        if (day === today) aarRun.today = r;
+        if (day === ymd(addDays(new Date(), -1))) aarRun.yesterday = r;
+        paintAar();
+        toast(r ? 'Review saved' : 'Review cleared');
+        if (close) closeSettings();
+        else status.textContent = r ? `Saved ${fmtTime(new Date())}` : '';
+      } catch (err) { fail(err); }
+    };
+    const go = (d) => async () => { if (changed()) await save(false); openAar(d); };
+
+    const pane = h('div', { class: 'pane aar-pane' });
+    pane.append(
+      h('button', { class: 'icon-btn close', onclick: () => (changed() ? save(true) : closeSettings()) }, icon('x')),
+      h('div', { class: 'aar-head' },
+        h('h3', { class: 'magic-h' }, icon('flag'), 'After-action review'),
+        h('div', { class: 'aar-nav' },
+          h('button', { class: 'icon-btn', title: 'The day before', onclick: go(prev) }, icon('left')),
+          h('span', null, day === today ? `Today, ${fmtDay(date)}` : fmtDay(date)),
+          h('button', { class: 'icon-btn', title: 'The day after', disabled: day >= today, onclick: go(next) }, icon('right')))),
+      before?.plan ? h('div', { class: 'aar-was' }, h('b', null, `The plan for ${day === today ? 'today' : 'this day'}`), h('p', null, before.plan)) : '',
+      did.el,
+      missed.length ? h('p', { class: 'aar-missed' }, h('b', null, 'Planned, not done: '), missed.join(' · ')) : '',
+      better.el, plan.el,
+      h('div', { class: 'aar-go' }, status, h('button', { class: 'btn primary', onclick: () => save(true) }, 'Save')));
+    pane.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); save(true); } });
+    $('#modal').replaceChildren(h('div', { class: 'sheet aar' }, pane));
+    $('#modal').hidden = false;
+    // Opened for a plan to follow: the plan is what you came for. Otherwise, the first empty answer.
+    const target = day !== today && plan.t.value ? plan.t : fields.find((f) => !f.t.value)?.t || plan.t;
+    setTimeout(() => { target.focus({ preventScroll: false }); if (day !== today) plan.el.classList.add('aar-hot'); }, 50);
+  }
+
   // ---- the next-thing bar: time made visible and audible at the point of action
   // A strip under the top bar counts down to the next timed thing (or shows how long the
   // current one has left), shrinking and changing colour as it gets close, and chimes 5
@@ -691,14 +806,29 @@
           tickNext();
         } }),
       };
+      parts.aar = h('button', { class: 'next-aar', onclick: openAarNow });
+      parts.progress = h('div', { class: 'next-progress', role: 'progressbar', 'aria-valuemin': '0' }, h('i'));
       bar.replaceChildren(h('div', { class: 'next-row' },
         h('div', { class: 'next-side' }, parts.label),
-        h('div', { class: 'next-center' }, parts.main.el, parts.sub.el),
+        h('div', { class: 'next-center' }, parts.main.el, parts.sub.el, parts.aar, parts.progress),
         h('div', { class: 'next-side end' }, parts.tools, parts.sound)));
       nextRun.parts = parts;
+      paintAar();
     }
     placeStatus(!MOBILE);
     const p = nextRun.parts;
+    // How much of today is done: a thin bar under the pills (1.143.0).
+    const pr = nextRun.progress;
+    p.progress.hidden = !pr?.total;
+    if (pr?.total) {
+      p.progress.style.setProperty('--done', `${((pr.done / pr.total) * 100).toFixed(1)}%`);
+      p.progress.classList.toggle('all', pr.done >= pr.total);
+      p.progress.title = pr.done >= pr.total ? `All ${pr.total} done today` : `${pr.done} of ${pr.total} done today`;
+      p.progress.setAttribute('aria-valuemax', String(pr.total));
+      p.progress.setAttribute('aria-valuenow', String(pr.done));
+      p.progress.setAttribute('aria-label', p.progress.title);
+    }
+    if (new Date().getSeconds() < 2) paintAar(); // the evening ask turns on by itself
     let tone = 'calm';
     p.main.el.classList.remove('pomo-on'); // set again below while a pomodoro block is on
     p.main.stop.hidden = true;
@@ -14317,7 +14447,7 @@
     const bar = $('#titlebar');
     const strip = h('div', { id: 'top-tools', class: 'top-tools', role: 'toolbar', 'aria-label': 'Onyx' });
     $('.nav', bar).after(strip);
-    strip.append(...['pomo-timer', 'noise-btn', 'cal-home', 'globe-toggle', 'board-toggle', 'bridge-btn', 'undo-btn', 'update-btn', 'refresh', 'toggle-tasks', 'open-settings']
+    strip.append(...['pomo-timer', 'noise-btn', 'aar-btn', 'cal-home', 'globe-toggle', 'board-toggle', 'bridge-btn', 'undo-btn', 'update-btn', 'refresh', 'toggle-tasks', 'open-settings']
       .map((id) => document.getElementById(id)).filter(Boolean));
     const edges = () => {
       const max = strip.scrollWidth - strip.clientWidth;
@@ -14365,6 +14495,8 @@
     $('#board-toggle').append(icon('board'));
     $('#board-toggle').onclick = toggleBoards;
     // Sticky notes (1.140.0, stickies.js): on the PC, a note of its own on the desktop. Right-click shows them all.
+    $('#aar-btn').append(icon('flag'));
+    $('#aar-btn').onclick = openAarNow;
     if (onyx.newSticky) {
       const sticky = $('#sticky-btn');
       sticky.hidden = false;

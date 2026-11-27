@@ -52,6 +52,8 @@
     ev('i1/feed', 'Formation', 1, 6, 0, 6, 45),
     { ...ev('g1/family', 'Leave', 3, 0, 0, 0, 0, {}, ['family']), allDay: true, start: ymd(day(3)), end: ymd(day(5)) },
   ];
+  const ymdOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const mockAars = { [ymdOf(new Date(Date.now() - 86400000))]: { did: '- Gym (7:00 AM)\n- Grant draft, intro done', better: 'Opened email before the first block and lost 40 minutes.', plan: 'Phone in the drawer, then grant section 2 at 9:00.\nEmail only after lunch.', at: Date.now() - 50000000, updated: Date.now() - 50000000 } };
   let tasks = [
     { id: 'g1/tl~main/in1', title: 'Renew car insurance', label: 'Renew car insurance', arrived: true, provider: 'google', listName: 'My Tasks', date: null, time: null, start: null, call: null, notes: 'Quote from the broker is in my email.' },
     { id: 'g1/tl~main/in2', title: 'Pick up dry cleaning', label: 'Pick up dry cleaning', arrived: true, provider: 'google', listName: 'My Tasks', date: null, time: null, start: null, call: null },
@@ -883,6 +885,10 @@
       return { ...plan, summary: P.summary(plan.steps, { start: start > today ? start : today, end }), level };
     },
     suggestBridge: async (title) => { await new Promise((r) => setTimeout(r, 400)); return `Open "${title}" and finish the half-written first line.`; },
+    // The after-action review (aar.js), kept for this visit; yesterday's has a plan to show.
+    aarGet: async (day) => mockAars[day] || null,
+    aarSet: async (day, f) => { const r = { ...mockAars[day], ...f, updated: Date.now() }; if (!['did', 'better', 'plan'].some((k) => String(r[k] || '').trim())) { delete mockAars[day]; return null; } mockAars[day] = r; return r; },
+    aarRecent: async () => Object.entries(mockAars).map(([day, r]) => ({ day, ...r })),
     setBridge: async (id, text, by = 'you') => { const t = tasks.find((x) => x.id === id); const words = String(text || '').trim(); if (t) t.bridge = words ? { text: words, by, at: new Date().toISOString() } : null; return t?.bridge || null; },
     breakdown: async (title, opts = {}) => {
       const all = ['Clear a space to work', 'Gather what you need', `Open what "${title}" needs`, 'Do the first small part', 'Take a short look at it', 'Do the next part', 'Check it over', 'Tidy up', 'Tick it off', 'Take a breath', 'Tell someone it is done', 'Plan what comes next'];

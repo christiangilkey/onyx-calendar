@@ -2,9 +2,22 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.143.0 · A daily after-action review, and today's progress under the pills
+## 1.144.0 · Unstick, for when you can't make yourself start, and a new whiteboard icon
 
 _2026-11-27_
+
+- Unstick: the orange bolt in the top bar (on the phone, in the top strip) opens your Unstick Field Kit inside Onyx. For when you know what to do and your brain won't hand over the keys.
+- "Don't make me choose": three steps, no decisions. A minute of long-exhale breathing, the tiniest first movement, then five minutes on it.
+- "What's in the way right now?": pick from Can't start, Too much, Dreading it, No energy, Can't make myself care, Keep drifting, Losing time, Can't stop or switch, and Beating myself up. Each gives technique cards in order: do the first, and try the next only if it doesn't move you. Every card says how strong its evidence is, why it works, and its sources.
+- Tools built in:
+- A timer (2, 5, 10 or 25 minutes). It keeps going if you close Unstick, then chimes: stop or keep going, both count.
+- A breathing guide.
+- A step shrinker. It shows the step to do now, puts a smaller step in front when you press "Still too big", and can save the task with its first steps to your tasks.
+- The whiteboard has a new icon: a board on its stand with a line drawn on it.
+
+## 1.143.0 · A daily after-action review, and today's progress under the pills
+
+_2026-11-26_
 
 - After-action review: at the end of a day, three short answers: What did I do? What could go better? Plan for tomorrow. "What did I do?" starts filled in with what you ticked off, and the review lists what was planned but not done.
 - The next day, the top bar shows a "Today's plan" chip with the first line of last night's plan. Hover to read it all, and click to open the review with the plan highlighted. Today's review shows that plan at the top, so you can compare.

@@ -12,7 +12,9 @@
     eraser: '<path d="M9 20h11"/><path d="M4.7 14.7l9-9a2 2 0 0 1 2.8 0l3 3a2 2 0 0 1 0 2.8L12.2 18.8H8.8l-4.1-4.1a.6.6 0 0 1 0-.9z"/><path d="M9.6 9.8l5 5"/>',
     hand: '<path d="M8 13V6.5a1.5 1.5 0 0 1 3 0V12"/><path d="M11 11.5V5a1.5 1.5 0 0 1 3 0v6.5"/><path d="M14 11.5V7a1.5 1.5 0 0 1 3 0v7a6 6 0 0 1-6 6h-.6a6 6 0 0 1-4.6-2.2L4 14.6a1.5 1.5 0 0 1 2.3-1.9L8 14.5"/>',
     copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
-    board: '<rect x="2.5" y="3" width="7" height="5" rx="1.2"/><rect x="14.5" y="16" width="7" height="5" rx="1.2"/><path d="M18 4.5l3 3-3 3-3-3z"/><path d="M9.5 5.5H15"/><path d="M18 10.5V16"/><path d="M6 8v8.5h8.5"/>',
+    // 1.144.0: a whiteboard on its stand, with a marker line drawn on it.
+    board: '<rect x="3" y="3.5" width="18" height="12.5" rx="1.8"/><path d="M6.8 11.5c1.4-2.6 2.6-3 3.6-1.2s2.4 1.6 3.7-.6 2.4-2 3.1-.9"/><path d="M12 16v2.2M8.5 21l2.2-4.8M15.5 21l-2.2-4.8"/>',
+    unstick: '<path d="M13.5 2.5 5 13.5h6l-1 8 8.5-11h-6z"/>',
     waves: '<path d="M3 8c1.5-1.5 3-1.5 4.5 0s3 1.5 4.5 0 3-1.5 4.5 0 3 1.5 4.5 0"/><path d="M3 13c1.5-1.5 3-1.5 4.5 0s3 1.5 4.5 0 3-1.5 4.5 0 3 1.5 4.5 0"/><path d="M3 18c1.5-1.5 3-1.5 4.5 0s3 1.5 4.5 0 3-1.5 4.5 0 3 1.5 4.5 0"/>',
     left: '<path d="M15 6l-6 6 6 6"/>',
     right: '<path d="M9 6l6 6-6 6"/>',
@@ -573,6 +575,208 @@
     box.style.setProperty('--done', `${Math.min(100, 100 - (p.left / (p.length * 60000)) * 100)}%`);
     box.title = `${e.title}: ${p.kind === 'work' ? 'working' : 'resting'}, round ${p.round} of ${p.rounds}. Ends ${fmtTime(new Date(e.end))}.`;
     box.hidden = false;
+  }
+
+  // ---- Unstick (1.144.0, unstick.js): when you know what to do and can't start
+  // Pick what's in the way, do the first card. Or "Don't make me choose": breathe, shrink the
+  // first step, five minutes. The timer keeps going if the sheet is closed, and rings at the end.
+  const unstickRun = { timer: null, endAt: 0, total: 0, onTick: null, breath: null, steps: [], task: '' };
+  const fmtMS = (ms) => { const s = Math.max(0, Math.ceil(ms / 1000)); return `${pad(Math.floor(s / 60))}:${pad(s % 60)}`; };
+  function unstickTimer(minutes) {
+    clearInterval(unstickRun.timer);
+    unstickRun.total = minutes * 60000;
+    unstickRun.endAt = Date.now() + unstickRun.total;
+    unstickRun.timer = setInterval(() => {
+      const left = unstickRun.endAt - Date.now();
+      unstickRun.onTick?.(left);
+      if (left > 0) return;
+      clearInterval(unstickRun.timer);
+      unstickRun.timer = null;
+      try { chime('work'); } catch { /* the toast says it */ }
+      toast(`${Math.round(unstickRun.total / 60000)} minutes done. Stop or keep going: both count.`);
+    }, 250);
+    unstickRun.onTick?.(unstickRun.total);
+  }
+
+  function openUnstick(stateId) {
+    const U = window.OnyxUnstick;
+    if (!U) return;
+    const pane = h('div', { class: 'pane unstick-pane' });
+    const body = h('div', { class: 'us-body' });
+    const stop = () => { clearInterval(unstickRun.breath); unstickRun.breath = null; unstickRun.onTick = null; };
+    const close = () => { stop(); closeSettings(); };
+
+    // ---- the tools
+    const timerTool = (minutes) => {
+      stop();
+      const C = 2 * Math.PI * 52;
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', '0 0 120 120');
+      const track = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      for (const [k, v] of Object.entries({ cx: 60, cy: 60, r: 52, class: 'us-track' })) track.setAttribute(k, v);
+      const bar = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      for (const [k, v] of Object.entries({ cx: 60, cy: 60, r: 52, class: 'us-bar', 'stroke-dasharray': C })) bar.setAttribute(k, v);
+      svg.append(track, bar);
+      const digits = h('div', { class: 'us-digits' }, fmtMS(minutes * 60000));
+      const sub = h('small', null, 'ready');
+      let pick = minutes;
+      const presets = h('div', { class: 'us-presets' }, [2, 5, 10, 25].map((m) => h('button', { type: 'button', class: m === pick ? 'on' : '', onclick: (e) => {
+        pick = m;
+        for (const b of e.currentTarget.parentElement.children) b.classList.toggle('on', b === e.currentTarget);
+        if (!unstickRun.timer) { digits.textContent = fmtMS(m * 60000); bar.setAttribute('stroke-dashoffset', 0); }
+      } }, `${m} min`)));
+      unstickRun.onTick = (left) => {
+        digits.textContent = fmtMS(left);
+        bar.setAttribute('stroke-dashoffset', String(C * (1 - Math.max(0, left) / unstickRun.total)));
+        sub.textContent = left > 0 ? 'going' : 'done: stop or keep going';
+      };
+      if (unstickRun.timer) unstickRun.onTick(unstickRun.endAt - Date.now());
+      return h('div', { class: 'us-tool' },
+        h('div', { class: 'us-ring' }, svg, h('div', { class: 'us-read' }, digits, sub)), presets,
+        h('div', { class: 'us-row' },
+          h('button', { class: 'btn primary', onclick: () => unstickTimer(pick) }, 'Start'),
+          h('button', { class: 'btn', onclick: () => { clearInterval(unstickRun.timer); unstickRun.timer = null; digits.textContent = fmtMS(pick * 60000); bar.setAttribute('stroke-dashoffset', 0); sub.textContent = 'ready'; } }, 'Reset')));
+    };
+    const breatheTool = (minutes = 1) => {
+      stop();
+      const orb = h('div', { class: 'us-orb' });
+      const cue = h('div', { class: 'us-cue' }, 'Ready when you are');
+      const left = h('small', { class: 'us-left' }, '');
+      let pick = minutes;
+      const presets = h('div', { class: 'us-presets' }, [1, 3, 5].map((m) => h('button', { type: 'button', class: m === pick ? 'on' : '', onclick: (e) => {
+        pick = m;
+        for (const b of e.currentTarget.parentElement.children) b.classList.toggle('on', b === e.currentTarget);
+      } }, `${m} min`)));
+      // In through the nose (2 s), a short top-up sniff (1 s), a long slow breath out (5 s).
+      const PHASES = [['In through the nose', 2000, 1], ['Top up: a short sniff', 1000, 1.12], ['Long, slow breath out', 5000, 0.62]];
+      const go = () => {
+        clearInterval(unstickRun.breath);
+        const end = Date.now() + pick * 60000;
+        let i = 0, next = 0;
+        const step = () => {
+          const now = Date.now();
+          if (now >= end) { clearInterval(unstickRun.breath); unstickRun.breath = null; cue.textContent = 'Done. Now the tiniest first step.'; orb.style.transform = 'scale(.7)'; left.textContent = ''; return; }
+          left.textContent = fmtMS(end - now);
+          if (now < next) return;
+          const [text, ms, scale] = PHASES[i % PHASES.length];
+          cue.textContent = text;
+          orb.style.transitionDuration = `${ms}ms`;
+          orb.style.transform = `scale(${scale})`;
+          next = now + ms;
+          i++;
+        };
+        step();
+        unstickRun.breath = setInterval(step, 200);
+      };
+      return h('div', { class: 'us-tool' }, h('div', { class: 'us-orb-wrap' }, orb), cue, left, presets,
+        h('div', { class: 'us-row' }, h('button', { class: 'btn primary', onclick: go }, 'Start')));
+    };
+    const shrinkTool = () => {
+      stop();
+      const task = h('input', { type: 'text', placeholder: 'The task, in a few words (e.g. Write the memo)', value: unstickRun.task });
+      const step = h('input', { type: 'text', placeholder: 'Open the laptop' });
+      const list = h('ul', { class: 'us-steps' });
+      const now = h('div', { class: 'us-now' });
+      const paint = () => {
+        const open = unstickRun.steps.filter((s) => !s.done);
+        list.replaceChildren(...unstickRun.steps.map((s) => h('li', { class: s.done ? 'done' : '' }, h('span', null, s.text))));
+        if (!open.length) { now.hidden = true; return; }
+        now.hidden = false;
+        now.replaceChildren(h('small', null, 'Do this now'), h('b', null, open[0].text), h('div', { class: 'us-row' },
+          h('button', { class: 'btn primary', onclick: () => { open[0].done = true; paint(); toast('Done. Next one, or stop: both count.'); } }, 'Done'),
+          h('button', { class: 'btn', onclick: () => { step.placeholder = `Smaller than "${open[0].text}"…`; step.focus(); } }, 'Still too big'),
+          h('button', { class: 'btn', onclick: () => { body.replaceChildren(head('Five minutes on it'), timerTool(5)); unstickTimer(5); } }, '+ 5-min timer')));
+      };
+      const add = () => {
+        const text = step.value.trim();
+        if (!text) return;
+        // "Still too big": the new, smaller step goes before the one it replaces.
+        const at = unstickRun.steps.findIndex((s) => !s.done);
+        if (step.placeholder.startsWith('Smaller than') && at >= 0) unstickRun.steps.splice(at, 0, { text, done: false });
+        else unstickRun.steps.push({ text, done: false });
+        step.value = '';
+        step.placeholder = 'And then?';
+        paint();
+      };
+      step.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
+      task.addEventListener('input', () => { unstickRun.task = task.value; });
+      paint();
+      setTimeout(() => (task.value ? step : task).focus(), 50);
+      return h('div', { class: 'us-tool us-shrink' }, task, now,
+        h('label', { class: 'us-label' }, "What's the first thing your hands do?"),
+        h('div', { class: 'us-inline' }, step, h('button', { class: 'btn primary', onclick: add }, 'Add')),
+        h('small', { class: 'hint' }, 'Smaller than feels necessary. "Open the doc" beats "start writing".'),
+        list,
+        h('div', { class: 'us-row' },
+          h('button', { class: 'btn', onclick: () => { unstickRun.steps = []; paint(); } }, 'Clear steps'),
+          h('button', { class: 'btn', onclick: async () => {
+            const title = (task.value || unstickRun.steps.find((s) => !s.done)?.text || '').trim();
+            if (!title) { toast('Write the task first.'); return; }
+            const steps = unstickRun.steps.filter((s) => !s.done).map((s) => `- ${s.text}`).join('\n');
+            try { await onyx.createTask({ title, notes: steps ? `First steps:\n${steps}` : '' }); toast('Added to your tasks'); loadTasks?.(true); } catch (err) { fail(err); }
+          } }, 'Save as a task')));
+    };
+    const toolFor = (t) => (t[0] === 'timer' ? timerTool(t[1]) : t[0] === 'breathe' ? breatheTool(1) : shrinkTool());
+    const toolName = (t) => (t[0] === 'timer' ? `Start a ${t[1]}-min timer` : t[0] === 'breathe' ? 'Breathing guide' : 'Step shrinker');
+    const head = (title) => h('div', { class: 'us-head' }, h('button', { class: 'icon-btn', title: 'Back', onclick: () => home() }, icon('left')), h('h4', null, title));
+
+    // ---- a technique card
+    const card = (id, first) => {
+      const t = U.T[id];
+      return h('article', { class: `us-card${first ? ' first' : ''}` },
+        h('div', { class: 'us-card-top' }, h('b', null, `${first ? 'Start here: ' : ''}${t.name}`), h('small', null, t.time)),
+        h('ol', null, t.steps.map((s) => h('li', null, s))),
+        t.tool ? h('div', { class: 'us-row' }, h('button', { class: first ? 'btn primary' : 'btn', onclick: () => {
+          body.replaceChildren(head(t.name), toolFor(t.tool));
+          if (t.tool[0] === 'timer') unstickTimer(t.tool[1]);
+        } }, toolName(t.tool))) : '',
+        h('details', { class: 'us-why' }, h('summary', null, 'Why this works ', h('span', { class: `us-ev ${t.ev}` }, U.EVIDENCE[t.ev])),
+          h('p', null, t.why),
+          h('p', { class: 'us-src' }, t.src.map((n) => h('a', { href: U.SOURCES[n - 1][1], target: '_blank', rel: 'noopener', title: U.SOURCES[n - 1][0] }, `[${n}]`)))));
+    };
+
+    // ---- "Don't make me choose": three steps, no decisions
+    const rescue = () => {
+      stop();
+      body.replaceChildren(head('Follow along'),
+        h('p', { class: 'hint' }, 'No decisions. Just these three.'),
+        ...[
+          ['1', 'Three long breaths out', 'In through the nose, a short top-up sniff, long slow breath out. One minute.', 'Breathe for 1 min', () => body.replaceChildren(head('Breathe'), breatheTool(1))],
+          ['2', 'Name the tiniest first movement', "What's the first thing your hands do? Make it almost silly.", 'Write the first step', () => body.replaceChildren(head('Shrink it'), shrinkTool())],
+          ['3', 'Five minutes, then decide', 'Start the timer and do the step. When it rings, stopping is allowed.', 'Start 5-min timer', () => { body.replaceChildren(head('Five minutes'), timerTool(5)); unstickTimer(5); }],
+        ].map(([n, title, text, label, run]) => h('div', { class: 'us-seq' }, h('span', { class: 'us-n' }, n),
+          h('div', null, h('b', null, title), h('p', null, text), h('button', { class: 'btn primary', onclick: run }, label)))));
+    };
+
+    // ---- a state's cards
+    const showState = (st) => {
+      stop();
+      body.replaceChildren(head(st.label), h('p', { class: 'hint' }, "Do the first card. Try the next only if it doesn't move you."), ...st.cards.map((id, i) => card(id, i === 0)));
+      body.scrollTop = 0;
+    };
+
+    const home = () => {
+      stop();
+      body.replaceChildren(
+        h('button', { class: 'us-rescue', onclick: rescue }, h('span', null, h('b', null, "Don't make me choose"), h('small', null, 'Three steps, about 7 minutes. Just follow along.')), icon('right')),
+        h('h4', { class: 'us-q' }, "What's in the way right now?", h('small', null, 'Pick the closest. Close is good enough.')),
+        h('div', { class: 'us-states' }, U.STATES.map((st) => h('button', { class: 'us-state', onclick: () => showState(st) }, h('b', null, st.label), h('small', null, st.sub)))),
+        h('div', { class: 'us-dock' },
+          h('button', { class: 'btn', onclick: () => body.replaceChildren(head('Timer'), timerTool(5)) }, icon('clock'), unstickRun.timer ? fmtMS(unstickRun.endAt - Date.now()) : 'Timer'),
+          h('button', { class: 'btn', onclick: () => body.replaceChildren(head('Breathe'), breatheTool(1)) }, icon('drop'), 'Breathe'),
+          h('button', { class: 'btn', onclick: () => body.replaceChildren(head('Shrink it'), shrinkTool()) }, icon('sparkles'), 'Shrink it')),
+        h('p', { class: 'us-note' }, 'A self-help tool, not medical advice. If being stuck lasts for weeks or comes with low mood most days, that is worth bringing to a doctor or therapist.'));
+    };
+
+    pane.append(
+      h('button', { class: 'icon-btn close', onclick: close }, icon('x')),
+      h('h3', { class: 'magic-h' }, icon('unstick'), 'Unstick'),
+      h('p', { class: 'us-lede' }, "You know what to do. Your brain won't hand over the keys. Tap what's in the way, do the first card, and stop reading."),
+      body);
+    $('#modal').replaceChildren(h('div', { class: 'sheet unstick' }, pane));
+    $('#modal').hidden = false;
+    const st = stateId && U.STATES.find((s) => s.id === stateId);
+    if (stateId === 'rescue') rescue(); else if (st) showState(st); else home();
   }
 
   // ---- the daily after-action review (1.143.0, src/main/aar.js)
@@ -14447,7 +14651,7 @@
     const bar = $('#titlebar');
     const strip = h('div', { id: 'top-tools', class: 'top-tools', role: 'toolbar', 'aria-label': 'Onyx' });
     $('.nav', bar).after(strip);
-    strip.append(...['pomo-timer', 'noise-btn', 'aar-btn', 'cal-home', 'globe-toggle', 'board-toggle', 'bridge-btn', 'undo-btn', 'update-btn', 'refresh', 'toggle-tasks', 'open-settings']
+    strip.append(...['pomo-timer', 'noise-btn', 'unstick-btn', 'aar-btn', 'cal-home', 'globe-toggle', 'board-toggle', 'bridge-btn', 'undo-btn', 'update-btn', 'refresh', 'toggle-tasks', 'open-settings']
       .map((id) => document.getElementById(id)).filter(Boolean));
     const edges = () => {
       const max = strip.scrollWidth - strip.clientWidth;
@@ -14495,6 +14699,9 @@
     $('#board-toggle').append(icon('board'));
     $('#board-toggle').onclick = toggleBoards;
     // Sticky notes (1.140.0, stickies.js): on the PC, a note of its own on the desktop. Right-click shows them all.
+    $('#unstick-btn').append(icon('unstick'));
+    $('#unstick-btn').setAttribute('aria-label', 'Unstick');
+    $('#unstick-btn').onclick = () => openUnstick();
     $('#aar-btn').append(icon('flag'));
     $('#aar-btn').onclick = openAarNow;
     if (onyx.newSticky) {

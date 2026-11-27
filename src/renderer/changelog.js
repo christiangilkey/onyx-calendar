@@ -2,8 +2,19 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
-  "version": "1.144.0",
+  "version": "1.145.0",
   "date": "2026-11-27",
+  "title": "Today's plan and Unstick on the lock screen",
+  "items": [
+   "Today's plan on the lock screen: the plan from last night's after-action review shows on Onyx's lock screen. Tap it to unlock and open the whole review. From 7 pm, if today's review isn't written yet, the card asks for it instead, and a tap opens it ready to write. With no plan, the card doesn't show.",
+   "Unstick on the lock screen: two buttons. \"⚡ Unstick\" opens the kit; \"Don't make me choose\" goes straight to its three steps. Each unlocks first, then opens Onyx there.",
+   "Both are parts of the lock screen editor (Settings → Home & lock screen), to move or switch off like the rest. On a layout you saved before, they go in where they belong: today's plan under Now and next, Unstick under Today. Before, a new part went to the bottom.",
+   "The phone reads the reviews from your PC along with the rest of the lock screen."
+  ]
+ },
+ {
+  "version": "1.144.0",
+  "date": "2026-11-26",
   "title": "Unstick, for when you can't make yourself start, and a new whiteboard icon",
   "items": [
    "Unstick: the orange bolt in the top bar (on the phone, in the top strip) opens your Unstick Field Kit inside Onyx. For when you know what to do and your brain won't hand over the keys.",

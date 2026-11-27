@@ -19,7 +19,7 @@ import java.util.List;
 final class LockLayout {
     static final String LOCK = "lock", HOME = "home";
     /** The lock screen's parts. */
-    static final List<String> PARTS = Arrays.asList("clock", "now", "goals", "quick", "day", "shortcuts", "music", "notifications", "noise");
+    static final List<String> PARTS = Arrays.asList("clock", "now", "plan", "goals", "quick", "day", "unstick", "shortcuts", "music", "notifications", "noise");
     /** The lock screen's calendar parts, one part ("onyx") until 1.133.0: a layout saved then is split where it was. */
     static final List<String> ONYX = Arrays.asList("now", "goals", "quick", "day");
     /** The home screen's: the apps are the ones kept on it, the widgets the ones added to it. */
@@ -92,10 +92,17 @@ final class LockLayout {
             if (split && "onyx".equals(p)) { for (String q : ONYX) if (!has(hidden, q)) hidden.put(q); }
             else if (all.contains(p) && !has(hidden, p)) hidden.put(p);
         }
-        // A part added in a later version goes last; one that is added by choice (ADDED) starts hidden there.
-        for (String p : all) {
+        // A part added in a later version goes in after the part it follows in the list (since 1.145.0: today's
+        // plan after Now and next, Unstick after Today), not at the very bottom; one added by choice (ADDED) starts hidden.
+        for (int k = 0; k < all.size(); k++) {
+            String p = all.get(k);
             if (order.contains(p)) continue;
-            order.add(p);
+            int at = 0;
+            for (int j = k - 1; j >= 0; j--) {
+                int i = order.indexOf(all.get(j));
+                if (i >= 0) { at = i + 1; break; }
+            }
+            order.add(at, p);
             if (ADDED.contains(p) && !has(hidden, p)) hidden.put(p);
         }
         String size = in.optString("clockSize", home ? "medium" : "large");

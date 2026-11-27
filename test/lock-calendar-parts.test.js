@@ -28,6 +28,6 @@ test('a layout saved before is split where the calendar was, hidden if it was hi
 
 test('the editor names each part and draws each apart', () => {
   const app = read('src/renderer/app.js');
-  assert.match(app, /now: 'Now and next', goals: 'Goals', quick: 'Add a task', day: 'Today', onyx: 'Calendar'/);
+  assert.match(app, /now: 'Now and next', plan: "Today's plan \(review\)", goals: 'Goals', quick: 'Add a task', day: 'Today', unstick: 'Unstick', onyx: 'Calendar'/);
   for (const p of ['now', 'goals', 'quick', 'day']) assert.match(app, new RegExp(`\\n        ${p}: h\\('div', \\{ class: 'lx-panel' \\}`));
 });

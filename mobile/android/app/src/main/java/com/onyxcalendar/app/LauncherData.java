@@ -265,8 +265,20 @@ final class LauncherData {
             } catch (Exception ignored) {
                 // an older PC, without the blocker
             }
+            // The after-action reviews (aar.js): last night's plan for today's lock screen, and whether today's is written.
+            JSONObject aar = null;
+            try {
+                Object y = WidgetData.rpc(ctx, "aar:get", new JSONArray().put(today.minusDays(1).toString()));
+                Object t = WidgetData.rpc(ctx, "aar:get", new JSONArray().put(today.toString()));
+                aar = new JSONObject();
+                if (y instanceof JSONObject) aar.put("yesterday", y);
+                if (t instanceof JSONObject) aar.put("today", t);
+            } catch (Exception ignored) {
+                // an older PC, without reviews
+            }
             JSONObject data = new JSONObject();
             data.put("day", today.toString());
+            if (aar != null) data.put("aar", aar);
             if (focus instanceof JSONObject) data.put("focus", focus);
             data.put("events", events != null ? events : new JSONArray());
             data.put("goals", goals != null ? goals : new JSONArray());

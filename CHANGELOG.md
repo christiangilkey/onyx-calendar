@@ -2,9 +2,18 @@
 
 Every version of Onyx, newest first. Also in the app: Settings → Changelog.
 
-## 1.144.0 · Unstick, for when you can't make yourself start, and a new whiteboard icon
+## 1.145.0 · Today's plan and Unstick on the lock screen
 
 _2026-11-27_
+
+- Today's plan on the lock screen: the plan from last night's after-action review shows on Onyx's lock screen. Tap it to unlock and open the whole review. From 7 pm, if today's review isn't written yet, the card asks for it instead, and a tap opens it ready to write. With no plan, the card doesn't show.
+- Unstick on the lock screen: two buttons. "⚡ Unstick" opens the kit; "Don't make me choose" goes straight to its three steps. Each unlocks first, then opens Onyx there.
+- Both are parts of the lock screen editor (Settings → Home & lock screen), to move or switch off like the rest. On a layout you saved before, they go in where they belong: today's plan under Now and next, Unstick under Today. Before, a new part went to the bottom.
+- The phone reads the reviews from your PC along with the rest of the lock screen.
+
+## 1.144.0 · Unstick, for when you can't make yourself start, and a new whiteboard icon
+
+_2026-11-26_
 
 - Unstick: the orange bolt in the top bar (on the phone, in the top strip) opens your Unstick Field Kit inside Onyx. For when you know what to do and your brain won't hand over the keys.
 - "Don't make me choose": three steps, no decisions. A minute of long-exhale breathing, the tiniest first movement, then five minutes on it.

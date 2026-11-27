@@ -1135,7 +1135,7 @@
       // A tap on a home-screen widget: onyx://open?view=calendar|globe&date=YYYY-MM-DD
       if (url.startsWith('onyx://open')) {
         const q = new URL(url.replace('onyx://open', 'https://onyx.local/open')).searchParams;
-        const detail = { view: q.get('view') || 'calendar', date: q.get('date') || '' };
+        const detail = { view: q.get('view') || 'calendar', date: q.get('date') || '', state: q.get('state') || '' };
         // The window may still be starting: it picks this up when it is ready.
         window.onyxPendingOpen = detail;
         window.dispatchEvent(new CustomEvent('onyx:open', { detail }));

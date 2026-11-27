@@ -4152,3 +4152,8 @@ body.mobile .us-states { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .us-steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 5px; }
 .us-steps li { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 13.5px; }
 .us-steps li.done span { text-decoration: line-through; color: var(--muted); }
+
+/* 1.145.0: the lock screen editor's picture of the Unstick buttons (ReviewParts.unstick). */
+.lx-unstick { display: flex; gap: 6px; margin-top: 8px; }
+.lx-us { flex: 1; text-align: center; padding: 9px 6px; border-radius: 999px; background: #ff7b3a; color: #1a0c04; font-weight: 700; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lx-us.soft { flex: 1.4; background: rgba(255, 123, 58, .2); color: #ffd2bc; }

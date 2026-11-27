@@ -58,6 +58,7 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
     private LinearLayout notifs; // your other apps' notifications, under the panel
     private NowPlaying music; // what is playing, between the panel and the notifications
     private LockAudio.Card audio; // an audio file from a shortcut, playing on the panel
+    private ReviewParts review; // today's plan (the after-action review) and Unstick (1.145.0)
     private NoisePart noise; // the noise machine, when it is on the lock screen
     private org.json.JSONObject layout = new org.json.JSONObject(); // the lock screen editor's settings (LockLayout)
     private boolean clockOff, showDate = true;
@@ -293,8 +294,17 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
         zp.topMargin = dp(12);
         noisePart.addView(noise.root, zp);
 
+        // Today's plan from last night's review, and Unstick: each opens Onyx there once unlocked (ReviewParts).
+        review = new ReviewParts(this, (query) -> openOnyxAt(query));
+        LinearLayout planPart = section();
+        planPart.addView(review.plan);
+        LinearLayout unstickPart = section();
+        unstickPart.addView(review.unstick);
+
         java.util.Map<String, View> parts = new java.util.HashMap<>();
         parts.put("clock", clockPart);
+        parts.put("plan", planPart);
+        parts.put("unstick", unstickPart);
         for (String p : OnyxPanel.PARTS) {
             LinearLayout s = section();
             s.addView(panel.part(p));
@@ -316,6 +326,8 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
         if (!LockLayout.shows(layout, "music")) { musicPart.setVisibility(View.GONE); music = null; }
         if (!LockLayout.shows(layout, "notifications")) { notifsPart.setVisibility(View.GONE); notifs = null; }
         if (!LockLayout.shows(layout, "noise")) { noisePart.setVisibility(View.GONE); noise = null; }
+        if (!LockLayout.shows(layout, "plan")) planPart.setVisibility(View.GONE);
+        if (!LockLayout.shows(layout, "unstick")) unstickPart.setVisibility(View.GONE);
 
         TextView unlock = new TextView(this);
         unlock.setText("︿  Unlock");
@@ -378,6 +390,7 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
     private void render() {
         if (panel == null) return;
         panel.render();
+        if (review != null) review.render();
         LauncherData.Focus f = LauncherData.focus(this);
         scene.show(f);
         boolean on = f != null;
@@ -513,6 +526,18 @@ public class LockPanelActivity extends Activity implements OnyxPanel.Host {
             public void onDismissError() {
                 unlocking = false;
                 finish();
+            }
+        });
+    }
+
+    /** Unlocks, then opens Onyx at a link's query: view=aar&date=…, view=unstick (ReviewParts). */
+    private void openOnyxAt(String query) {
+        unlock(() -> {
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("onyx://open?" + query + "&n=" + System.currentTimeMillis()))
+                    .setPackage(getPackageName()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            } catch (Exception ignored) {
+                // nothing to open it with
             }
         });
     }

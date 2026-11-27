@@ -9798,7 +9798,7 @@
     const PARTS = home
       ? { clock: 'Clock and date', onyx: 'Now and next', shortcuts: 'Shortcuts', widgets: 'Widgets', apps: 'Your apps', noise: 'Noise machine' }
       // The lock screen's calendar cards, each a part of its own (OnyxPanel.PARTS); onyx is all four as one, from a phone app before 1.133.0.
-      : { clock: 'Clock and date', now: 'Now and next', goals: 'Goals', quick: 'Add a task', day: 'Today', onyx: 'Calendar', shortcuts: 'Shortcuts', music: 'Now playing', notifications: 'Notifications', noise: 'Noise machine' };
+      : { clock: 'Clock and date', now: 'Now and next', plan: "Today's plan (review)", goals: 'Goals', quick: 'Add a task', day: 'Today', unstick: 'Unstick', onyx: 'Calendar', shortcuts: 'Shortcuts', music: 'Now playing', notifications: 'Notifications', noise: 'Noise machine' };
     const KINDS = { link: 'Link', app: 'App', file: 'File' };
     let setup = null, apps = null;
     // D.editing: the shortcut in the form (a copy), its place (-1: new) and its screen. It is kept outside this
@@ -9921,6 +9921,10 @@
         noise: h('div', { class: 'lx-noise' }, h('span', { class: 'lx-play' }, '▶'),
           h('div', null, txt('NOISE MACHINE', 11, 'rgba(255,255,255,.7)', 'lx-b lx-caps'), txt(NOISE_KINDS.find(([kind]) => kind === noiseNow.kind)?.[2] || 'Brown noise', 15, '#fff', 'lx-b')),
           h('span', { class: 'lx-next' }, 'Next ›')),
+        // 1.145.0: last night's plan (ReviewParts.plan) and the Unstick buttons (ReviewParts.unstick).
+        plan: h('div', { class: 'lx-panel' }, card(label("Today's plan", C.green),
+          txt(firstLine(aarRun.yesterday?.plan) || 'Your plan from last night\'s review shows here', 15, aarRun.yesterday?.plan ? C.text : C.muted, 'lx-b'))),
+        unstick: h('div', { class: 'lx-unstick' }, h('span', { class: 'lx-us' }, '⚡ Unstick'), h('span', { class: 'lx-us soft' }, "Don't make me choose")),
         widgets: h('div', { class: 'lx-ghost lx-widget' }, txt('WIDGETS', 11, C.muted, 'lx-caps'), txt('The ones you add', 15, C.text, 'lx-b')),
         apps: h('div', { class: 'lx-apps' }, Array.from({ length: 8 }, () => h('span'))),
       };
@@ -15097,6 +15101,9 @@
       window.onyxPendingOpen = null;
       closePopover();
       closeDrawers();
+      // From the lock screen (1.145.0, ReviewParts): Unstick, or a day's after-action review.
+      if (d.view === 'unstick') { openUnstick(d.state || ''); return; }
+      if (d.view === 'aar') { openAar(/^\d{4}-\d{2}-\d{2}$/.test(d.date) ? d.date : ymd(new Date())); return; }
       if (d.view === 'globe') {
         if (!graph.on) toggleGlobe();
       } else {

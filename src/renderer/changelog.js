@@ -2,8 +2,17 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
-  "version": "1.146.0",
+  "version": "1.147.0",
   "date": "2026-11-28",
+  "title": "The quote gets its own line on a narrower window",
+  "items": [
+   "On a window too narrow for the quote to fit in the top bar (under about 300 px of room there), it goes on a thin line of its own just under the top bar, as on the phone. Before, it was squeezed down to a few words.",
+   "It moves back into the top bar when the window is wide enough again."
+  ]
+ },
+ {
+  "version": "1.146.0",
+  "date": "2026-11-27",
   "title": "Proof of starts, and a quote in the top bar",
   "items": [
    "Proof of starts: the after-action review now opens with \"Your proof\", the record of what you actually did. It shows how many of the last 7 days you showed up, how many blocks and tasks you got done, and your time in Hyperfocus. Fourteen dots show the last two weeks, filled on each day you showed up (hover for that day), plus the comebacks after a day off. It never counts misses: a day off just isn't filled.",

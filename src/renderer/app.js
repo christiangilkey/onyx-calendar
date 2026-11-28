@@ -600,14 +600,32 @@
     try { localStorage.setItem('onyx.quote-bag', JSON.stringify(bag)); } catch { /* this visit only */ }
     return all[i];
   }
+  // 1.147.0: where the quote goes. In the top bar when there is room for a real line of it (300 px);
+  // on a narrower window, like the phone, a thin line of its own under the top bar. Looked at again
+  // when the window is resized.
+  const QUOTE_ROOM = 300;
+  function placeQuote() {
+    const el = $('#quote'), slot = $('#titlebar .grow');
+    if (!el || !slot) return;
+    const strip = MOBILE || slot.clientWidth < QUOTE_ROOM;
+    if (strip && el.parentElement === slot) $('#saved-bar').before(el);
+    else if (!strip && el.parentElement !== slot) slot.append(el);
+    else return;
+    el.classList.toggle('strip', strip);
+    requestAnimationFrame(() => calendar?.updateSize()); // the calendar gets shorter or taller
+  }
+  let quoteResize = null;
+  window.addEventListener('resize', () => { clearTimeout(quoteResize); quoteResize = setTimeout(placeQuote, 200); });
+
   function showQuote(force) {
     const el = $('#quote');
     if (!el) return;
     if (!quoteOn()) { el.hidden = true; return; }
     if (!force && Date.now() - quoteAt < 4000) return; // one look, one quote (not one per arrow press)
-    // About 6.3 px a letter at this size: how many letters two lines hold here.
     el.hidden = false;
-    const width = (MOBILE ? el.clientWidth : el.parentElement.clientWidth) - 36;
+    placeQuote();
+    // About 6.3 px a letter at this size: how many letters two lines hold here.
+    const width = el.clientWidth - 36;
     const q = nextQuote(width > 60 ? Math.floor((width / 6.3) * 2) : Infinity);
     if (!q) return;
     quoteAt = Date.now();
@@ -14764,8 +14782,6 @@
     $('#board-toggle').append(icon('board'));
     $('#board-toggle').onclick = toggleBoards;
     // Sticky notes (1.140.0, stickies.js): on the PC, a note of its own on the desktop. Right-click shows them all.
-    // On the phone the top bar is full: the quote gets a thin line of its own under it.
-    if (MOBILE) $('#saved-bar').before($('#quote'));
     $('#quote').onclick = () => showQuote(true);
     document.addEventListener('visibilitychange', () => { if (!document.hidden && onyx.isPhone) showQuote(); });
     showQuote(true);

@@ -4169,9 +4169,9 @@ body.mobile .us-states { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 #quote .q-who { font-variant: small-caps; letter-spacing: .08em; font-size: 12px; color: #a39b88; white-space: nowrap; margin-left: 8px; }
 #quote .q-who::before { content: '— '; }
 #quote:hover .q-text { color: #f0ebdd; }
-body.mobile #quote { padding: 5px 14px 6px; border-bottom: 1px solid var(--line); background: var(--panel); }
-body.mobile #quote .q-text { font-size: 12.5px; }
-body.mobile #quote .q-who { font-size: 11.5px; }
+#quote.strip { padding: 5px 14px 6px; border-bottom: 1px solid var(--line); background: var(--panel); }
+#quote.strip .q-text { font-size: 12.5px; }
+#quote.strip .q-who { font-size: 11.5px; }
 @media (prefers-reduced-motion: reduce) { #quote.in { animation: none; opacity: 1; } }
 /* 1.146.0: proof of starts in the after-action review (app.js, proofCard). */
 .proof-card { border: 1px solid rgba(95, 211, 141, .35); background: rgba(95, 211, 141, .06); border-radius: 10px; padding: 9px 12px; display: flex; flex-direction: column; gap: 4px; }

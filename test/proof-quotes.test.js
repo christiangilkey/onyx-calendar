@@ -57,6 +57,7 @@ test('every quote has its words and who said it; the bar shows a new one each lo
   assert.match(app, /if \(!hidden\) showQuote\(\); \/\/ looked at again/);
   assert.match(app, /showQuote\(\); \/\/ another view or week/);
   assert.match(app, /const fits = \(q\) => q\.text\.length \+ q\.who\.length \+ 4 <= room;/);
+  assert.match(app, /const strip = MOBILE \|\| slot\.clientWidth < QUOTE_ROOM;/, 'a narrow window gets the quote on a line of its own');
   assert.match(read('src/renderer/index.html'), /<script src="quotes\.js"><\/script>/);
   assert.match(read('scripts/build-mobile.js'), /'quotes\.js'/);
   assert.match(read('src/renderer/styles.css'), /#quote \{[^}]*"Palatino Linotype"/);

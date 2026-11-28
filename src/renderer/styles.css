@@ -4157,3 +4157,28 @@ body.mobile .us-states { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .lx-unstick { display: flex; gap: 6px; margin-top: 8px; }
 .lx-us { flex: 1; text-align: center; padding: 9px 6px; border-radius: 999px; background: #ff7b3a; color: #1a0c04; font-weight: 700; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lx-us.soft { flex: 1.4; background: rgba(255, 123, 58, .2); color: #ffd2bc; }
+
+/* 1.146.0: a quote in the top bar (app.js, showQuote), fading in from the left. */
+#titlebar .grow { min-width: 0; display: flex; align-items: center; overflow: hidden; }
+#quote { min-width: 0; max-width: 100%; padding: 0 18px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.22; cursor: pointer; overflow: hidden;
+  font-family: "Palatino Linotype", "Book Antiqua", Palatino, Constantia, Georgia, "Noto Serif", serif; color: #d9d4c7; opacity: 0; -webkit-app-region: no-drag; }
+#quote[hidden] { display: none; }
+#quote.in { animation: quote-in .9s cubic-bezier(.2, .7, .2, 1) forwards; }
+@keyframes quote-in { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: none; } }
+#quote .q-text { font-style: italic; font-size: 13px; letter-spacing: .01em; }
+#quote .q-who { font-variant: small-caps; letter-spacing: .08em; font-size: 12px; color: #a39b88; white-space: nowrap; margin-left: 8px; }
+#quote .q-who::before { content: '— '; }
+#quote:hover .q-text { color: #f0ebdd; }
+body.mobile #quote { padding: 5px 14px 6px; border-bottom: 1px solid var(--line); background: var(--panel); }
+body.mobile #quote .q-text { font-size: 12.5px; }
+body.mobile #quote .q-who { font-size: 11.5px; }
+@media (prefers-reduced-motion: reduce) { #quote.in { animation: none; opacity: 1; } }
+/* 1.146.0: proof of starts in the after-action review (app.js, proofCard). */
+.proof-card { border: 1px solid rgba(95, 211, 141, .35); background: rgba(95, 211, 141, .06); border-radius: 10px; padding: 9px 12px; display: flex; flex-direction: column; gap: 4px; }
+.proof-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.proof-top b { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #5fd38d; }
+.proof-dots { display: flex; gap: 4px; }
+.proof-dots i { width: 10px; height: 10px; border-radius: 50%; border: 1px solid rgba(95, 211, 141, .5); }
+.proof-dots i.on { background: #5fd38d; border-color: #5fd38d; }
+.proof-card p { margin: 0; font-size: 13.5px; }
+.proof-card small { color: var(--muted); }

@@ -1001,6 +1001,7 @@
     aarGet: (day) => call('aar:get', day),
     aarSet: (day, fields) => call('aar:set', day, fields),
     aarRecent: (limit) => call('aar:recent', limit),
+    proofGet: (days) => call('proof:get', days),
     tickBlockTask: (id, taskId, done) => call('blockTasks:tick', id, taskId, done),
     setEventColor: (key, color) => call('eventColor:set', key, color),
     setAware: (key, on) => call('aware:set', key, on),

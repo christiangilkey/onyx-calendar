@@ -2,8 +2,22 @@
 // Made by scripts/changelog.js from the release notes: rebuild it there rather than editing it here.
 window.OnyxChangelog = [
  {
+  "version": "1.146.0",
+  "date": "2026-11-28",
+  "title": "Proof of starts, and a quote in the top bar",
+  "items": [
+   "Proof of starts: the after-action review now opens with \"Your proof\", the record of what you actually did. It shows how many of the last 7 days you showed up, how many blocks and tasks you got done, and your time in Hyperfocus. Fourteen dots show the last two weeks, filled on each day you showed up (hover for that day), plus the comebacks after a day off. It never counts misses: a day off just isn't filled.",
+   "On the lock screen, the plan card shows the same record under today's plan. With no plan, it shows \"Your proof\" on its own.",
+   "Tasks you tick off in Onyx now go on the record too, along with blocks and Hyperfocus sessions, and the record syncs between your devices.",
+   "Quotes in the top bar: a line on action and effort from leaders, builders, athletes, soldiers and philosophers, over 150 of them. A new one fades in from the left each time you look: when Onyx opens, comes back to the front, or moves to another view or week.",
+   "The quotes are in a serif face with the name in small caps. Each fits the space there is, two lines at most, and none repeats until all have shown. Click for another, and hover to read where it comes from. On the phone it sits in a thin line under the top bar.",
+   "Every quote is checked for who really said it. Famous lines that are misattributed online were left out, and where a well-known line is really someone else's wording, it says so.",
+   "Settings → General → Quotes in the top bar turns them off."
+  ]
+ },
+ {
   "version": "1.145.0",
-  "date": "2026-11-27",
+  "date": "2026-11-26",
   "title": "Today's plan and Unstick on the lock screen",
   "items": [
    "Today's plan on the lock screen: the plan from last night's after-action review shows on Onyx's lock screen. Tap it to unlock and open the whole review. From 7 pm, if today's review isn't written yet, the card asks for it instead, and a tap opens it ready to write. With no plan, the card doesn't show.",

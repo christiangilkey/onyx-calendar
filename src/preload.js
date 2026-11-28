@@ -59,6 +59,7 @@ contextBridge.exposeInMainWorld('onyx', {
   aarGet: (day) => call('aar:get', day),
   aarSet: (day, fields) => call('aar:set', day, fields),
   aarRecent: (limit) => call('aar:recent', limit),
+  proofGet: (days) => call('proof:get', days),
   coverScreen: (on, card) => call('window:cover', on, card),
   eyesTest: (kind) => call('eyes:test', kind),
   newSticky: () => call('stickies:new'),

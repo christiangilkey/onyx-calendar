@@ -577,6 +577,48 @@
     box.hidden = false;
   }
 
+  // ---- a quote in the top bar (1.146.0, quotes.js)
+  // A new one each time Onyx is looked at: opened, brought back to the front, or moved to another
+  // view or week. They come in a shuffled order, so none repeats until all have shown. Click for
+  // the next one; hover for the whole quote and where it is from. Settings → General turns it off.
+  const quoteOn = () => S?.settings?.quotes !== false;
+  let quoteAt = 0;
+  // Fits: the next one in the bag that fits two lines of the space there is (a long one waits for a wider window).
+  function nextQuote(room = Infinity) {
+    const all = window.OnyxQuotes || [];
+    if (!all.length) return null;
+    let bag = [];
+    try { bag = JSON.parse(localStorage.getItem('onyx.quote-bag') || '[]'); } catch { /* a new bag */ }
+    if (!Array.isArray(bag) || !bag.length || bag.some((i) => i >= all.length)) {
+      bag = all.map((_, i) => i);
+      for (let i = bag.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [bag[i], bag[j]] = [bag[j], bag[i]]; }
+    }
+    const fits = (q) => q.text.length + q.who.length + 4 <= room;
+    let at = bag.findIndex((i) => fits(all[i]));
+    if (at < 0) at = bag.reduce((best, i, k) => (all[i].text.length < all[bag[best]].text.length ? k : best), 0);
+    const [i] = bag.splice(at, 1);
+    try { localStorage.setItem('onyx.quote-bag', JSON.stringify(bag)); } catch { /* this visit only */ }
+    return all[i];
+  }
+  function showQuote(force) {
+    const el = $('#quote');
+    if (!el) return;
+    if (!quoteOn()) { el.hidden = true; return; }
+    if (!force && Date.now() - quoteAt < 4000) return; // one look, one quote (not one per arrow press)
+    // About 6.3 px a letter at this size: how many letters two lines hold here.
+    el.hidden = false;
+    const width = (MOBILE ? el.clientWidth : el.parentElement.clientWidth) - 36;
+    const q = nextQuote(width > 60 ? Math.floor((width / 6.3) * 2) : Infinity);
+    if (!q) return;
+    quoteAt = Date.now();
+    el.hidden = false;
+    el.classList.remove('in');
+    el.replaceChildren(h('span', { class: 'q-text' }, `“${q.text}”`), h('span', { class: 'q-who' }, `${q.who}`));
+    el.title = `“${q.text}”\n\n— ${q.who}${q.source ? `, ${q.source}` : ''}\n\nClick for another`;
+    void el.offsetWidth; // start the fade again
+    el.classList.add('in');
+  }
+
   // ---- Unstick (1.144.0, unstick.js): when you know what to do and can't start
   // Pick what's in the way, do the first card. Or "Don't make me choose": breathe, shrink the
   // first step, five minutes. The timer keeps going if the sheet is closed, and rings at the end.
@@ -817,6 +859,19 @@
     const btn = $('#aar-btn');
     if (btn) { btn.title = title; btn.classList.toggle('accent', accent); }
   }
+  // 1.146.0: proof of starts (src/main/proof.js). The record of what you actually did, never of misses:
+  // a dot for each of the last two weeks, filled on a day you showed up, and the comebacks counted.
+  function proofCard(p) {
+    const dots = h('div', { class: 'proof-dots' }, p.days.map((d) => h('i', {
+      class: d.showed ? 'on' : '',
+      title: `${fmtDay(fromYmd(d.day))}: ${d.showed ? [d.done && `${d.done} done`, d.sessions && `${d.sessions} Hyperfocus (${d.minutes} min)`].filter(Boolean).join(', ') : 'rest'}`,
+    })));
+    return h('div', { class: 'proof-card' },
+      h('div', { class: 'proof-top' }, h('b', null, 'Your proof'), dots),
+      h('p', null, p.line),
+      p.comebacks ? h('small', null, `${p.comebacks} comeback${p.comebacks > 1 ? 's' : ''} in two weeks: you came back after a day off.`) : '');
+  }
+
   function openAarNow() {
     const [, , , day] = aarState();
     openAar(day);
@@ -826,8 +881,9 @@
     const date = fromYmd(day);
     const today = ymd(new Date());
     const prev = ymd(addDays(date, -1)), next = ymd(addDays(date, 1));
-    let saved = null, before = null;
+    let saved = null, before = null, proof = null;
     try { [saved, before] = await Promise.all([onyx.aarGet(day), onyx.aarGet(prev)]); } catch (err) { fail(err); return; }
+    try { proof = await onyx.proofGet?.(14); } catch { /* an older PC: no record yet */ }
     // What the day held: done, and planned but not done (fills "What did I do?" when it is empty).
     let done = [], missed = [];
     try {
@@ -876,6 +932,7 @@
           h('button', { class: 'icon-btn', title: 'The day before', onclick: go(prev) }, icon('left')),
           h('span', null, day === today ? `Today, ${fmtDay(date)}` : fmtDay(date)),
           h('button', { class: 'icon-btn', title: 'The day after', disabled: day >= today, onclick: go(next) }, icon('right')))),
+      proof ? proofCard(proof) : '',
       before?.plan ? h('div', { class: 'aar-was' }, h('b', null, `The plan for ${day === today ? 'today' : 'this day'}`), h('p', null, before.plan)) : '',
       did.el,
       missed.length ? h('p', { class: 'aar-missed' }, h('b', null, 'Planned, not done: '), missed.join(' · ')) : '',
@@ -1269,6 +1326,7 @@
   // The window hidden in the tray or minimised: things that only draw (the globe) pause.
   onyx.onWindowVisibility?.((hidden) => {
     window.onyxHidden = hidden;
+    if (!hidden) showQuote(); // looked at again: a new quote
     window.dispatchEvent(new CustomEvent('onyx-visibility', { detail: { hidden } }));
   });
 
@@ -2739,6 +2797,7 @@
       eventResizeStop: (info) => { stretchStop(); afterDrag(info); },
       datesSet: (info) => {
         hideTapBubble();
+        showQuote(); // another view or week: a new quote
         if (!graph.on) $('#range').textContent = MOBILE ? shortTitle(info.view.currentStart, info.view.currentEnd, info.view.type) : info.view.title;
         for (const b of document.querySelectorAll('[data-view]')) b.classList.toggle('on', !graph.on && b.dataset.view === info.view.type);
         if (S.settings.view !== info.view.type) saveSettings({ view: info.view.type }, true);
@@ -11390,6 +11449,8 @@
           field('Popups', 'A popup over everything, ringing, when the Pi phones you about something, and another as it starts. Snooze brings it back in 5 minutes.',
             toggle(s.popups !== false, (v) => saveSettings({ popups: v }))),
           onyx.eyesTest && eyeBreaksField(s),
+          field('Quotes in the top bar', 'A line from a leader, builder, athlete or philosopher on action and effort, new each time you look. Click it for another.',
+            toggle(s.quotes !== false, (v) => saveSettings({ quotes: v }, true).then(() => showQuote(true)))),
           field('Tick-off sound', 'What you hear when you tick off a task or a block. Tap one to hear it.', (() => {
             const seg = h('div', { class: 'segmented' }, DONE_SOUNDS.map(([v, label]) => h('button', { type: 'button', 'data-v': v, onclick: () => {
               for (const b of seg.children) b.classList.toggle('on', b.dataset.v === v);
@@ -14703,6 +14764,11 @@
     $('#board-toggle').append(icon('board'));
     $('#board-toggle').onclick = toggleBoards;
     // Sticky notes (1.140.0, stickies.js): on the PC, a note of its own on the desktop. Right-click shows them all.
+    // On the phone the top bar is full: the quote gets a thin line of its own under it.
+    if (MOBILE) $('#saved-bar').before($('#quote'));
+    $('#quote').onclick = () => showQuote(true);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && onyx.isPhone) showQuote(); });
+    showQuote(true);
     $('#unstick-btn').append(icon('unstick'));
     $('#unstick-btn').setAttribute('aria-label', 'Unstick');
     $('#unstick-btn').onclick = () => openUnstick();

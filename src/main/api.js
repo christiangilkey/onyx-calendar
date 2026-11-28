@@ -145,6 +145,7 @@ const handlers = {
   'aar:get': (day) => require('./aar').get(day),
   'aar:set': (day, fields) => require('./aar').set(day, fields),
   'aar:recent': (limit) => require('./aar').recent(limit),
+  'proof:get': (days) => { const p = require('./proof'); const s = p.summary(days || 14); return { ...s, line: p.line(s) }; },
   'blockTasks:tick': (id, taskId, done) => hub.tickBlockTask(id, taskId, done),
   'eventColor:set': (key, color) => hub.setEventColor(key, color),
   'aware:set': (key, on) => hub.setAware(key, !!on),

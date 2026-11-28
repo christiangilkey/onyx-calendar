@@ -276,9 +276,17 @@ final class LauncherData {
             } catch (Exception ignored) {
                 // an older PC, without reviews
             }
+            // Proof of starts (proof.js): the days you showed up, for the lock screen's plan card.
+            Object proof = null;
+            try {
+                proof = WidgetData.rpc(ctx, "proof:get", new JSONArray().put(7));
+            } catch (Exception ignored) {
+                // an older PC
+            }
             JSONObject data = new JSONObject();
             data.put("day", today.toString());
             if (aar != null) data.put("aar", aar);
+            if (proof instanceof JSONObject) data.put("proof", proof);
             if (focus instanceof JSONObject) data.put("focus", focus);
             data.put("events", events != null ? events : new JSONArray());
             data.put("goals", goals != null ? goals : new JSONArray());

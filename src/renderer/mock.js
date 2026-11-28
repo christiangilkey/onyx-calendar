@@ -889,6 +889,10 @@
     aarGet: async (day) => mockAars[day] || null,
     aarSet: async (day, f) => { const r = { ...mockAars[day], ...f, updated: Date.now() }; if (!['did', 'better', 'plan'].some((k) => String(r[k] || '').trim())) { delete mockAars[day]; return null; } mockAars[day] = r; return r; },
     aarRecent: async () => Object.entries(mockAars).map(([day, r]) => ({ day, ...r })),
+    proofGet: async () => {
+      const days = Array.from({ length: 14 }, (_, i) => { const d = new Date(Date.now() - (13 - i) * 86400000); const showed = ![2, 3, 9].includes(i); return { day: ymdOf(d), done: showed ? 1 + (i % 4) : 0, sessions: showed && i % 2 ? 1 : 0, minutes: showed && i % 2 ? 50 : 0, showed }; });
+      return { days, showedUp: 6, weekDone: 17, weekSessions: 3, weekMinutes: 150, comebacks: 2, lastDay: days[13].day, line: 'Showed up 6 of the last 7 days · 17 done · 2 h 30 min in Hyperfocus' };
+    },
     setBridge: async (id, text, by = 'you') => { const t = tasks.find((x) => x.id === id); const words = String(text || '').trim(); if (t) t.bridge = words ? { text: words, by, at: new Date().toISOString() } : null; return t?.bridge || null; },
     breakdown: async (title, opts = {}) => {
       const all = ['Clear a space to work', 'Gather what you need', `Open what "${title}" needs`, 'Do the first small part', 'Take a short look at it', 'Do the next part', 'Check it over', 'Tidy up', 'Tick it off', 'Take a breath', 'Tell someone it is done', 'Plan what comes next'];

@@ -1004,6 +1004,7 @@ async function updateTask(id, patch) {
     raw = (taskCache.get(cal.id)?.items || []).find((t) => t.rawId === rawItem) || { rawId: rawItem, title: '', notes: '', due: null, done: false };
   }
   const task = unifyTask(cal, raw, new Set());
+  if ('done' in fields) { try { require('./proof').noteTask(id, fields.done); } catch { /* the record is a spare */ } }
   // A goal's step keeps its plain name; a date and time written into the task's name are its due date and time.
   syncStep(id, { ...('title' in fields ? { title: task.label, time: task.time } : {}), ...('due' in fields ? { due: task.date } : {}), ...('done' in fields ? { done: fields.done } : {}) });
   // A repeating task that is done brings the next one; restoring it (Undo) takes that back.

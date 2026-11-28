@@ -75,23 +75,33 @@ final class ReviewParts {
         JSONObject yesterday = aar != null ? aar.optJSONObject("yesterday") : null;
         JSONObject mine = aar != null ? aar.optJSONObject("today") : null;
         String planned = yesterday != null ? yesterday.optString("plan", "").trim() : "";
+        // Proof of starts (1.146.0, proof.js): "Showed up 6 of the last 7 days · 23 done".
+        JSONObject proof = today.toString().equals(data.optString("day")) ? data.optJSONObject("proof") : null;
+        String record = proof != null ? proof.optString("line", "") : "";
         boolean evening = LocalTime.now().getHour() >= EVENING;
         if (evening && mine == null) {
             planHead.setText("TONIGHT'S REVIEW");
             planHead.setTextColor(AMBER);
             planText.setText("What did I do? What could go better? Plan for tomorrow.");
-            planFoot.setText("Tap to write it");
+            planFoot.setText(record.isEmpty() ? "Tap to write it" : record + "\nTap to write it");
             plan.setOnClickListener(v -> open.accept("view=aar&date=" + today));
             plan.setVisibility(View.VISIBLE);
         } else if (!planned.isEmpty()) {
             planHead.setText("TODAY'S PLAN");
             planHead.setTextColor(GREEN);
             planText.setText(planned);
-            planFoot.setText("From last night's review  ·  tap to open it");
+            planFoot.setText(record.isEmpty() ? "From last night's review  ·  tap to open it" : record);
             plan.setOnClickListener(v -> open.accept("view=aar&date=" + today.minusDays(1)));
             plan.setVisibility(View.VISIBLE);
+        } else if (!record.isEmpty() && proof.optInt("showedUp", 0) > 0) {
+            planHead.setText("YOUR PROOF");
+            planHead.setTextColor(GREEN);
+            planText.setText(record);
+            planFoot.setText("Tap for today's review");
+            plan.setOnClickListener(v -> open.accept("view=aar&date=" + today));
+            plan.setVisibility(View.VISIBLE);
         } else {
-            plan.setVisibility(View.GONE); // nothing planned: no empty card
+            plan.setVisibility(View.GONE); // nothing planned, nothing yet on record: no empty card
         }
     }
 
